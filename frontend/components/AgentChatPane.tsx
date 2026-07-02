@@ -72,6 +72,12 @@ export default function AgentChatPane({
       case "question":
         setQuestions((q) => [...q, { id: e.id, questions: e.questions }]);
         break;
+      case "permission_resolved":
+        setPerms((p) => p.filter((x) => x.id !== e.id));
+        break;
+      case "question_resolved":
+        setQuestions((q) => q.filter((x) => x.id !== e.id));
+        break;
       case "error":
         push({ role: "system", kind: "note", text: `⚠ ${e.message}` });
         break;

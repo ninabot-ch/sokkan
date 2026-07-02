@@ -134,8 +134,9 @@ def _uniquify(tag: str) -> str:
 def _seed_text(prompt: str) -> str:
     return (
         f"{prompt.strip()} "
-        "Commence par appeler l'outil MCP memory_search avec le sujet pour charger le "
-        "contexte pertinent (puis memory_get sur les notes utiles). "
+        "Commence par appeler l'outil MCP mcp__sokkan-memory__memory_search avec le sujet "
+        "pour charger le contexte pertinent (puis mcp__sokkan-memory__memory_get sur les notes utiles — "
+        "de vrais appels d'outil MCP, pas des commandes shell). "
         "Ensuite propose un plan court — n'exécute rien sans mon accord."
     ).strip()
 

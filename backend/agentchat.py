@@ -213,11 +213,15 @@ class AgentSession:
         fut = self._perms.get(pid)
         if fut and not fut.done():
             fut.set_result(decision)
+            # évent de réconciliation : au replay (refresh), les cartes déjà
+            # résolues ne doivent pas se ré-afficher comme actionnables
+            self._emit({"type": "permission_resolved", "id": pid})
 
     def resolve_question(self, qid: str, answers: dict) -> None:
         fut = self._questions.get(qid)
         if fut and not fut.done():
             fut.set_result(answers)
+            self._emit({"type": "question_resolved", "id": qid})
 
     # ---- un tour ------------------------------------------------------------
     async def handle_user(self, text: str) -> None:

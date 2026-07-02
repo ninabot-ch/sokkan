@@ -19,6 +19,8 @@ export type AgentEvent =
   | { type: "tool_result"; tool_use_id?: string; text: string; is_error: boolean; truncated: boolean }
   | { type: "permission"; id: string; tool: string; title: string; input: Record<string, unknown> }
   | { type: "question"; id: string; questions: AgentQuestion[] }
+  | { type: "permission_resolved"; id: string }
+  | { type: "question_resolved"; id: string }
   | { type: "result"; text: string; is_error: boolean; num_turns?: number; cost_usd?: number }
   | { type: "error"; message: string };
 
