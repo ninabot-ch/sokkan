@@ -1,0 +1,35 @@
+# SOKKAN — self-hosted, single-user by default. See .env.example.
+services:
+  api:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    restart: unless-stopped
+    environment:
+      # BYOK — your Anthropic API key (or mount your ~/.claude, see README)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # access token asked on the login screen; leave empty for open access
+      # (only do that on a trusted network)
+      SOKKAN_LOCAL_TOKEN: ${SOKKAN_LOCAL_TOKEN:-}
+      SOKKAN_OWNER_EMAIL: ${SOKKAN_OWNER_EMAIL:-owner@localhost}
+      SOKKAN_OWNER_NAME: ${SOKKAN_OWNER_NAME:-Owner}
+      SOKKAN_TZ: ${SOKKAN_TZ:-Europe/Zurich}
+      SOKKAN_PUBLIC_URL: ${SOKKAN_PUBLIC_URL:-http://localhost:3009}
+      # optional remote embedding service; empty = local ONNX (fastembed)
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # optional model override for spawned sessions (default: CLI default)
+      SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
+    volumes:
+      - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
+      - sokkan-data:/data
+
+  web:
+    build: { context: ., dockerfile: docker/web.Dockerfile }
+    restart: unless-stopped
+    environment:
+      SOKKAN_API: http://api:8097
+    ports:
+      - "${SOKKAN_PORT:-3009}:3000"
+    depends_on:
+      - api
+
+volumes:
+  sokkan-data:
