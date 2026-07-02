@@ -29,7 +29,7 @@ curl -fsSL https://sokkan.ch/install.sh | sh
 — downloads the latest release from sokkan.ch (no GitHub dependency), generates an access token, and tells you what to fill in. Or the manual way:
 
 ```bash
-git clone <this repo> && cd sokkan
+git clone https://github.com/ninabot-ch/sokkan && cd sokkan
 cp .env.example .env
 # edit .env: set ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN),
 # SOKKAN_WORKSPACE (your project path), SOKKAN_LOCAL_TOKEN (openssl rand -hex 24)
