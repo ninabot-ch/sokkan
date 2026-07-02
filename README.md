@@ -23,10 +23,16 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 Requirements: Docker + Compose, and an Anthropic API key (BYOK — sessions run on *your* key).
 
 ```bash
-git clone https://github.com/nakinico/sokkan && cd sokkan
+curl -fsSL https://sokkan.ch/install.sh | sh
+```
+
+— downloads the latest release from sokkan.ch (no GitHub dependency), generates an access token, and tells you what to fill in. Or the manual way:
+
+```bash
+git clone <this repo> && cd sokkan
 cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY, SOKKAN_WORKSPACE (your project path),
-# and SOKKAN_LOCAL_TOKEN (openssl rand -hex 24)
+# edit .env: set ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN),
+# SOKKAN_WORKSPACE (your project path), SOKKAN_LOCAL_TOKEN (openssl rand -hex 24)
 docker compose up -d --build
 ```
 
@@ -36,17 +42,12 @@ Write memory notes as markdown files (one fact per file, with a `description:` f
 
 ### Using a Claude subscription instead of an API key
 
-If you use Claude Code with a Max/Pro subscription (OAuth) rather than an API key, mount your credentials instead of setting `ANTHROPIC_API_KEY`:
+If you use Claude Code with a Pro/Max subscription rather than an API key, generate a long-lived token once on your desktop and put it in `.env`:
 
-```yaml
-# docker-compose.override.yml
-services:
-  api:
-    volumes:
-      - ~/.claude:/data/claude
+```bash
+claude setup-token          # one-time browser login
+# → paste the token into .env as CLAUDE_CODE_OAUTH_TOKEN
 ```
-
-Note: transcripts and memory will then live in your host `~/.claude`.
 
 ## Configuration
 

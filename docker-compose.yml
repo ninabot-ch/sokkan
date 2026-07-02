@@ -6,6 +6,8 @@ services:
     environment:
       # BYOK — your Anthropic API key (or mount your ~/.claude, see README)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # subscription (Claude Pro/Max): token from `claude setup-token`
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       # access token asked on the login screen; leave empty for open access
       # (only do that on a trusted network)
       SOKKAN_LOCAL_TOKEN: ${SOKKAN_LOCAL_TOKEN:-}
