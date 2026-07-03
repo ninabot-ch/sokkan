@@ -18,9 +18,16 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 - **Journal** — an audit trail of every action (who spawned, moved, deleted what — the basis for reverting)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **create/move board cards**, and **push a preview** of what it changed
 
-## Quickstart
+## Requirements
 
-Requirements: Docker + Compose, and an Anthropic API key (BYOK — sessions run on *your* key).
+- **Linux** x86_64/arm64 — or macOS with [Docker Desktop](https://docs.docker.com/desktop/)/OrbStack
+- **Docker Engine 24+ with Compose v2** — no Docker? **the installer offers to
+  install it for you** (official `get.docker.com` script). On Ubuntu, note the
+  apt package is `docker.io`, not `docker` — or just let the installer handle it.
+- ~4 GB free RAM (local embedding model + first build), ~3 GB disk
+- An Anthropic API key, or a Claude Pro/Max subscription (`claude setup-token`)
+
+## Quickstart
 
 ```bash
 curl -fsSL https://sokkan.ch/install.sh | sh
