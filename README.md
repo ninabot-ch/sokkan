@@ -9,6 +9,13 @@ SOKKAN is a self-hosted web cockpit for running **multiple Claude Code sessions 
 
 Spawning a session *is* the "check your memory" ritual: the task description seeds a semantic search over your accumulated project notes (RAG over the memory files Claude Code already writes), so every session starts already knowing what previous sessions learned. Nothing goes to Done without a human at the helm.
 
+<p align="center">
+  <img src="docs/shots/session.png" width="820" alt="A session spawned with project memory auto-injected: the agent recalls the deployment context and proposes a plan, waiting for a human go" />
+</p>
+<p align="center">
+  <img src="docs/shots/board.png" width="820" alt="The board: kanban cards with priorities, due dates and checklists — ▶ spawn turns a card into a pre-seeded session" />
+</p>
+
 ## Features
 
 - **Sessions** — a rail of live sessions and a multi-pane chat grid (built on the official Claude Agent SDK: tool calls, permission prompts and multiple-choice questions render as native web widgets, not scraped terminal output)
