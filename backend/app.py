@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import jwt
 
@@ -31,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -61,12 +61,37 @@ PROJECT_DIR = Path(
 ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "active"
 
 app = FastAPI(title="SOKKAN P1 backend")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # tightened behind CF Access in prod
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
+# Pas de CORSMiddleware : le navigateur ne parle qu'à l'origine Next (proxy /api),
+# le CORS est donc inutile — et un wildcard avec cookie d'auth serait un footgun.
+
+
+def _origin_ok(ws: WebSocket) -> bool:
+    """WS anti cross-site : si le navigateur envoie un Origin, il doit correspondre
+    à SOKKAN_PUBLIC_URL, ou au Host vu par la requête (accès LAN/IP sans
+    SOKKAN_PUBLIC_URL configuré). Les clients non-navigateur (pas d'Origin) passent."""
+    origin = ws.headers.get("origin")
+    if not origin:
+        return True
+
+    def norm(scheme: str, hostname: str | None, port: int | None) -> tuple[str, int]:
+        return (hostname or "", port or (443 if scheme == "https" else 80))
+
+    try:
+        o = urlparse(origin)
+    except ValueError:
+        return False
+    if not o.hostname:
+        return False
+    opair = norm(o.scheme, o.hostname, o.port)
+    pu = urlparse(PUBLIC_URL)
+    if opair == norm(pu.scheme, pu.hostname, pu.port):
+        return True
+    host_hdr = ws.headers.get("x-forwarded-host") or ws.headers.get("host") or ""
+    try:
+        h = urlparse(f"//{host_hdr}")
+        return bool(h.hostname) and opair == norm(o.scheme, h.hostname, h.port)
+    except ValueError:
+        return False
 
 
 # --- IAM : identité résolue par le provider d'auth actif (cf. auth.py) + gating ---
@@ -153,6 +178,9 @@ def auth_local(body: LocalLogin, request: Request):
 # --- terminal ttyd, proxifié + authentifié par SOKKAN (remplace l'ingress CF Access) ---
 @app.websocket("/term/ws")
 async def term_ws(websocket: WebSocket):
+    if not _origin_ok(websocket):
+        await websocket.close(code=4403)
+        return
     await termproxy.ws(websocket, "ws")
 
 
@@ -189,6 +217,9 @@ def agent_commands() -> list[dict]:
 
 @app.websocket("/api/agent/ws/{sid}")
 async def agent_ws(websocket: WebSocket, sid: str):
+    if not _origin_ok(websocket):
+        await websocket.close(code=4403)
+        return
     if "/" in sid or ".." in sid:
         await websocket.close(code=4400)
         return
