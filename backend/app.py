@@ -445,7 +445,19 @@ def session_detail(session_id: str) -> dict:
     path = PROJECT_DIR / f"{session_id}.jsonl"
     s = next((x for x in board.list_sessions() if x["session_id"] == session_id), None)
     if s and s.get("kind") == "sdk":
-        # les panes SDK vivent sur le WebSocket agent, pas sur ce endpoint
+        # le live des panes SDK passe par le WebSocket agent — mais au refresh,
+        # l'historique complet se réhydrate depuis le transcript persisté par
+        # Claude Code (le ring buffer WS ne garde que les RING_MAX derniers events)
+        csid = s.get("claude_session_id") or ""
+        tpath = PROJECT_DIR / f"{csid}.jsonl" if csid else None
+        if tpath and tpath.exists():
+            d = T.parse_file(tpath)
+            d.update({
+                "session_id": session_id, "title": s["title"], "tag": s["tag"],
+                "window": "", "active": False, "alive": True,
+                "exists": True, "starting": False, "kind": "sdk",
+            })
+            return d
         return {
             "session_id": session_id, "title": s["title"], "tag": s["tag"],
             "window": "", "git_branch": "", "messages": [], "n_messages": 0,
