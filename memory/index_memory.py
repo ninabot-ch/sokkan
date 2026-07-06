@@ -189,70 +189,72 @@ def run_index(rebuild: bool = False) -> dict:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     con = sqlite3.connect(DB_PATH)
-    con.execute("PRAGMA foreign_keys = ON")
-    init_db(con)
-    if rebuild:
-        con.executescript("DELETE FROM chunks; DELETE FROM notes;")
-        con.commit()
+    try:
+        con.execute("PRAGMA foreign_keys = ON")
+        init_db(con)
+        if rebuild:
+            con.executescript("DELETE FROM chunks; DELETE FROM notes;")
+            con.commit()
 
-    files = sorted(p for p in MEMORY_DIR.glob("*.md") if p.name != "MEMORY.md")
-    seen: set[str] = set()
-    known = {row[0]: row[1] for row in con.execute("SELECT name, mtime FROM notes")}
-    reindexed = skipped = 0
+        files = sorted(p for p in MEMORY_DIR.glob("*.md") if p.name != "MEMORY.md")
+        seen: set[str] = set()
+        known = {row[0]: row[1] for row in con.execute("SELECT name, mtime FROM notes")}
+        reindexed = skipped = 0
 
-    for path in files:
-        note = parse_note(path)
-        name = note["name"]
-        seen.add(name)
-        mtime = path.stat().st_mtime
-        if known.get(name) == mtime:
-            skipped += 1
-            continue
+        for path in files:
+            note = parse_note(path)
+            name = note["name"]
+            seen.add(name)
+            mtime = path.stat().st_mtime
+            if known.get(name) == mtime:
+                skipped += 1
+                continue
 
-        chunks = chunk_body(note["body"])
-        if not chunks:
-            continue
-        texts = [embed_text(name, note["description"], c) for c in chunks]
-        vecs = embed_batch(texts)
+            chunks = chunk_body(note["body"])
+            if not chunks:
+                continue
+            texts = [embed_text(name, note["description"], c) for c in chunks]
+            vecs = embed_batch(texts)
 
-        con.execute("DELETE FROM chunks WHERE note_name = ?", (name,))
+            con.execute("DELETE FROM chunks WHERE note_name = ?", (name,))
+            con.execute(
+                "INSERT INTO notes(name, description, type, mtime, source_path) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "description=excluded.description, type=excluded.type, "
+                "mtime=excluded.mtime, source_path=excluded.source_path",
+                (name, note["description"], note["type"], mtime, str(path)),
+            )
+            con.executemany(
+                "INSERT INTO chunks(note_name, chunk_idx, body, embedding) VALUES(?,?,?,?)",
+                [(name, i, c, json.dumps(v)) for i, (c, v) in enumerate(zip(chunks, vecs))],
+            )
+            con.commit()
+            reindexed += 1
+            print(f"  · {name}: {len(chunks)} chunk(s)")
+
+        # prune notes whose files disappeared
+        pruned = [n for n in known if n not in seen]
+        for n in pruned:
+            con.execute("DELETE FROM chunks WHERE note_name = ?", (n,))
+            con.execute("DELETE FROM notes WHERE name = ?", (n,))
         con.execute(
-            "INSERT INTO notes(name, description, type, mtime, source_path) "
-            "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
-            "description=excluded.description, type=excluded.type, "
-            "mtime=excluded.mtime, source_path=excluded.source_path",
-            (name, note["description"], note["type"], mtime, str(path)),
-        )
-        con.executemany(
-            "INSERT INTO chunks(note_name, chunk_idx, body, embedding) VALUES(?,?,?,?)",
-            [(name, i, c, json.dumps(v)) for i, (c, v) in enumerate(zip(chunks, vecs))],
+            "INSERT INTO meta(key,value) VALUES('model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (MODEL,),
         )
         con.commit()
-        reindexed += 1
-        print(f"  · {name}: {len(chunks)} chunk(s)")
 
-    # prune notes whose files disappeared
-    pruned = [n for n in known if n not in seen]
-    for n in pruned:
-        con.execute("DELETE FROM chunks WHERE note_name = ?", (n,))
-        con.execute("DELETE FROM notes WHERE name = ?", (n,))
-    con.execute(
-        "INSERT INTO meta(key,value) VALUES('model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (MODEL,),
-    )
-    con.commit()
+        write_memory_index(con)
 
-    write_memory_index(con)
-
-    n_notes = con.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-    n_chunks = con.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-    con.close()
-    print(
-        f"done: {reindexed} reindexed, {skipped} unchanged, {len(pruned)} pruned "
-        f"→ {n_notes} notes / {n_chunks} chunks @ {DB_PATH}"
-    )
-    return {"reindexed": reindexed, "unchanged": skipped, "pruned": len(pruned),
-            "notes": n_notes, "chunks": n_chunks}
+        n_notes = con.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+        n_chunks = con.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        print(
+            f"done: {reindexed} reindexed, {skipped} unchanged, {len(pruned)} pruned "
+            f"→ {n_notes} notes / {n_chunks} chunks @ {DB_PATH}"
+        )
+        return {"reindexed": reindexed, "unchanged": skipped, "pruned": len(pruned),
+                "notes": n_notes, "chunks": n_chunks}
+    finally:
+        con.close()
 
 
 def main() -> int:
