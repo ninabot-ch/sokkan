@@ -50,7 +50,7 @@ def list_repos() -> list[dict]:
 def diff(repo: str) -> dict:
     path = REPOS.get(repo)
     if not path:
-        raise ValueError(f"repo inconnu: {repo}")
+        raise ValueError(f"unknown repo: {repo}")
     branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD").strip()
     status = _git(path, "status", "--short")
     d = _git(path, "diff", "HEAD")  # staged + unstaged vs dernier commit
@@ -94,5 +94,5 @@ def screenshot(url: str, width: int = 1440, height: int = 900) -> Path:
         capture_output=True, timeout=60,
     )
     if not out.exists():
-        raise RuntimeError("capture échouée")
+        raise RuntimeError("screenshot failed")
     return out

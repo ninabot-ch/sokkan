@@ -182,7 +182,7 @@ class AgentSession:
             try:
                 answers = await fut
             except asyncio.CancelledError:
-                return PermissionResultDeny(message="Question annulée")
+                return PermissionResultDeny(message="Question cancelled")
             finally:
                 self._questions.pop(qid, None)
             return PermissionResultAllow(
@@ -198,7 +198,7 @@ class AgentSession:
         try:
             decision = await fut
         except asyncio.CancelledError:
-            return PermissionResultDeny(message="Demande annulée")
+            return PermissionResultDeny(message="Request cancelled")
         finally:
             self._perms.pop(pid, None)
         if decision.get("decision") == "allow":
@@ -206,7 +206,7 @@ class AgentSession:
                 updated_input=decision.get("updated_input") or input_data
             )
         return PermissionResultDeny(
-            message=decision.get("message") or "Refusé par l'utilisateur"
+            message=decision.get("message") or "Denied by the user"
         )
 
     def resolve_permission(self, pid: str, decision: dict) -> None:
@@ -227,7 +227,7 @@ class AgentSession:
     async def handle_user(self, text: str) -> None:
         if self._busy:
             self._emit({"type": "error",
-                        "message": "Un tour est déjà en cours — interromps-le d'abord."})
+                        "message": "A turn is already running — interrupt it first."})
             return
         await self.ensure_started()
         assert self.client is not None

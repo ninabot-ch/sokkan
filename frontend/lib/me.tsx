@@ -40,7 +40,7 @@ function LoginScreen() {
       body: JSON.stringify({ token }),
     });
     if (r.ok) location.reload();
-    else setErr("token invalide");
+    else setErr("invalid token");
   };
 
   return (

@@ -131,7 +131,7 @@ current_user = auth.current_user
 def require(min_role: str):
     def dep(user: dict = Depends(current_user)) -> dict:
         if iam.rank(user["role"]) < iam.rank(min_role):
-            raise HTTPException(403, f"rôle « {min_role} » requis (vous êtes « {user['role']} »)")
+            raise HTTPException(403, f"role {min_role!r} required (you are {user['role']!r})")
         return user
     return dep
 
@@ -201,13 +201,13 @@ def _login_throttled(ip: str) -> bool:
 def auth_local(body: LocalLogin, request: Request):
     """Login single-user (mode local avec SOKKAN_LOCAL_TOKEN) → cookie de session."""
     if auth.MODE != "local" or not auth.LOCAL_TOKEN:
-        raise HTTPException(400, "login local non applicable")
+        raise HTTPException(400, "local login not applicable on this instance")
     ip = request.client.host if request.client else "?"
     if _login_throttled(ip):
         raise HTTPException(429, "too many failed attempts — retry in a minute")
     if not secrets.compare_digest(body.token.strip(), auth.LOCAL_TOKEN):
         _login_fails.setdefault(ip, []).append(time.time())
-        raise HTTPException(401, "token invalide")
+        raise HTTPException(401, "invalid token")
     _login_fails.pop(ip, None)
     resp = JSONResponse({"ok": True})
     resp.set_cookie(sess.COOKIE, sess.make(auth.OWNER_EMAIL, auth.OWNER_NAME),
@@ -312,7 +312,7 @@ _REDIRECT = f"{PUBLIC_URL}/api/auth/callback"
 @app.get("/api/auth/login")
 def auth_oidc_login():
     if not oidc.ENABLED:
-        raise HTTPException(501, "OIDC non configuré")
+        raise HTTPException(501, "OIDC not configured")
     verifier, challenge = oidc.new_pkce()
     state = secrets.token_urlsafe(16)
     url = oidc.authorize_url(_REDIRECT, state, challenge)
@@ -327,21 +327,21 @@ def auth_oidc_login():
 def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
     tx = request.cookies.get("sokkan_oidc_tx")
     if not tx:
-        raise HTTPException(400, "transaction OIDC manquante")
+        raise HTTPException(400, "missing OIDC transaction")
     try:
         txd = jwt.decode(tx, sess.SECRET, algorithms=["HS256"])
     except Exception:  # noqa: BLE001
-        raise HTTPException(400, "transaction OIDC invalide")
+        raise HTTPException(400, "invalid OIDC transaction")
     if not code or txd.get("s") != state:
-        raise HTTPException(400, "state OIDC invalide")
+        raise HTTPException(400, "invalid OIDC state")
     try:
         tokens = oidc.exchange(code, _REDIRECT, txd["v"])
         claims = oidc.verify_id_token(tokens["id_token"])
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(401, f"échange OIDC échoué: {e}")
+        raise HTTPException(401, f"OIDC exchange failed: {e}")
     email = (claims.get("email") or "").lower()
     if not email:
-        raise HTTPException(401, "OIDC sans email")
+        raise HTTPException(401, "OIDC token has no email")
     resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", "")),
                     max_age=sess.TTL, httponly=True, secure=True, samesite="lax")
@@ -557,7 +557,7 @@ def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev")
         raise HTTPException(400, "invalid session id")
     window, alive = _session_window(session_id)
     if not alive:
-        raise HTTPException(400, "fenêtre tmux fermée")
+        raise HTTPException(400, "tmux window is closed")
     k = body.key.strip()
     if k in _KEY_NAMED:
         subprocess.run(["tmux", "send-keys", "-t", window, k], timeout=5)
@@ -565,7 +565,7 @@ def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev")
         # littéral (un menu claude se sélectionne au chiffre, sans Enter)
         subprocess.run(["tmux", "send-keys", "-t", window, "-l", k], timeout=5)
     else:
-        raise HTTPException(400, f"touche non autorisée: {k!r}")
+        raise HTTPException(400, f"key not allowed: {k!r}")
     audit.log(u["email"], "session.key", window, k)
     return {"ok": True, "window": window, "key": k}
 
@@ -753,7 +753,7 @@ def preview_shot(url: str, w: int = 1440, h: int = 900,
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"capture échouée: {e}")
+        raise HTTPException(502, f"screenshot failed: {e}")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 

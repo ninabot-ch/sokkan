@@ -32,7 +32,7 @@ def _authorized(scope_obj) -> bool:
 
 async def http(request: Request, path: str) -> Response:
     if not _authorized(request):
-        raise HTTPException(401, "auth requise")
+        raise HTTPException(401, "authentication required")
     url = f"http://{TTYD}/term/{path}"
     async with httpx.AsyncClient(timeout=20) as c:
         up = await c.request(
