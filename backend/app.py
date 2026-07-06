@@ -81,6 +81,19 @@ def require(min_role: str):
     return dep
 
 
+def _feature(env_var: str):
+    """Server-side feature flag: the route 404s when the feature is disabled.
+    /api/features is only a UI hint — enforcement happens here."""
+    def dep() -> None:
+        if os.environ.get(env_var, "1") == "0":
+            raise HTTPException(404, "feature disabled on this instance")
+    return dep
+
+
+feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
+feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
+
+
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)) -> dict:
     return {**user, "source": auth.MODE}
@@ -290,7 +303,7 @@ def tags() -> list[str]:
 
 def _live_targets() -> set[str]:
     """Ensemble des fenêtres tmux vivantes ('session:window')."""
-    return {f"{w['session']}:{w['window']}" for w in tmux()}
+    return {f"{w['session']}:{w['window']}" for w in _tmux_windows()}
 
 
 @app.get("/api/sessions")
@@ -416,7 +429,7 @@ def _session_window(session_id: str) -> tuple[str, bool]:
 
 
 @app.get("/api/sessions/{session_id}/live")
-def session_live(session_id: str) -> dict:
+def session_live(session_id: str, _f: None = Depends(feature_tmux)) -> dict:
     """Signe de vie temps-réel depuis le pane tmux : working/awaiting/idle + miroir
     du terminal + choix proposés par claude. Poll rapide côté chat."""
     if "/" in session_id or ".." in session_id:
@@ -435,7 +448,8 @@ class KeyBody(BaseModel):
 
 
 @app.post("/api/sessions/{session_id}/key")
-def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev"))) -> dict:
+def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev")),
+                _f: None = Depends(feature_tmux)) -> dict:
     """Envoie UNE touche au pane (répondre à un menu de choix claude depuis le chat)."""
     if "/" in session_id or ".." in session_id:
         raise HTTPException(400, "invalid session id")
@@ -460,13 +474,14 @@ class SendBody(BaseModel):
 
 
 @app.post("/api/send")
-def send(body: SendBody, u: dict = Depends(require("dev"))) -> dict:
+def send(body: SendBody, u: dict = Depends(require("dev")),
+         _f: None = Depends(feature_tmux)) -> dict:
     """Type text into a tmux window running Claude Code, then submit (Enter).
 
     The target must be a currently-live tmux window (validated) — this is how SOKKAN
     lets you intervene in a session from the web. Behind CF Access (admin only).
     """
-    valid = {f"{w['session']}:{w['window']}" for w in tmux()}
+    valid = {f"{w['session']}:{w['window']}" for w in _tmux_windows()}
     if body.target not in valid:
         raise HTTPException(400, f"unknown tmux target: {body.target}")
     if not body.text.strip():
@@ -578,12 +593,14 @@ def memory_note(name: str) -> dict:
 
 
 @app.get("/api/preview/repos")
-def preview_repos() -> list[dict]:
+def preview_repos(_u: dict = Depends(require("dev")),
+                  _f: None = Depends(feature_preview)) -> list[dict]:
     return preview.list_repos()
 
 
 @app.get("/api/preview/diff")
-def preview_diff(repo: str) -> dict:
+def preview_diff(repo: str, _u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)) -> dict:
     try:
         return preview.diff(repo)
     except ValueError as e:
@@ -591,12 +608,14 @@ def preview_diff(repo: str) -> dict:
 
 
 @app.get("/api/preview/envs")
-def preview_envs() -> list[dict]:
+def preview_envs(_u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)) -> list[dict]:
     return previewenv.list_envs()
 
 
 @app.post("/api/preview/envs/{name}/start")
-def preview_env_start(name: str, u: dict = Depends(require("dev"))) -> dict:
+def preview_env_start(name: str, u: dict = Depends(require("dev")),
+                      _f: None = Depends(feature_preview)) -> dict:
     try:
         r = previewenv.start(name)
     except ValueError as e:
@@ -606,7 +625,8 @@ def preview_env_start(name: str, u: dict = Depends(require("dev"))) -> dict:
 
 
 @app.post("/api/preview/envs/{name}/stop")
-def preview_env_stop(name: str, u: dict = Depends(require("dev"))) -> dict:
+def preview_env_stop(name: str, u: dict = Depends(require("dev")),
+                     _f: None = Depends(feature_preview)) -> dict:
     try:
         r = previewenv.stop(name)
     except ValueError as e:
@@ -616,13 +636,16 @@ def preview_env_stop(name: str, u: dict = Depends(require("dev"))) -> dict:
 
 
 @app.get("/api/preview/trigger")
-def preview_trigger_latest() -> dict:
+def preview_trigger_latest(_u: dict = Depends(require("dev")),
+                           _f: None = Depends(feature_preview)) -> dict:
     """Dernier aperçu poussé par une session (outil MCP open_preview)."""
     return {"trigger": previewenv.latest_trigger()}
 
 
 @app.get("/api/preview/shot")
-def preview_shot(url: str, w: int = 1440, h: int = 900):
+def preview_shot(url: str, w: int = 1440, h: int = 900,
+                 _u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)):
     try:
         path = preview.screenshot(url, w, h)
     except ValueError as e:
@@ -632,8 +655,7 @@ def preview_shot(url: str, w: int = 1440, h: int = 900):
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/tmux")
-def tmux() -> list[dict]:
+def _tmux_windows() -> list[dict]:
     """Live tmux windows (best-effort; empty list if tmux absent)."""
     fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_activity}"
     try:
@@ -652,6 +674,11 @@ def tmux() -> list[dict]:
         out.append({"session": sess, "index": idx, "window": wname,
                     "cmd": cmd, "activity": act})
     return out
+
+
+@app.get("/api/tmux")
+def tmux(_f: None = Depends(feature_tmux)) -> list[dict]:
+    return _tmux_windows()
 
 
 class CardCreate(BaseModel):
