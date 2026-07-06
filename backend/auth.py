@@ -46,9 +46,9 @@ def _email_cf_access(request: Request) -> str:
         try:
             email = cfaccess.validate(token)
         except Exception:  # noqa: BLE001
-            raise HTTPException(401, "CF Access JWT invalide")
+            raise HTTPException(401, "invalid CF Access JWT")
         if not email:
-            raise HTTPException(401, "CF Access JWT sans email")
+            raise HTTPException(401, "CF Access JWT has no email")
         return email
     return DEV_USER or OWNER_EMAIL  # accès loopback direct (dev) sans token
 
@@ -58,7 +58,7 @@ def _email_session(request: Request) -> str:
 
     email = session.email_from_request(request)
     if not email:
-        raise HTTPException(401, "login requis")
+        raise HTTPException(401, "login required")
     return email
 
 
@@ -75,11 +75,14 @@ def resolve_email(request: Request) -> str:
         return _email_cf_access(request)
     if MODE in ("oidc", "ldaps"):
         return _email_session(request)
-    raise HTTPException(500, f"SOKKAN_AUTH_MODE inconnu: {MODE}")
+    raise HTTPException(500, f"unknown SOKKAN_AUTH_MODE: {MODE}")
 
 
 def current_user(request: Request) -> dict:
-    return iam.get_user(resolve_email(request))
+    user = iam.get_user(resolve_email(request))
+    if not user["known"] and iam.DEFAULT_ROLE == "none":
+        raise HTTPException(403, "account not provisioned on this instance")
+    return user
 
 
 def auth_info() -> dict:

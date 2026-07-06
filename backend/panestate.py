@@ -72,16 +72,13 @@ def _parse_choices(screen_lines: list[str]) -> tuple[list[dict], str]:
     (un « 1. » qui traînerait dans une sortie d'outil).
     """
     choices: list[dict] = []
-    selected = None
     for ln in screen_lines:
         m = _CHOICE.match(ln)
         if m:
-            cursor, num, label = m.group(1), m.group(2), m.group(3).strip()
+            num, label = m.group(2), m.group(3).strip()
             # nettoie les artefacts de bordure de la boîte
             label = label.rstrip("│ ").strip()
             choices.append({"key": num, "label": label[:120]})
-            if cursor:
-                selected = num
         elif choices:
             # la série d'options s'est interrompue → on s'arrête au 1er bloc
             break

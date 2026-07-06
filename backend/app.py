@@ -18,20 +18,22 @@ import asyncio
 import os
 import re
 import secrets
+from contextlib import asynccontextmanager
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import jwt
 
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
+import index_memory  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -60,13 +62,66 @@ PROJECT_DIR = Path(
 )
 ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "active"
 
-app = FastAPI(title="SOKKAN P1 backend")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # tightened behind CF Access in prod
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
+REINDEX_S = float(os.environ.get("SOKKAN_REINDEX_S", "120"))
+
+
+def _reindex_loop() -> None:
+    """Réindexation mémoire in-process (remplace la boucle shell qui respawnait
+    un python à chaque tick) : le modèle d'embeddings reste chaud dans le module
+    `embeddings`, et on ne réindexe que si le corpus a changé (count + max mtime).
+    1re itération = l'index de boot."""
+    last_sig: tuple | None = None
+    while True:
+        try:
+            sig = index_memory.corpus_signature()
+            if sig != last_sig:
+                index_memory.run_index()
+                last_sig = sig
+        except FileNotFoundError:
+            pass  # memory dir pas encore créé (aucune note écrite) → retenter
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] memory reindex failed: {e}", file=sys.stderr)
+        time.sleep(REINDEX_S)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    yield
+
+
+app = FastAPI(title="SOKKAN P1 backend", lifespan=_lifespan)
+# Pas de CORSMiddleware : le navigateur ne parle qu'à l'origine Next (proxy /api),
+# le CORS est donc inutile — et un wildcard avec cookie d'auth serait un footgun.
+
+
+def _origin_ok(ws: WebSocket) -> bool:
+    """WS anti cross-site : si le navigateur envoie un Origin, il doit correspondre
+    à SOKKAN_PUBLIC_URL, ou au Host vu par la requête (accès LAN/IP sans
+    SOKKAN_PUBLIC_URL configuré). Les clients non-navigateur (pas d'Origin) passent."""
+    origin = ws.headers.get("origin")
+    if not origin:
+        return True
+
+    def norm(scheme: str, hostname: str | None, port: int | None) -> tuple[str, int]:
+        return (hostname or "", port or (443 if scheme == "https" else 80))
+
+    try:
+        o = urlparse(origin)
+    except ValueError:
+        return False
+    if not o.hostname:
+        return False
+    opair = norm(o.scheme, o.hostname, o.port)
+    pu = urlparse(PUBLIC_URL)
+    if opair == norm(pu.scheme, pu.hostname, pu.port):
+        return True
+    host_hdr = ws.headers.get("x-forwarded-host") or ws.headers.get("host") or ""
+    try:
+        h = urlparse(f"//{host_hdr}")
+        return bool(h.hostname) and opair == norm(o.scheme, h.hostname, h.port)
+    except ValueError:
+        return False
 
 
 # --- IAM : identité résolue par le provider d'auth actif (cf. auth.py) + gating ---
@@ -76,9 +131,33 @@ current_user = auth.current_user
 def require(min_role: str):
     def dep(user: dict = Depends(current_user)) -> dict:
         if iam.rank(user["role"]) < iam.rank(min_role):
-            raise HTTPException(403, f"rôle « {min_role} » requis (vous êtes « {user['role']} »)")
+            raise HTTPException(403, f"role {min_role!r} required (you are {user['role']!r})")
         return user
     return dep
+
+
+def _feature(env_var: str):
+    """Server-side feature flag: the route 404s when the feature is disabled.
+    /api/features is only a UI hint — enforcement happens here."""
+    def dep() -> None:
+        if os.environ.get(env_var, "1") == "0":
+            raise HTTPException(404, "feature disabled on this instance")
+    return dep
+
+
+feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
+feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
+
+# référence forte sur les tâches fire-and-forget (asyncio ne garde qu'une weakref :
+# sans ça, un tour d'agent peut être garbage-collecté en plein vol)
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _bg(coro) -> asyncio.Task:
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
 
 
 @app.get("/api/me")
@@ -105,13 +184,31 @@ class LocalLogin(BaseModel):
     token: str
 
 
+# rate-limit du login local : fenêtre glissante en mémoire, par IP client.
+_LOGIN_MAX_FAILS = 5
+_LOGIN_WINDOW_S = 60.0
+_login_fails: dict[str, list[float]] = {}
+
+
+def _login_throttled(ip: str) -> bool:
+    now = time.time()
+    fails = [t for t in _login_fails.get(ip, []) if now - t < _LOGIN_WINDOW_S]
+    _login_fails[ip] = fails
+    return len(fails) >= _LOGIN_MAX_FAILS
+
+
 @app.post("/api/auth/local")
-def auth_local(body: LocalLogin):
+def auth_local(body: LocalLogin, request: Request):
     """Login single-user (mode local avec SOKKAN_LOCAL_TOKEN) → cookie de session."""
     if auth.MODE != "local" or not auth.LOCAL_TOKEN:
-        raise HTTPException(400, "login local non applicable")
+        raise HTTPException(400, "local login not applicable on this instance")
+    ip = request.client.host if request.client else "?"
+    if _login_throttled(ip):
+        raise HTTPException(429, "too many failed attempts — retry in a minute")
     if not secrets.compare_digest(body.token.strip(), auth.LOCAL_TOKEN):
-        raise HTTPException(401, "token invalide")
+        _login_fails.setdefault(ip, []).append(time.time())
+        raise HTTPException(401, "invalid token")
+    _login_fails.pop(ip, None)
     resp = JSONResponse({"ok": True})
     resp.set_cookie(sess.COOKIE, sess.make(auth.OWNER_EMAIL, auth.OWNER_NAME),
                     max_age=sess.TTL, httponly=True,
@@ -122,6 +219,9 @@ def auth_local(body: LocalLogin):
 # --- terminal ttyd, proxifié + authentifié par SOKKAN (remplace l'ingress CF Access) ---
 @app.websocket("/term/ws")
 async def term_ws(websocket: WebSocket):
+    if not _origin_ok(websocket):
+        await websocket.close(code=4403)
+        return
     await termproxy.ws(websocket, "ws")
 
 
@@ -158,6 +258,9 @@ def agent_commands() -> list[dict]:
 
 @app.websocket("/api/agent/ws/{sid}")
 async def agent_ws(websocket: WebSocket, sid: str):
+    if not _origin_ok(websocket):
+        await websocket.close(code=4403)
+        return
     if "/" in sid or ".." in sid:
         await websocket.close(code=4400)
         return
@@ -183,7 +286,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
             msg = await websocket.receive_json()
             t = msg.get("type")
             if t == "user" and msg.get("text", "").strip():
-                asyncio.create_task(session.handle_user(msg["text"]))
+                _bg(session.handle_user(msg["text"]))
             elif t == "permission":
                 session.resolve_permission(msg.get("id", ""), {
                     "decision": msg.get("decision", "deny"),
@@ -209,7 +312,7 @@ _REDIRECT = f"{PUBLIC_URL}/api/auth/callback"
 @app.get("/api/auth/login")
 def auth_oidc_login():
     if not oidc.ENABLED:
-        raise HTTPException(501, "OIDC non configuré")
+        raise HTTPException(501, "OIDC not configured")
     verifier, challenge = oidc.new_pkce()
     state = secrets.token_urlsafe(16)
     url = oidc.authorize_url(_REDIRECT, state, challenge)
@@ -224,21 +327,21 @@ def auth_oidc_login():
 def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
     tx = request.cookies.get("sokkan_oidc_tx")
     if not tx:
-        raise HTTPException(400, "transaction OIDC manquante")
+        raise HTTPException(400, "missing OIDC transaction")
     try:
         txd = jwt.decode(tx, sess.SECRET, algorithms=["HS256"])
     except Exception:  # noqa: BLE001
-        raise HTTPException(400, "transaction OIDC invalide")
+        raise HTTPException(400, "invalid OIDC transaction")
     if not code or txd.get("s") != state:
-        raise HTTPException(400, "state OIDC invalide")
+        raise HTTPException(400, "invalid OIDC state")
     try:
         tokens = oidc.exchange(code, _REDIRECT, txd["v"])
         claims = oidc.verify_id_token(tokens["id_token"])
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(401, f"échange OIDC échoué: {e}")
+        raise HTTPException(401, f"OIDC exchange failed: {e}")
     email = (claims.get("email") or "").lower()
     if not email:
-        raise HTTPException(401, "OIDC sans email")
+        raise HTTPException(401, "OIDC token has no email")
     resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", "")),
                     max_age=sess.TTL, httponly=True, secure=True, samesite="lax")
@@ -290,7 +393,7 @@ def tags() -> list[str]:
 
 def _live_targets() -> set[str]:
     """Ensemble des fenêtres tmux vivantes ('session:window')."""
-    return {f"{w['session']}:{w['window']}" for w in tmux()}
+    return {f"{w['session']}:{w['window']}" for w in _tmux_windows()}
 
 
 @app.get("/api/sessions")
@@ -348,7 +451,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "") -> dict:
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
     session = agentchat.get_or_create(sid)
     if prompt.strip():
-        asyncio.create_task(session.handle_user(board.seed_text(prompt)))
+        _bg(session.handle_user(board.seed_text(prompt)))
     return s
 
 
@@ -372,7 +475,19 @@ def session_detail(session_id: str) -> dict:
     path = PROJECT_DIR / f"{session_id}.jsonl"
     s = next((x for x in board.list_sessions() if x["session_id"] == session_id), None)
     if s and s.get("kind") == "sdk":
-        # les panes SDK vivent sur le WebSocket agent, pas sur ce endpoint
+        # le live des panes SDK passe par le WebSocket agent — mais au refresh,
+        # l'historique complet se réhydrate depuis le transcript persisté par
+        # Claude Code (le ring buffer WS ne garde que les RING_MAX derniers events)
+        csid = s.get("claude_session_id") or ""
+        tpath = PROJECT_DIR / f"{csid}.jsonl" if csid else None
+        if tpath and tpath.exists():
+            d = T.parse_file(tpath)
+            d.update({
+                "session_id": session_id, "title": s["title"], "tag": s["tag"],
+                "window": "", "active": False, "alive": True,
+                "exists": True, "starting": False, "kind": "sdk",
+            })
+            return d
         return {
             "session_id": session_id, "title": s["title"], "tag": s["tag"],
             "window": "", "git_branch": "", "messages": [], "n_messages": 0,
@@ -416,7 +531,7 @@ def _session_window(session_id: str) -> tuple[str, bool]:
 
 
 @app.get("/api/sessions/{session_id}/live")
-def session_live(session_id: str) -> dict:
+def session_live(session_id: str, _f: None = Depends(feature_tmux)) -> dict:
     """Signe de vie temps-réel depuis le pane tmux : working/awaiting/idle + miroir
     du terminal + choix proposés par claude. Poll rapide côté chat."""
     if "/" in session_id or ".." in session_id:
@@ -435,13 +550,14 @@ class KeyBody(BaseModel):
 
 
 @app.post("/api/sessions/{session_id}/key")
-def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev"))) -> dict:
+def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev")),
+                _f: None = Depends(feature_tmux)) -> dict:
     """Envoie UNE touche au pane (répondre à un menu de choix claude depuis le chat)."""
     if "/" in session_id or ".." in session_id:
         raise HTTPException(400, "invalid session id")
     window, alive = _session_window(session_id)
     if not alive:
-        raise HTTPException(400, "fenêtre tmux fermée")
+        raise HTTPException(400, "tmux window is closed")
     k = body.key.strip()
     if k in _KEY_NAMED:
         subprocess.run(["tmux", "send-keys", "-t", window, k], timeout=5)
@@ -449,7 +565,7 @@ def session_key(session_id: str, body: KeyBody, u: dict = Depends(require("dev")
         # littéral (un menu claude se sélectionne au chiffre, sans Enter)
         subprocess.run(["tmux", "send-keys", "-t", window, "-l", k], timeout=5)
     else:
-        raise HTTPException(400, f"touche non autorisée: {k!r}")
+        raise HTTPException(400, f"key not allowed: {k!r}")
     audit.log(u["email"], "session.key", window, k)
     return {"ok": True, "window": window, "key": k}
 
@@ -460,13 +576,14 @@ class SendBody(BaseModel):
 
 
 @app.post("/api/send")
-def send(body: SendBody, u: dict = Depends(require("dev"))) -> dict:
+def send(body: SendBody, u: dict = Depends(require("dev")),
+         _f: None = Depends(feature_tmux)) -> dict:
     """Type text into a tmux window running Claude Code, then submit (Enter).
 
     The target must be a currently-live tmux window (validated) — this is how SOKKAN
     lets you intervene in a session from the web. Behind CF Access (admin only).
     """
-    valid = {f"{w['session']}:{w['window']}" for w in tmux()}
+    valid = {f"{w['session']}:{w['window']}" for w in _tmux_windows()}
     if body.target not in valid:
         raise HTTPException(400, f"unknown tmux target: {body.target}")
     if not body.text.strip():
@@ -578,12 +695,14 @@ def memory_note(name: str) -> dict:
 
 
 @app.get("/api/preview/repos")
-def preview_repos() -> list[dict]:
+def preview_repos(_u: dict = Depends(require("dev")),
+                  _f: None = Depends(feature_preview)) -> list[dict]:
     return preview.list_repos()
 
 
 @app.get("/api/preview/diff")
-def preview_diff(repo: str) -> dict:
+def preview_diff(repo: str, _u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)) -> dict:
     try:
         return preview.diff(repo)
     except ValueError as e:
@@ -591,12 +710,14 @@ def preview_diff(repo: str) -> dict:
 
 
 @app.get("/api/preview/envs")
-def preview_envs() -> list[dict]:
+def preview_envs(_u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)) -> list[dict]:
     return previewenv.list_envs()
 
 
 @app.post("/api/preview/envs/{name}/start")
-def preview_env_start(name: str, u: dict = Depends(require("dev"))) -> dict:
+def preview_env_start(name: str, u: dict = Depends(require("dev")),
+                      _f: None = Depends(feature_preview)) -> dict:
     try:
         r = previewenv.start(name)
     except ValueError as e:
@@ -606,7 +727,8 @@ def preview_env_start(name: str, u: dict = Depends(require("dev"))) -> dict:
 
 
 @app.post("/api/preview/envs/{name}/stop")
-def preview_env_stop(name: str, u: dict = Depends(require("dev"))) -> dict:
+def preview_env_stop(name: str, u: dict = Depends(require("dev")),
+                     _f: None = Depends(feature_preview)) -> dict:
     try:
         r = previewenv.stop(name)
     except ValueError as e:
@@ -616,24 +738,26 @@ def preview_env_stop(name: str, u: dict = Depends(require("dev"))) -> dict:
 
 
 @app.get("/api/preview/trigger")
-def preview_trigger_latest() -> dict:
+def preview_trigger_latest(_u: dict = Depends(require("dev")),
+                           _f: None = Depends(feature_preview)) -> dict:
     """Dernier aperçu poussé par une session (outil MCP open_preview)."""
     return {"trigger": previewenv.latest_trigger()}
 
 
 @app.get("/api/preview/shot")
-def preview_shot(url: str, w: int = 1440, h: int = 900):
+def preview_shot(url: str, w: int = 1440, h: int = 900,
+                 _u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)):
     try:
         path = preview.screenshot(url, w, h)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"capture échouée: {e}")
+        raise HTTPException(502, f"screenshot failed: {e}")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/tmux")
-def tmux() -> list[dict]:
+def _tmux_windows() -> list[dict]:
     """Live tmux windows (best-effort; empty list if tmux absent)."""
     fmt = "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_activity}"
     try:
@@ -652,6 +776,11 @@ def tmux() -> list[dict]:
         out.append({"session": sess, "index": idx, "window": wname,
                     "cmd": cmd, "activity": act})
     return out
+
+
+@app.get("/api/tmux")
+def tmux(_f: None = Depends(feature_tmux)) -> list[dict]:
+    return _tmux_windows()
 
 
 class CardCreate(BaseModel):

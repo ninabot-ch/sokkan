@@ -90,11 +90,40 @@ browser ── Next.js (web) ──/api──► FastAPI (api) ──► claude 
 
 Everything stays on your machine: SQLite state in a Docker volume, transcripts written by the `claude` CLI itself, LLM calls straight from your container to Anthropic with your key.
 
-## Security notes
+## Security model
 
+**The boundary is the container.** Agent sessions execute tools inside the
+`api` container (running as a non-root user) against `/workspace` — mount only
+what they should touch. Mutating tools (Bash, Edit, Write, …) require your
+click-through approval in the chat pane; reads and the bundled read-only MCP
+tools are auto-allowed. Nothing irreversible happens without a click.
+
+**Roles.** `viewer < dev < admin < owner`, stored in SOKKAN's own SQLite.
+Spawning sessions, sending prompts and mutating the board require `dev`;
+managing users requires `admin`; the `owner` cannot be deleted. An
+authenticated email that is not in the users table gets `SOKKAN_DEFAULT_ROLE`
+(default `viewer`; set it to `none` to reject unknown emails with 403).
+
+**Auth.** `local` (single-user token, rate-limited: 5 failures/min per IP),
+`oidc` (Authentik, Keycloak, …) or `cf-access`. WebSockets verify the browser
+`Origin` against `SOKKAN_PUBLIC_URL` (or the request host). There is no CORS
+layer to misconfigure: the browser only ever talks to the web origin, which
+proxies `/api`.
+
+**Feature flags are enforced server-side.** On the public container,
+preview/tmux endpoints are disabled (`404`) — `/api/features` is a UI hint,
+not the enforcement.
+
+**Preview SSRF policy** (instances with `SOKKAN_FEATURE_PREVIEW=1`): screenshot
+targets are resolved before Chromium runs; private, loopback, link-local and
+cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
+
+**Other notes.**
 - Set `SOKKAN_LOCAL_TOKEN` unless the instance is unreachable from anything you don't trust.
-- Sessions execute tools **inside the api container** against `/workspace` — mount only what they should touch. Mutating tools require your click-through approval in the chat pane (reads are auto-allowed).
 - The audit journal records actions, not conversation content.
+- No telemetry: the memory index, embeddings and data never leave your machine —
+  the only outbound traffic is your prompts to Anthropic, as with any Claude Code use.
+- Vulnerabilities: email security@ninabot.ch (please don't open a public issue).
 
 ## Status
 

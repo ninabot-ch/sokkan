@@ -83,7 +83,7 @@ def move_card(card_id: int, bucket: str) -> dict:
         bucket: colonne cible parmi Backlog/Doing/Review/Done.
     """
     if bucket not in board.BUCKETS:
-        return {"error": f"colonne inconnue: {bucket} (valides: {board.BUCKETS})"}
+        return {"error": f"unknown bucket: {bucket} (valid: {board.BUCKETS})"}
     ctx = _session_ctx()
     card = board.update_card(card_id, user=_actor(ctx), bucket=bucket)
     if not card:

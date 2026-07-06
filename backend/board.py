@@ -48,42 +48,59 @@ _CARD_MIGRATIONS = {
 }
 
 
+_init_lock = threading.Lock()
+_initialized = False
+
+
+def init(force: bool = False) -> None:
+    """DDL + migrations, exécutés une seule fois par process (force=True pour
+    ré-initialiser après un changement de DB, p.ex. dans les tests)."""
+    global _initialized
+    with _init_lock:
+        if _initialized and not force:
+            return
+        DB.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(DB)
+        con.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL, description TEXT DEFAULT '',
+                tag TEXT DEFAULT 'backend', bucket TEXT NOT NULL DEFAULT 'Backlog',
+                session_id TEXT, window TEXT, created_at REAL, sort REAL DEFAULT 0,
+                priority INTEGER DEFAULT 2, due TEXT DEFAULT '',
+                checklist TEXT DEFAULT '[]', updated_at REAL, archived INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY, tag TEXT, window TEXT,
+                title TEXT, prompt TEXT, created_at REAL,
+                kind TEXT DEFAULT 'tmux', claude_session_id TEXT DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS card_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL, ts REAL NOT NULL,
+                user TEXT DEFAULT '', action TEXT NOT NULL, detail TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS ix_card_events_card ON card_events(card_id, ts);
+            """
+        )
+        cols = {r[1] for r in con.execute("PRAGMA table_info(cards)")}
+        for col, ddl in _CARD_MIGRATIONS.items():
+            if col not in cols:
+                con.execute(f"ALTER TABLE cards ADD COLUMN {col} {ddl}")
+        scols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
+        if "kind" not in scols:
+            con.execute("ALTER TABLE sessions ADD COLUMN kind TEXT DEFAULT 'tmux'")
+            con.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT DEFAULT ''")
+        con.commit()
+        con.close()
+        _initialized = True
+
+
 def _con() -> sqlite3.Connection:
-    DB.parent.mkdir(parents=True, exist_ok=True)
+    init()
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    con.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS cards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL, description TEXT DEFAULT '',
-            tag TEXT DEFAULT 'backend', bucket TEXT NOT NULL DEFAULT 'Backlog',
-            session_id TEXT, window TEXT, created_at REAL, sort REAL DEFAULT 0,
-            priority INTEGER DEFAULT 2, due TEXT DEFAULT '',
-            checklist TEXT DEFAULT '[]', updated_at REAL, archived INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_id TEXT PRIMARY KEY, tag TEXT, window TEXT,
-            title TEXT, prompt TEXT, created_at REAL,
-            kind TEXT DEFAULT 'tmux', claude_session_id TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS card_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_id INTEGER NOT NULL, ts REAL NOT NULL,
-            user TEXT DEFAULT '', action TEXT NOT NULL, detail TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS ix_card_events_card ON card_events(card_id, ts);
-        """
-    )
-    cols = {r[1] for r in con.execute("PRAGMA table_info(cards)")}
-    for col, ddl in _CARD_MIGRATIONS.items():
-        if col not in cols:
-            con.execute(f"ALTER TABLE cards ADD COLUMN {col} {ddl}")
-    scols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
-    if "kind" not in scols:
-        con.execute("ALTER TABLE sessions ADD COLUMN kind TEXT DEFAULT 'tmux'")
-        con.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT DEFAULT ''")
-    con.commit()
     return con
 
 

@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
 DB = Path(os.environ.get("SOKKAN_IAM_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "iam.db")))
 ROLES = ["viewer", "dev", "admin", "owner"]
+# rôle attribué à un email authentifié mais absent de la table users.
+# "none" = rejeter (403) au lieu d'accorder viewer — cf. auth.current_user.
+DEFAULT_ROLE = os.environ.get("SOKKAN_DEFAULT_ROLE", "viewer").strip() or "viewer"
+if DEFAULT_ROLE not in (*ROLES, "none"):
+    raise RuntimeError(f"SOKKAN_DEFAULT_ROLE invalid: {DEFAULT_ROLE!r} (viewer|dev|admin|owner|none)")
 # premier utilisateur = owner, défini par l'environnement (ou fallback local)
 SEED = {
     os.environ.get("SOKKAN_OWNER_EMAIL", "owner@localhost"):
@@ -31,19 +37,36 @@ def rank(role: str) -> int:
     return ROLES.index(role) if role in ROLES else -1
 
 
+_init_lock = threading.Lock()
+_initialized = False
+
+
+def init(force: bool = False) -> None:
+    """DDL + seed owner, exécutés une seule fois par process (force=True pour
+    ré-initialiser après un changement de DB, p.ex. dans les tests)."""
+    global _initialized
+    with _init_lock:
+        if _initialized and not force:
+            return
+        DB.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(DB)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, role TEXT, name TEXT, created_at REAL)"
+        )
+        if con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            con.executemany(
+                "INSERT INTO users(email, role, name, created_at) VALUES(?,?,?,?)",
+                [(e, r, n, time.time()) for e, (r, n) in SEED.items()],
+            )
+        con.commit()
+        con.close()
+        _initialized = True
+
+
 def _con() -> sqlite3.Connection:
-    DB.parent.mkdir(parents=True, exist_ok=True)
+    init()
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, role TEXT, name TEXT, created_at REAL)"
-    )
-    if con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        con.executemany(
-            "INSERT INTO users(email, role, name, created_at) VALUES(?,?,?,?)",
-            [(e, r, n, time.time()) for e, (r, n) in SEED.items()],
-        )
-        con.commit()
     return con
 
 
@@ -54,8 +77,10 @@ def get_user(email: str) -> dict:
     con.close()
     if row:
         return {"email": row["email"], "role": row["role"], "name": row["name"], "known": True}
-    # email autorisé au edge mais pas encore enregistré → viewer par défaut
-    return {"email": email or "anonyme", "role": "viewer", "name": email or "anonyme", "known": False}
+    # email authentifié mais pas encore enregistré → SOKKAN_DEFAULT_ROLE
+    # ("none" est rejeté en 403 par auth.current_user)
+    return {"email": email or "anonyme", "role": DEFAULT_ROLE,
+            "name": email or "anonyme", "known": False}
 
 
 def list_users() -> list[dict]:
