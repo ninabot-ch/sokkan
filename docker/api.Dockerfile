@@ -18,6 +18,12 @@ COPY memory memory
 COPY scripts/api-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# le process tourne en user non-privilégié ; /data (volume nommé) hérite de
+# l'ownership de l'image à la première création du volume
+RUN groupadd -g 1000 sokkan \
+ && useradd -u 1000 -g 1000 -d /data -s /usr/sbin/nologin sokkan \
+ && mkdir -p /data && chown -R sokkan:sokkan /data /app
+
 # conventions container : workspace monté sur /workspace, état sur /data
 ENV SOKKAN_DATA_DIR=/data \
     CLAUDE_CONFIG_DIR=/data/claude \
@@ -27,5 +33,6 @@ ENV SOKKAN_DATA_DIR=/data \
     SOKKAN_FEATURE_TMUX=0 \
     HOME=/data
 
+USER sokkan
 EXPOSE 8097
 ENTRYPOINT ["/entrypoint.sh"]
