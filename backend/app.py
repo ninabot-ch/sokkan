@@ -118,13 +118,31 @@ class LocalLogin(BaseModel):
     token: str
 
 
+# rate-limit du login local : fenêtre glissante en mémoire, par IP client.
+_LOGIN_MAX_FAILS = 5
+_LOGIN_WINDOW_S = 60.0
+_login_fails: dict[str, list[float]] = {}
+
+
+def _login_throttled(ip: str) -> bool:
+    now = time.time()
+    fails = [t for t in _login_fails.get(ip, []) if now - t < _LOGIN_WINDOW_S]
+    _login_fails[ip] = fails
+    return len(fails) >= _LOGIN_MAX_FAILS
+
+
 @app.post("/api/auth/local")
-def auth_local(body: LocalLogin):
+def auth_local(body: LocalLogin, request: Request):
     """Login single-user (mode local avec SOKKAN_LOCAL_TOKEN) → cookie de session."""
     if auth.MODE != "local" or not auth.LOCAL_TOKEN:
         raise HTTPException(400, "login local non applicable")
+    ip = request.client.host if request.client else "?"
+    if _login_throttled(ip):
+        raise HTTPException(429, "too many failed attempts — retry in a minute")
     if not secrets.compare_digest(body.token.strip(), auth.LOCAL_TOKEN):
+        _login_fails.setdefault(ip, []).append(time.time())
         raise HTTPException(401, "token invalide")
+    _login_fails.pop(ip, None)
     resp = JSONResponse({"ok": True})
     resp.set_cookie(sess.COOKIE, sess.make(auth.OWNER_EMAIL, auth.OWNER_NAME),
                     max_age=sess.TTL, httponly=True,
