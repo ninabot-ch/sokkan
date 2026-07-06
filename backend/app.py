@@ -18,6 +18,7 @@ import asyncio
 import os
 import re
 import secrets
+from contextlib import asynccontextmanager
 import subprocess
 import sys
 import threading
@@ -29,6 +30,7 @@ import jwt
 
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
+import index_memory  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -60,7 +62,35 @@ PROJECT_DIR = Path(
 )
 ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "active"
 
-app = FastAPI(title="SOKKAN P1 backend")
+REINDEX_S = float(os.environ.get("SOKKAN_REINDEX_S", "120"))
+
+
+def _reindex_loop() -> None:
+    """Réindexation mémoire in-process (remplace la boucle shell qui respawnait
+    un python à chaque tick) : le modèle d'embeddings reste chaud dans le module
+    `embeddings`, et on ne réindexe que si le corpus a changé (count + max mtime).
+    1re itération = l'index de boot."""
+    last_sig: tuple | None = None
+    while True:
+        try:
+            sig = index_memory.corpus_signature()
+            if sig != last_sig:
+                index_memory.run_index()
+                last_sig = sig
+        except FileNotFoundError:
+            pass  # memory dir pas encore créé (aucune note écrite) → retenter
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] memory reindex failed: {e}", file=sys.stderr)
+        time.sleep(REINDEX_S)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    yield
+
+
+app = FastAPI(title="SOKKAN P1 backend", lifespan=_lifespan)
 # Pas de CORSMiddleware : le navigateur ne parle qu'à l'origine Next (proxy /api),
 # le CORS est donc inutile — et un wildcard avec cookie d'auth serait un footgun.
 
