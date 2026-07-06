@@ -20,6 +20,11 @@ from pathlib import Path
 
 DB = Path(os.environ.get("SOKKAN_IAM_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "iam.db")))
 ROLES = ["viewer", "dev", "admin", "owner"]
+# rôle attribué à un email authentifié mais absent de la table users.
+# "none" = rejeter (403) au lieu d'accorder viewer — cf. auth.current_user.
+DEFAULT_ROLE = os.environ.get("SOKKAN_DEFAULT_ROLE", "viewer").strip() or "viewer"
+if DEFAULT_ROLE not in (*ROLES, "none"):
+    raise RuntimeError(f"SOKKAN_DEFAULT_ROLE invalid: {DEFAULT_ROLE!r} (viewer|dev|admin|owner|none)")
 # premier utilisateur = owner, défini par l'environnement (ou fallback local)
 SEED = {
     os.environ.get("SOKKAN_OWNER_EMAIL", "owner@localhost"):
@@ -54,8 +59,10 @@ def get_user(email: str) -> dict:
     con.close()
     if row:
         return {"email": row["email"], "role": row["role"], "name": row["name"], "known": True}
-    # email autorisé au edge mais pas encore enregistré → viewer par défaut
-    return {"email": email or "anonyme", "role": "viewer", "name": email or "anonyme", "known": False}
+    # email authentifié mais pas encore enregistré → SOKKAN_DEFAULT_ROLE
+    # ("none" est rejeté en 403 par auth.current_user)
+    return {"email": email or "anonyme", "role": DEFAULT_ROLE,
+            "name": email or "anonyme", "known": False}
 
 
 def list_users() -> list[dict]:

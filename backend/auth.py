@@ -79,7 +79,10 @@ def resolve_email(request: Request) -> str:
 
 
 def current_user(request: Request) -> dict:
-    return iam.get_user(resolve_email(request))
+    user = iam.get_user(resolve_email(request))
+    if not user["known"] and iam.DEFAULT_ROLE == "none":
+        raise HTTPException(403, "account not provisioned on this instance")
+    return user
 
 
 def auth_info() -> dict:
