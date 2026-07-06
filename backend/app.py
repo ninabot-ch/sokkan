@@ -118,6 +118,17 @@ def _feature(env_var: str):
 feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
 feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
 
+# référence forte sur les tâches fire-and-forget (asyncio ne garde qu'une weakref :
+# sans ça, un tour d'agent peut être garbage-collecté en plein vol)
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _bg(coro) -> asyncio.Task:
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
+
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)) -> dict:
@@ -245,7 +256,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
             msg = await websocket.receive_json()
             t = msg.get("type")
             if t == "user" and msg.get("text", "").strip():
-                asyncio.create_task(session.handle_user(msg["text"]))
+                _bg(session.handle_user(msg["text"]))
             elif t == "permission":
                 session.resolve_permission(msg.get("id", ""), {
                     "decision": msg.get("decision", "deny"),
@@ -410,7 +421,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "") -> dict:
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
     session = agentchat.get_or_create(sid)
     if prompt.strip():
-        asyncio.create_task(session.handle_user(board.seed_text(prompt)))
+        _bg(session.handle_user(board.seed_text(prompt)))
     return s
 
 
