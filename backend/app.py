@@ -51,6 +51,7 @@ import memorykb
 import panestate
 import preview
 import previewenv
+import provision
 import transcript as T
 import usage as usage_mod
 
@@ -660,6 +661,55 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
 def audit_recent(limit: int = 200, q: str = "", _u: dict = Depends(require("dev"))) -> list[dict]:
     """Journal des actions (onglet Journal) : qui a fait quoi, quand."""
     return audit.recent(limit=limit, q=q)
+
+
+# --- environnements cloud (connecteur ouvert → control plane NINABOT fermé) ---
+def _provision_enabled() -> None:
+    if not provision.ENABLED:
+        raise HTTPException(404, "environment provisioning is not configured on this instance")
+
+
+def _provision_call(fn, *args):
+    try:
+        return fn(*args)
+    except provision.ProvisionerError as e:
+        raise HTTPException(e.status, e.detail)
+
+
+class EnvSpawnBody(BaseModel):
+    client: str
+    tier: str = "starter"
+    owner_email: str
+
+
+@app.get("/api/infra/envs")
+def infra_envs(_u: dict = Depends(require("admin")),
+               _f: None = Depends(_provision_enabled)) -> list:
+    return _provision_call(provision.list_envs)
+
+
+@app.get("/api/infra/envs/{client}")
+def infra_env_detail(client: str, _u: dict = Depends(require("admin")),
+                     _f: None = Depends(_provision_enabled)) -> dict:
+    return _provision_call(provision.env_detail, client)
+
+
+@app.post("/api/infra/envs", status_code=202)
+def infra_env_spawn(body: EnvSpawnBody, u: dict = Depends(require("admin")),
+                    _f: None = Depends(_provision_enabled)) -> dict:
+    if body.tier not in provision.TIERS:
+        raise HTTPException(400, f"tier must be one of {provision.TIERS}")
+    r = _provision_call(provision.spawn, body.client.strip().lower(), body.tier, body.owner_email)
+    audit.log(u["email"], "env.spawn", body.client, f"tier {body.tier}")
+    return r
+
+
+@app.delete("/api/infra/envs/{client}")
+def infra_env_destroy(client: str, u: dict = Depends(require("owner")),
+                      _f: None = Depends(_provision_enabled)) -> dict:
+    r = _provision_call(provision.destroy, client)
+    audit.log(u["email"], "env.destroy", client)
+    return r
 
 
 @app.get("/api/infra/nodes")

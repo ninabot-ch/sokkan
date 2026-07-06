@@ -1,5 +1,5 @@
 import type {
-  AuditEvent, Binding, BoardData, Card, CardDetail, DiffData, IamUser,
+  AuditEvent, Binding, BoardData, CloudEnv, Card, CardDetail, DiffData, IamUser,
   InfraNode, InfraTarget, LiveState, Me, MemNote, MemSearchResult, MemStats,
   PreviewEnv, PreviewRepo, PreviewTrigger, SessionDetail, SessionSummary, TmuxWindow,
   UsageSummary,
@@ -73,6 +73,12 @@ export const iamDelete = (email: string) =>
 // infra
 export const infraNodes = () => getJSON<InfraNode[]>("/api/infra/nodes");
 export const infraTargets = () => getJSON<InfraTarget[]>("/api/infra/targets");
+export const cloudEnvs = () => getJSON<CloudEnv[]>("/api/infra/envs");
+export const cloudEnvDetail = (client: string) => getJSON<CloudEnv>(`/api/infra/envs/${client}`);
+export const cloudEnvSpawn = (client: string, tier: string, owner_email: string) =>
+  mutate<CloudEnv>("/api/infra/envs", "POST", { client, tier, owner_email });
+export const cloudEnvDestroy = (client: string) =>
+  mutate<{ client: string; status: string }>(`/api/infra/envs/${client}`, "DELETE");
 
 // mémoire / KB
 export const memoryStats = () => getJSON<MemStats>("/api/memory/stats");

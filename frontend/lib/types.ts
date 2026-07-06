@@ -142,6 +142,18 @@ export interface InfraTarget {
   up: boolean;
 }
 
+export interface CloudEnv {
+  client: string;
+  tier: string;
+  owner_email: string;
+  status: string;
+  public_url: string;
+  created_at: number;
+  updated_at: number;
+  local_token?: string; // renvoyé UNE fois au spawn
+  last_log?: string;
+}
+
 export interface MemNote {
   name: string;
   description: string;

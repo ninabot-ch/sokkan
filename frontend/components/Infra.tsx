@@ -1,7 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { iamDelete, iamUpsert, iamUsers, infraNodes, infraTargets } from "@/lib/api";
-import type { IamUser, InfraNode, InfraTarget } from "@/lib/types";
+import {
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn,
+  iamDelete, iamUpsert, iamUsers, infraNodes, infraTargets,
+} from "@/lib/api";
+import type { CloudEnv, IamUser, InfraNode, InfraTarget } from "@/lib/types";
 import { useMe, useCan } from "@/lib/me";
 
 const gb = (b: number | null) => (b ? (b / 1e9).toFixed(b > 1e11 ? 0 : 1) : "—");
@@ -129,21 +132,121 @@ function Access() {
   );
 }
 
+const ENV_STATUS: Record<string, string> = {
+  provisioning: "text-amber-300", "apply…": "text-amber-300", planned: "text-sky-300",
+  running: "text-emerald-400", failed: "text-red-400", "destroy-failed": "text-red-400",
+  destroying: "text-amber-300", destroyed: "text-mut",
+};
+const TIERS = [
+  { id: "starter", label: "Starter — 2c/4Go (solo)" },
+  { id: "standard", label: "Standard — 4c/8Go" },
+  { id: "studio", label: "Studio — 4c/16Go (agence)" },
+];
+
+function Envs() {
+  const isOwner = useCan("owner");
+  const [envs, setEnvs] = useState<CloudEnv[] | null>(null);
+  const [enabled, setEnabled] = useState(true);
+  const [client, setClient] = useState("");
+  const [tier, setTier] = useState("starter");
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState<CloudEnv | null>(null); // réponse de spawn (token montré UNE fois)
+  const [err, setErr] = useState("");
+
+  const reload = () =>
+    cloudEnvs().then((e) => { setEnvs(e); setEnabled(true); })
+      .catch((e) => { if (String(e).includes("404")) setEnabled(false); });
+  useEffect(() => { reload(); const iv = setInterval(reload, 8000); return () => clearInterval(iv); }, []);
+
+  if (!enabled)
+    return (
+      <div className="p-4 text-[12px] text-mut">
+        Provisioning non configuré sur cette instance (SOKKAN_PROVISIONER_URL absent).
+        Les environnements cloud sont un service opéré NINABOT — le connecteur reste
+        auditable ici : <span className="text-slate-300">backend/provision.py</span>.
+      </div>
+    );
+
+  const doSpawn = () => {
+    setErr("");
+    if (!client.trim() || !email.trim()) { setErr("client + email requis"); return; }
+    cloudEnvSpawn(client.trim().toLowerCase(), tier, email.trim())
+      .then((r) => { setToken(r); setClient(""); reload(); })
+      .catch((e) => setErr(String(e)));
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="mb-3 text-[10.5px] text-mut">
+        ⓘ 1 client = 1 VM Exoscale isolée (zone CH). Spawn = rôle admin ; destroy = owner.
+        Exécution déterministe (Terraform) côté control plane — cette instance n'a aucun credential cloud.
+      </div>
+
+      {token && (
+        <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[12px]">
+          <div className="font-semibold text-amber-200">Environnement « {token.client} » en création</div>
+          <div className="mt-1 text-slate-200">Token de login à transmettre au client (affiché une seule fois) :</div>
+          <code className="mt-1 block select-all break-all rounded bg-black/40 p-1.5 text-[11px] text-amber-100">{token.local_token}</code>
+          <div className="mt-1 text-[10.5px] text-mut">{token.public_url}</div>
+          <button onClick={() => setToken(null)} className="mt-1.5 rounded border border-line px-2 py-0.5 text-[11px] text-mut hover:text-slate-200">j'ai copié, fermer</button>
+        </div>
+      )}
+
+      <div className="max-w-3xl space-y-1.5">
+        {(envs ?? []).map((e) => (
+          <div key={e.client} className="flex items-center gap-2.5 rounded-lg border border-line bg-panel2/50 p-2 text-[12px]">
+            <span className={`font-semibold ${ENV_STATUS[e.status] ?? "text-slate-200"}`}>●</span>
+            <span className="font-medium text-slate-100">{e.client}</span>
+            <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{e.tier}</span>
+            <span className={`text-[11px] ${ENV_STATUS[e.status] ?? "text-slate-300"}`}>{e.status}</span>
+            <a href={e.public_url} target="_blank" rel="noreferrer" className="truncate text-[11px] text-sea hover:underline">{e.public_url}</a>
+            <span className="ml-auto text-[10px] text-mut">{e.owner_email}</span>
+            {isOwner && !["destroyed", "destroying"].includes(e.status) && (
+              <button
+                onClick={() => {
+                  if (prompt(`Destruction DÉFINITIVE de « ${e.client} » (VM + données).\nRetape le nom pour confirmer :`) === e.client)
+                    cloudEnvDestroy(e.client).then(reload).catch((x) => setErr(String(x)));
+                }}
+                className="rounded px-1 text-mut hover:text-red-400" title="détruire">✕</button>
+            )}
+          </div>
+        ))}
+        {envs !== null && envs.length === 0 && <div className="text-[12px] text-mut">Aucun environnement.</div>}
+
+        <div className="flex items-center gap-2 pt-2">
+          <input value={client} onChange={(e) => setClient(e.target.value)} placeholder="client (slug: acme)"
+            className="w-40 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          <select value={tier} onChange={(e) => setTier(e.target.value)}
+            className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
+            {TIERS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email owner client"
+            className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          <button onClick={doSpawn}
+            className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">▶ spawn</button>
+        </div>
+        {err && <div className="text-[11px] text-red-400">{err}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function Infra() {
-  const [mode, setMode] = useState<"topo" | "access">("topo");
+  const [mode, setMode] = useState<"topo" | "envs" | "access">("topo");
+  const isAdmin = useCan("admin");
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5">
         <div className="flex overflow-hidden rounded-md border border-line text-[12px]">
-          {(["topo", "access"] as const).map((m) => (
+          {(["topo", ...(isAdmin ? ["envs"] : []), "access"] as ("topo" | "envs" | "access")[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-3 py-0.5 ${mode === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
-              {m === "topo" ? "Topologie" : "Accès (IAM)"}
+              {m === "topo" ? "Topologie" : m === "envs" ? "Environnements" : "Accès (IAM)"}
             </button>
           ))}
         </div>
       </div>
-      {mode === "topo" ? <Topo /> : <Access />}
+      {mode === "topo" ? <Topo /> : mode === "envs" ? <Envs /> : <Access />}
     </div>
   );
 }
