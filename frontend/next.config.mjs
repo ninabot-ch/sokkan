@@ -4,6 +4,7 @@ const backend = process.env.SOKKAN_API || "http://127.0.0.1:8097";
 
 /** @type {import('next').NextConfig} */
 export default {
+  output: "standalone",
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${backend}/api/:path*` },
