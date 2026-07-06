@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -36,19 +37,36 @@ def rank(role: str) -> int:
     return ROLES.index(role) if role in ROLES else -1
 
 
+_init_lock = threading.Lock()
+_initialized = False
+
+
+def init(force: bool = False) -> None:
+    """DDL + seed owner, exécutés une seule fois par process (force=True pour
+    ré-initialiser après un changement de DB, p.ex. dans les tests)."""
+    global _initialized
+    with _init_lock:
+        if _initialized and not force:
+            return
+        DB.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(DB)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, role TEXT, name TEXT, created_at REAL)"
+        )
+        if con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            con.executemany(
+                "INSERT INTO users(email, role, name, created_at) VALUES(?,?,?,?)",
+                [(e, r, n, time.time()) for e, (r, n) in SEED.items()],
+            )
+        con.commit()
+        con.close()
+        _initialized = True
+
+
 def _con() -> sqlite3.Connection:
-    DB.parent.mkdir(parents=True, exist_ok=True)
+    init()
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, role TEXT, name TEXT, created_at REAL)"
-    )
-    if con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        con.executemany(
-            "INSERT INTO users(email, role, name, created_at) VALUES(?,?,?,?)",
-            [(e, r, n, time.time()) for e, (r, n) in SEED.items()],
-        )
-        con.commit()
     return con
 
 
