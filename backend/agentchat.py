@@ -35,12 +35,12 @@ except ImportError:  # pragma: no cover
 
 try:  # blocs de message
     from claude_agent_sdk import (  # type: ignore
-        AssistantMessage, SystemMessage, ResultMessage,
+        SystemMessage, ResultMessage,
         TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock,
     )
 except ImportError:  # pragma: no cover
     from claude_agent_sdk.types import (  # type: ignore
-        AssistantMessage, SystemMessage, ResultMessage,
+        SystemMessage, ResultMessage,
         TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock,
     )
 

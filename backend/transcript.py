@@ -16,7 +16,6 @@ Standalone:  python transcript.py <file.jsonl> [--limit N]
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -104,7 +103,6 @@ def parse_lines(lines: Iterable[str]) -> dict:
 
         if rtype == "system":
             # keep only the rare meaningful system notes, as a chip
-            sub = rec.get("subtype") or "system"
             txt = _text_of(rec.get("content"))
             if txt and not rec.get("isMeta"):
                 messages.append({"role": "system", "kind": "note", "text": txt[:500], "ts": ts})

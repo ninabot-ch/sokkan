@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# default rule set (pyflakes + a pragmatic pycodestyle subset); the codebase
+# predates ruff — tighten incrementally, not all at once
+ignore = [
+    "E402",  # sys.path bootstrap before imports (backend <-> memory sharing)
+    "E741",  # short loop variables in parsing code
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
