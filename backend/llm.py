@@ -30,10 +30,20 @@ CONFIG = Path(os.environ.get(
 
 
 def load() -> dict:
+    """Config LLM : llm.json (posé par le cockpit) prioritaire, sinon fallback
+    sur l'env `included` seedé au provisioning (SOKKAN_INFER_BASE_URL/TOKEN/MODEL)."""
     try:
-        return json.loads(CONFIG.read_text(encoding="utf-8"))
+        c = json.loads(CONFIG.read_text(encoding="utf-8"))
+        if c:
+            return c
     except (FileNotFoundError, ValueError):
-        return {}
+        pass
+    base = os.environ.get("SOKKAN_INFER_BASE_URL", "")
+    tok = os.environ.get("SOKKAN_INFER_TOKEN", "")
+    if base and tok:  # instance provisionnée en « inférence incluse »
+        return {"mode": "included", "base_url": base, "auth_token": tok,
+                "model": os.environ.get("SOKKAN_INFER_MODEL", "")}
+    return {}
 
 
 def save(cfg: dict) -> None:
