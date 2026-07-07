@@ -48,6 +48,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import fleet
 import instance
 import llm
 import panestate
@@ -176,6 +177,36 @@ def auth_info() -> dict:
 @app.get("/api/instance")
 def instance_info(_u: dict = Depends(current_user)) -> dict:
     return instance.info()
+
+
+@app.get("/api/fleet")
+def fleet_view(_u: dict = Depends(current_user)):
+    """Flotte du client (managé) : catalogue + ressources + état. null si self-hosted."""
+    if not fleet.ENABLED:
+        return None
+    try:
+        return fleet.view()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+
+
+class FleetReq(BaseModel):
+    sku: str
+    name: str = ""
+
+
+@app.post("/api/fleet/request")
+def fleet_request(body: FleetReq, u: dict = Depends(require("admin"))):
+    """Demande une ressource pour la flotte (admin de l'instance). Facturé (proration)
+    puis provisionné au paiement, côté NINABOT."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+    try:
+        r = fleet.request_resource(body.sku, body.name)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "fleet.request", body.sku, body.name)
+    return r
 
 
 class OrgName(BaseModel):
