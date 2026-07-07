@@ -5,6 +5,7 @@ import {
 } from "@/lib/api";
 import type { FleetProduct, FleetResource, FleetView } from "@/lib/api";
 import type { CloudEnv, InfraNode, InfraTarget } from "@/lib/types";
+import { useFeatures } from "@/lib/features";
 import { useCan } from "@/lib/me";
 
 const gb = (b: number | null) => (b ? (b / 1e9).toFixed(b > 1e11 ? 0 : 1) : "—");
@@ -275,12 +276,18 @@ type Mode = "topo" | "fleet" | "envs";
 
 export default function Infra() {
   // Accès (IAM) migré dans Profil & organisation → Membres.
-  const [mode, setMode] = useState<Mode>("topo");
-  const [hasFleet, setHasFleet] = useState(false);
+  const feats = useFeatures();
   const isAdmin = useCan("admin");
-  useEffect(() => { fleetView().then((v) => setHasFleet(v != null)).catch(() => setHasFleet(false)); }, []);
+  // VM client managée : pas de Prometheus → pas de Topologie, la flotte est l'onglet par défaut.
+  const tabs: Mode[] = [
+    ...(feats.infra_topo ? ["topo" as const] : []),
+    ...(feats.fleet ? ["fleet" as const] : []),
+    ...(isAdmin && feats.infra_topo ? ["envs" as const] : []),
+  ];
+  const [mode, setMode] = useState<Mode | null>(null);
+  const cur = mode && tabs.includes(mode) ? mode : tabs[0];
+  if (!cur) return <div className="p-4 text-[12px] text-mut">Rien à afficher (ni topologie, ni flotte).</div>;
 
-  const tabs: Mode[] = ["topo", ...(hasFleet ? ["fleet" as const] : []), ...(isAdmin ? ["envs" as const] : [])];
   const LABEL: Record<Mode, string> = { topo: "Topologie", fleet: "Ma flotte", envs: "Environnements" };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -288,13 +295,13 @@ export default function Infra() {
         <div className="flex overflow-hidden rounded-md border border-line text-[12px]">
           {tabs.map((m) => (
             <button key={m} onClick={() => setMode(m)}
-              className={`px-3 py-0.5 ${mode === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
+              className={`px-3 py-0.5 ${cur === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
               {LABEL[m]}
             </button>
           ))}
         </div>
       </div>
-      {mode === "topo" ? <Topo /> : mode === "fleet" ? <Fleet /> : <Envs />}
+      {cur === "topo" ? <Topo /> : cur === "fleet" ? <Fleet /> : <Envs />}
     </div>
   );
 }

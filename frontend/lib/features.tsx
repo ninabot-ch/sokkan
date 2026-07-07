@@ -3,11 +3,13 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 export interface Features {
   infra: boolean;
+  infra_topo: boolean;
+  fleet: boolean;
   preview: boolean;
   tmux: boolean;
 }
 
-const DEFAULTS: Features = { infra: true, preview: true, tmux: true };
+const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, preview: true, tmux: true };
 const Ctx = createContext<Features>(DEFAULTS);
 
 export function FeaturesProvider({ children }: { children: React.ReactNode }) {

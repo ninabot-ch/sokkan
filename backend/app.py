@@ -261,7 +261,11 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
 def features() -> dict:
     """Onglets/capacités actifs sur cette instance — le front masque le reste."""
     return {
-        "infra": infra.ENABLED,
+        # l'onglet Infra existe dès qu'il a quelque chose à montrer : topologie
+        # (Prometheus) et/ou flotte managée (SOKKAN_FLEET_*, VMs clients).
+        "infra": infra.ENABLED or fleet.ENABLED,
+        "infra_topo": infra.ENABLED,
+        "fleet": fleet.ENABLED,
         "preview": os.environ.get("SOKKAN_FEATURE_PREVIEW", "1") != "0",
         "tmux": os.environ.get("SOKKAN_FEATURE_TMUX", "1") != "0",
     }
