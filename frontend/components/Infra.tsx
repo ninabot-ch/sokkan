@@ -1,14 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn,
-  iamDelete, iamUpsert, iamUsers, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, infraNodes, infraTargets,
 } from "@/lib/api";
-import type { CloudEnv, IamUser, InfraNode, InfraTarget } from "@/lib/types";
-import { useMe, useCan } from "@/lib/me";
+import type { CloudEnv, InfraNode, InfraTarget } from "@/lib/types";
+import { useCan } from "@/lib/me";
 
 const gb = (b: number | null) => (b ? (b / 1e9).toFixed(b > 1e11 ? 0 : 1) : "—");
-const ROLES = ["viewer", "dev", "admin", "owner"];
 function uptime(s: number | null) {
   if (!s) return "—";
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
@@ -71,63 +69,6 @@ function Topo() {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Access() {
-  const me = useMe();
-  const isAdmin = useCan("admin");
-  const [users, setUsers] = useState<IamUser[]>([]);
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState("dev");
-  const reload = () => iamUsers().then(setUsers).catch(() => setUsers([]));
-  useEffect(() => { if (isAdmin) reload(); }, [isAdmin]);
-
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      <div className="mb-3 rounded-lg border border-line bg-panel2/40 p-2.5 text-[12px]">
-        Connecté en tant que <span className="text-slate-100">{me?.name}</span> ·
-        rôle <span className="text-brass">{me?.role}</span>
-        <span className="ml-2 text-[10.5px] text-mut">(via Authentik / CF Access · {me?.source})</span>
-      </div>
-
-      {!isAdmin ? (
-        <div className="text-[12px] text-mut">Gestion des accès réservée aux rôles admin/owner.</div>
-      ) : (
-        <div className="max-w-2xl space-y-2">
-          <div className="text-[12px] font-semibold text-slate-200">Utilisateurs SOKKAN</div>
-          <div className="text-[10.5px] text-mut">
-            ⓘ Les rôles sont internes à SOKKAN. Pour qu'un nouvel email puisse atteindre SOKKAN, l'accès CF doit
-            être ouvert séparément (par Claude Code — SOKKAN n'écrit pas sur Cloudflare).
-          </div>
-          {users.map((u) => (
-            <div key={u.email} className="flex items-center gap-2 rounded-lg border border-line bg-panel2/50 p-2">
-              <div className="min-w-0">
-                <div className="truncate text-[12.5px] text-slate-100">{u.name}</div>
-                <div className="truncate text-[10.5px] text-mut">{u.email}</div>
-              </div>
-              <select value={u.role} disabled={u.role === "owner"}
-                onChange={(e) => iamUpsert(u.email, e.target.value, u.name).then(reload)}
-                className="ml-auto rounded border border-line bg-panel2 px-1.5 py-0.5 text-[11.5px] text-slate-200 disabled:opacity-50">
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-              <button disabled={u.role === "owner"} onClick={() => iamDelete(u.email).then(reload)}
-                className="rounded px-1 text-mut hover:text-red-400 disabled:opacity-30" title="retirer">✕</button>
-            </div>
-          ))}
-          <div className="flex items-center gap-2 pt-1">
-            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@…"
-              className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
-            <select value={role} onChange={(e) => setRole(e.target.value)}
-              className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <button onClick={() => { if (email.trim()) iamUpsert(email.trim(), role).then(() => { setEmail(""); reload(); }); }}
-              className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">+ user</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -232,21 +173,22 @@ function Envs() {
 }
 
 export default function Infra() {
-  const [mode, setMode] = useState<"topo" | "envs" | "access">("topo");
+  // Accès (IAM) migré dans Profil & organisation → Membres.
+  const [mode, setMode] = useState<"topo" | "envs">("topo");
   const isAdmin = useCan("admin");
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5">
         <div className="flex overflow-hidden rounded-md border border-line text-[12px]">
-          {(["topo", ...(isAdmin ? ["envs"] : []), "access"] as ("topo" | "envs" | "access")[]).map((m) => (
+          {(["topo", ...(isAdmin ? ["envs"] : [])] as ("topo" | "envs")[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-3 py-0.5 ${mode === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
-              {m === "topo" ? "Topologie" : m === "envs" ? "Environnements" : "Accès (IAM)"}
+              {m === "topo" ? "Topologie" : "Environnements"}
             </button>
           ))}
         </div>
       </div>
-      {mode === "topo" ? <Topo /> : mode === "envs" ? <Envs /> : <Access />}
+      {mode === "topo" ? <Topo /> : <Envs />}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useMe, useCan } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
-import Settings from "./Settings";
+import Profile from "./Profile";
 
 const TABS = ["Board", "Sessions", "Preview", "Mémoire/KB", "Coûts", "Infra", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
@@ -49,13 +49,13 @@ export default function Tabs({
   );
 }
 
-function LlmMenuItem({ onOpen }: { onOpen: () => void }) {
+function ProfileMenuItem({ onOpen }: { onOpen: () => void }) {
   const [st, setSt] = useState<{ configured: boolean; mode: string } | null>(null);
   useEffect(() => { llmStatus().then(setSt).catch(() => {}); }, []);
   const warn = st && !st.configured;
   return (
     <button onClick={onOpen} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-slate-200 hover:bg-panel2">
-      Réglages · Modèle
+      Profil & organisation
       {warn && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" title="modèle non configuré" />}
     </button>
   );
@@ -87,17 +87,11 @@ function Identity() {
               <div className="truncate text-[12px] text-slate-200">{me.name}</div>
               <div className="truncate text-[10.5px] text-mut">{me.email}</div>
             </div>
-            <LlmMenuItem onOpen={() => { setOpen(false); setSettings(true); }} />
-            <a
-              href="/api/auth/logout"
-              className="block px-3 py-2 text-[12.5px] text-slate-200 hover:bg-panel2"
-            >
-              Se déconnecter →
-            </a>
+            <ProfileMenuItem onOpen={() => { setOpen(false); setSettings(true); }} />
           </div>
         </>
       )}
-      {settings && <Settings onClose={() => setSettings(false)} />}
+      {settings && <Profile onClose={() => setSettings(false)} />}
     </div>
   );
 }

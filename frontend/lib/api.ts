@@ -81,6 +81,9 @@ export interface LlmUsage {
   client: string; day: string; used_today: number; daily_quota_tokens: number;
   used_month: number; monthly_quota_tokens: number;
 }
+export interface InstanceInfo { org_name: string; tier: string; public_url: string; owner_email: string; }
+export const instanceInfo = () => getJSON<InstanceInfo>("/api/instance");
+export const instanceRename = (org_name: string) => mutate<InstanceInfo>("/api/instance", "POST", { org_name });
 export const llmStatus = () => getJSON<LlmStatus>("/api/llm");
 export const llmUsage = () => getJSON<LlmUsage | null>("/api/llm/usage");
 export const llmSetApiKey = (anthropic_api_key: string) =>
