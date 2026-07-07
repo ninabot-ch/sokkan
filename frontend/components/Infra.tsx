@@ -178,6 +178,13 @@ const RES_STATUS: Record<string, string> = {
   pending: "text-amber-300", provisioning: "text-sky-300",
   live: "text-emerald-400", failed: "text-red-400",
 };
+const RES_LABEL: Record<string, string> = {
+  pending: "en attente de paiement", provisioning: "création en cours",
+  live: "en service", failed: "échec",
+};
+const INFRA_LABEL: Record<string, string> = {
+  planned: "planifié", provisioning: "création en cours", running: "en service",
+};
 const CAT_LABEL: Record<string, string> = {
   plan: "Cockpit", compute: "Instance", database: "Base de données",
 };
@@ -230,7 +237,7 @@ function Fleet() {
 
       <div className="mb-4 max-w-3xl">
         <div className="mb-1.5 text-[12px] font-semibold text-slate-200">
-          Ressources actives <span className="text-mut">· plan {view.plan ?? "—"}{view.infra_status ? ` · ${view.infra_status}` : ""}</span>
+          Ressources actives <span className="text-mut">· plan {view.plan ?? "—"}{view.infra_status ? ` · ${INFRA_LABEL[view.infra_status] ?? view.infra_status}` : ""}</span>
         </div>
         <div className="space-y-1.5">
           {view.resources.map((r: FleetResource) => (
@@ -238,7 +245,7 @@ function Fleet() {
               <span className={`${RES_STATUS[r.status] ?? "text-slate-200"}`}>●</span>
               <span className="font-medium text-slate-100">{r.name || r.sku}</span>
               <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{r.sku}</span>
-              <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{r.status}</span>
+              <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{RES_LABEL[r.status] ?? r.status}</span>
             </div>
           ))}
           {view.resources.length === 0 && <div className="text-[12px] text-mut">Aucune ressource additionnelle — seulement votre cockpit.</div>}
@@ -254,8 +261,8 @@ function Fleet() {
               {catByCat[cat].map((p) => (
                 <div key={p.sku} className="rounded-xl border border-line bg-panel p-2.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[13px] font-semibold text-slate-100">{p.label}</span>
-                    <span className="ml-auto text-[12px] font-medium text-sea">{p.price_chf} CHF<span className="text-[10px] text-mut">/mois</span></span>
+                    <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-slate-100">{p.label}</span>
+                    <span className="shrink-0 whitespace-nowrap text-[12px] font-medium text-sea">{p.price_chf} CHF<span className="text-[10px] text-mut">/mois</span></span>
                   </div>
                   <div className="mt-0.5 text-[10.5px] text-mut">{p.desc}</div>
                   <button disabled={!isAdmin || busy === p.sku} onClick={() => order(p)}
