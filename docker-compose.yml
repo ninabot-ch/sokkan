@@ -15,6 +15,7 @@ services:
       SOKKAN_OWNER_NAME: ${SOKKAN_OWNER_NAME:-Owner}
       SOKKAN_TZ: ${SOKKAN_TZ:-Europe/Zurich}
       SOKKAN_PUBLIC_URL: ${SOKKAN_PUBLIC_URL:-http://localhost:3009}
+      SOKKAN_TIER: ${SOKKAN_TIER:-}
       # optional remote embedding service; empty = local ONNX (fastembed)
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
       # optional model override for spawned sessions (default: CLI default)
