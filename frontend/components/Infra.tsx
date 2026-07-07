@@ -235,7 +235,10 @@ function Fleet() {
     if (!isAdmin) { setErr("rôle admin requis pour commander"); return; }
     const name = p.category === "plan" ? "" :
       (prompt(`Nom pour « ${p.label} » (optionnel) :`) ?? "").trim();
-    if (!confirm(`Commander « ${p.label} » — ${p.price_chf} CHF/mois, facturé au prorata immédiatement. Confirmer ?`)) return;
+    const msg = p.category === "plan"
+      ? `Passer sur « ${p.label} » — ${p.price_chf} CHF/mois, prorata facturé/crédité immédiatement, courte interruption au redimensionnement. Confirmer ?`
+      : `Commander « ${p.label} » — ${p.price_chf} CHF/mois, facturé au prorata immédiatement. Confirmer ?`;
+    if (!confirm(msg)) return;
     setErr(""); setMsg(""); setBusy(p.sku);
     fleetRequest(p.sku, name)
       .then((r) => { setMsg(`« ${p.label} » commandé — facture ${r.invoice ?? "en cours"}, provisioning au paiement.`); reload(); })
@@ -293,19 +296,23 @@ function Fleet() {
           <div key={cat}>
             <div className="mb-1 text-[10.5px] uppercase tracking-wide text-mut">{CAT_LABEL[cat] ?? cat}</div>
             <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
-              {catByCat[cat].map((p) => (
-                <div key={p.sku} className="rounded-xl border border-line bg-panel p-2.5">
-                  <div className="flex items-baseline gap-2">
-                    <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-slate-100">{p.label}</span>
-                    <span className="shrink-0 whitespace-nowrap text-[12px] font-medium text-sea">{p.price_chf} CHF<span className="text-[10px] text-mut">/mois</span></span>
+              {catByCat[cat].map((p) => {
+                const isCurrent = p.sku === `plan-${view.plan}`;
+                return (
+                  <div key={p.sku} className={`rounded-xl border p-2.5 ${isCurrent ? "border-sea/40 bg-sea/5" : "border-line bg-panel"}`}>
+                    <div className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-slate-100">{p.label}</span>
+                      <span className="shrink-0 whitespace-nowrap text-[12px] font-medium text-sea">{p.price_chf} CHF<span className="text-[10px] text-mut">/mois</span></span>
+                    </div>
+                    <div className="mt-0.5 text-[10.5px] text-mut">{p.desc}</div>
+                    <button disabled={!isAdmin || busy === p.sku || isCurrent} onClick={() => order(p)}
+                      className="mt-2 w-full rounded bg-sea/80 px-2 py-1 text-[11.5px] font-medium text-white hover:bg-sea disabled:opacity-40">
+                      {isCurrent ? "votre plan actuel" : busy === p.sku ? "commande…" : !isAdmin ? "admin requis"
+                        : p.category === "plan" ? "⇅ changer de plan" : "＋ commander"}
+                    </button>
                   </div>
-                  <div className="mt-0.5 text-[10.5px] text-mut">{p.desc}</div>
-                  <button disabled={!isAdmin || busy === p.sku} onClick={() => order(p)}
-                    className="mt-2 w-full rounded bg-sea/80 px-2 py-1 text-[11.5px] font-medium text-white hover:bg-sea disabled:opacity-40">
-                    {busy === p.sku ? "commande…" : isAdmin ? "＋ commander" : "admin requis"}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}
