@@ -179,30 +179,33 @@ def llm_status(_u: dict = Depends(current_user)) -> dict:
 
 
 class LlmConfig(BaseModel):
-    mode: str  # 'byok' | 'included'
+    mode: str  # 'byok'
     anthropic_api_key: str = ""
-    base_url: str = ""
-    auth_token: str = ""
-    model: str = ""
+    claude_oauth_token: str = ""  # abonnement Claude Pro/Max (`claude setup-token`)
+
+
+@app.get("/api/llm/usage")
+def llm_usage(_u: dict = Depends(current_user)):
+    """Usage/quota du jour (mode inférence incluse) ; null en BYOK."""
+    return llm.usage()
 
 
 @app.post("/api/llm")
 def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
-    """Règle la clé/le mode LLM (admin de l'instance). La clé BYOK reste sur CETTE
-    VM (jamais transmise à NINABOT). En mode 'included', base_url/auth_token sont
-    normalement seedés au provisioning — l'UI expose surtout le BYOK."""
-    if body.mode == "byok":
-        if not body.anthropic_api_key.strip():
-            raise HTTPException(400, "anthropic_api_key required for BYOK")
+    """Règle la clé LLM de l'instance (admin). La clé/le token reste sur CETTE VM,
+    jamais transmis à NINABOT. Une instance en « inférence incluse » est opérée
+    par NINABOT → on n'autorise pas de la basculer en BYOK depuis le cockpit."""
+    if llm.status().get("operator_managed"):
+        raise HTTPException(403, "cette instance est en inférence incluse (opérée par NINABOT)")
+    if body.mode != "byok":
+        raise HTTPException(400, "mode must be 'byok'")
+    if body.anthropic_api_key.strip():
         llm.save({"mode": "byok", "anthropic_api_key": body.anthropic_api_key.strip()})
-    elif body.mode == "included":
-        if not (body.base_url and body.auth_token):
-            raise HTTPException(400, "base_url and auth_token required for included mode")
-        llm.save({"mode": "included", "base_url": body.base_url.strip(),
-                  "auth_token": body.auth_token.strip(), "model": body.model.strip()})
+    elif body.claude_oauth_token.strip():
+        llm.save({"mode": "byok", "claude_oauth_token": body.claude_oauth_token.strip()})
     else:
-        raise HTTPException(400, "mode must be 'byok' or 'included'")
-    audit.log(u["email"], "llm.config", body.mode)
+        raise HTTPException(400, "anthropic_api_key ou claude_oauth_token requis")
+    audit.log(u["email"], "llm.config", f"byok:{llm.status().get('byok_kind')}")
     return llm.status()
 
 

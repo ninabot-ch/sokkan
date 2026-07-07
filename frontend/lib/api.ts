@@ -73,9 +73,20 @@ export const iamDelete = (email: string) =>
 // infra
 export const infraNodes = () => getJSON<InfraNode[]>("/api/infra/nodes");
 export const infraTargets = () => getJSON<InfraTarget[]>("/api/infra/targets");
-export const llmStatus = () => getJSON<{ mode: string; configured: boolean; model: string | null }>("/api/llm");
-export const llmSetByok = (anthropic_api_key: string) =>
-  mutate<{ mode: string; configured: boolean }>("/api/llm", "POST", { mode: "byok", anthropic_api_key });
+export interface LlmStatus {
+  mode: string; configured: boolean; byok_kind: string | null;
+  model: string | null; operator_managed: boolean;
+}
+export interface LlmUsage {
+  client: string; day: string; used_today: number; daily_quota_tokens: number;
+  used_month: number; monthly_quota_tokens: number;
+}
+export const llmStatus = () => getJSON<LlmStatus>("/api/llm");
+export const llmUsage = () => getJSON<LlmUsage | null>("/api/llm/usage");
+export const llmSetApiKey = (anthropic_api_key: string) =>
+  mutate<LlmStatus>("/api/llm", "POST", { mode: "byok", anthropic_api_key });
+export const llmSetSubscription = (claude_oauth_token: string) =>
+  mutate<LlmStatus>("/api/llm", "POST", { mode: "byok", claude_oauth_token });
 export const cloudEnvs = () => getJSON<CloudEnv[]>("/api/infra/envs");
 export const cloudEnvDetail = (client: string) => getJSON<CloudEnv>(`/api/infra/envs/${client}`);
 export const cloudEnvSpawn = (client: string, tier: string, owner_email: string) =>

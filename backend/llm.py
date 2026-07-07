@@ -55,10 +55,19 @@ def save(cfg: dict) -> None:
         pass
 
 
+def _byok_kind(c: dict) -> str | None:
+    """Sous-type BYOK : 'api_key' (clé sk-ant) ou 'subscription' (setup-token OAuth)."""
+    if c.get("anthropic_api_key"):
+        return "api_key"
+    if c.get("claude_oauth_token"):
+        return "subscription"
+    return None
+
+
 def configured() -> bool:
     c = load()
     if c.get("mode") == "byok":
-        return bool(c.get("anthropic_api_key"))
+        return _byok_kind(c) is not None
     if c.get("mode") == "included":
         return bool(c.get("base_url") and c.get("auth_token"))
     # pas de config explicite : l'env du container (ANTHROPIC_API_KEY/OAUTH) fait foi
@@ -70,21 +79,46 @@ def status() -> dict:
     c = load()
     mode = c.get("mode") or ("env" if configured() else "none")
     return {"mode": mode, "configured": configured(),
-            "model": c.get("model") if mode == "included" else None}
+            "byok_kind": _byok_kind(c) if mode == "byok" else None,
+            "model": c.get("model") if mode == "included" else None,
+            # une instance « included » est opérée par NINABOT → le client ne peut
+            # pas basculer en BYOK depuis le cockpit (et inversement)
+            "operator_managed": mode == "included"}
 
 
 def session_env() -> dict:
     """Variables d'env à injecter dans une session (surcharge de os.environ)."""
     c = load()
-    if c.get("mode") == "byok" and c.get("anthropic_api_key"):
-        # clé client → Anthropic direct ; on neutralise un éventuel base_url hérité
-        return {"ANTHROPIC_API_KEY": c["anthropic_api_key"], "ANTHROPIC_BASE_URL": "",
-                "ANTHROPIC_AUTH_TOKEN": ""}
+    if c.get("mode") == "byok":
+        if c.get("anthropic_api_key"):  # clé API → Anthropic direct
+            return {"ANTHROPIC_API_KEY": c["anthropic_api_key"],
+                    "ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": "",
+                    "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        if c.get("claude_oauth_token"):  # abonnement Claude Pro/Max (setup-token)
+            return {"CLAUDE_CODE_OAUTH_TOKEN": c["claude_oauth_token"],
+                    "ANTHROPIC_API_KEY": "", "ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": ""}
     if c.get("mode") == "included" and c.get("base_url") and c.get("auth_token"):
         return {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
                 "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
-                "ANTHROPIC_API_KEY": c["auth_token"]}  # gateway accepte x-api-key OU Bearer
+                "ANTHROPIC_API_KEY": c["auth_token"],  # gateway accepte x-api-key OU Bearer
+                "CLAUDE_CODE_OAUTH_TOKEN": ""}
     return {}
+
+
+def usage() -> dict | None:
+    """En mode included : usage/quota du jour depuis la passerelle (token instance).
+    None si pas en mode included (BYOK = aucun quota côté NINABOT)."""
+    c = load()
+    if c.get("mode") != "included" or not (c.get("base_url") and c.get("auth_token")):
+        return None
+    import httpx
+    try:
+        r = httpx.get(f"{c['base_url'].rstrip('/')}/usage",
+                      headers={"x-api-key": c["auth_token"]}, timeout=8)
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPError:
+        return None
 
 
 def session_model() -> str | None:
