@@ -25,6 +25,9 @@ services:
       SOKKAN_INFER_BASE_URL: ${SOKKAN_INFER_BASE_URL:-}
       SOKKAN_INFER_TOKEN: ${SOKKAN_INFER_TOKEN:-}
       SOKKAN_INFER_MODEL: ${SOKKAN_INFER_MODEL:-}
+      # API flotte : le client gère/étend son infra depuis le cockpit
+      SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
+      SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
