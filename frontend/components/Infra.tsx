@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetRequest, fleetView, infraNodes, infraTargets,
 } from "@/lib/api";
+import type { FleetProduct, FleetResource, FleetView } from "@/lib/api";
 import type { CloudEnv, InfraNode, InfraTarget } from "@/lib/types";
 import { useCan } from "@/lib/me";
 
@@ -172,23 +173,128 @@ function Envs() {
   );
 }
 
+const RES_STATUS: Record<string, string> = {
+  pending: "text-amber-300", provisioning: "text-sky-300",
+  live: "text-emerald-400", failed: "text-red-400",
+};
+const CAT_LABEL: Record<string, string> = {
+  plan: "Cockpit", compute: "Instance", database: "Base de données",
+};
+
+// « Ma flotte » — vue CLIENT (managé). Le cockpit interroge le portail NINABOT
+// avec son fleet token : il voit ses ressources et en demande de nouvelles
+// (facturées au prorata, provisionnées après paiement). Aucun credential cloud ici.
+function Fleet() {
+  const isAdmin = useCan("admin");
+  const [view, setView] = useState<FleetView | null | undefined>(undefined); // undefined=chargement, null=indispo
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  const reload = () => fleetView().then(setView).catch(() => setView(null));
+  useEffect(() => { reload(); const iv = setInterval(reload, 8000); return () => clearInterval(iv); }, []);
+
+  if (view === undefined) return <div className="p-4 text-[12px] text-mut">Chargement de la flotte…</div>;
+  if (view === null)
+    return (
+      <div className="p-4 text-[12px] text-mut">
+        Gestion de flotte indisponible sur cette instance (self-hosted, ou SOKKAN_FLEET_* absent).
+      </div>
+    );
+
+  const order = (p: FleetProduct) => {
+    if (!isAdmin) { setErr("rôle admin requis pour commander"); return; }
+    const name = p.category === "plan" ? "" :
+      (prompt(`Nom pour « ${p.label} » (optionnel) :`) ?? "").trim();
+    if (!confirm(`Commander « ${p.label} » — ${p.price_chf} CHF/mois, facturé au prorata immédiatement. Confirmer ?`)) return;
+    setErr(""); setMsg(""); setBusy(p.sku);
+    fleetRequest(p.sku, name)
+      .then((r) => { setMsg(`« ${p.label} » commandé — facture ${r.invoice ?? "en cours"}, provisioning au paiement.`); reload(); })
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(""));
+  };
+
+  const catByCat: Record<string, FleetProduct[]> = {};
+  for (const p of view.catalog) (catByCat[p.category] ??= []).push(p);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="mb-3 text-[10.5px] text-mut">
+        ⓘ Vos ressources vivent dans <span className="text-slate-300">votre réseau privé</span> (compute + bases).
+        Toute commande est facturée au prorata sur votre abonnement et provisionnée après paiement — opéré par NINABOT.
+      </div>
+
+      {msg && <div className="mb-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-[11.5px] text-emerald-200">{msg}</div>}
+      {err && <div className="mb-2.5 text-[11px] text-red-400">{err}</div>}
+
+      <div className="mb-4 max-w-3xl">
+        <div className="mb-1.5 text-[12px] font-semibold text-slate-200">
+          Ressources actives <span className="text-mut">· plan {view.plan ?? "—"}{view.infra_status ? ` · ${view.infra_status}` : ""}</span>
+        </div>
+        <div className="space-y-1.5">
+          {view.resources.map((r: FleetResource) => (
+            <div key={r.id} className="flex items-center gap-2.5 rounded-lg border border-line bg-panel2/50 p-2 text-[12px]">
+              <span className={`${RES_STATUS[r.status] ?? "text-slate-200"}`}>●</span>
+              <span className="font-medium text-slate-100">{r.name || r.sku}</span>
+              <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{r.sku}</span>
+              <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{r.status}</span>
+            </div>
+          ))}
+          {view.resources.length === 0 && <div className="text-[12px] text-mut">Aucune ressource additionnelle — seulement votre cockpit.</div>}
+        </div>
+      </div>
+
+      <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Ajouter une ressource</div>
+      <div className="max-w-3xl space-y-3">
+        {["compute", "database", "plan"].filter((c) => catByCat[c]?.length).map((cat) => (
+          <div key={cat}>
+            <div className="mb-1 text-[10.5px] uppercase tracking-wide text-mut">{CAT_LABEL[cat] ?? cat}</div>
+            <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
+              {catByCat[cat].map((p) => (
+                <div key={p.sku} className="rounded-xl border border-line bg-panel p-2.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[13px] font-semibold text-slate-100">{p.label}</span>
+                    <span className="ml-auto text-[12px] font-medium text-sea">{p.price_chf} CHF<span className="text-[10px] text-mut">/mois</span></span>
+                  </div>
+                  <div className="mt-0.5 text-[10.5px] text-mut">{p.desc}</div>
+                  <button disabled={!isAdmin || busy === p.sku} onClick={() => order(p)}
+                    className="mt-2 w-full rounded bg-sea/80 px-2 py-1 text-[11.5px] font-medium text-white hover:bg-sea disabled:opacity-40">
+                    {busy === p.sku ? "commande…" : isAdmin ? "＋ commander" : "admin requis"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Mode = "topo" | "fleet" | "envs";
+
 export default function Infra() {
   // Accès (IAM) migré dans Profil & organisation → Membres.
-  const [mode, setMode] = useState<"topo" | "envs">("topo");
+  const [mode, setMode] = useState<Mode>("topo");
+  const [hasFleet, setHasFleet] = useState(false);
   const isAdmin = useCan("admin");
+  useEffect(() => { fleetView().then((v) => setHasFleet(v != null)).catch(() => setHasFleet(false)); }, []);
+
+  const tabs: Mode[] = ["topo", ...(hasFleet ? ["fleet" as const] : []), ...(isAdmin ? ["envs" as const] : [])];
+  const LABEL: Record<Mode, string> = { topo: "Topologie", fleet: "Ma flotte", envs: "Environnements" };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5">
         <div className="flex overflow-hidden rounded-md border border-line text-[12px]">
-          {(["topo", ...(isAdmin ? ["envs"] : [])] as ("topo" | "envs")[]).map((m) => (
+          {tabs.map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-3 py-0.5 ${mode === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
-              {m === "topo" ? "Topologie" : "Environnements"}
+              {LABEL[m]}
             </button>
           ))}
         </div>
       </div>
-      {mode === "topo" ? <Topo /> : <Envs />}
+      {mode === "topo" ? <Topo /> : mode === "fleet" ? <Fleet /> : <Envs />}
     </div>
   );
 }
