@@ -49,6 +49,7 @@ import session as sess
 import termproxy
 import memorykb
 import fleet
+import fleetterm
 import instance
 import llm
 import panestate
@@ -193,7 +194,45 @@ def fleet_view(u: dict = Depends(current_user)):
     if iam.rank(u["role"]) < iam.rank("admin"):
         for r in v.get("resources") or []:
             r.pop("uri", None)
+    v["can_term"] = fleetterm.allowed(u, iam.rank, iam.rank("admin"))
     return v
+
+
+@app.get("/api/fleet/grants")
+def fleet_grants(_u: dict = Depends(require("admin"))) -> dict:
+    """Accès terminal de maintenance : liste des users autorisés (hors admins,
+    qui l'ont d'office)."""
+    return {"grants": fleetterm.grants()}
+
+
+class GrantsBody(BaseModel):
+    emails: list[str]
+
+
+@app.post("/api/fleet/grants")
+def fleet_grants_set(body: GrantsBody, u: dict = Depends(require("admin"))) -> dict:
+    g = fleetterm.set_grants(body.emails)
+    audit.log(u["email"], "fleet.term.grants", ",".join(g), "")
+    return {"grants": g}
+
+
+@app.websocket("/api/fleet/term/{name}")
+async def fleet_term(websocket: WebSocket, name: str, cols: int = 120, rows: int = 32):
+    """Terminal de MAINTENANCE (root) vers une instance de la flotte.
+    Admin/owner, ou user autorisé via les grants — jamais en self-hosted pur."""
+    if not _origin_ok(websocket) or not fleet.ENABLED:
+        await websocket.close(code=4403)
+        return
+    try:
+        user = auth.current_user(websocket)  # type: ignore[arg-type]
+    except HTTPException:
+        user = None
+    if user is None or not fleetterm.allowed(user, iam.rank, iam.rank("admin")):
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
+    audit.log(user["email"], "fleet.term.open", name, "maintenance root")
+    await fleetterm.bridge(websocket, name, cols, rows)
 
 
 class FleetReq(BaseModel):

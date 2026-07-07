@@ -106,10 +106,14 @@ export interface FleetResource {
 export interface FleetView {
   tenant: string; plan: string | null; catalog: FleetProduct[];
   resources: FleetResource[]; infra_status: string | null; cockpit_ip?: string | null;
+  can_term?: boolean; // droit terminal maintenance (admin ou grant explicite)
 }
 export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
 export const fleetRequest = (sku: string, name = "") =>
   mutate<{ ok: boolean; sku: string; invoice: string | null; status: string }>("/api/fleet/request", "POST", { sku, name });
+export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
+export const fleetGrantsSet = (emails: string[]) =>
+  mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });
 
 // mémoire / KB
 export const memoryStats = () => getJSON<MemStats>("/api/memory/stats");

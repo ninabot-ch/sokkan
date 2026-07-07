@@ -80,3 +80,36 @@ def start_sync() -> None:
     """Lancé au démarrage de l'app (mode managé uniquement)."""
     if ENABLED:
         threading.Thread(target=_sync_loop, daemon=True).start()
+        threading.Thread(target=_register_key, daemon=True).start()
+
+
+# --- clé de MAINTENANCE de la flotte -----------------------------------------
+# Générée une fois dans /data, enregistrée auprès du portail qui l'installe
+# (root) sur les instances de la flotte. Sert UNIQUEMENT le terminal de
+# maintenance (fleetterm.py) — admin de l'instance, ou user explicitement
+# autorisé par lui.
+SSH_DIR = os.path.join(os.environ.get("SOKKAN_DATA_DIR", "/data"), "fleet_ssh")
+KEY_PATH = os.path.join(SSH_DIR, "id_ed25519")
+
+
+def ensure_keypair() -> str:
+    """Crée la paire si absente ; retourne la clé publique."""
+    if not os.path.exists(KEY_PATH):
+        os.makedirs(SSH_DIR, mode=0o700, exist_ok=True)
+        import subprocess
+        subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q",
+                        "-C", "sokkan-fleet-maintenance", "-f", KEY_PATH], check=True)
+    return open(KEY_PATH + ".pub").read().strip()
+
+
+def _register_key() -> None:
+    """Enregistre la clé publique auprès du portail (retries : le portail ou le
+    provisioner peuvent être indisponibles au boot)."""
+    for _ in range(10):
+        try:
+            pub = ensure_keypair()
+            httpx.post(f"{URL}/fleet/sshkey", headers=_h(), timeout=30,
+                       json={"pubkey": pub}).raise_for_status()
+            return
+        except Exception:  # noqa: BLE001
+            time.sleep(60)

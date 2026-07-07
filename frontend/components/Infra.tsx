@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetRequest, fleetView, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRequest, fleetView, infraNodes, infraTargets,
 } from "@/lib/api";
+
+const FleetTerm = dynamic(() => import("./FleetTerm"), { ssr: false });
 import type { FleetProduct, FleetResource, FleetView } from "@/lib/api";
 import type { CloudEnv, InfraNode, InfraTarget } from "@/lib/types";
 import { useFeatures } from "@/lib/features";
@@ -213,12 +216,42 @@ const CAT_LABEL: Record<string, string> = {
 // « Ma flotte » — vue CLIENT (managé). Le cockpit interroge le portail NINABOT
 // avec son fleet token : il voit ses ressources et en demande de nouvelles
 // (facturées au prorata, provisionnées après paiement). Aucun credential cloud ici.
+// grants du terminal de maintenance (admin only) : qui, en dehors des admins,
+// peut ouvrir une session root sur les machines de la flotte.
+function TermGrants() {
+  const [g, setG] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+  useEffect(() => { fleetGrants().then((r) => setG(r.grants)).catch(() => {}); }, []);
+  const save = (emails: string[]) => fleetGrantsSet(emails).then((r) => setG(r.grants)).catch(() => {});
+  return (
+    <div className="mt-4 max-w-3xl rounded-lg border border-line bg-panel2/40 p-2.5">
+      <div className="text-[11.5px] font-semibold text-slate-200">Accès terminal de maintenance</div>
+      <div className="mt-0.5 text-[10.5px] text-mut">
+        Session <span className="text-amber-300">root</span> sur les machines de la flotte — admins d'office ;
+        ajoutez ici un user à autoriser explicitement. Chaque ouverture est auditée.
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        {g.map((e) => (
+          <span key={e} className="flex items-center gap-1 rounded border border-line px-1.5 py-px text-[11px] text-slate-200">
+            {e}<button onClick={() => save(g.filter((x) => x !== e))} className="text-mut hover:text-red-400">✕</button>
+          </span>
+        ))}
+        <input value={input} onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && input.includes("@")) { save([...g, input]); setInput(""); } }}
+          placeholder="email + Entrée"
+          className="w-44 rounded border border-line bg-[#0b0f16] px-2 py-0.5 text-[11px] text-slate-100 outline-none focus:border-sea/50" />
+      </div>
+    </div>
+  );
+}
+
 function Fleet() {
   const isAdmin = useCan("admin");
   const [view, setView] = useState<FleetView | null | undefined>(undefined); // undefined=chargement, null=indispo
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [term, setTerm] = useState(""); // nom de la ressource ouverte au terminal
 
   const reload = () => fleetView().then(setView).catch(() => setView(null));
   useEffect(() => { reload(); const iv = setInterval(reload, 8000); return () => clearInterval(iv); }, []);
@@ -277,6 +310,13 @@ function Fleet() {
                     {r.fleet_host}
                   </button>
                 )}
+                {view.can_term && r.status === "live" && r.fleet_host && !r.uri && (
+                  <button onClick={() => setTerm(r.fleet_host!.replace(/\.fleet$/, ""))}
+                    title="terminal de maintenance (root, audité)"
+                    className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10.5px] text-amber-300 hover:border-amber-400">
+                    ⌨ maintenance
+                  </button>
+                )}
                 <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{RES_LABEL[r.status] ?? r.status}</span>
               </div>
               {r.uri && <DbUri uri={r.uri} />}
@@ -288,6 +328,8 @@ function Fleet() {
           Depuis vos sessions, chaque ressource répond sur <span className="font-mono text-slate-300">&lt;nom&gt;.fleet</span>
           {" "}(le cockpit est <span className="font-mono text-slate-300">cockpit.fleet</span>{view.cockpit_ip ? ` · ${view.cockpit_ip}` : ""}).
         </div>
+        {isAdmin && <TermGrants />}
+        {term && <FleetTerm name={term} onClose={() => setTerm("")} />}
       </div>
 
       <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Ajouter une ressource</div>
