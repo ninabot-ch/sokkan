@@ -19,6 +19,11 @@ services:
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
       # optional model override for spawned sessions (default: CLI default)
       SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
+      # included-inference mode (seeded at provisioning): route sessions through
+      # the operator gateway instead of a client key. Empty = BYOK.
+      SOKKAN_INFER_BASE_URL: ${SOKKAN_INFER_BASE_URL:-}
+      SOKKAN_INFER_TOKEN: ${SOKKAN_INFER_TOKEN:-}
+      SOKKAN_INFER_MODEL: ${SOKKAN_INFER_MODEL:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
