@@ -97,6 +97,17 @@ export const cloudEnvSpawn = (client: string, tier: string, owner_email: string)
 export const cloudEnvDestroy = (client: string) =>
   mutate<{ client: string; status: string }>(`/api/infra/envs/${client}`, "DELETE");
 
+// flotte du client (managé) — connecteur backend/fleet.py → portail app.sokkan.ch
+export interface FleetProduct { sku: string; category: string; label: string; desc: string; price_chf: number; }
+export interface FleetResource { id: number; sku: string; name: string; status: string; created_at: number; }
+export interface FleetView {
+  tenant: string; plan: string | null; catalog: FleetProduct[];
+  resources: FleetResource[]; infra_status: string | null;
+}
+export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
+export const fleetRequest = (sku: string, name = "") =>
+  mutate<{ ok: boolean; sku: string; invoice: string | null; status: string }>("/api/fleet/request", "POST", { sku, name });
+
 // mémoire / KB
 export const memoryStats = () => getJSON<MemStats>("/api/memory/stats");
 export const memoryNotes = () => getJSON<MemNote[]>("/api/memory/notes");
