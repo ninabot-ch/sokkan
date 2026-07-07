@@ -48,6 +48,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import llm
 import panestate
 import preview
 import previewenv
@@ -169,6 +170,40 @@ def me(user: dict = Depends(current_user)) -> dict:
 @app.get("/api/auth/info")
 def auth_info() -> dict:
     return auth.auth_info()
+
+
+@app.get("/api/llm")
+def llm_status(_u: dict = Depends(current_user)) -> dict:
+    """Config LLM de l'instance (mode + modèle) — jamais la clé."""
+    return llm.status()
+
+
+class LlmConfig(BaseModel):
+    mode: str  # 'byok' | 'included'
+    anthropic_api_key: str = ""
+    base_url: str = ""
+    auth_token: str = ""
+    model: str = ""
+
+
+@app.post("/api/llm")
+def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
+    """Règle la clé/le mode LLM (admin de l'instance). La clé BYOK reste sur CETTE
+    VM (jamais transmise à NINABOT). En mode 'included', base_url/auth_token sont
+    normalement seedés au provisioning — l'UI expose surtout le BYOK."""
+    if body.mode == "byok":
+        if not body.anthropic_api_key.strip():
+            raise HTTPException(400, "anthropic_api_key required for BYOK")
+        llm.save({"mode": "byok", "anthropic_api_key": body.anthropic_api_key.strip()})
+    elif body.mode == "included":
+        if not (body.base_url and body.auth_token):
+            raise HTTPException(400, "base_url and auth_token required for included mode")
+        llm.save({"mode": "included", "base_url": body.base_url.strip(),
+                  "auth_token": body.auth_token.strip(), "model": body.model.strip()})
+    else:
+        raise HTTPException(400, "mode must be 'byok' or 'included'")
+    audit.log(u["email"], "llm.config", body.mode)
+    return llm.status()
 
 
 @app.get("/api/features")

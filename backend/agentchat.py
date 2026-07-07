@@ -45,6 +45,7 @@ except ImportError:  # pragma: no cover
     )
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
+import llm  # config LLM par instance (BYOK / inférence incluse)
 
 CWD = os.environ.get("SOKKAN_AGENT_CWD") or (
     "/workspace" if os.path.isdir("/workspace") else os.getcwd())
@@ -148,8 +149,13 @@ class AgentSession:
                 setting_sources=["user", "project", "local"],
                 mcp_servers=MCP_SERVERS,
             )
-            if self.model:
-                opts_kwargs["model"] = self.model
+            # config LLM par instance (BYOK / inférence incluse) injectée par session
+            env_extra = llm.session_env()
+            if env_extra:
+                opts_kwargs["env"] = {**os.environ, **env_extra}
+            model = self.model or llm.session_model()
+            if model:
+                opts_kwargs["model"] = model
             if self.resume:
                 opts_kwargs["resume"] = self.resume
             options = ClaudeAgentOptions(**opts_kwargs)

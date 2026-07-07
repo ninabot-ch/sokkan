@@ -73,6 +73,9 @@ export const iamDelete = (email: string) =>
 // infra
 export const infraNodes = () => getJSON<InfraNode[]>("/api/infra/nodes");
 export const infraTargets = () => getJSON<InfraTarget[]>("/api/infra/targets");
+export const llmStatus = () => getJSON<{ mode: string; configured: boolean; model: string | null }>("/api/llm");
+export const llmSetByok = (anthropic_api_key: string) =>
+  mutate<{ mode: string; configured: boolean }>("/api/llm", "POST", { mode: "byok", anthropic_api_key });
 export const cloudEnvs = () => getJSON<CloudEnv[]>("/api/infra/envs");
 export const cloudEnvDetail = (client: string) => getJSON<CloudEnv>(`/api/infra/envs/${client}`);
 export const cloudEnvSpawn = (client: string, tier: string, owner_email: string) =>
