@@ -91,6 +91,7 @@ def _reindex_loop() -> None:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     yield
 
 
@@ -180,14 +181,19 @@ def instance_info(_u: dict = Depends(current_user)) -> dict:
 
 
 @app.get("/api/fleet")
-def fleet_view(_u: dict = Depends(current_user)):
-    """Flotte du client (managé) : catalogue + ressources + état. null si self-hosted."""
+def fleet_view(u: dict = Depends(current_user)):
+    """Flotte du client (managé) : catalogue + ressources + état. null si self-hosted.
+    Les connection strings DB (creds) ne sortent que pour admin+."""
     if not fleet.ENABLED:
         return None
     try:
-        return fleet.view()
+        v = fleet.view()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"fleet: {e}")
+    if iam.rank(u["role"]) < iam.rank("admin"):
+        for r in v.get("resources") or []:
+            r.pop("uri", None)
+    return v
 
 
 class FleetReq(BaseModel):

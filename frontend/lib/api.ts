@@ -99,10 +99,13 @@ export const cloudEnvDestroy = (client: string) =>
 
 // flotte du client (managé) — connecteur backend/fleet.py → portail app.sokkan.ch
 export interface FleetProduct { sku: string; category: string; label: string; desc: string; price_chf: number; }
-export interface FleetResource { id: number; sku: string; name: string; status: string; created_at: number; }
+export interface FleetResource {
+  id: number; sku: string; name: string; status: string; created_at: number;
+  fleet_host?: string; private_ip?: string; uri?: string; // adressage réel (une fois provisionnée)
+}
 export interface FleetView {
   tenant: string; plan: string | null; catalog: FleetProduct[];
-  resources: FleetResource[]; infra_status: string | null;
+  resources: FleetResource[]; infra_status: string | null; cockpit_ip?: string | null;
 }
 export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
 export const fleetRequest = (sku: string, name = "") =>

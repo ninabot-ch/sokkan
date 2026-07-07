@@ -174,6 +174,27 @@ function Envs() {
   );
 }
 
+// connection string DB (admin only — le backend la retire pour les autres rôles)
+function DbUri({ uri }: { uri: string }) {
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="mt-1.5 flex items-center gap-2 pl-6">
+      <code className="min-w-0 flex-1 truncate rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10.5px] text-slate-300">
+        {shown ? uri : "postgres://••••••••••••••••••••••••••••"}
+      </code>
+      <button onClick={() => setShown(!shown)}
+        className="rounded border border-line px-1.5 py-px text-[10.5px] text-mut hover:text-slate-200">
+        {shown ? "masquer" : "révéler"}
+      </button>
+      <button onClick={() => { navigator.clipboard?.writeText(uri); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+        className="rounded border border-line px-1.5 py-px text-[10.5px] text-mut hover:text-slate-200">
+        {copied ? "✓ copié" : "copier"}
+      </button>
+    </div>
+  );
+}
+
 const RES_STATUS: Record<string, string> = {
   pending: "text-amber-300", provisioning: "text-sky-300",
   live: "text-emerald-400", failed: "text-red-400",
@@ -241,14 +262,28 @@ function Fleet() {
         </div>
         <div className="space-y-1.5">
           {view.resources.map((r: FleetResource) => (
-            <div key={r.id} className="flex items-center gap-2.5 rounded-lg border border-line bg-panel2/50 p-2 text-[12px]">
-              <span className={`${RES_STATUS[r.status] ?? "text-slate-200"}`}>●</span>
-              <span className="font-medium text-slate-100">{r.name || r.sku}</span>
-              <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{r.sku}</span>
-              <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{RES_LABEL[r.status] ?? r.status}</span>
+            <div key={r.id} className="rounded-lg border border-line bg-panel2/50 p-2 text-[12px]">
+              <div className="flex items-center gap-2.5">
+                <span className={`${RES_STATUS[r.status] ?? "text-slate-200"}`}>●</span>
+                <span className="font-medium text-slate-100">{r.name || r.sku}</span>
+                <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{r.sku}</span>
+                {r.fleet_host && (
+                  <button title={r.private_ip ? `copier (${r.private_ip})` : "copier"}
+                    onClick={() => navigator.clipboard?.writeText(r.fleet_host!)}
+                    className="rounded border border-sea/40 bg-sea/10 px-1.5 py-px font-mono text-[10.5px] text-sea hover:border-sea">
+                    {r.fleet_host}
+                  </button>
+                )}
+                <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{RES_LABEL[r.status] ?? r.status}</span>
+              </div>
+              {r.uri && <DbUri uri={r.uri} />}
             </div>
           ))}
           {view.resources.length === 0 && <div className="text-[12px] text-mut">Aucune ressource additionnelle — seulement votre cockpit.</div>}
+        </div>
+        <div className="mt-2 text-[10.5px] text-mut">
+          Depuis vos sessions, chaque ressource répond sur <span className="font-mono text-slate-300">&lt;nom&gt;.fleet</span>
+          {" "}(le cockpit est <span className="font-mono text-slate-300">cockpit.fleet</span>{view.cockpit_ip ? ` · ${view.cockpit_ip}` : ""}).
         </div>
       </div>
 

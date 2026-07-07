@@ -33,6 +33,8 @@ ENV SOKKAN_DATA_DIR=/data \
     SOKKAN_FEATURE_TMUX=0 \
     HOME=/data
 
-USER sokkan
+# démarre root : l'entrypoint rend /etc/hosts writable par le groupe (mode
+# managé : le backend y maintient la nomenclature `<name>.fleet`) puis DROP
+# immédiatement vers sokkan (setpriv). L'app ne tourne jamais en root.
 EXPOSE 8097
 ENTRYPOINT ["/entrypoint.sh"]
