@@ -48,6 +48,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import instance
 import llm
 import panestate
 import preview
@@ -170,6 +171,22 @@ def me(user: dict = Depends(current_user)) -> dict:
 @app.get("/api/auth/info")
 def auth_info() -> dict:
     return auth.auth_info()
+
+
+@app.get("/api/instance")
+def instance_info(_u: dict = Depends(current_user)) -> dict:
+    return instance.info()
+
+
+class OrgName(BaseModel):
+    org_name: str
+
+
+@app.post("/api/instance")
+def instance_set(body: OrgName, u: dict = Depends(require("admin"))) -> dict:
+    r = instance.set_org_name(body.org_name)
+    audit.log(u["email"], "instance.rename", body.org_name)
+    return r
 
 
 @app.get("/api/llm")
