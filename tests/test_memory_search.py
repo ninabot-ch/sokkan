@@ -63,7 +63,9 @@ def test_degraded_without_keywords_errors(mem, monkeypatch):
     assert "error" in res[0]
 
 
-def test_empty_index_returns_error(mem, monkeypatch):
+def test_empty_index_returns_info_not_error(mem, monkeypatch):
+    # index vide sur instance neuve = état normal → info non-alarmant, pas une erreur
     monkeypatch.setattr(mem, "_load_chunks", lambda: [])
     res = mem.memory_search("anything")
-    assert "error" in res[0]
+    assert res[0].get("empty") is True and "info" in res[0]
+    assert "error" not in res[0]

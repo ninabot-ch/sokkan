@@ -95,7 +95,9 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
     """
     chunks = _load_chunks()
     if not chunks:
-        return [{"error": "index vide ou introuvable — lancer index_memory.py", "db": str(DB_PATH)}]
+        return [{"info": "No project memory yet. Write notes as markdown files in the workspace "
+                 "memory directory (one fact per file, with a description: frontmatter) and they "
+                 "become searchable within ~2 minutes.", "empty": True}]
     qtok = _tokens(query)
     degraded = None
     try:
@@ -155,7 +157,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
 def memory_get(note_name: str) -> str:
     """Retourne le corps complet d'une note mémoire par son nom (sans .md)."""
     if not DB_PATH.exists():
-        return f"index introuvable: {DB_PATH}"
+        return f"memory index not found: {DB_PATH}"
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     try:
         rows = con.execute(
@@ -172,7 +174,7 @@ def memory_get(note_name: str) -> str:
     finally:
         con.close()
     if not rows:
-        return f"note introuvable: {note_name}"
+        return f"note not found: {note_name}"
     return "\n\n".join(r[0] for r in rows)
 
 

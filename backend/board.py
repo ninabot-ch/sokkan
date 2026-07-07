@@ -151,10 +151,10 @@ def _uniquify(tag: str) -> str:
 def _seed_text(prompt: str) -> str:
     return (
         f"{prompt.strip()} "
-        "Commence par appeler l'outil MCP mcp__sokkan-memory__memory_search avec le sujet "
-        "pour charger le contexte pertinent (puis mcp__sokkan-memory__memory_get sur les notes utiles — "
-        "de vrais appels d'outil MCP, pas des commandes shell). "
-        "Ensuite propose un plan court — n'exécute rien sans mon accord."
+        "Start by calling the mcp__sokkan-memory__memory_search MCP tool on this topic to load "
+        "any relevant project context (then mcp__sokkan-memory__memory_get on the useful notes — "
+        "real MCP tool calls, not shell commands). If the project memory is still empty, just note "
+        "that and carry on. Then propose a short plan — don't execute anything without my go-ahead."
     ).strip()
 
 
