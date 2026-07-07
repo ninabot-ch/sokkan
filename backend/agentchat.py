@@ -119,6 +119,7 @@ class AgentSession:
         self._questions: dict[str, asyncio.Future] = {}
         self._busy = False
         self._start_lock = asyncio.Lock()
+        self._model_seen: str | None = None
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -257,6 +258,13 @@ class AgentSession:
                 self._emit({"type": "error", "message": f"interrupt: {e}"})
 
     # ---- traduction message SDK → event WS ----------------------------------
+    def _emit_model(self, model: str | None) -> None:
+        """Émet le modèle réel de la session (une fois / quand il change) → badge cockpit.
+        Répond à « on ne sait pas sur quel modèle tourne la session »."""
+        if model and model != self._model_seen:
+            self._model_seen = model
+            self._emit({"type": "model", "model": model})
+
     def _translate(self, msg: Any) -> None:
         if isinstance(msg, SystemMessage):
             data = getattr(msg, "data", {}) or {}
@@ -268,6 +276,7 @@ class AgentSession:
                 except Exception:  # noqa: BLE001
                     pass
                 self._emit({"type": "session", "claude_session_id": sid})
+            self._emit_model(data.get("model"))  # le message init porte souvent le modèle
             return
 
         if isinstance(msg, ResultMessage):
@@ -281,6 +290,7 @@ class AgentSession:
             return
 
         # AssistantMessage (et UserMessage portant des tool_result)
+        self._emit_model(getattr(msg, "model", None))  # le modèle réel du tour
         content = getattr(msg, "content", None)
         if not isinstance(content, list):
             return

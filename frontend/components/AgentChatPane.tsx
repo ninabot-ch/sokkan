@@ -29,6 +29,7 @@ export default function AgentChatPane({
   const [perms, setPerms] = useState<PermReq[]>([]);
   const [questions, setQuestions] = useState<QReq[]>([]);
   const [text, setText] = useState("");
+  const [model, setModel] = useState<string>("");
   const sock = useRef<AgentSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -46,6 +47,9 @@ export default function AgentChatPane({
     switch (e.type) {
       case "session":
         // claude_session_id persisté côté serveur — rien à faire ici
+        break;
+      case "model":
+        setModel(e.model);
         break;
       case "status":
         setWorking(e.state === "working");
@@ -151,6 +155,7 @@ export default function AgentChatPane({
           working ? "animate-pulse bg-emerald-400" : open ? "bg-emerald-500" : "bg-slate-600"
         }`} title={working ? "Claude travaille…" : open ? "connecté" : "déconnecté"} />
         {tag && <span className="shrink-0 rounded bg-brass/15 px-1.5 text-[10px] text-brass">{tag}</span>}
+        {model && <span className="shrink-0 rounded bg-sea/15 px-1.5 text-[10px] text-sea" title="modèle de la session">{model}</span>}
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-slate-100">{title || "Session"}</div>
           <div className="truncate text-[10.5px] text-mut">

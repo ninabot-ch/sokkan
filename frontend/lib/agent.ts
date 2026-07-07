@@ -22,6 +22,7 @@ export type AgentEvent =
   | { type: "permission_resolved"; id: string }
   | { type: "question_resolved"; id: string }
   | { type: "result"; text: string; is_error: boolean; num_turns?: number; cost_usd?: number }
+  | { type: "model"; model: string }
   | { type: "error"; message: string };
 
 export async function createAgentSession(): Promise<string> {
