@@ -1,0 +1,5 @@
+# exclus de `git archive` → le tarball d'install (sokkan.ch/dist) reste léger.
+# Le GIF/les captures ne servent que le README GitHub.
+docs/demo.gif export-ignore
+docs/shots/ export-ignore
+.github/ export-ignore
