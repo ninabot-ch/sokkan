@@ -68,6 +68,10 @@ SAFE_TOOLS = [
     "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get",
     "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
 ]
+# modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
+VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
+# outils traités comme « édition de fichier » par le mode acceptEdits
+_EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
 
 # titre court d'une carte d'outil (aligné sur transcript.py)
@@ -120,6 +124,7 @@ class AgentSession:
         self._busy = False
         self._start_lock = asyncio.Lock()
         self._model_seen: str | None = None
+        self.mode = "default"  # default | acceptEdits | bypassPermissions | plan
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -146,7 +151,9 @@ class AgentSession:
                 cwd=self.cwd,
                 can_use_tool=self._can_use_tool,
                 allowed_tools=SAFE_TOOLS,
-                permission_mode="default",
+                # bypass/acceptEdits sont gérés dans _can_use_tool ; seul `plan`
+                # doit être engagé au niveau du SDK (change le comportement du modèle)
+                permission_mode="plan" if self.mode == "plan" else "default",
                 setting_sources=["user", "project", "local"],
                 mcp_servers=MCP_SERVERS,
             )
@@ -195,6 +202,13 @@ class AgentSession:
             return PermissionResultAllow(
                 updated_input={**input_data, "answers": answers}
             )
+
+        # auto-approbation selon le mode courant (automode / accept-édits) — l'équivalent
+        # web du Shift+Tab du TUI. AskUserQuestion (au-dessus) reste toujours interactif :
+        # c'est une vraie question à l'utilisateur, pas un simple gate de permission.
+        if self.mode == "bypassPermissions" or (
+                self.mode == "acceptEdits" and tool_name in _EDIT_TOOLS):
+            return PermissionResultAllow(updated_input=input_data)
 
         # outil mutant (Bash/Edit/Write/…) : demande d'autorisation
         pid = uuid.uuid4().hex
@@ -256,6 +270,22 @@ class AgentSession:
                 await self.client.interrupt()
             except Exception as e:  # noqa: BLE001
                 self._emit({"type": "error", "message": f"interrupt: {e}"})
+
+    async def set_mode(self, mode: str) -> None:
+        """Change le mode de permission de la session (default / acceptEdits /
+        bypassPermissions / plan). bypass & acceptEdits sont appliqués dans
+        `_can_use_tool` (SDK laissé sur default pour garder AskUserQuestion
+        interactif) ; seul `plan` est engagé au niveau du SDK."""
+        if mode not in VALID_MODES:
+            return
+        self.mode = mode
+        if self.client is not None:
+            try:
+                await self.client.set_permission_mode(
+                    "plan" if mode == "plan" else "default")
+            except Exception as e:  # noqa: BLE001
+                self._emit({"type": "error", "message": f"set_mode: {e}"})
+        self._emit({"type": "perm_mode", "mode": mode})
 
     # ---- traduction message SDK → event WS ----------------------------------
     def _emit_model(self, model: str | None) -> None:

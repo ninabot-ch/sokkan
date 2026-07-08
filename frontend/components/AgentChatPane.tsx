@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AgentSocket, fetchAgentCommands,
-  type AgentEvent, type AgentQuestion,
+  type AgentEvent, type AgentQuestion, type PermMode,
 } from "@/lib/agent";
 import type { Message } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
@@ -10,6 +10,18 @@ import { useCan } from "@/lib/me";
 
 interface PermReq { id: string; tool: string; title: string; input: Record<string, unknown> }
 interface QReq { id: string; questions: AgentQuestion[] }
+
+// modes de permission dans l'ordre du cycle (clic sur le badge ou Maj+Tab)
+const PERM_MODES: { id: PermMode; label: string; cls: string; title: string }[] = [
+  { id: "default",           label: "🔒 confirmations", cls: "border-line text-mut",
+    title: "chaque outil mutant demande confirmation" },
+  { id: "acceptEdits",       label: "✏️ auto-édits",    cls: "border-sea/50 text-sea",
+    title: "édits de fichiers auto-acceptés · Bash confirme encore" },
+  { id: "bypassPermissions", label: "⚡ automode",       cls: "border-amber-500/60 text-amber-300 bg-amber-500/10",
+    title: "tout auto-accepté — aucune confirmation (YOLO)" },
+  { id: "plan",              label: "📋 plan",          cls: "border-violet-400/50 text-violet-300",
+    title: "lecture seule — Claude produit un plan avant d'agir" },
+];
 
 // pane de grille pour une session SDK possédée par SOKKAN.
 // Le sid vient du store (spawn) ; le resume est géré côté serveur
@@ -30,6 +42,7 @@ export default function AgentChatPane({
   const [questions, setQuestions] = useState<QReq[]>([]);
   const [text, setText] = useState("");
   const [model, setModel] = useState<string>("");
+  const [pmode, setPmode] = useState<PermMode>("default");
   const sock = useRef<AgentSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -50,6 +63,9 @@ export default function AgentChatPane({
         break;
       case "model":
         setModel(e.model);
+        break;
+      case "perm_mode":
+        setPmode(e.mode);
         break;
       case "status":
         setWorking(e.state === "working");
@@ -125,6 +141,15 @@ export default function AgentChatPane({
     setQuestions((q) => q.filter((x) => x.id !== id));
   };
 
+  // cycle de mode (optimiste ; le serveur reconfirme via l'event perm_mode)
+  const cycleMode = () => {
+    if (!canWrite || !sock.current) return;
+    const i = PERM_MODES.findIndex((m) => m.id === pmode);
+    const next = PERM_MODES[(i + 1) % PERM_MODES.length];
+    setPmode(next.id);
+    sock.current.setMode(next.id);
+  };
+
   // ---- palette slash -------------------------------------------------------
   const [cmds, setCmds] = useState<{ name: string; desc: string }[]>([]);
   const [palIdx, setPalIdx] = useState(0);
@@ -138,6 +163,7 @@ export default function AgentChatPane({
   useEffect(() => { setPalIdx(0); }, [text]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); cycleMode(); return; }
     if (palette.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setPalIdx((i) => (i + 1) % palette.length); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setPalIdx((i) => (i - 1 + palette.length) % palette.length); return; }
@@ -147,6 +173,8 @@ export default function AgentChatPane({
     }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); }
   };
+
+  const curMode = PERM_MODES.find((m) => m.id === pmode) ?? PERM_MODES[0];
 
   return (
     <div className="flex min-h-0 flex-col rounded-xl border border-line bg-panel">
@@ -163,6 +191,11 @@ export default function AgentChatPane({
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          <button onClick={cycleMode} disabled={!canWrite}
+            title={`${curMode.title} · clic ou Maj+Tab pour changer de mode`}
+            className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] hover:bg-panel2 disabled:opacity-40 ${curMode.cls}`}>
+            {curMode.label}
+          </button>
           {working && (
             <button onClick={() => sock.current?.interrupt()}
               className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-100 hover:bg-amber-500/20">

@@ -433,6 +433,8 @@ async def agent_ws(websocket: WebSocket, sid: str):
                 session.resolve_question(msg.get("id", ""), msg.get("answers", {}))
             elif t == "interrupt":
                 await session.interrupt()
+            elif t == "mode":
+                await session.set_mode(msg.get("mode", "default"))
     except WebSocketDisconnect:
         pass
     finally:

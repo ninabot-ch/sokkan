@@ -9,6 +9,9 @@ export interface AgentQuestion {
   multiSelect?: boolean;
 }
 
+// modes de permission (équivalent web du Shift+Tab du TUI)
+export type PermMode = "default" | "acceptEdits" | "bypassPermissions" | "plan";
+
 // events serveur → client
 export type AgentEvent =
   | { type: "session"; claude_session_id: string }
@@ -23,6 +26,7 @@ export type AgentEvent =
   | { type: "question_resolved"; id: string }
   | { type: "result"; text: string; is_error: boolean; num_turns?: number; cost_usd?: number }
   | { type: "model"; model: string }
+  | { type: "perm_mode"; mode: PermMode }
   | { type: "error"; message: string };
 
 export async function createAgentSession(): Promise<string> {
@@ -87,6 +91,7 @@ export class AgentSocket {
     this.send({ type: "answer", id, answers });
   }
   interrupt() { this.send({ type: "interrupt" }); }
+  setMode(mode: PermMode) { this.send({ type: "mode", mode }); }
 
   close() { this.closed = true; this.ws?.close(); }
 }
