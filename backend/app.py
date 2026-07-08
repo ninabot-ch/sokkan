@@ -212,6 +212,24 @@ def fleet_remove(rid: int, u: dict = Depends(require("admin"))):
     return r
 
 
+class CreditPack(BaseModel):
+    pack: int  # 25 | 100 | 500 CHF
+
+
+@app.post("/api/llm/credit")
+def llm_credit(body: CreditPack, u: dict = Depends(require("admin"))):
+    """Achat d'un pack de crédits d'inférence (admin) → URL Stripe Checkout.
+    Managé uniquement (le portail tient le wallet)."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "crédits d'inférence indisponibles sur cette instance")
+    try:
+        r = fleet.credit_checkout(body.pack)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "llm.credit.checkout", f"{body.pack} CHF", "")
+    return r
+
+
 @app.get("/api/fleet/grants")
 def fleet_grants(_u: dict = Depends(require("admin"))) -> dict:
     """Accès terminal de maintenance : liste des users autorisés (hors admins,
@@ -414,12 +432,13 @@ async def agent_ws(websocket: WebSocket, sid: str):
     if "/" in sid or ".." in sid:
         await websocket.close(code=4400)
         return
-    if _ws_user(websocket) is None:
+    wsu = _ws_user(websocket)
+    if wsu is None:
         await websocket.close(code=4401)
         return
     await websocket.accept()
     resume = websocket.query_params.get("resume") or None
-    session = agentchat.get_or_create(sid, resume=resume)
+    session = agentchat.get_or_create(sid, resume=resume, user=wsu["email"])
     queue = session.subscribe()
 
     async def pump() -> None:
@@ -595,13 +614,13 @@ class SpawnBody(BaseModel):
     kind: str = "sdk"  # 'sdk' (chat SDK, défaut) | 'tmux' (terminal power-user)
 
 
-def _spawn_sdk(tag: str, prompt: str = "", title: str = "") -> dict:
+def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> dict:
     """Session SDK : enregistrée dans le store + AgentSession créée ; le seed
     (sujet + consigne memory_search + HITL) part en tâche de fond — les events
     sont bufferisés et rejoués quand le pane se connecte."""
     sid = agentchat.new_sid()
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
-    session = agentchat.get_or_create(sid)
+    session = agentchat.get_or_create(sid, user=user)
     if prompt.strip():
         _bg(session.handle_user(board.seed_text(prompt)))
     return s
@@ -613,7 +632,7 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
     if body.kind == "tmux":
         s = board.spawn(body.tag, prompt=body.prompt, title=body.title)
     else:
-        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title)
+        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title, user=u["email"])
     audit.log(u["email"], "session.spawn", s.get("window") or s["session_id"],
               f"{s['title']} ({body.kind})")
     return s
@@ -1060,7 +1079,7 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     card = board.get_card(card_id)
     if not card:
         raise HTTPException(404, "card not found")
-    s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"])
+    s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"])
     board.update_card(card_id, user=u["email"], session_id=s["session_id"],
                       window="", bucket="Doing")
     audit.log(u["email"], "board.card.spawn", f"carte #{card_id}", s["title"])

@@ -110,11 +110,12 @@ class AgentSession:
     """Une session de chat SDK : un ClaudeSDKClient long-vivant + diffusion d'events."""
 
     def __init__(self, sid: str, cwd: str = CWD, resume: str | None = None,
-                 model: str | None = MODEL):
+                 model: str | None = MODEL, user: str = ""):
         self.sid = sid
         self.cwd = cwd
         self.resume = resume
         self.model = model
+        self.user = user  # email du spawneur → attribution per-user du metering (mode géré)
         self.client: ClaudeSDKClient | None = None
         self.claude_session_id: str | None = None
         self.events: list[dict] = []          # ring buffer (replay au reconnect)
@@ -157,8 +158,8 @@ class AgentSession:
                 setting_sources=["user", "project", "local"],
                 mcp_servers=MCP_SERVERS,
             )
-            # config LLM par instance (BYOK / inférence incluse) injectée par session
-            env_extra = llm.session_env()
+            # config LLM par instance (BYOK / inférence gérée) injectée par session
+            env_extra = llm.session_env(self.user)
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = self.model or llm.session_model()
@@ -352,13 +353,15 @@ class AgentSession:
 _registry: dict[str, AgentSession] = {}
 
 
-def get_or_create(sid: str, resume: str | None = None) -> AgentSession:
+def get_or_create(sid: str, resume: str | None = None, user: str = "") -> AgentSession:
     s = _registry.get(sid)
     if s is None:
         # après un restart de sokkan-api : reprendre le claude_session_id persisté
         resume = resume or (board.get_claude_session_id(sid) or None)
-        s = AgentSession(sid, resume=resume)
+        s = AgentSession(sid, resume=resume, user=user)
         _registry[sid] = s
+    elif user and not s.user:
+        s.user = user  # rattachement avant le premier start (client pas encore créé)
     return s
 
 

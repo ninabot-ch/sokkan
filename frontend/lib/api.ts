@@ -80,7 +80,12 @@ export interface LlmStatus {
 export interface LlmUsage {
   client: string; day: string; used_today: number; daily_quota_tokens: number;
   used_month: number; monthly_quota_tokens: number;
+  balance_centimes?: number; // wallet prépayé (inférence gérée)
+  per_user?: { user: string; input_tokens: number; output_tokens: number; requests: number }[];
+  rates_chf_per_mtok?: { up_to_input: number; input: number; output: number }[];
 }
+export const llmCredit = (pack: number) =>
+  mutate<{ ok: boolean; checkout_url: string }>("/api/llm/credit", "POST", { pack });
 export interface InstanceInfo { org_name: string; tier: string; public_url: string; owner_email: string; }
 export const instanceInfo = () => getJSON<InstanceInfo>("/api/instance");
 export const instanceRename = (org_name: string) => mutate<InstanceInfo>("/api/instance", "POST", { org_name });

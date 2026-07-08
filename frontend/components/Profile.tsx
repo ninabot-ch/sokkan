@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
   instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
-  llmStatus, llmUsage, llmSetApiKey, llmSetSubscription,
+  llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription,
   type InstanceInfo, type LlmStatus, type LlmUsage,
 } from "@/lib/api";
 import type { IamUser } from "@/lib/types";
@@ -127,22 +127,57 @@ function Model() {
       <div className="rounded-lg border border-line bg-panel2/50 p-3 text-[12.5px]">
         <div className="flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${st.configured ? "bg-emerald-500" : "bg-amber-400"}`} />
-          <span className="text-slate-200">{included ? "Inférence incluse — opérée par NINABOT"
+          <span className="text-slate-200">{included ? "Inférence gérée — Qwen3 Coder (Francfort UE), prépayée"
             : st.byok_kind === "api_key" ? "Votre clé API Anthropic"
             : st.byok_kind === "subscription" ? "Votre abonnement Claude Pro/Max"
             : st.mode === "env" ? "Clé configurée (environnement)" : "Aucun modèle configuré"}</span>
         </div>
         {included && use && (
-          <div className="mt-2.5">
-            <div className="flex justify-between text-[11px] text-mut"><span>Aujourd'hui</span>
-              <span className="text-slate-300">{fmt(use.used_today)} / {use.daily_quota_tokens ? fmt(use.daily_quota_tokens) : "∞"} tokens</span></div>
-            <div className="mt-1"><Bar used={use.used_today} quota={use.daily_quota_tokens} /></div>
-            <div className="mt-1 text-[10px] text-mut">Réinitialisé à minuit UTC · facturé par NINABOT.</div>
+          <div className="mt-2.5 space-y-2">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[11px] text-mut">Crédits d'inférence</span>
+              <span className={`text-[15px] font-semibold ${(use.balance_centimes ?? 0) > 500 ? "text-emerald-400" : "text-amber-300"}`}>
+                {((use.balance_centimes ?? 0) / 100).toFixed(2)} CHF
+              </span>
+            </div>
+            {isAdmin && (
+              <div className="flex gap-1.5">
+                {[25, 100, 500].map((p) => (
+                  <button key={p} onClick={() => llmCredit(p).then((r) => window.open(r.checkout_url, "_blank")).catch(() => {})}
+                    className="flex-1 rounded border border-sea/40 bg-sea/10 px-2 py-1 text-[11px] text-sea hover:border-sea">
+                    +{p} CHF{p >= 500 ? " (+25%)" : ""}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div>
+              <div className="flex justify-between text-[11px] text-mut"><span>Aujourd'hui (plafond de protection)</span>
+                <span className="text-slate-300">{fmt(use.used_today)} / {use.daily_quota_tokens ? fmt(use.daily_quota_tokens) : "∞"} tokens</span></div>
+              <div className="mt-1"><Bar used={use.used_today} quota={use.daily_quota_tokens} /></div>
+            </div>
+            {!!use.per_user?.length && (
+              <div>
+                <div className="text-[11px] text-mut">Usage du mois par utilisateur</div>
+                {use.per_user.map((u2) => (
+                  <div key={u2.user} className="flex justify-between text-[11px]">
+                    <span className="text-slate-300">{u2.user || "(non attribué)"}</span>
+                    <span className="text-mut">{fmt(u2.input_tokens)} in · {fmt(u2.output_tokens)} out</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[10px] text-mut">
+              Décompté au token (tarif affiché dès 4 CHF/Mtok in · 20 CHF/Mtok out, paliers de contexte).
+              Solde épuisé = requêtes refusées, rien n'est facturé au-delà.
+            </div>
           </div>
         )}
       </div>
       {included ? (
-        <div className="text-[12px] text-mut">Modèle fourni et opéré par NINABOT avec un quota journalier. Pour une clé personnelle, contactez-nous.</div>
+        <div className="text-[12px] text-mut">
+          Inférence gérée : modèles <b className="text-slate-300">Qwen3 Coder</b>, servis depuis
+          Francfort (UE), prépayée par crédits. Pour passer en clé personnelle (BYOK), contactez-nous.
+        </div>
       ) : !isAdmin ? (
         <div className="text-[12px] text-mut">La configuration du modèle est réservée aux administrateurs.</div>
       ) : (
@@ -155,8 +190,8 @@ function Model() {
             <div className="text-[13px] text-slate-100">Abonnement Claude Pro / Max</div>
             <div className="text-[11px] text-mut">Sur votre poste : <code className="text-slate-300">claude setup-token</code> → collez le jeton. Utilise votre abonnement.</div></button>
           <div className="rounded-lg border border-line/60 bg-panel2/30 p-3 opacity-70">
-            <div className="text-[13px] text-slate-300">Inférence incluse (opérée par NINABOT)</div>
-            <div className="text-[11px] text-mut">Fournie et facturée par NINABOT, avec quota. Se choisit à la souscription.</div></div>
+            <div className="text-[13px] text-slate-300">Inférence gérée (Qwen3 Coder · Francfort UE)</div>
+            <div className="text-[11px] text-mut">Prépayée par crédits, décomptée au token. Se choisit à la souscription.</div></div>
           {choice && (
             <div className="rounded-lg border border-line bg-panel2/40 p-3">
               <input value={val} onChange={(e) => setVal(e.target.value)} type="password"

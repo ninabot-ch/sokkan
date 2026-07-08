@@ -86,8 +86,10 @@ def status() -> dict:
             "operator_managed": mode == "included"}
 
 
-def session_env() -> dict:
-    """Variables d'env à injecter dans une session (surcharge de os.environ)."""
+def session_env(user_email: str = "") -> dict:
+    """Variables d'env à injecter dans une session (surcharge de os.environ).
+    user_email : attribution per-user du metering côté passerelle (mode géré) —
+    passé en header custom, ignoré par Anthropic direct."""
     c = load()
     if c.get("mode") == "byok":
         if c.get("anthropic_api_key"):  # clé API → Anthropic direct
@@ -98,10 +100,13 @@ def session_env() -> dict:
             return {"CLAUDE_CODE_OAUTH_TOKEN": c["claude_oauth_token"],
                     "ANTHROPIC_API_KEY": "", "ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": ""}
     if c.get("mode") == "included" and c.get("base_url") and c.get("auth_token"):
-        return {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
-                "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
-                "ANTHROPIC_API_KEY": c["auth_token"],  # gateway accepte x-api-key OU Bearer
-                "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        env = {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
+               "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
+               "ANTHROPIC_API_KEY": c["auth_token"],  # gateway accepte x-api-key OU Bearer
+               "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        if user_email:
+            env["ANTHROPIC_CUSTOM_HEADERS"] = f"x-sokkan-user: {user_email}"
+        return env
     return {}
 
 

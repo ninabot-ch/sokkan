@@ -46,6 +46,14 @@ def request_resource(sku: str, name: str = "") -> dict:
     return r.json()
 
 
+def credit_checkout(pack: int) -> dict:
+    """Demande une URL Stripe Checkout pour un pack de crédits d'inférence.
+    Le wallet est crédité par le portail APRÈS paiement (webhook)."""
+    r = httpx.post(f"{URL}/fleet/credit", headers=_h(), timeout=30, json={"pack": pack})
+    r.raise_for_status()
+    return r.json()
+
+
 def remove_resource(rid: int) -> dict:
     """Résilie une ressource : crédit du prorata restant + destroy (données perdues)."""
     r = httpx.delete(f"{URL}/fleet/resource/{rid}", headers=_h(), timeout=60)
