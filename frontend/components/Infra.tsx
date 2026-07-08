@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRequest, fleetView, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetView, infraNodes, infraTargets,
 } from "@/lib/api";
 
 const FleetTerm = dynamic(() => import("./FleetTerm"), { ssr: false });
@@ -201,10 +201,12 @@ function DbUri({ uri }: { uri: string }) {
 const RES_STATUS: Record<string, string> = {
   pending: "text-amber-300", provisioning: "text-sky-300",
   live: "text-emerald-400", failed: "text-red-400",
+  removing: "text-amber-300", destroyed: "text-mut",
 };
 const RES_LABEL: Record<string, string> = {
   pending: "en attente de paiement", provisioning: "création en cours",
   live: "en service", failed: "échec",
+  removing: "résiliation en cours", destroyed: "résiliée",
 };
 const INFRA_LABEL: Record<string, string> = {
   planned: "planifié", provisioning: "création en cours", running: "en service",
@@ -318,6 +320,15 @@ function Fleet() {
                   </button>
                 )}
                 <span className={`ml-auto text-[11px] ${RES_STATUS[r.status] ?? "text-slate-300"}`}>{RES_LABEL[r.status] ?? r.status}</span>
+                {isAdmin && !r.sku.startsWith("plan-") && ["live", "provisioning", "pending"].includes(r.status) && (
+                  <button title="résilier (crédit du prorata, données détruites)"
+                    onClick={() => {
+                      const nm = r.name || r.sku;
+                      if (prompt(`Résiliation DÉFINITIVE de « ${nm} » — le prorata restant est crédité, les données de la ressource sont DÉTRUITES.\nRetape son nom pour confirmer :`) === nm)
+                        fleetRemove(r.id).then(() => { setMsg(`« ${nm} » en cours de résiliation.`); reload(); }).catch((e) => setErr(String(e)));
+                    }}
+                    className="rounded px-1 text-mut hover:text-red-400">✕</button>
+                )}
               </div>
               {r.uri && <DbUri uri={r.uri} />}
             </div>

@@ -111,6 +111,8 @@ export interface FleetView {
 export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
 export const fleetRequest = (sku: string, name = "") =>
   mutate<{ ok: boolean; sku: string; invoice: string | null; status: string }>("/api/fleet/request", "POST", { sku, name });
+export const fleetRemove = (rid: number) =>
+  mutate<{ ok: boolean; status: string }>(`/api/fleet/resource/${rid}`, "DELETE");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });

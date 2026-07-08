@@ -198,6 +198,20 @@ def fleet_view(u: dict = Depends(current_user)):
     return v
 
 
+@app.delete("/api/fleet/resource/{rid}")
+def fleet_remove(rid: int, u: dict = Depends(require("admin"))):
+    """Résiliation self-service d'une ressource de flotte (admin) : crédit du
+    prorata restant + destruction — les données de la ressource sont perdues."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+    try:
+        r = fleet.remove_resource(rid)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "fleet.remove", str(rid), "résiliation + destroy")
+    return r
+
+
 @app.get("/api/fleet/grants")
 def fleet_grants(_u: dict = Depends(require("admin"))) -> dict:
     """Accès terminal de maintenance : liste des users autorisés (hors admins,

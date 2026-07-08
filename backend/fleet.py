@@ -46,6 +46,13 @@ def request_resource(sku: str, name: str = "") -> dict:
     return r.json()
 
 
+def remove_resource(rid: int) -> dict:
+    """Résilie une ressource : crédit du prorata restant + destroy (données perdues)."""
+    r = httpx.delete(f"{URL}/fleet/resource/{rid}", headers=_h(), timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
 def sync_hosts(view_data: dict) -> None:
     """Nomenclature réseau des sessions : écrit le bloc `<name>.fleet` dans le
     /etc/hosts du conteneur depuis la vue portail. Les sessions font ensuite
