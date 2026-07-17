@@ -44,6 +44,29 @@ services:
       retries: 5
       start_period: 60s
 
+  # Fleet edge (managed / opt-in): terminates the client's CUSTOM domains on
+  # 80/443 with on-demand Let's Encrypt TLS. Serves only hostnames approved by
+  # the api (`/api/edge/ask`); config is rendered by backend/edge.py from the
+  # fleet view. Enable with COMPOSE_PROFILES=edge (set automatically on managed
+  # VMs). Self-hosted default: off — nothing binds 80/443.
+  edge:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["edge"]
+    command: sh -c "while [ ! -f /sokkan-data/edge/Caddyfile ]; do sleep 2; done;
+      exec caddy run --config /sokkan-data/edge/Caddyfile --adapter caddyfile --watch"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - sokkan-data:/sokkan-data:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
@@ -58,3 +81,5 @@ services:
 
 volumes:
   sokkan-data:
+  caddy-data:
+  caddy-config:

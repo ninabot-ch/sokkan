@@ -48,6 +48,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import edge
 import fleet
 import fleetterm
 import instance
@@ -286,6 +287,53 @@ def fleet_request(body: FleetReq, u: dict = Depends(require("admin"))):
         raise HTTPException(502, f"fleet: {e}")
     audit.log(u["email"], "fleet.request", body.sku, body.name)
     return r
+
+
+class RouteReq(BaseModel):
+    kind: str            # subdomain | custom
+    name: str = ""       # label du sous-domaine (kind=subdomain)
+    hostname: str = ""   # FQDN du client (kind=custom)
+    target: str = "cockpit"
+    port: int = 80
+
+
+@app.post("/api/fleet/routes")
+def fleet_route_add(body: RouteReq, u: dict = Depends(require("admin"))):
+    """Route d'exposition web (gratuite, admin) : sous-domaine sokkan.ch via le
+    tunnel, ou domaine du client via le caddy edge de cette VM."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+    try:
+        r = fleet.add_route(body.kind, body.name, body.hostname, body.target, body.port)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    fleet.refresh_edge()  # Caddyfile à jour sans attendre le tick de 120 s
+    audit.log(u["email"], "fleet.route.add", r.get("hostname", ""),
+              f"{body.kind} → {body.target}:{body.port}")
+    return r
+
+
+@app.delete("/api/fleet/routes/{rid}")
+def fleet_route_del(rid: int, u: dict = Depends(require("admin"))):
+    if not fleet.ENABLED:
+        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+    try:
+        r = fleet.remove_route(rid)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    fleet.refresh_edge()
+    audit.log(u["email"], "fleet.route.remove", str(rid), "")
+    return r
+
+
+@app.get("/api/edge/ask")
+def edge_ask(domain: str = ""):
+    """Gate d'émission de certificat du caddy edge (on_demand_tls `ask`) :
+    200 si le hostname est une route custom enregistrée, 404 sinon. Sans auth
+    (appelé par caddy) — ne divulgue rien : booléen sur un hostname public."""
+    if not edge.allowed(domain):
+        raise HTTPException(404, "unknown host")
+    return {"ok": True}
 
 
 class OrgName(BaseModel):
@@ -529,7 +577,7 @@ def auth_oidc_logout():
     return resp
 
 
-_AUTH_FREE = ("/api/auth/", "/api/health")
+_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask")
 
 
 @app.middleware("http")

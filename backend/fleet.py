@@ -61,6 +61,33 @@ def remove_resource(rid: int) -> dict:
     return r.json()
 
 
+def add_route(kind: str, name: str = "", hostname: str = "",
+              target: str = "cockpit", port: int = 80) -> dict:
+    """Route d'exposition web (gratuite) : 'subdomain' (<name>-<tenant>.sokkan.ch,
+    via tunnel) ou 'custom' (domaine du client, via le caddy edge local)."""
+    r = httpx.post(f"{URL}/fleet/routes", headers=_h(), timeout=60,
+                   json={"kind": kind, "name": name, "hostname": hostname,
+                         "target": target, "port": port})
+    r.raise_for_status()
+    return r.json()
+
+
+def remove_route(rid: int) -> dict:
+    r = httpx.delete(f"{URL}/fleet/route/{rid}", headers=_h(), timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def refresh_edge() -> None:
+    """Re-rend le Caddyfile edge depuis la vue portail (appelé après chaque
+    mutation de route pour ne pas attendre le tick de 120 s)."""
+    import edge
+    try:
+        edge.render(view())
+    except Exception:  # noqa: BLE001 — le sync périodique rattrapera
+        pass
+
+
 def sync_hosts(view_data: dict) -> None:
     """Nomenclature réseau des sessions : écrit le bloc `<name>.fleet` dans le
     /etc/hosts du conteneur depuis la vue portail. Les sessions font ensuite
@@ -83,9 +110,12 @@ def sync_hosts(view_data: dict) -> None:
 
 
 def _sync_loop() -> None:
+    import edge
     while True:
         try:
-            sync_hosts(view())
+            v = view()
+            sync_hosts(v)
+            edge.render(v)  # Caddyfile des domaines custom (fleet edge)
         except Exception:  # noqa: BLE001 — portail injoignable : on réessaie
             pass
         time.sleep(120)
@@ -94,6 +124,10 @@ def _sync_loop() -> None:
 def start_sync() -> None:
     """Lancé au démarrage de l'app (mode managé uniquement)."""
     if ENABLED:
+        # baseline immédiate : le conteneur caddy attend le Caddyfile pour
+        # démarrer — ne pas le laisser bloqué si le portail est injoignable
+        import edge
+        edge.ensure_baseline()
         threading.Thread(target=_sync_loop, daemon=True).start()
         threading.Thread(target=_register_key, daemon=True).start()
 

@@ -108,16 +108,28 @@ export interface FleetResource {
   id: number; sku: string; name: string; status: string; created_at: number;
   fleet_host?: string; private_ip?: string; uri?: string; // adressage réel (une fois provisionnée)
 }
+export interface FleetRoute {
+  id: number; kind: "subdomain" | "custom"; hostname: string;
+  target: string; port: number; created_at: number;
+}
 export interface FleetView {
   tenant: string; plan: string | null; catalog: FleetProduct[];
   resources: FleetResource[]; infra_status: string | null; cockpit_ip?: string | null;
   can_term?: boolean; // droit terminal maintenance (admin ou grant explicite)
+  routes?: FleetRoute[]; // exposition web (managé)
+  edge_host?: string;    // cible CNAME des domaines custom (edge-<tenant>.sokkan.ch)
+  route_suffix?: string; // suffixe des sous-domaines (-<tenant>.sokkan.ch)
 }
 export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
 export const fleetRequest = (sku: string, name = "") =>
   mutate<{ ok: boolean; sku: string; invoice: string | null; status: string }>("/api/fleet/request", "POST", { sku, name });
 export const fleetRemove = (rid: number) =>
   mutate<{ ok: boolean; status: string }>(`/api/fleet/resource/${rid}`, "DELETE");
+export const fleetRouteAdd = (kind: string, name: string, hostname: string, target: string, port: number) =>
+  mutate<{ ok: boolean; id: number; hostname: string; edge_host: string }>(
+    "/api/fleet/routes", "POST", { kind, name, hostname, target, port });
+export const fleetRouteRemove = (rid: number) =>
+  mutate<{ ok: boolean }>(`/api/fleet/routes/${rid}`, "DELETE");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });

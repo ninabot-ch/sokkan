@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetView, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetRouteAdd, fleetRouteRemove, fleetView, infraNodes, infraTargets,
 } from "@/lib/api";
 
 const FleetTerm = dynamic(() => import("./FleetTerm"), { ssr: false });
@@ -247,6 +247,112 @@ function TermGrants() {
   );
 }
 
+// Exposition web de la flotte : sous-domaines <name>-<tenant>.sokkan.ch (tunnel,
+// TLS Cloudflare) et domaines custom du client (CNAME → edge, TLS Let's Encrypt
+// on-demand émis par le caddy de la VM). Gratuit — mutations admin.
+function FleetRoutes({ view, reload, isAdmin }: { view: FleetView; reload: () => void; isAdmin: boolean }) {
+  const [kind, setKind] = useState<"subdomain" | "custom">("subdomain");
+  const [name, setName] = useState("");
+  const [hostname, setHostname] = useState("");
+  const [target, setTarget] = useState("cockpit");
+  const [port, setPort] = useState("80");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const routes = view.routes ?? [];
+  const targets = ["cockpit", ...view.resources
+    .filter((r) => r.status === "live" && r.fleet_host && !r.uri)
+    .map((r) => r.fleet_host!.replace(/\.fleet$/, ""))];
+
+  const add = () => {
+    setErr(""); setMsg(""); setBusy(true);
+    fleetRouteAdd(kind, name.trim(), hostname.trim(), target, parseInt(port, 10) || 80)
+      .then((r) => {
+        setMsg(kind === "custom"
+          ? `Route « ${r.hostname} » créée — pointez un CNAME vers ${r.edge_host} ; le certificat TLS est émis au premier accès.`
+          : `Route « ${r.hostname} » active dans ~1 minute.`);
+        setName(""); setHostname(""); reload();
+      })
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="mb-4 max-w-3xl">
+      <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Exposition web</div>
+      <div className="mb-1.5 text-[10.5px] text-mut">
+        Servez un service de votre flotte sur un sous-domaine{" "}
+        <span className="font-mono text-slate-300">*{view.route_suffix ?? ".sokkan.ch"}</span> ou sur{" "}
+        <span className="text-slate-300">votre propre domaine</span> (CNAME vers{" "}
+        <span className="font-mono text-slate-300">{view.edge_host ?? "votre edge"}</span>, certificat automatique).
+        HTTP(S) uniquement ; la cible doit écouter sur l'IP privée de la machine (0.0.0.0).
+      </div>
+      <div className="space-y-1.5">
+        {routes.map((r) => (
+          <div key={r.id} className="flex items-center gap-2.5 rounded-lg border border-line bg-panel2/50 p-2 text-[12px]">
+            <span className="text-emerald-400">●</span>
+            <a href={`https://${r.hostname}`} target="_blank" rel="noreferrer"
+              className="min-w-0 truncate font-mono text-[11.5px] text-sea hover:underline">{r.hostname}</a>
+            <span className="text-mut">→</span>
+            <span className="font-mono text-[11px] text-slate-200">{r.target}:{r.port}</span>
+            <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">
+              {r.kind === "custom" ? "votre domaine" : "sokkan.ch"}
+            </span>
+            {isAdmin && (
+              <button title="supprimer la route (le service n'est plus exposé)"
+                onClick={() => {
+                  if (confirm(`Supprimer la route ${r.hostname} ? Le service ne sera plus exposé.`))
+                    fleetRouteRemove(r.id).then(reload).catch((e) => setErr(String(e)));
+                }}
+                className="ml-auto rounded px-1 text-mut hover:text-red-400">✕</button>
+            )}
+          </div>
+        ))}
+        {routes.length === 0 && <div className="text-[12px] text-mut">Aucune route — vos services ne sont accessibles que depuis votre réseau privé.</div>}
+      </div>
+      {isAdmin && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select value={kind} onChange={(e) => setKind(e.target.value as "subdomain" | "custom")}
+            className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
+            <option value="subdomain">sous-domaine sokkan.ch</option>
+            <option value="custom">votre domaine</option>
+          </select>
+          {kind === "subdomain" ? (
+            <span className="flex items-center rounded border border-line bg-[#0b0f16] pr-2">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="app"
+                className="w-24 bg-transparent px-2 py-1 text-[12px] text-slate-100 outline-none" />
+              <span className="font-mono text-[11px] text-mut">{view.route_suffix ?? ""}</span>
+            </span>
+          ) : (
+            <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="app.mondomaine.com"
+              className="w-52 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          )}
+          <span className="text-[11px] text-mut">→</span>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}
+            className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
+            {targets.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="port"
+            className="w-16 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          <button onClick={add} disabled={busy || (kind === "subdomain" ? !name.trim() : !hostname.trim())}
+            className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-40">
+            {busy ? "création…" : "＋ exposer"}
+          </button>
+        </div>
+      )}
+      {kind === "custom" && isAdmin && (
+        <div className="mt-1.5 text-[10.5px] text-mut">
+          Chez votre registrar : <span className="font-mono text-slate-300">CNAME {hostname.trim() || "app.mondomaine.com"} → {view.edge_host}</span>.
+          Le certificat est émis automatiquement au premier accès (comptez ~1 min après la propagation DNS).
+        </div>
+      )}
+      {msg && <div className="mt-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-[11.5px] text-emerald-200">{msg}</div>}
+      {err && <div className="mt-1.5 text-[11px] text-red-400">{err}</div>}
+    </div>
+  );
+}
+
 function Fleet() {
   const isAdmin = useCan("admin");
   const [view, setView] = useState<FleetView | null | undefined>(undefined); // undefined=chargement, null=indispo
@@ -342,6 +448,8 @@ function Fleet() {
         {isAdmin && <TermGrants />}
         {term && <FleetTerm name={term} onClose={() => setTerm("")} />}
       </div>
+
+      <FleetRoutes view={view} reload={reload} isAdmin={isAdmin} />
 
       <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Ajouter une ressource</div>
       <div className="max-w-3xl space-y-3">
