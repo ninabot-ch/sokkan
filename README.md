@@ -28,6 +28,7 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 - **Costs** — per-day / per-session token usage and estimated API cost, aggregated from the transcripts
 - **Journal** — an audit trail of every action (who spawned, moved, deleted what — the basis for reverting)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **create/move board cards**, and **push a preview** of what it changed
+- **Fleet & web exposure** (managed cloud) — order workers/databases into your private network from the cockpit, then expose what you build: one click for an HTTPS `*.sokkan.ch` subdomain, or bring **your own domain** (a CNAME + automatic TLS certificates)
 
 ## Requirements
 
