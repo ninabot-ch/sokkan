@@ -16,6 +16,9 @@ services:
       SOKKAN_TZ: ${SOKKAN_TZ:-Europe/Zurich}
       SOKKAN_PUBLIC_URL: ${SOKKAN_PUBLIC_URL:-http://localhost:3009}
       SOKKAN_TIER: ${SOKKAN_TIER:-}
+      # daily update check (see .env.example); version written by install.sh
+      SOKKAN_VERSION: ${SOKKAN_VERSION:-dev}
+      SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
       # optional remote embedding service; empty = local ONNX (fastembed)
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
       # optional model override for spawned sessions (default: CLI default)

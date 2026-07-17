@@ -57,6 +57,7 @@ import preview
 import previewenv
 import provision
 import transcript as T
+import updatecheck
 import usage as usage_mod
 
 _claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
@@ -93,6 +94,7 @@ def _reindex_loop() -> None:
 async def _lifespan(_app: FastAPI):
     threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
+    updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
     yield
 
 
@@ -178,7 +180,7 @@ def auth_info() -> dict:
 
 @app.get("/api/instance")
 def instance_info(_u: dict = Depends(current_user)) -> dict:
-    return instance.info()
+    return {**instance.info(), "update": updatecheck.state()}
 
 
 @app.get("/api/fleet")
