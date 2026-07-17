@@ -56,6 +56,8 @@ docker compose up -d --build
 
 Open `http://localhost:3009`, enter your token, hit **+ session** — the first run downloads the local embedding model (~120 MB, cached in the data volume).
 
+> **Don't want to run the ops?** [SOKKAN Cloud](https://sokkan.ch/#cloud) is the same code, operated from Switzerland: a dedicated VM + private network per customer, your own `you.sokkan.ch`, BYOK or metered inference, extra workers and managed PostgreSQL from the cockpit. From 129 CHF/mo — or [book a demo](mailto:hello@sokkan.ch?subject=SOKKAN%20Cloud%20demo).
+
 Write memory notes as markdown files (one fact per file, with a `description:` frontmatter) — Claude Code sessions write them natively under the workspace's memory directory, and SOKKAN indexes them within ~2 minutes. From then on, every new session starts with that context.
 
 ### Using a Claude subscription instead of an API key
@@ -135,4 +137,4 @@ Early. Born as the internal cockpit running [ninjob.ch](https://ninjob.ch) and i
 
 ## License
 
-[Apache-2.0](LICENSE) — the code is free, self-hosted, BYOK. A managed Swiss-hosted cloud is planned; that operation is the business, not withheld features.
+[Apache-2.0](LICENSE) — the code is free, self-hosted, BYOK. For teams that would rather not run the ops, [SOKKAN Cloud](https://sokkan.ch/#cloud) is live: a Swiss-hosted managed version (dedicated VM + private network per customer). The operation is the business, not withheld features — same code, same repo.
