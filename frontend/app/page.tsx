@@ -8,6 +8,7 @@ import Board from "@/components/Board";
 import Preview from "@/components/Preview";
 import MemoryKB from "@/components/MemoryKB";
 import Infra from "@/components/Infra";
+import Operate from "@/components/Operate";
 import Journal from "@/components/Journal";
 import Costs from "@/components/Costs";
 import { MeProvider } from "@/lib/me";
@@ -67,6 +68,8 @@ export default function Home() {
         <MemoryKB />
       ) : tab === "Infra" ? (
         <Infra />
+      ) : tab === "Operate" ? (
+        <Operate onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Journal" ? (
         <Journal />
       ) : tab === "Costs" ? (

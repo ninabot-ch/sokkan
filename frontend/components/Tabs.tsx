@@ -6,7 +6,7 @@ import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 
-const TABS = ["Board", "Sessions", "Preview", "Memory/KB", "Costs", "Infra", "Journal"] as const;
+const TABS = ["Board", "Sessions", "Preview", "Memory/KB", "Costs", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -19,6 +19,7 @@ export default function Tabs({
   const feats = useFeatures();
   const visible = TABS.filter(
     (t) => (t !== "Preview" || feats.preview) && (t !== "Infra" || feats.infra)
+      && (t !== "Operate" || feats.observe)
   );
   return (
     <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 border-b border-line bg-panel px-4">

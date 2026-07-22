@@ -5,11 +5,12 @@ export interface Features {
   infra: boolean;
   infra_topo: boolean;
   fleet: boolean;
+  observe: boolean;
   preview: boolean;
   tmux: boolean;
 }
 
-const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, preview: true, tmux: true };
+const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true };
 const Ctx = createContext<Features>(DEFAULTS);
 
 export function FeaturesProvider({ children }: { children: React.ReactNode }) {

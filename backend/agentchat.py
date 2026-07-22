@@ -55,10 +55,13 @@ CWD = os.environ.get("SOKKAN_AGENT_CWD") or (
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MEM_SRV = os.path.join(_HERE, "..", "memory", "memory_search_server.py")
 _BOARD_SRV = os.path.join(_HERE, "board_mcp.py")
+_OBS_SRV = os.path.join(_HERE, "observability_mcp.py")
 _PY = os.environ.get("SOKKAN_PYTHON", sys.executable)
 MCP_SERVERS = {
     "sokkan-memory": {"command": _PY, "args": [os.path.abspath(_MEM_SRV)]},
     "sokkan-board": {"command": _PY, "args": [os.path.abspath(_BOARD_SRV)]},
+    # opérer la prod : lire métriques/logs, composer des dashboards
+    "sokkan-observability": {"command": _PY, "args": [os.path.abspath(_OBS_SRV)]},
 }
 MODEL = os.environ.get("SOKKAN_AGENT_MODEL") or None  # None → défaut du CLI
 # lectures auto-approuvées (UX fluide) ; tout le reste passe par les boutons.
@@ -68,6 +71,10 @@ SAFE_TOOLS = [
     "Read", "Glob", "Grep", "TodoWrite", "NotebookRead",
     "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get",
     "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
+    # observabilité en LECTURE : diagnostiquer sans gate ; create_dashboard
+    # (écriture) reste soumis à permission.
+    "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs",
+    "mcp__sokkan-observability__list_dashboards",
 ]
 # modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
 VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}

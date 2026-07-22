@@ -50,6 +50,7 @@ import termproxy
 import memorykb
 import edge
 import notify
+import observability
 import fleet
 import fleetterm
 import instance
@@ -381,6 +382,84 @@ def notify_test(u: dict = Depends(require("admin"))) -> dict:
     return {"sent": r}
 
 
+# --- observabilité : opérer la prod depuis le cockpit ------------------------
+@app.get("/api/observability")
+def observability_status(_u: dict = Depends(current_user)) -> dict:
+    """État de la stack obs (Prom/Grafana/Loki) + fil d'incidents."""
+    return {**observability.status(), "incidents": observability.incidents(30)}
+
+
+@app.get("/api/observability/dashboards")
+def observability_dashboards(_u: dict = Depends(current_user)) -> list[dict]:
+    try:
+        return observability.list_dashboards()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"grafana: {e}")
+
+
+class IncidentStatus(BaseModel):
+    status: str  # open | resolved
+
+
+@app.post("/api/observability/incident/{rid}")
+def observability_incident_set(rid: int, body: IncidentStatus,
+                               u: dict = Depends(require("dev"))) -> dict:
+    observability.set_incident_status(rid, body.status)
+    audit.log(u["email"], "incident.status", str(rid), body.status)
+    return {"ok": True}
+
+
+_OBS_ALERT_TOKEN = os.environ.get("SOKKAN_OBS_ALERT_TOKEN", "")
+
+
+@app.post("/api/observability/alert")
+async def observability_alert(request: Request) -> dict:
+    """Récepteur d'alertes prod (webhook Grafana alerting de l'add-on obs). LE
+    killer : chaque alerte devient un incident + SPAWN une session de diagnostic
+    pré-seedée (métrique + contexte + mémoire), puis te notifie. Authentifié par
+    un token dédié (l'add-on Grafana l'envoie) — jamais la session user."""
+    if not _OBS_ALERT_TOKEN:
+        raise HTTPException(503, "alert receiver disabled (SOKKAN_OBS_ALERT_TOKEN unset)")
+    got = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(got, _OBS_ALERT_TOKEN):
+        raise HTTPException(401, "invalid alert token")
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        payload = {}
+    # format Grafana alerting : {alerts:[{labels, annotations, valueString, status}]}
+    alerts = payload.get("alerts") or [payload]
+    spawned = []
+    for a in alerts:
+        labels = a.get("labels", {}) if isinstance(a, dict) else {}
+        ann = a.get("annotations", {}) if isinstance(a, dict) else {}
+        title = labels.get("alertname") or ann.get("summary") or "Production alert"
+        severity = labels.get("severity", "warning")
+        summary = ann.get("description") or ann.get("summary") or a.get("valueString", "")
+        if a.get("status") == "resolved":
+            continue  # on ne spawn que sur firing
+        rid = observability.record_incident(title, summary, severity)
+        prompt = (
+            f"A production alert just fired: **{title}** (severity: {severity}).\n"
+            f"{summary}\n"
+            f"Labels: {labels}\n\n"
+            "You are the on-call engineer. First search the project memory for anything "
+            "related, then use mcp__sokkan-observability__query_metrics and query_logs to "
+            "investigate, check the most recent deploy, and identify the likely cause. "
+            "Propose a concrete fix and wait for my go-ahead before applying anything. "
+            "When resolved, write a short post-mortem note to memory so next time is faster.")
+        try:
+            s = _spawn_sdk("ops", prompt=prompt, title=f"incident: {title}", user="alert@sokkan")
+            observability.link_incident_session(rid, s["session_id"])
+            spawned.append({"incident": rid, "session": s["session_id"]})
+        except Exception as e:  # noqa: BLE001
+            print(f"[obs alert] spawn failed: {e}", file=sys.stderr)
+        _bg(asyncio.to_thread(
+            notify.send, f"SOKKAN — 🚨 {title}", summary,
+            notify.session_link(spawned[-1]["session"]) if spawned else notify.PUBLIC_URL, "alert"))
+    return {"ok": True, "spawned": spawned}
+
+
 @app.get("/api/edge/ask")
 def edge_ask(domain: str = ""):
     """Gate d'émission de certificat du caddy edge (on_demand_tls `ask`) :
@@ -448,6 +527,8 @@ def features() -> dict:
         "infra": infra.ENABLED or fleet.ENABLED,
         "infra_topo": infra.ENABLED,
         "fleet": fleet.ENABLED,
+        # onglet Operate : dès qu'une stack d'observabilité est branchée
+        "observe": observability.ENABLED,
         "preview": os.environ.get("SOKKAN_FEATURE_PREVIEW", "1") != "0",
         "tmux": os.environ.get("SOKKAN_FEATURE_TMUX", "1") != "0",
     }
@@ -639,7 +720,7 @@ def auth_oidc_logout():
     return resp
 
 
-_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask")
+_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert")
 
 
 @app.middleware("http")

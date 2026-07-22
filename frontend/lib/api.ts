@@ -142,6 +142,15 @@ export const notifyStatus = () => getJSON<NotifyStatus>("/api/notify");
 export const notifySet = (cfg: Partial<{ telegram_bot_token: string; telegram_chat_id: string; webhook_url: string; hitl_enabled: boolean }>) =>
   mutate<NotifyStatus>("/api/notify", "POST", cfg);
 export const notifyTest = () => mutate<{ sent: Record<string, string> }>("/api/notify/test", "POST");
+
+// observability / operate
+export interface Incident { id: number; ts: number; title: string; summary: string; severity: string; status: string; session_id: string; }
+export interface ObsStatus { enabled: boolean; prometheus: boolean; loki: boolean; grafana: boolean; grafana_public_url: string | null; incidents: Incident[]; }
+export interface Dashboard { title: string; uid: string; url?: string; }
+export const obsStatus = () => getJSON<ObsStatus>("/api/observability");
+export const obsDashboards = () => getJSON<Dashboard[]>("/api/observability/dashboards");
+export const obsIncidentSet = (rid: number, status: string) =>
+  mutate<{ ok: boolean }>(`/api/observability/incident/${rid}`, "POST", { status });
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });
