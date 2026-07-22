@@ -69,6 +69,21 @@ function Org() {
           <div className="text-[11px] text-mut">Adresse</div>
           <a href={inf.public_url} target="_blank" rel="noreferrer" className="truncate text-[12px] text-sea hover:underline">{inf.public_url || "—"}</a></div>
       </div>
+      {inf.update?.update_available && (
+        <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-3 text-[12px] text-sky-200">
+          <b>Nouvelle version disponible : {inf.update.latest}</b>
+          <span className="text-mut"> (installée : {inf.update.local_version})</span>
+          {inf.tier ? (
+            <div className="mt-1 text-[11.5px]">Instance managée : onglet <b>Infra → Ma flotte</b> → « ⬆ mettre à jour » (admin).</div>
+          ) : (
+            <div className="mt-1 text-[11.5px]">
+              Self-hosted — relancez l'installeur depuis le dossier parent de <code>sokkan/</code> :
+              <code className="mt-1 block select-all rounded bg-black/40 px-1.5 py-0.5 font-mono text-[11px] text-sky-100">curl -fsSL https://sokkan.ch/install.sh | sh</code>
+              Il détecte l'installation existante et la met à jour (votre <code>.env</code> et vos données sont conservés).
+            </div>
+          )}
+        </div>
+      )}
       <div className="text-[10.5px] text-mut">Hébergé et opéré par NINABOT — infrastructure souveraine suisse.</div>
     </div>
   );
