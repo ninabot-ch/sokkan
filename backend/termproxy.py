@@ -23,11 +23,15 @@ _HOP = {"connection", "keep-alive", "transfer-encoding", "upgrade", "content-enc
 
 
 def _authorized(scope_obj) -> bool:
+    """Le terminal ttyd = shell interactif DANS le conteneur api (≈ root
+    fonctionnel) → réservé admin+ (même barre que les endpoints tmux). Résoudre
+    une simple identité ne suffit PAS : un viewer/dev ne doit jamais l'atteindre."""
+    import iam
     try:
-        auth.current_user(scope_obj)  # lit headers/cookies (Request ou WebSocket)
-        return True
+        u = auth.current_user(scope_obj)  # lit headers/cookies (Request ou WebSocket)
     except HTTPException:
         return False
+    return iam.rank(u.get("role", "")) >= iam.rank("admin")
 
 
 async def http(request: Request, path: str) -> Response:

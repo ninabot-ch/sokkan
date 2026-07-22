@@ -37,6 +37,15 @@ def _cf_token(request: Request) -> str | None:
     return None
 
 
+def _is_loopback(request: Request) -> bool:
+    """Source réellement loopback ? (pas un X-Forwarded-* falsifiable — on lit
+    l'IP de la socket). En prod le backend est joint via le proxy Next, donc
+    request.client est le proxy ; le vrai loopback n'existe qu'en accès direct
+    au conteneur (dev)."""
+    host = getattr(request.client, "host", None) if request.client else None
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
 def _email_cf_access(request: Request) -> str:
     import cfaccess
 
@@ -50,7 +59,13 @@ def _email_cf_access(request: Request) -> str:
         if not email:
             raise HTTPException(401, "CF Access JWT has no email")
         return email
-    return DEV_USER or OWNER_EMAIL  # accès loopback direct (dev) sans token
+    # SANS JWT valide : n'accorder l'identité configurée QUE sur une source
+    # réellement loopback (échappatoire dev). Toute requête distante qui
+    # atteint le backend hors CF Access (LAN, edge caddy domaine-custom qui
+    # court-circuite Access…) doit être refusée — sinon fallback owner silencieux.
+    if _is_loopback(request):
+        return DEV_USER or OWNER_EMAIL
+    raise HTTPException(401, "CF Access JWT required")
 
 
 def _email_session(request: Request) -> str:

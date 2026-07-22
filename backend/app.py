@@ -434,7 +434,13 @@ def auth_local(body: LocalLogin, request: Request):
     """Login single-user (mode local avec SOKKAN_LOCAL_TOKEN) → cookie de session."""
     if auth.MODE != "local" or not auth.LOCAL_TOKEN:
         raise HTTPException(400, "local login not applicable on this instance")
-    ip = request.client.host if request.client else "?"
+    # vraie IP client derrière le proxy (cloudflared/caddy/Next) : sans ça tous
+    # les clients partagent le bucket de l'IP du proxy → 5 échecs verrouillent
+    # le login pour tout le monde. CF-Connecting-IP est réécrit par l'edge de
+    # confiance ; XFF en repli ; l'IP socket en dernier ressort.
+    ip = (request.headers.get("cf-connecting-ip")
+          or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+          or (request.client.host if request.client else "?"))
     if _login_throttled(ip):
         raise HTTPException(429, "too many failed attempts — retry in a minute")
     if not secrets.compare_digest(body.token.strip(), auth.LOCAL_TOKEN):
@@ -449,9 +455,10 @@ def auth_local(body: LocalLogin, request: Request):
 
 
 # --- terminal ttyd, proxifié + authentifié par SOKKAN (remplace l'ingress CF Access) ---
+# Gate feature = tmux (le shell brut est la même famille) : 404 si désactivé.
 @app.websocket("/term/ws")
 async def term_ws(websocket: WebSocket):
-    if not _origin_ok(websocket):
+    if os.environ.get("SOKKAN_FEATURE_TMUX", "1") == "0" or not _origin_ok(websocket):
         await websocket.close(code=4403)
         return
     await termproxy.ws(websocket, "ws")
@@ -459,7 +466,7 @@ async def term_ws(websocket: WebSocket):
 
 @app.api_route("/term", methods=["GET"])
 @app.api_route("/term/{path:path}", methods=["GET", "POST"])
-async def term_http(request: Request, path: str = ""):
+async def term_http(request: Request, path: str = "", _f: None = Depends(feature_tmux)):
     return await termproxy.http(request, path)
 
 

@@ -16,10 +16,15 @@ aucune dépendance DNS sur le chemin de requête.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 
 DIR = os.path.join(os.environ.get("SOKKAN_DATA_DIR", "/data"), "edge")
 CADDYFILE = os.path.join(DIR, "Caddyfile")
+
+# FQDN strict — aucun retour-ligne, accolade ou espace ne peut passer (sinon
+# injection de directives Caddy). Doublon volontaire de la validation portail.
+_RE_FQDN = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
 
 # hostnames custom autorisés (mémoire process, rafraîchi à chaque rendu — le
 # `ask` de caddy doit répondre vite et sans appel réseau)
@@ -38,8 +43,14 @@ def _caddyfile(view: dict) -> str:
         host = r.get("fleet_host")
         if host and r.get("private_ip"):
             addr[host.removesuffix(".fleet")] = r["private_ip"]
+    # défense en profondeur : le portail valide déjà le hostname, mais le
+    # composant open ne fait pas confiance aveugle au control plane — on rejette
+    # tout ce qui n'est pas un FQDN strict / port hors bornes avant de l'écrire
+    # dans le Caddyfile (sinon un hostname avec \n/{} injecterait des directives).
     routes = [r for r in view.get("routes") or []
-              if r.get("kind") == "custom" and addr.get(r.get("target"))]
+              if r.get("kind") == "custom" and addr.get(r.get("target"))
+              and _RE_FQDN.match(str(r.get("hostname", "")))
+              and isinstance(r.get("port"), int) and 1 <= r["port"] <= 65535]
     out = [
         "# généré par backend/edge.py — ne pas éditer (écrasé au sync flotte)",
         "{",
