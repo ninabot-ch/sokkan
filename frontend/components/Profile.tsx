@@ -4,13 +4,14 @@ import { useMe, useCan } from "@/lib/me";
 import {
   instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription,
-  type InstanceInfo, type LlmStatus, type LlmUsage,
+  notifyStatus, notifySet, notifyTest,
+  type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
 } from "@/lib/api";
 import type { IamUser } from "@/lib/types";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "model";
+type Section = "account" | "org" | "members" | "model" | "notify";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -225,9 +226,69 @@ function Model() {
   );
 }
 
+// ---------- Notifications ----------
+function Notifications() {
+  const isAdmin = useCan("admin");
+  const [st, setSt] = useState<NotifyStatus | null>(null);
+  const [tgToken, setTgToken] = useState(""); const [tgChat, setTgChat] = useState("");
+  const [wh, setWh] = useState(""); const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
+  useEffect(() => { notifyStatus().then(setSt).catch(() => {}); }, []);
+  if (!st) return null;
+  const saveTelegram = () => {
+    setErr(""); setMsg("");
+    notifySet({ telegram_bot_token: tgToken.trim(), telegram_chat_id: tgChat.trim() })
+      .then(setSt).then(() => { setMsg("Telegram saved."); setTgToken(""); setTgChat(""); }).catch((e) => setErr(String(e)));
+  };
+  const saveWebhook = () => {
+    setErr(""); setMsg("");
+    notifySet({ webhook_url: wh.trim() }).then(setSt).then(() => setMsg("Webhook saved.")).catch((e) => setErr(String(e)));
+  };
+  const toggleHitl = (v: boolean) => notifySet({ hitl_enabled: v }).then(setSt).catch((e) => setErr(String(e)));
+  const test = () => { setErr(""); setMsg(""); notifyTest().then((r) => setMsg("Sent: " + Object.entries(r.sent).map(([k, v]) => `${k} ${v}`).join(", "))).catch((e) => setErr(String(e))); };
+  if (!isAdmin) return <div className="text-[12px] text-mut">Notification settings are restricted to administrators.</div>;
+  return (
+    <div className="space-y-3 text-[12.5px]">
+      <div className="text-[10.5px] text-mut">Get pinged when a session is waiting for your approval (you launched it and walked away), and route production alerts here. Channels stay on this instance.</div>
+      <div className="rounded-lg border border-line bg-panel2/40 p-3">
+        <div className="flex items-center justify-between">
+          <div><b>HITL push</b><div className="text-[10.5px] text-mut">Ping after a permission stays pending ~{st.hitl_delay_s}s.</div></div>
+          <button onClick={() => toggleHitl(!st.hitl_enabled)}
+            className={`rounded-full px-3 py-1 text-[11px] ${st.hitl_enabled ? "bg-emerald-600/30 text-emerald-200" : "bg-panel2 text-mut"}`}>
+            {st.hitl_enabled ? "on" : "off"}
+          </button>
+        </div>
+      </div>
+      <div className="rounded-lg border border-line bg-panel2/40 p-3">
+        <div className="mb-1.5 flex items-center gap-2"><b>Telegram</b>{st.telegram && <span className="rounded bg-emerald-600/25 px-1.5 py-px text-[10px] text-emerald-200">configured</span>}</div>
+        <input value={tgToken} onChange={(e) => setTgToken(e.target.value)} type="password" placeholder="bot token (from @BotFather)"
+          className="mb-1.5 w-full rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+        <div className="flex gap-1.5">
+          <input value={tgChat} onChange={(e) => setTgChat(e.target.value)} placeholder="chat id"
+            className="flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          <button onClick={saveTelegram} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">save</button>
+        </div>
+      </div>
+      <div className="rounded-lg border border-line bg-panel2/40 p-3">
+        <div className="mb-1.5 flex items-center gap-2"><b>Webhook</b>{st.webhook && <span className="rounded bg-emerald-600/25 px-1.5 py-px text-[10px] text-emerald-200">configured</span>}</div>
+        <div className="flex gap-1.5">
+          <input value={wh} onChange={(e) => setWh(e.target.value)} placeholder="https://your-endpoint/hook"
+            className="flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+          <button onClick={saveWebhook} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">save</button>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={test} disabled={!st.telegram && !st.webhook}
+          className="rounded border border-line px-3 py-1 text-[12px] text-slate-200 hover:bg-panel2 disabled:opacity-40">send test</button>
+        {msg && <span className="text-[11px] text-emerald-300">{msg}</span>}
+        {err && <span className="text-[11px] text-red-400">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function Profile({ onClose }: { onClose: () => void }) {
   const [sec, setSec] = useState<Section>("account");
-  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"]];
+  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"], ["notify", "Notifications"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
       <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -244,7 +305,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : <Model />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "model" ? <Model /> : <Notifications />}
           </div>
         </div>
       </div>

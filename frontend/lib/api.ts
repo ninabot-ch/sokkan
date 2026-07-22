@@ -135,6 +135,13 @@ export const fleetRouteRemove = (rid: number) =>
   mutate<{ ok: boolean }>(`/api/fleet/routes/${rid}`, "DELETE");
 export const fleetUpgrade = () =>
   mutate<{ client: string; status: string }>("/api/fleet/upgrade", "POST");
+
+// notifications (HITL push + alertes prod)
+export interface NotifyStatus { telegram: boolean; webhook: boolean; hitl_enabled: boolean; hitl_delay_s: number; }
+export const notifyStatus = () => getJSON<NotifyStatus>("/api/notify");
+export const notifySet = (cfg: Partial<{ telegram_bot_token: string; telegram_chat_id: string; webhook_url: string; hitl_enabled: boolean }>) =>
+  mutate<NotifyStatus>("/api/notify", "POST", cfg);
+export const notifyTest = () => mutate<{ sent: Record<string, string> }>("/api/notify/test", "POST");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });

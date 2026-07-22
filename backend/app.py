@@ -49,6 +49,7 @@ import session as sess
 import termproxy
 import memorykb
 import edge
+import notify
 import fleet
 import fleetterm
 import instance
@@ -338,6 +339,46 @@ def fleet_upgrade_self(u: dict = Depends(require("admin"))):
         raise HTTPException(502, f"fleet: {e}")
     audit.log(u["email"], "fleet.upgrade", updatecheck.state().get("latest") or "", "")
     return r
+
+
+@app.get("/api/notify")
+def notify_status(_u: dict = Depends(current_user)) -> dict:
+    """Canaux de notification configurés (sans secrets) + délai HITL."""
+    return {**notify.status(), "hitl_delay_s": notify.HITL_DELAY_S}
+
+
+class NotifyConfig(BaseModel):
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    webhook_url: str | None = None
+    hitl_enabled: bool | None = None
+
+
+@app.post("/api/notify")
+def notify_set(body: NotifyConfig, u: dict = Depends(require("admin"))) -> dict:
+    """Configure les canaux (admin). Les secrets restent sur CETTE instance."""
+    cfg: dict = {}
+    if body.telegram_bot_token is not None or body.telegram_chat_id is not None:
+        cfg["telegram"] = {"bot_token": (body.telegram_bot_token or "").strip(),
+                           "chat_id": (body.telegram_chat_id or "").strip()}
+    if body.webhook_url is not None:
+        cfg["webhook"] = {"url": body.webhook_url.strip()}
+    if body.hitl_enabled is not None:
+        cfg["hitl_enabled"] = body.hitl_enabled
+    r = notify.save(cfg)
+    audit.log(u["email"], "notify.config", ",".join(k for k, v in r.items() if v is True), "")
+    return {**r, "hitl_delay_s": notify.HITL_DELAY_S}
+
+
+@app.post("/api/notify/test")
+def notify_test(u: dict = Depends(require("admin"))) -> dict:
+    """Envoie une notification de test sur les canaux configurés."""
+    if not notify.enabled():
+        raise HTTPException(400, "no channel configured")
+    r = notify.send("SOKKAN — test", "Notifications are wired up ✅",
+                    notify.session_link("test"), "test")
+    audit.log(u["email"], "notify.test", ",".join(r.keys()), "")
+    return {"sent": r}
 
 
 @app.get("/api/edge/ask")

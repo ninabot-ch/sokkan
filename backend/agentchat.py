@@ -46,6 +46,7 @@ except ImportError:  # pragma: no cover
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import llm  # config LLM par instance (BYOK / inférence incluse)
+import notify  # HITL push : ping si une permission traîne sans réponse
 
 CWD = os.environ.get("SOKKAN_AGENT_CWD") or (
     "/workspace" if os.path.isdir("/workspace") else os.getcwd())
@@ -122,6 +123,7 @@ class AgentSession:
         self.subscribers: set[asyncio.Queue] = set()
         self._perms: dict[str, asyncio.Future] = {}
         self._questions: dict[str, asyncio.Future] = {}
+        self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
         self._start_lock = asyncio.Lock()
         self._model_seen: str | None = None
@@ -215,8 +217,10 @@ class AgentSession:
         pid = uuid.uuid4().hex
         fut = loop.create_future()
         self._perms[pid] = fut
+        title = _tool_title(tool_name, input_data)
         self._emit({"type": "permission", "id": pid, "tool": tool_name,
-                    "title": _tool_title(tool_name, input_data), "input": input_data})
+                    "title": title, "input": input_data})
+        self._arm_hitl_notify(pid, title)  # ping si tu ne réponds pas à temps
         try:
             decision = await fut
         except asyncio.CancelledError:
@@ -230,6 +234,32 @@ class AgentSession:
         return PermissionResultDeny(
             message=decision.get("message") or "Denied by the user"
         )
+
+    def _arm_hitl_notify(self, pid: str, title: str) -> None:
+        """Programme un ping HITL_DELAY_S plus tard : si la permission est
+        toujours en attente (tu es parti), on te notifie ; sinon rien."""
+        if not notify.hitl_enabled():
+            return
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(notify.HITL_DELAY_S)
+            except asyncio.CancelledError:
+                return
+            fut = self._perms.get(pid)
+            if fut is None or fut.done():
+                return  # déjà répondu → pas de ping
+            try:
+                await asyncio.to_thread(
+                    notify.send, "SOKKAN — action required",
+                    f"A session is waiting for your approval: {title}",
+                    notify.session_link(self.sid), "hitl")
+            except Exception:  # noqa: BLE001
+                pass
+
+        t = asyncio.create_task(_run())
+        self._notify_tasks.add(t)
+        t.add_done_callback(self._notify_tasks.discard)
 
     def resolve_permission(self, pid: str, decision: dict) -> None:
         fut = self._perms.get(pid)
