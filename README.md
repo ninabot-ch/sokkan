@@ -29,6 +29,7 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 - **Journal** — an audit trail of every action (who spawned, moved, deleted what — the basis for reverting)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **create/move board cards**, and **push a preview** of what it changed
 - **Fleet & web exposure** (managed cloud) — order workers/databases into your private network from the cockpit, then expose what you build: one click for an HTTPS `*.sokkan.ch` subdomain, or bring **your own domain** (a CNAME + automatic TLS certificates)
+- **Operate** — the loop doesn't stop at deploy. An **Observability** stack (Prometheus + Grafana + Loki) your sessions read and write (« build a dashboard for my API p95 and 5xx »); a production alert becomes an **incident with a diagnosis session already started** — an on-call agent that has your project memory, that you supervise; a **secrets vault** injected into sessions as env vars (never shown to the UI or the model); **HITL push** so a session waiting on your approval pings you; and **runbooks** — memory notes you replay as guided, supervised sessions
 
 ## Requirements
 

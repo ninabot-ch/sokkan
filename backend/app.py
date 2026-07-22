@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 import jwt
 
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
@@ -313,6 +314,46 @@ def fleet_route_add(body: RouteReq, u: dict = Depends(require("admin"))):
     fleet.refresh_edge()  # Caddyfile à jour sans attendre le tick de 120 s
     audit.log(u["email"], "fleet.route.add", r.get("hostname", ""),
               f"{body.kind} → {body.target}:{body.port}")
+    return r
+
+
+class FleetDeployReq(BaseModel):
+    addon: str
+    image: str
+
+
+@app.post("/api/fleet/deploy")
+def fleet_deploy(body: FleetDeployReq, u: dict = Depends(require("admin"))):
+    """Deploy a Docker image as the `app` container on a fleet worker add-on
+    (admin). The control plane runs the SSH op and records the tag for rollback."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "fleet management is unavailable on this instance")
+    try:
+        r = fleet.deploy(body.addon, body.image)
+    except httpx.HTTPStatusError as e:  # surface validation errors (addon/image)
+        raise HTTPException(e.response.status_code, e.response.text)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "fleet.deploy", body.addon, body.image)
+    return r
+
+
+class FleetRollbackReq(BaseModel):
+    addon: str
+
+
+@app.post("/api/fleet/rollback")
+def fleet_rollback(body: FleetRollbackReq, u: dict = Depends(require("admin"))):
+    """Roll a fleet worker add-on back to its previously deployed image (admin)."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "fleet management is unavailable on this instance")
+    try:
+        r = fleet.rollback(body.addon)
+    except httpx.HTTPStatusError as e:  # surface "nothing to roll back" / unknown addon
+        raise HTTPException(e.response.status_code, e.response.text)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "fleet.rollback", body.addon, r.get("image", ""))
     return r
 
 

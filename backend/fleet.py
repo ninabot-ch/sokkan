@@ -86,6 +86,23 @@ def upgrade_cockpit() -> dict:
     return r.json()
 
 
+def deploy(addon: str, image: str) -> dict:
+    """Deploy a Docker image as the `app` container on a fleet worker add-on
+    (via the control plane, which runs the SSH op and records the tag)."""
+    r = httpx.post(f"{URL}/fleet/deploy", headers=_h(), timeout=30,
+                   json={"addon": addon, "image": image})
+    r.raise_for_status()
+    return r.json()
+
+
+def rollback(addon: str) -> dict:
+    """Roll the add-on back to the previously deployed image (one step)."""
+    r = httpx.post(f"{URL}/fleet/rollback", headers=_h(), timeout=30,
+                   json={"addon": addon})
+    r.raise_for_status()
+    return r.json()
+
+
 def refresh_edge() -> None:
     """Re-rend le Caddyfile edge depuis la vue portail (appelé après chaque
     mutation de route pour ne pas attendre le tick de 120 s)."""

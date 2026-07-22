@@ -122,6 +122,7 @@ export interface FleetView {
   routes?: FleetRoute[]; // exposition web (managé)
   edge_host?: string;    // cible CNAME des domaines custom (edge-<tenant>.sokkan.ch)
   route_suffix?: string; // suffixe des sous-domaines (-<tenant>.sokkan.ch)
+  deploys?: Record<string, string[]>; // historique d'images déployées par worker
 }
 export const fleetView = () => getJSON<FleetView | null>("/api/fleet");
 export const fleetRequest = (sku: string, name = "") =>
@@ -135,6 +136,10 @@ export const fleetRouteRemove = (rid: number) =>
   mutate<{ ok: boolean }>(`/api/fleet/routes/${rid}`, "DELETE");
 export const fleetUpgrade = () =>
   mutate<{ client: string; status: string }>("/api/fleet/upgrade", "POST");
+export const fleetDeploy = (addon: string, image: string) =>
+  mutate<{ addon: string; image: string; status: string }>("/api/fleet/deploy", "POST", { addon, image });
+export const fleetRollback = (addon: string) =>
+  mutate<{ addon: string; status: string }>("/api/fleet/rollback", "POST", { addon });
 
 // notifications (HITL push + alertes prod)
 export interface NotifyStatus { telegram: boolean; webhook: boolean; hitl_enabled: boolean; hitl_delay_s: number; }

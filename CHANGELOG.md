@@ -3,6 +3,24 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.1.0 — 2026-07-22 — "Operate"
+The loop doesn't stop at deploy. New **Operate** capabilities — run your
+production from the cockpit, with agents that share the project memory:
+- **Observability**: a Prometheus + Grafana + Loki stack your sessions read and
+  write via the `sokkan-observability` MCP (« build a dashboard for my p95 »).
+  Managed cloud provisions it as a fleet resource; self-hosted wires its own.
+- **Alerts → supervised incidents**: a production alert becomes an incident *and*
+  spawns a pre-seeded diagnosis session (metric + context + memory) that waits
+  for your go-ahead. Post-mortem goes back to memory.
+- **Secrets vault**: encrypted at rest, injected into sessions as env vars, never
+  shown to the UI or the model.
+- **HITL push**: get pinged (Telegram/webhook) when a session waits on your
+  approval and you've stepped away.
+- **Runbooks**: replay a `runbook-*` memory note as a guided, supervised session.
+- **Deploy & rollback** a Docker image to a fleet worker (managed cloud).
+
+See [`docs/OPERATE.md`](docs/OPERATE.md).
+
 ## 1.0.0 — 2026-07-22
 First stable release.
 - **English UI** throughout (the cockpit was previously part French).

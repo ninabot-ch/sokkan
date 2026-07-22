@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetRouteAdd, fleetRouteRemove, fleetUpgrade, fleetView, infraNodes, infraTargets, instanceInfo,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetDeploy, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetRollback, fleetRouteAdd, fleetRouteRemove, fleetUpgrade, fleetView, infraNodes, infraTargets, instanceInfo,
 } from "@/lib/api";
 
 const FleetTerm = dynamic(() => import("./FleetTerm"), { ssr: false });
@@ -391,6 +391,50 @@ function UpgradeBanner() {
   );
 }
 
+// Deploy/rollback d'une image sur un worker de la flotte : la primitive
+// versionnée+supervisée qu'on utilise pour SOKKAN lui-même, appliquée aux apps
+// du client. Le dernier élément de l'historique = image courante.
+const IMAGE_RE = /^[a-zA-Z0-9._/:-]+$/;
+function DeployRow({ addon, history, onDone }: { addon: string; history: string[]; onDone: () => void }) {
+  const [image, setImage] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const current = history[history.length - 1];
+  const doDeploy = () => {
+    const img = image.trim();
+    if (!IMAGE_RE.test(img)) { setErr("invalid image ref"); return; }
+    setErr(""); setBusy("deploy");
+    fleetDeploy(addon, img).then(() => { setImage(""); onDone(); }).catch((e) => setErr(String(e))).finally(() => setBusy(""));
+  };
+  const doRollback = () => {
+    if (!confirm(`Roll ${addon} back to ${history[history.length - 2]}?`)) return;
+    setErr(""); setBusy("rollback");
+    fleetRollback(addon).then(onDone).catch((e) => setErr(String(e))).finally(() => setBusy(""));
+  };
+  return (
+    <div className="mt-1.5 space-y-1 border-t border-line/60 pl-6 pt-1.5">
+      <div className="flex items-center gap-2 text-[10.5px] text-mut">
+        <span>deploy</span>
+        {current ? <span className="font-mono text-slate-300">running {current}</span> : <span>no app deployed yet</span>}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input value={image} onChange={(e) => setImage(e.target.value)} placeholder="registry/app:tag"
+          onKeyDown={(e) => e.key === "Enter" && doDeploy()}
+          className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-0.5 font-mono text-[11px] text-slate-100 outline-none focus:border-sea/50" />
+        <button onClick={doDeploy} disabled={busy !== "" || !image.trim()}
+          className="rounded bg-sea/80 px-2 py-0.5 text-[10.5px] font-medium text-white hover:bg-sea disabled:opacity-40">
+          {busy === "deploy" ? "…" : "▲ deploy"}</button>
+        {history.length >= 2 && (
+          <button onClick={doRollback} disabled={busy !== ""} title={`rollback to ${history[history.length - 2]}`}
+            className="rounded border border-line px-2 py-0.5 text-[10.5px] text-mut hover:text-amber-300 disabled:opacity-40">
+            {busy === "rollback" ? "…" : "↺ rollback"}</button>
+        )}
+      </div>
+      {err && <div className="text-[10.5px] text-red-400">{err}</div>}
+    </div>
+  );
+}
+
 function Fleet() {
   const isAdmin = useCan("admin");
   const [view, setView] = useState<FleetView | null | undefined>(undefined); // undefined=chargement, null=indispo
@@ -476,6 +520,10 @@ function Fleet() {
                 )}
               </div>
               {r.uri && <DbUri uri={r.uri} />}
+              {isAdmin && r.status === "live" && r.fleet_host && !r.uri && (
+                <DeployRow addon={r.fleet_host.replace(/\.fleet$/, "")}
+                  history={view.deploys?.[r.fleet_host.replace(/\.fleet$/, "")] || []} onDone={reload} />
+              )}
             </div>
           ))}
           {view.resources.length === 0 && <div className="text-[12px] text-mut">No additional resources — only your cockpit.</div>}
