@@ -461,6 +461,35 @@ async def observability_alert(request: Request) -> dict:
     return {"ok": True, "spawned": spawned}
 
 
+# --- runbooks : procédures d'ops mémorisées, rejouables ---------------------
+# Un runbook = une note mémoire nommée `runbook-*` (les agents en écrivent au fil
+# de l'eau, comme la mémoire). « Rejouer » spawn une session guidée par le
+# runbook, avec la mémoire — l'ops devient reproductible et supervisée.
+@app.get("/api/runbooks")
+def runbooks_list(_u: dict = Depends(current_user)) -> list[dict]:
+    return [{"name": n["name"], "description": n["description"], "mtime": n["mtime"]}
+            for n in memorykb.list_notes() if n["name"].startswith("runbook-")]
+
+
+@app.post("/api/runbooks/{name}/run")
+def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
+    """Spawn une session qui exécute le runbook pas à pas (HITL sur l'irréversible)."""
+    if "/" in name or ".." in name or not name.startswith("runbook-"):
+        raise HTTPException(400, "invalid runbook")
+    body = mem.memory_get(name)
+    if not body:
+        raise HTTPException(404, "runbook introuvable")
+    prompt = (
+        f"Run the runbook **{name}** step by step. Here it is:\n\n{body}\n\n"
+        "Search the project memory for related context first. Execute the steps in "
+        "order, explaining each before you run it, and stop for my approval before "
+        "anything irreversible. If a step fails, diagnose before continuing.")
+    s = _spawn_sdk("ops", prompt=prompt, title=f"runbook: {name.removeprefix('runbook-')}",
+                   user=u["email"])
+    audit.log(u["email"], "runbook.run", name, s["session_id"])
+    return s
+
+
 # --- coffre de secrets (injectés en env des sessions) -----------------------
 @app.get("/api/vault")
 def vault_list(_u: dict = Depends(require("admin"))) -> dict:

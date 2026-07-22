@@ -158,6 +158,12 @@ export const vaultSet = (name: string, value: string) =>
   mutate<{ names: string[] }>("/api/vault", "POST", { name, value });
 export const vaultDelete = (name: string) =>
   mutate<{ names: string[] }>(`/api/vault/${encodeURIComponent(name)}`, "DELETE");
+
+// runbooks (memory notes named runbook-*, replayable as a guided session)
+export interface Runbook { name: string; description: string; mtime: number; }
+export const runbooksList = () => getJSON<Runbook[]>("/api/runbooks");
+export const runbookRun = (name: string) =>
+  mutate<{ session_id: string }>(`/api/runbooks/${encodeURIComponent(name)}/run`, "POST");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });

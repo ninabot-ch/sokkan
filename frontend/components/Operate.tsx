@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { obsStatus, obsDashboards, obsIncidentSet, type ObsStatus, type Dashboard, type Incident } from "@/lib/api";
+import { obsStatus, obsDashboards, obsIncidentSet, runbooksList, runbookRun, type ObsStatus, type Dashboard, type Incident, type Runbook } from "@/lib/api";
 
 const SEV: Record<string, string> = {
   critical: "text-red-400 border-red-500/40 bg-red-500/10",
@@ -21,24 +21,15 @@ const ago = (ts: number) => {
 export default function Operate({ onOpenSession }: { onOpenSession?: (sid: string) => void }) {
   const [st, setSt] = useState<ObsStatus | null>(null);
   const [dashes, setDashes] = useState<Dashboard[]>([]);
+  const [runbooks, setRunbooks] = useState<Runbook[]>([]);
   const reload = () => {
     obsStatus().then(setSt).catch(() => setSt(null));
     obsDashboards().then(setDashes).catch(() => {});
+    runbooksList().then(setRunbooks).catch(() => {});
   };
   useEffect(() => { reload(); const iv = setInterval(reload, 10000); return () => clearInterval(iv); }, []);
 
   if (!st) return <div className="p-4 text-[12px] text-mut">Loading…</div>;
-  if (!st.enabled)
-    return (
-      <div className="p-4 text-[12px] text-mut">
-        No observability stack connected. On managed cloud, add the{" "}
-        <span className="text-slate-300">Observability</span> resource in{" "}
-        <span className="text-slate-300">Infra → My fleet</span> (Prometheus + Grafana + Loki in your
-        private network). Self-hosted: set <span className="font-mono text-slate-300">SOKKAN_PROM</span> /{" "}
-        <span className="font-mono text-slate-300">SOKKAN_GRAFANA_URL</span>.
-      </div>
-    );
-
   const incidents = st.incidents || [];
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -52,6 +43,33 @@ export default function Operate({ onOpenSession }: { onOpenSession?: (sid: strin
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {/* Runbooks — procédures d'ops rejouables */}
+        {runbooks.length > 0 && (
+          <div className="mb-4 max-w-4xl">
+            <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Runbooks
+              <span className="ml-2 text-[10.5px] font-normal text-mut">memory notes named runbook-* · replay as a guided, supervised session</span>
+            </div>
+            <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+              {runbooks.map((rb) => (
+                <div key={rb.name} className="rounded-lg border border-line bg-panel2/50 p-2">
+                  <div className="truncate text-[12px] font-medium text-slate-100">{rb.name.replace(/^runbook-/, "")}</div>
+                  {rb.description && <div className="mt-0.5 truncate text-[10.5px] text-mut">{rb.description}</div>}
+                  <button onClick={() => runbookRun(rb.name).then((s) => onOpenSession?.(s.session_id))}
+                    className="mt-1.5 rounded border border-sea/40 bg-sea/10 px-2 py-0.5 text-[10.5px] text-sea hover:border-sea">▶ run</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!st.enabled && (
+          <div className="mb-4 max-w-4xl rounded-lg border border-line bg-panel2/40 p-3 text-[11.5px] text-mut">
+            No observability stack connected. On managed cloud, add the <span className="text-slate-300">Observability</span> resource
+            in <span className="text-slate-300">Infra → My fleet</span> (Prometheus + Grafana + Loki in your private network).
+            Self-hosted: set <span className="font-mono text-slate-300">SOKKAN_PROM</span> / <span className="font-mono text-slate-300">SOKKAN_GRAFANA_URL</span>.
+          </div>
+        )}
+
         {/* Incidents — le fil vivant */}
         <div className="mb-4 max-w-4xl">
           <div className="mb-1.5 text-[12px] font-semibold text-slate-200">Incidents</div>
