@@ -78,6 +78,14 @@ def remove_route(rid: int) -> dict:
     return r.json()
 
 
+def upgrade_cockpit() -> dict:
+    """Met à jour CETTE instance vers la release courante (via le control
+    plane — courte interruption, les conteneurs redémarrent)."""
+    r = httpx.post(f"{URL}/fleet/upgrade", headers=_h(), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 def refresh_edge() -> None:
     """Re-rend le Caddyfile edge depuis la vue portail (appelé après chaque
     mutation de route pour ne pas attendre le tick de 120 s)."""

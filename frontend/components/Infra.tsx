@@ -2,11 +2,11 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetRouteAdd, fleetRouteRemove, fleetView, infraNodes, infraTargets,
+  cloudEnvDestroy, cloudEnvs, cloudEnvSpawn, fleetGrants, fleetGrantsSet, fleetRemove, fleetRequest, fleetRouteAdd, fleetRouteRemove, fleetUpgrade, fleetView, infraNodes, infraTargets, instanceInfo,
 } from "@/lib/api";
 
 const FleetTerm = dynamic(() => import("./FleetTerm"), { ssr: false });
-import type { FleetProduct, FleetResource, FleetView } from "@/lib/api";
+import type { FleetProduct, FleetResource, FleetView, InstanceInfo } from "@/lib/api";
 import type { CloudEnv, InfraNode, InfraTarget } from "@/lib/types";
 import { useFeatures } from "@/lib/features";
 import { useCan } from "@/lib/me";
@@ -353,6 +353,44 @@ function FleetRoutes({ view, reload, isAdmin }: { view: FleetView; reload: () =>
   );
 }
 
+// bandeau « nouvelle version » : le check quotidien (updatecheck) signale une
+// release plus récente → l'admin met à jour en un clic (courte interruption).
+function UpgradeBanner() {
+  const [inst, setInst] = useState<InstanceInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [launched, setLaunched] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { instanceInfo().then(setInst).catch(() => {}); }, []);
+  const u = inst?.update;
+  if (!u?.update_available) return null;
+  if (launched)
+    return (
+      <div className="mb-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-[11.5px] text-emerald-200">
+        Mise à jour lancée — l'instance se reconstruit et redémarre d'ici 2-3 minutes
+        (rechargez la page ensuite).
+      </div>
+    );
+  return (
+    <div className="mb-2.5 flex items-center gap-2.5 rounded-lg border border-sky-500/40 bg-sky-500/10 p-2 text-[11.5px] text-sky-200">
+      <span>
+        Nouvelle version disponible : <b>{u.latest}</b>
+        <span className="text-mut"> (installée : {u.local_version})</span>
+      </span>
+      <button disabled={busy}
+        onClick={() => {
+          if (!confirm(`Mettre à jour vers ${u.latest} ? Courte interruption (~2-3 min) pendant la reconstruction.`)) return;
+          setBusy(true); setErr("");
+          fleetUpgrade().then(() => setLaunched(true))
+            .catch((e) => setErr(String(e))).finally(() => setBusy(false));
+        }}
+        className="ml-auto rounded bg-sea/80 px-2.5 py-0.5 text-[11.5px] font-medium text-white hover:bg-sea disabled:opacity-40">
+        {busy ? "lancement…" : "⬆ mettre à jour"}
+      </button>
+      {err && <span className="text-red-400">{err}</span>}
+    </div>
+  );
+}
+
 function Fleet() {
   const isAdmin = useCan("admin");
   const [view, setView] = useState<FleetView | null | undefined>(undefined); // undefined=chargement, null=indispo
@@ -397,6 +435,7 @@ function Fleet() {
         Toute commande est facturée au prorata sur votre abonnement et provisionnée après paiement — opéré par NINABOT.
       </div>
 
+      {isAdmin && <UpgradeBanner />}
       {msg && <div className="mb-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-[11.5px] text-emerald-200">{msg}</div>}
       {err && <div className="mb-2.5 text-[11px] text-red-400">{err}</div>}
 

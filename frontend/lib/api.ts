@@ -86,7 +86,10 @@ export interface LlmUsage {
 }
 export const llmCredit = (pack: number) =>
   mutate<{ ok: boolean; checkout_url: string }>("/api/llm/credit", "POST", { pack });
-export interface InstanceInfo { org_name: string; tier: string; public_url: string; owner_email: string; }
+export interface InstanceInfo {
+  org_name: string; tier: string; public_url: string; owner_email: string;
+  update?: { local_version: string; latest: string | null; update_available: boolean };
+}
 export const instanceInfo = () => getJSON<InstanceInfo>("/api/instance");
 export const instanceRename = (org_name: string) => mutate<InstanceInfo>("/api/instance", "POST", { org_name });
 export const llmStatus = () => getJSON<LlmStatus>("/api/llm");
@@ -130,6 +133,8 @@ export const fleetRouteAdd = (kind: string, name: string, hostname: string, targ
     "/api/fleet/routes", "POST", { kind, name, hostname, target, port });
 export const fleetRouteRemove = (rid: number) =>
   mutate<{ ok: boolean }>(`/api/fleet/routes/${rid}`, "DELETE");
+export const fleetUpgrade = () =>
+  mutate<{ client: string; status: string }>("/api/fleet/upgrade", "POST");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });

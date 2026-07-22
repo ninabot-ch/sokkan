@@ -326,6 +326,20 @@ def fleet_route_del(rid: int, u: dict = Depends(require("admin"))):
     return r
 
 
+@app.post("/api/fleet/upgrade")
+def fleet_upgrade_self(u: dict = Depends(require("admin"))):
+    """Met à jour cette instance managée vers la release courante (admin).
+    Courte interruption : les conteneurs sont reconstruits puis redémarrés."""
+    if not fleet.ENABLED:
+        raise HTTPException(404, "indisponible sur cette instance (self-hosted : relancez install.sh)")
+    try:
+        r = fleet.upgrade_cockpit()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"fleet: {e}")
+    audit.log(u["email"], "fleet.upgrade", updatecheck.state().get("latest") or "", "")
+    return r
+
+
 @app.get("/api/edge/ask")
 def edge_ask(domain: str = ""):
     """Gate d'émission de certificat du caddy edge (on_demand_tls `ask`) :
