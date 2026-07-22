@@ -51,6 +51,7 @@ import memorykb
 import edge
 import notify
 import observability
+import vault
 import fleet
 import fleetterm
 import instance
@@ -458,6 +459,35 @@ async def observability_alert(request: Request) -> dict:
             notify.send, f"SOKKAN — 🚨 {title}", summary,
             notify.session_link(spawned[-1]["session"]) if spawned else notify.PUBLIC_URL, "alert"))
     return {"ok": True, "spawned": spawned}
+
+
+# --- coffre de secrets (injectés en env des sessions) -----------------------
+@app.get("/api/vault")
+def vault_list(_u: dict = Depends(require("admin"))) -> dict:
+    """Noms des secrets (JAMAIS les valeurs)."""
+    return {"names": vault.names()}
+
+
+class SecretIn(BaseModel):
+    name: str
+    value: str
+
+
+@app.post("/api/vault")
+def vault_set(body: SecretIn, u: dict = Depends(require("admin"))) -> dict:
+    try:
+        vault.set_secret(body.name.strip(), body.value)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "vault.set", body.name.strip(), "")  # nom only, jamais la valeur
+    return {"names": vault.names()}
+
+
+@app.delete("/api/vault/{name}")
+def vault_delete(name: str, u: dict = Depends(require("admin"))) -> dict:
+    vault.delete_secret(name)
+    audit.log(u["email"], "vault.delete", name, "")
+    return {"names": vault.names()}
 
 
 @app.get("/api/edge/ask")

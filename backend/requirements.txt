@@ -2,6 +2,7 @@ fastapi>=0.115
 uvicorn[standard]>=0.32
 httpx>=0.27
 PyJWT[crypto]>=2.9
+cryptography>=42  # coffre de secrets (vault.py, chiffrement Fernet)
 pyyaml>=6.0
 mcp>=1.2
 # chat interactif : pilote le binaire `claude` via le SDK (stream-json)

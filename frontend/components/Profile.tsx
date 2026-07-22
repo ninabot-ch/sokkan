@@ -5,13 +5,14 @@ import {
   instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription,
   notifyStatus, notifySet, notifyTest,
+  vaultList, vaultSet, vaultDelete,
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
 } from "@/lib/api";
 import type { IamUser } from "@/lib/types";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "model" | "notify";
+type Section = "account" | "org" | "members" | "model" | "notify" | "secrets";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -286,9 +287,52 @@ function Notifications() {
   );
 }
 
+// ---------- Secrets (vault) ----------
+function Secrets() {
+  const isAdmin = useCan("admin");
+  const [names, setNames] = useState<string[]>([]);
+  const [name, setName] = useState(""); const [val, setVal] = useState("");
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (isAdmin) vaultList().then((r) => setNames(r.names)).catch(() => {}); }, [isAdmin]);
+  if (!isAdmin) return <div className="text-[12px] text-mut">Secrets are restricted to administrators.</div>;
+  const add = () => {
+    setErr(""); setBusy(true);
+    vaultSet(name.trim(), val).then((r) => { setNames(r.names); setName(""); setVal(""); }).catch((e) => setErr(String(e))).finally(() => setBusy(false));
+  };
+  return (
+    <div className="space-y-3 text-[12.5px]">
+      <div className="text-[10.5px] text-mut">
+        Secrets are encrypted at rest and injected into your sessions as environment variables
+        (<span className="font-mono text-slate-300">$NAME</span>) — your agents use them to operate prod without the value
+        ever showing in the UI or going to the model. They never leave this instance.
+      </div>
+      <div className="space-y-1.5">
+        {names.map((n) => (
+          <div key={n} className="flex items-center gap-2 rounded-lg border border-line bg-panel2/50 p-2">
+            <span className="font-mono text-[12px] text-slate-100">{n}</span>
+            <span className="font-mono text-[11px] text-mut">= ••••••••</span>
+            <button onClick={() => vaultDelete(n).then((r) => setNames(r.names))}
+              className="ml-auto rounded px-1 text-mut hover:text-red-400" title="delete">✕</button>
+          </div>
+        ))}
+        {names.length === 0 && <div className="text-[12px] text-mut">No secrets yet.</div>}
+      </div>
+      <div className="flex items-center gap-1.5 pt-1">
+        <input value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="NAME"
+          className="w-40 rounded border border-line bg-[#0b0f16] px-2 py-1 font-mono text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+        <input value={val} onChange={(e) => setVal(e.target.value)} type="password" placeholder="value"
+          className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+        <button onClick={add} disabled={busy || !name.trim() || !val}
+          className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-40">save</button>
+      </div>
+      {err && <div className="text-[11px] text-red-400">{err}</div>}
+    </div>
+  );
+}
+
 export default function Profile({ onClose }: { onClose: () => void }) {
   const [sec, setSec] = useState<Section>("account");
-  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"], ["notify", "Notifications"]];
+  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
       <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -305,7 +349,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "model" ? <Model /> : <Notifications />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

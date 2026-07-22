@@ -47,6 +47,7 @@ except ImportError:  # pragma: no cover
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import llm  # config LLM par instance (BYOK / inférence incluse)
 import notify  # HITL push : ping si une permission traîne sans réponse
+import vault  # coffre de secrets par instance → env des sessions (jamais au LLM)
 
 CWD = os.environ.get("SOKKAN_AGENT_CWD") or (
     "/workspace" if os.path.isdir("/workspace") else os.getcwd())
@@ -167,8 +168,10 @@ class AgentSession:
                 setting_sources=["user", "project", "local"],
                 mcp_servers=MCP_SERVERS,
             )
-            # config LLM par instance (BYOK / inférence gérée) injectée par session
-            env_extra = llm.session_env(self.user)
+            # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
+            # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
+            # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
+            env_extra = {**vault.session_env(), **llm.session_env(self.user)}
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = self.model or llm.session_model()

@@ -151,6 +151,13 @@ export const obsStatus = () => getJSON<ObsStatus>("/api/observability");
 export const obsDashboards = () => getJSON<Dashboard[]>("/api/observability/dashboards");
 export const obsIncidentSet = (rid: number, status: string) =>
   mutate<{ ok: boolean }>(`/api/observability/incident/${rid}`, "POST", { status });
+
+// vault (secrets injected into sessions as env vars — values never returned)
+export const vaultList = () => getJSON<{ names: string[] }>("/api/vault");
+export const vaultSet = (name: string, value: string) =>
+  mutate<{ names: string[] }>("/api/vault", "POST", { name, value });
+export const vaultDelete = (name: string) =>
+  mutate<{ names: string[] }>(`/api/vault/${encodeURIComponent(name)}`, "DELETE");
 export const fleetGrants = () => getJSON<{ grants: string[] }>("/api/fleet/grants");
 export const fleetGrantsSet = (emails: string[]) =>
   mutate<{ grants: string[] }>("/api/fleet/grants", "POST", { emails });
