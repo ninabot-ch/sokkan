@@ -10,7 +10,7 @@ function ago(ts: number | null): string {
   const s = Date.now() / 1000 - ts;
   if (s < 3600) return `${Math.round(s / 60)}m`;
   if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}j`;
+  return `${Math.round(s / 86400)}d`;
 }
 
 export default function MemoryKB() {
@@ -58,12 +58,12 @@ export default function MemoryKB() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-panel/60 px-3 py-1.5">
         <span className="text-[12px] text-mut">
-          {stats ? <>{stats.notes} notes · {stats.chunks} chunks · <span className="text-slate-300">{stats.model}</span> · réindex {ago(stats.last_mtime)}</> : "…"}
+          {stats ? <>{stats.notes} notes · {stats.chunks} chunks · <span className="text-slate-300">{stats.model}</span> · reindexed {ago(stats.last_mtime)}</> : "…"}
         </span>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="🔎 recherche sémantique (playground RAG)…"
+          placeholder="🔎 semantic search (RAG playground)…"
           className="ml-auto w-80 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
         />
       </div>
@@ -74,7 +74,7 @@ export default function MemoryKB() {
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="filtrer les notes…"
+            placeholder="filter notes…"
             className="m-2 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
           />
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -92,7 +92,7 @@ export default function MemoryKB() {
         <main className="min-h-0 flex-1 overflow-y-auto p-3">
           {results ? (
             <div className="space-y-2">
-              <div className="text-[11px] text-mut">{results.length} résultats pour « {query} »</div>
+              <div className="text-[11px] text-mut">{results.length} results for "{query}"</div>
               {results.map((r) => (
                 <button key={r.note_name} onClick={() => pick(r.note_name)}
                   className="block w-full rounded-lg border border-line bg-panel2/50 p-2 text-left hover:bg-panel2">
@@ -111,14 +111,14 @@ export default function MemoryKB() {
               {note.description && <div className="mt-1 text-[12.5px] text-slate-300">{note.description}</div>}
               {(note.links.length > 0 || note.backlinks.length > 0) && (
                 <div className="mt-2 space-y-1 rounded-lg border border-line bg-panel2/30 p-2">
-                  {note.links.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-[10.5px] text-mut">cite ↗</span>{note.links.map((l) => <Chip key={l} n={l} />)}</div>}
-                  {note.backlinks.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-[10.5px] text-mut">cité par ↘</span>{note.backlinks.map((l) => <Chip key={l} n={l} />)}</div>}
+                  {note.links.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-[10.5px] text-mut">cites ↗</span>{note.links.map((l) => <Chip key={l} n={l} />)}</div>}
+                  {note.backlinks.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="text-[10.5px] text-mut">cited by ↘</span>{note.backlinks.map((l) => <Chip key={l} n={l} />)}</div>}
                 </div>
               )}
               <div className="md mt-3 text-slate-200"><ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown></div>
             </div>
           ) : (
-            <div className="mt-10 text-center text-[13px] text-mut">choisis une note à gauche, ou lance une recherche sémantique en haut</div>
+            <div className="mt-10 text-center text-[13px] text-mut">pick a note on the left, or run a semantic search above</div>
           )}
         </main>
       </div>

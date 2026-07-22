@@ -24,7 +24,7 @@ export default function FleetTerm({ name, onClose }: { name: string; onClose: ()
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/api/fleet/term/${name}?cols=${term.cols}&rows=${term.rows}`);
     ws.onmessage = (e) => term.write(e.data as string);
-    ws.onclose = () => term.write("\r\n\x1b[33m[session terminée]\x1b[0m\r\n");
+    ws.onclose = () => term.write("\r\n\x1b[33m[session ended]\x1b[0m\r\n");
     term.onData((d) => { if (ws.readyState === WebSocket.OPEN) ws.send(d); });
 
     const onResize = () => {
@@ -42,7 +42,7 @@ export default function FleetTerm({ name, onClose }: { name: string; onClose: ()
         <div className="flex items-center gap-2 border-b border-line bg-panel px-3 py-1.5 text-[12px]">
           <span className="text-amber-300">⌨</span>
           <span className="font-medium text-slate-100">root@{name}.fleet</span>
-          <span className="text-[10.5px] text-mut">maintenance — session auditée</span>
+          <span className="text-[10.5px] text-mut">maintenance — audited session</span>
           <button onClick={onClose} className="ml-auto rounded px-1.5 text-mut hover:text-slate-200">✕</button>
         </div>
         <div ref={box} className="min-h-0 flex-1 p-1.5" />

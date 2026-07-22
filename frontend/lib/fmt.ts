@@ -2,24 +2,24 @@
 
 export function ago(ts: number): string {
   const s = Math.max(0, Date.now() / 1000 - ts);
-  if (s < 60) return "à l’instant";
-  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
-  return `il y a ${Math.floor(s / 86400)} j`;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
 }
 
 export function stamp(ts: number): string {
-  return new Date(ts * 1000).toLocaleString("fr-CH", {
+  return new Date(ts * 1000).toLocaleString("en-CH", {
     day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   });
 }
 
 // priorités carte : 0 urgente · 1 haute · 2 normale · 3 basse
 export const PRIORITIES: Record<number, { label: string; text: string; dot: string; border: string }> = {
-  0: { label: "urgente", text: "text-red-300", dot: "bg-red-400", border: "#f87171" },
-  1: { label: "haute", text: "text-amber-300", dot: "bg-amber-400", border: "#fbbf24" },
-  2: { label: "normale", text: "text-sky-300", dot: "bg-sky-400", border: "#38bdf8" },
-  3: { label: "basse", text: "text-slate-400", dot: "bg-slate-500", border: "#64748b" },
+  0: { label: "urgent", text: "text-red-300", dot: "bg-red-400", border: "#f87171" },
+  1: { label: "high", text: "text-amber-300", dot: "bg-amber-400", border: "#fbbf24" },
+  2: { label: "normal", text: "text-sky-300", dot: "bg-sky-400", border: "#38bdf8" },
+  3: { label: "low", text: "text-slate-400", dot: "bg-slate-500", border: "#64748b" },
 };
 
 export function dueTone(due: string): string {

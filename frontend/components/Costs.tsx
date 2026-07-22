@@ -48,33 +48,33 @@ export default function Costs() {
   const max = Math.max(1e-9, ...series.map((d) => d.cost));
   const maxIdx = series.findIndex((d) => d.cost === max);
 
-  if (err) return <div className="mt-10 text-center text-[12.5px] text-mut">coûts non accessibles (rôle dev requis)</div>;
-  if (!data) return <div className="mt-10 text-center text-[12.5px] text-mut">agrégation des transcripts…</div>;
+  if (err) return <div className="mt-10 text-center text-[12.5px] text-mut">costs not accessible (dev role required)</div>;
+  if (!data) return <div className="mt-10 text-center text-[12.5px] text-mut">aggregating transcripts…</div>;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="mx-auto max-w-5xl space-y-5">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-[15px] font-semibold text-slate-100">Coûts &amp; usage</h2>
+          <h2 className="text-[15px] font-semibold text-slate-100">Costs &amp; usage</h2>
           <span className="text-[11px] text-mut">— {data.note}</span>
         </div>
 
         {/* tuiles */}
         <div className="flex flex-wrap gap-3">
-          <Tile label="aujourd’hui" cost={data.totals.today.cost}
-            sub={`${data.totals.today.turns} tours · ${ktok(data.totals.today.out_tokens)} tok out`} />
-          <Tile label="7 jours" cost={data.totals["7d"].cost}
-            sub={`${data.totals["7d"].turns} tours · ${ktok(data.totals["7d"].out_tokens)} tok out`} />
-          <Tile label="30 jours" cost={data.totals["30d"].cost}
-            sub={`${data.totals["30d"].turns} tours · ${ktok(data.totals["30d"].out_tokens)} tok out`} />
+          <Tile label="today" cost={data.totals.today.cost}
+            sub={`${data.totals.today.turns} turns · ${ktok(data.totals.today.out_tokens)} tok out`} />
+          <Tile label="7 days" cost={data.totals["7d"].cost}
+            sub={`${data.totals["7d"].turns} turns · ${ktok(data.totals["7d"].out_tokens)} tok out`} />
+          <Tile label="30 days" cost={data.totals["30d"].cost}
+            sub={`${data.totals["30d"].turns} turns · ${ktok(data.totals["30d"].out_tokens)} tok out`} />
           <Tile label="total (transcripts)" cost={data.totals.all.cost}
-            sub={`${data.totals.all.turns} tours · ${ktok(data.totals.all.out_tokens)} tok out`} />
+            sub={`${data.totals.all.turns} turns · ${ktok(data.totals.all.out_tokens)} tok out`} />
         </div>
 
         {/* barres quotidiennes — série unique (pas de légende), labels en encre neutre */}
         <div className="rounded-xl border border-line bg-panel p-4">
           <div className="mb-3 flex items-baseline justify-between">
-            <span className="text-[12.5px] font-medium text-slate-200">Coût estimé par jour — 30 derniers jours</span>
+            <span className="text-[12.5px] font-medium text-slate-200">Estimated cost per day — last 30 days</span>
             <span className="text-[11px] tabular-nums text-mut">max {usd(max)}</span>
           </div>
           <div className="flex h-40 items-end gap-[2px]">
@@ -91,16 +91,16 @@ export default function Costs() {
                   </span>
                 )}
                 <div className="pointer-events-none invisible absolute bottom-full left-1/2 z-10 mb-5 -translate-x-1/2 whitespace-nowrap rounded-md border border-line bg-panel2 px-2 py-1 text-[11px] shadow-xl group-hover:visible">
-                  <span className="text-slate-200">{new Date(`${d.day}T12:00:00`).toLocaleDateString("fr-CH", { day: "2-digit", month: "2-digit" })}</span>
+                  <span className="text-slate-200">{new Date(`${d.day}T12:00:00`).toLocaleDateString("en-CH", { day: "2-digit", month: "2-digit" })}</span>
                   <span className="ml-2 tabular-nums text-slate-100">{usd(d.cost)}</span>
-                  <span className="ml-2 text-mut">{d.turns} tours</span>
+                  <span className="ml-2 text-mut">{d.turns} turns</span>
                 </div>
               </div>
             ))}
           </div>
           <div className="mt-1.5 flex justify-between text-[10px] text-mut">
             {series.filter((_, i) => i % 5 === 0).map((d) => (
-              <span key={d.day}>{new Date(`${d.day}T12:00:00`).toLocaleDateString("fr-CH", { day: "2-digit", month: "2-digit" })}</span>
+              <span key={d.day}>{new Date(`${d.day}T12:00:00`).toLocaleDateString("en-CH", { day: "2-digit", month: "2-digit" })}</span>
             ))}
           </div>
         </div>
@@ -108,17 +108,17 @@ export default function Costs() {
         {/* top sessions */}
         <div className="rounded-xl border border-line bg-panel">
           <div className="border-b border-line px-4 py-2.5 text-[12.5px] font-medium text-slate-200">
-            Sessions les plus coûteuses — 30 jours
+            Most expensive sessions — last 30 days
           </div>
           <table className="w-full text-[12px]">
             <thead>
               <tr className="text-left text-[11px] text-mut">
                 <th className="px-4 pb-1 pt-2 font-medium">session</th>
                 <th className="px-2 pb-1 pt-2 font-medium">tag</th>
-                <th className="px-2 pb-1 pt-2 text-right font-medium">tours</th>
+                <th className="px-2 pb-1 pt-2 text-right font-medium">turns</th>
                 <th className="px-2 pb-1 pt-2 text-right font-medium">tok out</th>
-                <th className="px-2 pb-1 pt-2 text-right font-medium">coût est.</th>
-                <th className="px-4 pb-1 pt-2 text-right font-medium">dernier</th>
+                <th className="px-2 pb-1 pt-2 text-right font-medium">est. cost</th>
+                <th className="px-4 pb-1 pt-2 text-right font-medium">last</th>
               </tr>
             </thead>
             <tbody>

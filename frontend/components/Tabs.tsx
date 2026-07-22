@@ -6,7 +6,7 @@ import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 
-const TABS = ["Board", "Sessions", "Preview", "Mémoire/KB", "Coûts", "Infra", "Journal"] as const;
+const TABS = ["Board", "Sessions", "Preview", "Memory/KB", "Costs", "Infra", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -38,7 +38,7 @@ export default function Tabs({
                 ? "text-slate-300 hover:bg-panel2"
                 : "cursor-not-allowed text-mut/50"
             }`}
-            title={enabled ? "" : "à venir (P2+)"}
+            title={enabled ? "" : "coming soon (P2+)"}
           >
             {t}
           </button>
@@ -55,8 +55,8 @@ function ProfileMenuItem({ onOpen }: { onOpen: () => void }) {
   const warn = st && !st.configured;
   return (
     <button onClick={onOpen} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-slate-200 hover:bg-panel2">
-      Profil & organisation
-      {warn && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" title="modèle non configuré" />}
+      Profile & organization
+      {warn && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" title="model not configured" />}
     </button>
   );
 }
@@ -68,10 +68,10 @@ function Identity() {
   const color: Record<string, string> = {
     owner: "text-brass", admin: "text-sea", dev: "text-emerald-400", viewer: "text-mut",
   };
-  if (!me) return <span className="ml-auto text-[11px] text-mut">la barre, pas l’autopilote</span>;
+  if (!me) return <span className="ml-auto text-[11px] text-mut">the helm, not the autopilot</span>;
   return (
     <div className="relative ml-auto flex items-center gap-2 text-[11px] text-mut">
-      <span className="hidden sm:inline">la barre, pas l’autopilote</span>
+      <span className="hidden sm:inline">the helm, not the autopilot</span>
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1 rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line"

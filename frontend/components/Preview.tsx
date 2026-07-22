@@ -92,20 +92,20 @@ export default function Preview() {
     <div className="flex min-h-0 flex-1 flex-col">
       {trig && (
         <div className={`flex flex-wrap items-center gap-2 border-b px-3 py-1.5 text-[12px] ${trig.ts > seenTs ? "border-violet-500/40 bg-violet-500/10" : "border-line bg-panel/40"}`}>
-          <span className="text-violet-300">◉ aperçu poussé</span>
+          <span className="text-violet-300">◉ preview pushed</span>
           <span className="text-slate-200">
-            {trig.tag ? `par la session « ${trig.tag} »` : trig.user ? `par ${trig.user}` : ""} {ago(trig.ts)}
+            {trig.tag ? `by session "${trig.tag}"` : trig.user ? `by ${trig.user}` : ""} {ago(trig.ts)}
           </span>
           <span className="text-mut">— {trig.env}{trig.path}</span>
           <div className="ml-auto flex items-center gap-1.5">
             <button onClick={() => showTrig(trig)}
               className="rounded bg-violet-600/25 px-2.5 py-0.5 text-[11.5px] text-violet-200 ring-1 ring-violet-500/40 hover:bg-violet-600/40">
-              voir (capture)
+              view (screenshot)
             </button>
             {trig.preview_url && (
               <a href={`${trig.preview_url}${trig.path}`} target="_blank" rel="noreferrer"
                 className="rounded bg-panel2 px-2.5 py-0.5 text-[11.5px] text-slate-200 ring-1 ring-line hover:bg-line">
-                ouvrir ↗
+                open ↗
               </a>
             )}
           </div>
@@ -116,7 +116,7 @@ export default function Preview() {
           {(["env", "web", "diff"] as const).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-3 py-0.5 ${mode === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
-              {m === "env" ? "Env (WIP)" : m === "web" ? "Web" : "Diff git"}
+              {m === "env" ? "Env (WIP)" : m === "web" ? "Web" : "Git diff"}
             </button>
           ))}
         </div>
@@ -135,7 +135,7 @@ export default function Preview() {
                 </button>
               ))}
             </div>
-            {render === "shot" && <button onClick={() => capture(url)} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">capturer</button>}
+            {render === "shot" && <button onClick={() => capture(url)} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">capture</button>}
           </>
         )}
 
@@ -145,16 +145,16 @@ export default function Preview() {
               className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
               {repos.map((r) => <option key={r.name} value={r.name}>{r.name} ({r.branch}, {r.modified})</option>)}
             </select>
-            {diff && <span className="text-[11px] text-mut">{diff.truncated ? "diff tronqué" : `${diff.status.split("\n").filter(Boolean).length} fichiers`}</span>}
+            {diff && <span className="text-[11px] text-mut">{diff.truncated ? "diff truncated" : `${diff.status.split("\n").filter(Boolean).length} files`}</span>}
           </>
         )}
 
         {mode === "env" && (
           <>
             <input value={path} onChange={(e) => setPath(e.target.value)}
-              placeholder="/chemin (ex. /dashboard)"
+              placeholder="/path (e.g. /dashboard)"
               className="w-48 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
-            <span className="text-[11px] text-mut">démarre un dev-server → « capturer » (image) ou « ouvrir ↗ » (interactif)</span>
+            <span className="text-[11px] text-mut">start a dev server → "capture" (image) or "open ↗" (interactive)</span>
           </>
         )}
       </div>
@@ -165,10 +165,10 @@ export default function Preview() {
             <div className="space-y-3">
               {diff.status.trim()
                 ? <pre className="rounded-lg border border-line bg-panel2/40 p-2 text-[11.5px] text-slate-300">{diff.status}</pre>
-                : <div className="text-[12px] text-mut">aucun changement non commité dans {diff.repo}</div>}
+                : <div className="text-[12px] text-mut">no uncommitted changes in {diff.repo}</div>}
               {diff.diff.trim() && <DiffView text={diff.diff} />}
             </div>
-          ) : <div className="mt-10 text-center text-[12px] text-mut">chargement du diff…</div>
+          ) : <div className="mt-10 text-center text-[12px] text-mut">loading diff…</div>
         ) : mode === "env" ? (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -177,27 +177,27 @@ export default function Preview() {
                   <span className={`h-2 w-2 rounded-full ${e.running ? "bg-emerald-500" : "bg-slate-600"}`} />
                   <div className="min-w-0">
                     <div className="truncate text-[12.5px] text-slate-100">{e.label}</div>
-                    <div className="truncate text-[10.5px] text-mut">{e.url} · {e.cwd}{!e.cwd_exists && " ⚠ introuvable"}</div>
+                    <div className="truncate text-[10.5px] text-mut">{e.url} · {e.cwd}{!e.cwd_exists && " ⚠ not found"}</div>
                   </div>
                   <div className="ml-auto flex items-center gap-1.5">
                     <button onClick={() => toggleEnv(e)} disabled={busy === e.name}
                       className={`rounded px-2 py-0.5 text-[11.5px] ${e.running ? "bg-red-600/20 text-red-300 ring-1 ring-red-600/30" : "bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-600/30"} disabled:opacity-40`}>
-                      {busy === e.name ? "…" : e.running ? "arrêter" : "démarrer"}
+                      {busy === e.name ? "…" : e.running ? "stop" : "start"}
                     </button>
                     {e.running && (
                       <>
                         <button onClick={() => capture(`${e.url}${path}`)}
-                          className="rounded bg-panel px-2 py-0.5 text-[11.5px] text-slate-200 ring-1 ring-line hover:bg-line">capturer</button>
+                          className="rounded bg-panel px-2 py-0.5 text-[11.5px] text-slate-200 ring-1 ring-line hover:bg-line">capture</button>
                         <a href={`${e.preview_url}${path}`} target="_blank" rel="noreferrer"
-                          className="rounded bg-sea/80 px-2 py-0.5 text-[11.5px] font-medium text-white hover:bg-sea">ouvrir ↗</a>
+                          className="rounded bg-sea/80 px-2 py-0.5 text-[11.5px] font-medium text-white hover:bg-sea">open ↗</a>
                       </>
                     )}
                   </div>
                 </div>
               ))}
-              {!envs.length && <div className="text-[12px] text-mut">aucun environnement configuré (preview-envs.json)</div>}
+              {!envs.length && <div className="text-[12px] text-mut">no environments configured (preview-envs.json)</div>}
             </div>
-            {loading && <div className="text-[12px] text-mut">capture en cours (la 1re compile Next peut prendre ~10-20s)…</div>}
+            {loading && <div className="text-[12px] text-mut">capturing (first Next compile can take ~10-20s)…</div>}
             {src && /* eslint-disable-next-line @next/next/no-img-element */ (
               <img src={src} alt="preview WIP" onLoad={() => setLoading(false)} onError={() => setLoading(false)}
                 className="mx-auto max-w-full rounded-lg border border-line" />
@@ -207,14 +207,14 @@ export default function Preview() {
           <iframe title="preview" src={url} className="h-full w-full rounded-lg border border-line bg-white" />
         ) : src ? (
           <>
-            {loading && <div className="mb-2 text-[12px] text-mut">capture en cours…</div>}
+            {loading && <div className="mb-2 text-[12px] text-mut">capturing…</div>}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt="screenshot" onLoad={() => setLoading(false)} onError={() => setLoading(false)}
               className="mx-auto max-w-full rounded-lg border border-line" />
           </>
         ) : (
           <div className="mt-10 text-center text-[13px] text-mut">
-            entre une URL et « capturer »
+            enter a URL and hit "capture"
             <div className="mt-2 flex flex-wrap justify-center gap-1.5">
               {QUICK.map((q) => <button key={q} onClick={() => setUrl(q)} className="rounded border border-line bg-panel2 px-2 py-0.5 text-[11px] text-sea hover:bg-line">{q}</button>)}
             </div>

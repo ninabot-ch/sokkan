@@ -73,7 +73,7 @@ export default function CardModal({
       <div className="w-full max-w-2xl rounded-2xl border border-line bg-panel shadow-2xl">
         {/* header */}
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
-          <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`} title={`priorité ${p.label}`} />
+          <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`} title={`priority ${p.label}`} />
           <div className="min-w-0 flex-1">
             <input
               ref={titleRef}
@@ -86,9 +86,9 @@ export default function CardModal({
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-mut">
               <span>#{card.id}</span>
               <span>· {card.bucket}</span>
-              <span>· créée {ago(card.created_at)}</span>
-              {card.updated_at && <span>· modifiée {ago(card.updated_at)}</span>}
-              {card.archived ? <span className="rounded bg-red-500/15 px-1.5 text-red-300">archivée</span> : null}
+              <span>· created {ago(card.created_at)}</span>
+              {card.updated_at && <span>· updated {ago(card.updated_at)}</span>}
+              {card.archived ? <span className="rounded bg-red-500/15 px-1.5 text-red-300">archived</span> : null}
             </div>
           </div>
           <button onClick={onClose} className="rounded-md px-2 py-1 text-mut hover:bg-panel2 hover:text-slate-200">✕</button>
@@ -105,7 +105,7 @@ export default function CardModal({
               </select>
             </label>
             <div className="flex items-center gap-1.5">
-              <span className="text-mut">priorité</span>
+              <span className="text-mut">priority</span>
               {Object.entries(PRIORITIES).map(([k, v]) => (
                 <button key={k} disabled={!canWrite} onClick={() => patch({ priority: Number(k) })}
                   className={`rounded-full px-2 py-0.5 ring-1 ${card.priority === Number(k) ? `${v.text} ring-current bg-panel2` : "text-mut ring-line hover:text-slate-300"}`}>
@@ -114,7 +114,7 @@ export default function CardModal({
               ))}
             </div>
             <label className="flex items-center gap-2">
-              <span className="text-mut">échéance</span>
+              <span className="text-mut">due date</span>
               <input type="date" value={card.due || ""} disabled={!canWrite}
                 onChange={(e) => patch({ due: e.target.value })}
                 className={`rounded border border-line bg-panel2 px-1.5 py-0.5 text-slate-200 ${card.due ? dueTone(card.due) : ""}`} />
@@ -129,7 +129,7 @@ export default function CardModal({
               {canWrite && (
                 <button onClick={() => { setDescEdit(!descEdit); if (descEdit && desc !== card.description) patch({ description: desc }); }}
                   className="rounded border border-line px-2 py-0.5 text-[11px] text-mut hover:text-slate-200">
-                  {descEdit ? "enregistrer" : "éditer"}
+                  {descEdit ? "save" : "edit"}
                 </button>
               )}
             </div>
@@ -143,7 +143,7 @@ export default function CardModal({
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-line p-3 text-[12px] text-mut">
-                pas de description — c’est elle qui seede la session au spawn
+                no description — it's what seeds the session on spawn
               </div>
             )}
           </div>
@@ -182,7 +182,7 @@ export default function CardModal({
                       setNewItem("");
                     }
                   }}
-                  placeholder="+ ajouter un point (Entrée)"
+                  placeholder="+ add an item (Enter)"
                   className="w-full rounded border border-line/60 bg-transparent px-2 py-1 text-[12px] text-slate-200 outline-none placeholder:text-mut/60 focus:border-sea/50" />
               )}
             </div>
@@ -190,7 +190,7 @@ export default function CardModal({
 
           {/* activité */}
           <div>
-            <div className="mb-1.5 text-[12px] font-medium text-slate-300">Activité</div>
+            <div className="mb-1.5 text-[12px] font-medium text-slate-300">Activity</div>
             <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
               {card.events.map((ev, i) => (
                 <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
@@ -200,7 +200,7 @@ export default function CardModal({
                   {ev.user && <span className="ml-auto shrink-0 text-[10px] text-mut/60">{ev.user.split("@")[0]}</span>}
                 </div>
               ))}
-              {!card.events.length && <div className="text-[11.5px] text-mut">aucun événement</div>}
+              {!card.events.length && <div className="text-[11.5px] text-mut">no events</div>}
             </div>
           </div>
         </div>
@@ -211,18 +211,18 @@ export default function CardModal({
             {card.session_id ? (
               <button onClick={() => { onOpenSession(card.session_id!); onClose(); }}
                 className="rounded-md bg-sea/20 px-3 py-1.5 text-[12.5px] text-sea ring-1 ring-sea/30 hover:bg-sea/30">
-                ouvrir la session {card.window ? `(${card.window.split(":").pop()})` : ""}
+                open session {card.window ? `(${card.window.split(":").pop()})` : ""}
               </button>
             ) : (
               <button onClick={doSpawn} disabled={busy}
                 className="rounded-md bg-emerald-600/20 px-3 py-1.5 text-[12.5px] text-emerald-300 ring-1 ring-emerald-600/30 hover:bg-emerald-600/30 disabled:opacity-40">
-                {busy ? "spawn…" : "▶ spawn une session"}
+                {busy ? "spawning…" : "▶ spawn a session"}
               </button>
             )}
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => patch({ archived: card.archived ? 0 : 1 })}
                 className="rounded-md px-3 py-1.5 text-[12px] text-mut ring-1 ring-line hover:text-slate-200">
-                {card.archived ? "restaurer" : "archiver"}
+                {card.archived ? "restore" : "archive"}
               </button>
               <button
                 onClick={() => {
@@ -230,7 +230,7 @@ export default function CardModal({
                   deleteCard(card.id).then(() => { onChanged(); onClose(); });
                 }}
                 className={`rounded-md px-3 py-1.5 text-[12px] ring-1 ${confirmDel ? "bg-red-600/20 text-red-300 ring-red-600/40" : "text-mut ring-line hover:text-red-300"}`}>
-                {confirmDel ? "confirmer ?" : "supprimer"}
+                {confirmDel ? "confirm?" : "delete"}
               </button>
             </div>
           </div>

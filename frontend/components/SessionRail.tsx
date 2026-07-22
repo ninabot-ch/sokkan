@@ -9,7 +9,7 @@ function ago(s: number): string {
   if (s < 60) return `${Math.round(s)}s`;
   if (s < 3600) return `${Math.round(s / 60)}m`;
   if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}j`;
+  return `${Math.round(s / 86400)}d`;
 }
 
 export default function SessionRail({
@@ -79,20 +79,20 @@ export default function SessionRail({
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={2}
-            placeholder="prompt initial (optionnel)…"
+            placeholder="initial prompt (optional)…"
             className="w-full resize-y rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
           />
           {feats.tmux && (
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-mut">
             <input type="checkbox" checked={asTmux} onChange={(e) => setAsTmux(e.target.checked)} className="accent-slate-500" />
-            terminal (tmux) — mode power user
+            terminal (tmux) — power user mode
           </label>
           )}
           <button
             onClick={create}
             disabled={busy}
             className="w-full rounded bg-sea/80 py-1 text-[12px] font-medium text-white disabled:opacity-40 hover:bg-sea"
-          >{busy ? "création…" : `ouvrir une session « ${tag} »`}</button>
+          >{busy ? "creating…" : `open a "${tag}" session`}</button>
         </div>
       )}
 
@@ -123,27 +123,27 @@ export default function SessionRail({
                   </span>
                   {s.kind !== "sdk" && <span className="rounded bg-panel2 px-1 text-[9px] text-mut ring-1 ring-line">term</span>}
                   {isOpen && <span className="text-[9px] text-brass">●</span>}
-                  {!s.alive && <span className="text-[9px] text-mut">terminée</span>}
+                  {!s.alive && <span className="text-[9px] text-mut">ended</span>}
                 </span>
                 <span className={`mt-0.5 block truncate text-[12px] ${s.alive ? "text-slate-200" : "text-mut line-through"}`}>{s.title}</span>
                 <span className="block text-[10px] text-mut">{
-                  !s.alive ? "fenêtre fermée"
-                    : s.live_state === "booting" ? "démarrage…"
-                    : s.live_state === "working" ? "en cours…"
-                    : s.live_state === "awaiting" ? "choix en attente"
-                    : s.exists ? ago(s.age_s) : "prête"
+                  !s.alive ? "window closed"
+                    : s.live_state === "booting" ? "starting…"
+                    : s.live_state === "working" ? "working…"
+                    : s.live_state === "awaiting" ? "awaiting choice"
+                    : s.exists ? ago(s.age_s) : "ready"
                 }</span>
               </button>
               <button
                 onClick={del}
                 className="mt-0.5 rounded px-1 text-mut opacity-0 hover:text-red-400 group-hover:opacity-100"
-                title="supprimer la session (ferme la fenêtre tmux)"
+                title="delete session (closes the tmux window)"
               >✕</button>
             </div>
           );
         })}
         {!sessions.length && (
-          <div className="px-3 py-3 text-[12px] text-mut">aucune session — clique « + session »</div>
+          <div className="px-3 py-3 text-[12px] text-mut">no sessions — click "+ session"</div>
         )}
       </div>
     </aside>

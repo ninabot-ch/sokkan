@@ -27,10 +27,10 @@ function Account() {
       <div className="rounded-lg border border-line bg-panel2/40 p-3">
         <div className="text-[13px] text-slate-100">{me?.name}</div>
         <div className="text-[11.5px] text-mut">{me?.email}</div>
-        <div className="mt-1.5 text-[11px]">rôle <span className={color[me?.role || ""] || "text-mut"}>{me?.role}</span>
-          <span className="ml-2 text-mut">· connexion {me?.source}</span></div>
+        <div className="mt-1.5 text-[11px]">role <span className={color[me?.role || ""] || "text-mut"}>{me?.role}</span>
+          <span className="ml-2 text-mut">· login {me?.source}</span></div>
       </div>
-      <a href="/api/auth/logout" className="inline-block rounded-lg border border-line px-3 py-1.5 text-[12px] text-slate-200 hover:bg-panel2">Se déconnecter →</a>
+      <a href="/api/auth/logout" className="inline-block rounded-lg border border-line px-3 py-1.5 text-[12px] text-slate-200 hover:bg-panel2">Sign out →</a>
     </div>
   );
 }
@@ -46,11 +46,11 @@ function Org() {
   return (
     <div className="space-y-3 text-[12.5px]">
       <div className="rounded-lg border border-line bg-panel2/40 p-3">
-        <div className="text-[11px] text-mut">Nom de l'organisation</div>
+        <div className="text-[11px] text-mut">Organization name</div>
         {!edit ? (
           <div className="flex items-center gap-2">
             <span className="text-[14px] text-slate-100">{inf.org_name}</span>
-            {isAdmin && <button onClick={() => setEdit(true)} className="text-[11px] text-sea hover:underline">modifier</button>}
+            {isAdmin && <button onClick={() => setEdit(true)} className="text-[11px] text-sea hover:underline">edit</button>}
           </div>
         ) : (
           <div className="mt-1 flex gap-1.5">
@@ -58,7 +58,7 @@ function Org() {
               className="flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
             <button onClick={() => instanceRename(name).then((i) => { setInf(i); setEdit(false); })}
               className="rounded bg-sea/80 px-2 py-0.5 text-[11px] text-white hover:bg-sea">ok</button>
-            <button onClick={() => { setEdit(false); setName(inf.org_name); }} className="text-[11px] text-mut">annuler</button>
+            <button onClick={() => { setEdit(false); setName(inf.org_name); }} className="text-[11px] text-mut">cancel</button>
           </div>
         )}
       </div>
@@ -66,25 +66,25 @@ function Org() {
         {inf.tier && <div className="rounded-lg border border-line bg-panel2/40 p-3">
           <div className="text-[11px] text-mut">Plan</div><div className="text-[13px] capitalize text-slate-100">{inf.tier}</div></div>}
         <div className="rounded-lg border border-line bg-panel2/40 p-3">
-          <div className="text-[11px] text-mut">Adresse</div>
+          <div className="text-[11px] text-mut">Address</div>
           <a href={inf.public_url} target="_blank" rel="noreferrer" className="truncate text-[12px] text-sea hover:underline">{inf.public_url || "—"}</a></div>
       </div>
       {inf.update?.update_available && (
         <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-3 text-[12px] text-sky-200">
-          <b>Nouvelle version disponible : {inf.update.latest}</b>
-          <span className="text-mut"> (installée : {inf.update.local_version})</span>
+          <b>New version available: {inf.update.latest}</b>
+          <span className="text-mut"> (installed: {inf.update.local_version})</span>
           {inf.tier ? (
-            <div className="mt-1 text-[11.5px]">Instance managée : onglet <b>Infra → Ma flotte</b> → « ⬆ mettre à jour » (admin).</div>
+            <div className="mt-1 text-[11.5px]">Managed instance: <b>Infra → My fleet</b> tab → "⬆ update" (admin).</div>
           ) : (
             <div className="mt-1 text-[11.5px]">
-              Self-hosted — relancez l'installeur depuis le dossier parent de <code>sokkan/</code> :
+              Self-hosted — rerun the installer from the parent directory of <code>sokkan/</code>:
               <code className="mt-1 block select-all rounded bg-black/40 px-1.5 py-0.5 font-mono text-[11px] text-sky-100">curl -fsSL https://sokkan.ch/install.sh | sh</code>
-              Il détecte l'installation existante et la met à jour (votre <code>.env</code> et vos données sont conservés).
+              It detects the existing install and updates it (your <code>.env</code> and data are preserved).
             </div>
           )}
         </div>
       )}
-      <div className="text-[10.5px] text-mut">Hébergé et opéré par NINABOT — infrastructure souveraine suisse.</div>
+      <div className="text-[10.5px] text-mut">Hosted and operated by NINABOT — sovereign Swiss infrastructure.</div>
     </div>
   );
 }
@@ -97,10 +97,10 @@ function Members() {
   const [role, setRole] = useState("dev");
   const reload = () => iamUsers().then(setUsers).catch(() => setUsers([]));
   useEffect(() => { if (isAdmin) reload(); }, [isAdmin]);
-  if (!isAdmin) return <div className="text-[12px] text-mut">Gestion des membres réservée aux administrateurs.</div>;
+  if (!isAdmin) return <div className="text-[12px] text-mut">Member management is restricted to administrators.</div>;
   return (
     <div className="space-y-2">
-      <div className="text-[10.5px] text-mut">Les rôles sont internes à SOKKAN. viewer (lecture) · dev (travail) · admin (gère les membres) · owner.</div>
+      <div className="text-[10.5px] text-mut">Roles are internal to SOKKAN. viewer (read-only) · dev (work) · admin (manages members) · owner.</div>
       {users.map((u) => (
         <div key={u.email} className="flex items-center gap-2 rounded-lg border border-line bg-panel2/50 p-2">
           <div className="min-w-0"><div className="truncate text-[12.5px] text-slate-100">{u.name}</div>
@@ -109,7 +109,7 @@ function Members() {
             className="ml-auto rounded border border-line bg-panel2 px-1.5 py-0.5 text-[11.5px] text-slate-200 disabled:opacity-50">
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
           <button disabled={u.role === "owner"} onClick={() => iamDelete(u.email).then(reload)}
-            className="rounded px-1 text-mut hover:text-red-400 disabled:opacity-30" title="retirer">✕</button>
+            className="rounded px-1 text-mut hover:text-red-400 disabled:opacity-30" title="remove">✕</button>
         </div>
       ))}
       <div className="flex items-center gap-2 pt-1">
@@ -118,7 +118,7 @@ function Members() {
         <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
         <button onClick={() => { if (email.trim()) iamUpsert(email.trim(), role).then(() => { setEmail(""); reload(); }); }}
-          className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">+ membre</button>
+          className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">+ member</button>
       </div>
     </div>
   );
@@ -142,15 +142,15 @@ function Model() {
       <div className="rounded-lg border border-line bg-panel2/50 p-3 text-[12.5px]">
         <div className="flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${st.configured ? "bg-emerald-500" : "bg-amber-400"}`} />
-          <span className="text-slate-200">{included ? "Inférence gérée — Qwen3 Coder (Francfort UE), prépayée"
-            : st.byok_kind === "api_key" ? "Votre clé API Anthropic"
-            : st.byok_kind === "subscription" ? "Votre abonnement Claude Pro/Max"
-            : st.mode === "env" ? "Clé configurée (environnement)" : "Aucun modèle configuré"}</span>
+          <span className="text-slate-200">{included ? "Managed inference — Qwen3 Coder (Frankfurt EU), prepaid"
+            : st.byok_kind === "api_key" ? "Your Anthropic API key"
+            : st.byok_kind === "subscription" ? "Your Claude Pro/Max subscription"
+            : st.mode === "env" ? "Key configured (environment)" : "No model configured"}</span>
         </div>
         {included && use && (
           <div className="mt-2.5 space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-[11px] text-mut">Crédits d'inférence</span>
+              <span className="text-[11px] text-mut">Inference credits</span>
               <span className={`text-[15px] font-semibold ${(use.balance_centimes ?? 0) > 500 ? "text-emerald-400" : "text-amber-300"}`}>
                 {((use.balance_centimes ?? 0) / 100).toFixed(2)} CHF
               </span>
@@ -166,56 +166,56 @@ function Model() {
               </div>
             )}
             <div>
-              <div className="flex justify-between text-[11px] text-mut"><span>Aujourd'hui (plafond de protection)</span>
+              <div className="flex justify-between text-[11px] text-mut"><span>Today (protection cap)</span>
                 <span className="text-slate-300">{fmt(use.used_today)} / {use.daily_quota_tokens ? fmt(use.daily_quota_tokens) : "∞"} tokens</span></div>
               <div className="mt-1"><Bar used={use.used_today} quota={use.daily_quota_tokens} /></div>
             </div>
             {!!use.per_user?.length && (
               <div>
-                <div className="text-[11px] text-mut">Usage du mois par utilisateur</div>
+                <div className="text-[11px] text-mut">This month's usage by user</div>
                 {use.per_user.map((u2) => (
                   <div key={u2.user} className="flex justify-between text-[11px]">
-                    <span className="text-slate-300">{u2.user || "(non attribué)"}</span>
+                    <span className="text-slate-300">{u2.user || "(unattributed)"}</span>
                     <span className="text-mut">{fmt(u2.input_tokens)} in · {fmt(u2.output_tokens)} out</span>
                   </div>
                 ))}
               </div>
             )}
             <div className="text-[10px] text-mut">
-              Décompté au token (tarif affiché dès 4 CHF/Mtok in · 20 CHF/Mtok out, paliers de contexte).
-              Solde épuisé = requêtes refusées, rien n'est facturé au-delà.
+              Billed per token (rates shown from 4 CHF/Mtok in · 20 CHF/Mtok out, context tiers).
+              Balance exhausted = requests refused, nothing billed beyond that.
             </div>
           </div>
         )}
       </div>
       {included ? (
         <div className="text-[12px] text-mut">
-          Inférence gérée : modèles <b className="text-slate-300">Qwen3 Coder</b>, servis depuis
-          Francfort (UE), prépayée par crédits. Pour passer en clé personnelle (BYOK), contactez-nous.
+          Managed inference: <b className="text-slate-300">Qwen3 Coder</b> models, served from
+          Frankfurt (EU), prepaid with credits. To switch to your own key (BYOK), contact us.
         </div>
       ) : !isAdmin ? (
-        <div className="text-[12px] text-mut">La configuration du modèle est réservée aux administrateurs.</div>
+        <div className="text-[12px] text-mut">Model configuration is restricted to administrators.</div>
       ) : (
         <>
-          <div className="text-[11px] text-mut">Comment vos sessions accèdent au modèle :</div>
+          <div className="text-[11px] text-mut">How your sessions access the model:</div>
           <button onClick={() => { setChoice("api"); setVal(""); }} className={`block w-full rounded-lg border p-3 text-left ${choice === "api" ? "border-sea bg-sea/10" : "border-line hover:border-line/80"}`}>
-            <div className="text-[13px] text-slate-100">Clé API Anthropic <span className="text-mut">(BYOK)</span></div>
-            <div className="text-[11px] text-mut">Sessions vers Anthropic en direct, facturé sur votre compte, aucune limite. La clé reste sur votre VM.</div></button>
+            <div className="text-[13px] text-slate-100">Anthropic API key <span className="text-mut">(BYOK)</span></div>
+            <div className="text-[11px] text-mut">Sessions go straight to Anthropic, billed to your account, no limits. The key stays on your VM.</div></button>
           <button onClick={() => { setChoice("sub"); setVal(""); }} className={`block w-full rounded-lg border p-3 text-left ${choice === "sub" ? "border-sea bg-sea/10" : "border-line hover:border-line/80"}`}>
-            <div className="text-[13px] text-slate-100">Abonnement Claude Pro / Max</div>
-            <div className="text-[11px] text-mut">Sur votre poste : <code className="text-slate-300">claude setup-token</code> → collez le jeton. Utilise votre abonnement.</div></button>
+            <div className="text-[13px] text-slate-100">Claude Pro / Max subscription</div>
+            <div className="text-[11px] text-mut">On your machine: <code className="text-slate-300">claude setup-token</code> → paste the token. Uses your subscription.</div></button>
           <div className="rounded-lg border border-line/60 bg-panel2/30 p-3 opacity-70">
-            <div className="text-[13px] text-slate-300">Inférence gérée (Qwen3 Coder · Francfort UE)</div>
-            <div className="text-[11px] text-mut">Prépayée par crédits, décomptée au token. Se choisit à la souscription.</div></div>
+            <div className="text-[13px] text-slate-300">Managed inference (Qwen3 Coder · Frankfurt EU)</div>
+            <div className="text-[11px] text-mut">Prepaid with credits, billed per token. Chosen at signup.</div></div>
           {choice && (
             <div className="rounded-lg border border-line bg-panel2/40 p-3">
               <input value={val} onChange={(e) => setVal(e.target.value)} type="password"
-                placeholder={choice === "api" ? "sk-ant-…" : "jeton claude setup-token…"}
+                placeholder={choice === "api" ? "sk-ant-…" : "token from claude setup-token…"}
                 className="w-full rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
               <div className="mt-2 flex items-center gap-2">
-                <button disabled={busy} onClick={save} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-50">enregistrer</button>
-                <button onClick={() => { setChoice(null); setVal(""); }} className="text-[12px] text-mut hover:text-slate-200">annuler</button>
-                <span className="ml-auto text-[10px] text-mut">reste sur votre VM, jamais transmis</span></div>
+                <button disabled={busy} onClick={save} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-50">save</button>
+                <button onClick={() => { setChoice(null); setVal(""); }} className="text-[12px] text-mut hover:text-slate-200">cancel</button>
+                <span className="ml-auto text-[10px] text-mut">stays on your VM, never transmitted</span></div>
               {err && <div className="mt-1 text-[11px] text-red-400">{err}</div>}
             </div>
           )}
@@ -227,12 +227,12 @@ function Model() {
 
 export default function Profile({ onClose }: { onClose: () => void }) {
   const [sec, setSec] = useState<Section>("account");
-  const nav: [Section, string][] = [["account", "Mon compte"], ["org", "Organisation"], ["members", "Membres"], ["model", "Modèle"]];
+  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
       <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="w-44 shrink-0 border-r border-line bg-panel2/40 p-2">
-          <div className="px-2 py-1.5 text-[13px] font-semibold text-slate-100">Profil & organisation</div>
+          <div className="px-2 py-1.5 text-[13px] font-semibold text-slate-100">Profile & organization</div>
           {nav.map(([k, label]) => (
             <button key={k} onClick={() => setSec(k)}
               className={`block w-full rounded-md px-2 py-1.5 text-left text-[12.5px] ${sec === k ? "bg-panel text-slate-100" : "text-mut hover:text-slate-200"}`}>{label}</button>

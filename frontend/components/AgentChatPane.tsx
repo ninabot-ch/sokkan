@@ -14,13 +14,13 @@ interface QReq { id: string; questions: AgentQuestion[] }
 // modes de permission dans l'ordre du cycle (clic sur le badge ou Maj+Tab)
 const PERM_MODES: { id: PermMode; label: string; cls: string; title: string }[] = [
   { id: "default",           label: "🔒 confirmations", cls: "border-line text-mut",
-    title: "chaque outil mutant demande confirmation" },
-  { id: "acceptEdits",       label: "✏️ auto-édits",    cls: "border-sea/50 text-sea",
-    title: "édits de fichiers auto-acceptés · Bash confirme encore" },
+    title: "every mutating tool asks for confirmation" },
+  { id: "acceptEdits",       label: "✏️ auto-edits",    cls: "border-sea/50 text-sea",
+    title: "file edits auto-accepted · Bash still confirms" },
   { id: "bypassPermissions", label: "⚡ automode",       cls: "border-amber-500/60 text-amber-300 bg-amber-500/10",
-    title: "tout auto-accepté — aucune confirmation (YOLO)" },
+    title: "everything auto-accepted — no confirmations (YOLO)" },
   { id: "plan",              label: "📋 plan",          cls: "border-violet-400/50 text-violet-300",
-    title: "lecture seule — Claude produit un plan avant d'agir" },
+    title: "read-only — Claude produces a plan before acting" },
 ];
 
 // pane de grille pour une session SDK possédée par SOKKAN.
@@ -181,29 +181,29 @@ export default function AgentChatPane({
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
           working ? "animate-pulse bg-emerald-400" : open ? "bg-emerald-500" : "bg-slate-600"
-        }`} title={working ? "Claude travaille…" : open ? "connecté" : "déconnecté"} />
+        }`} title={working ? "Claude is working…" : open ? "connected" : "disconnected"} />
         {tag && <span className="shrink-0 rounded bg-brass/15 px-1.5 text-[10px] text-brass">{tag}</span>}
-        {model && <span className="shrink-0 rounded bg-sea/15 px-1.5 text-[10px] text-sea" title="modèle de la session">{model}</span>}
+        {model && <span className="shrink-0 rounded bg-sea/15 px-1.5 text-[10px] text-sea" title="session model">{model}</span>}
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-slate-100">{title || "Session"}</div>
           <div className="truncate text-[10.5px] text-mut">
-            {open ? "connectée" : "connexion…"}{working && <span className="text-brass"> · Claude travaille…</span>}
+            {open ? "connected" : "connecting…"}{working && <span className="text-brass"> · Claude is working…</span>}
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <button onClick={cycleMode} disabled={!canWrite}
-            title={`${curMode.title} · clic ou Maj+Tab pour changer de mode`}
+            title={`${curMode.title} · click or Shift+Tab to change mode`}
             className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] hover:bg-panel2 disabled:opacity-40 ${curMode.cls}`}>
             {curMode.label}
           </button>
           {working && (
             <button onClick={() => sock.current?.interrupt()}
               className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-100 hover:bg-amber-500/20">
-              interrompre
+              interrupt
             </button>
           )}
           {onClose && (
-            <button onClick={() => onClose(sid)} title="fermer le pane"
+            <button onClick={() => onClose(sid)} title="close pane"
               className="rounded px-1.5 py-0.5 text-mut hover:bg-panel2 hover:text-slate-200">✕</button>
           )}
         </div>
@@ -212,7 +212,7 @@ export default function AgentChatPane({
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {messages.length === 0 && (
           <div className="mt-6 text-center text-[12px] text-mut">
-            session prête — écris un message (tape « / » pour les commandes)
+            session ready — type a message (type '/' for commands)
           </div>
         )}
         {messages.map((m, i) => <ChatMessage key={i} m={m} />)}
@@ -221,7 +221,7 @@ export default function AgentChatPane({
         {perms.map((p) => (
           <div key={p.id} className="my-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
             <div className="text-[12px] text-amber-100">
-              Autoriser <span className="font-semibold">{p.tool}</span> ?
+              Allow <span className="font-semibold">{p.tool}</span>?
             </div>
             <pre className="my-1.5 max-h-32 overflow-auto rounded bg-[#0b0f16] p-2 text-[11px] text-slate-300">
               {p.title}
@@ -229,11 +229,11 @@ export default function AgentChatPane({
             <div className="flex gap-2">
               <button disabled={!canWrite} onClick={() => answerPerm(p.id, "allow")}
                 className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[12px] text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-40">
-                Autoriser
+                Allow
               </button>
               <button disabled={!canWrite} onClick={() => answerPerm(p.id, "deny")}
                 className="rounded-md border border-line px-3 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40">
-                Refuser
+                Deny
               </button>
             </div>
           </div>
@@ -266,16 +266,16 @@ export default function AgentChatPane({
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               rows={2}
-              placeholder="message (Entrée envoyer, Maj+Entrée newline, / commandes)"
+              placeholder="message (Enter to send, Shift+Enter for newline, / for commands)"
               className="min-h-[36px] flex-1 resize-y rounded-lg border border-line bg-[#0b0f16] px-2.5 py-1.5 text-[12.5px] text-slate-100 outline-none focus:border-sea/50"
             />
             <button onClick={doSend} disabled={!text.trim() || !open}
               className="shrink-0 rounded-lg bg-sea/80 px-3 py-2 text-[12.5px] font-medium text-white disabled:opacity-40 hover:bg-sea">
-              envoyer
+              send
             </button>
           </div>
         ) : (
-          <div className="text-center text-[11px] text-mut">lecture seule (rôle viewer)</div>
+          <div className="text-center text-[11px] text-mut">read-only (viewer role)</div>
         )}
       </div>
     </div>
@@ -335,7 +335,7 @@ function QuestionCard({ q, disabled, onAnswer }: {
       ))}
       <button disabled={disabled || !ready} onClick={submit}
         className="mt-1 rounded-md bg-sea/80 px-3 py-1 text-[12px] font-medium text-white disabled:opacity-40 hover:bg-sea">
-        valider
+        submit
       </button>
     </div>
   );

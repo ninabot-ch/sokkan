@@ -63,13 +63,13 @@ export default function Home() {
         <Board onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Preview" ? (
         <Preview />
-      ) : tab === "Mémoire/KB" ? (
+      ) : tab === "Memory/KB" ? (
         <MemoryKB />
       ) : tab === "Infra" ? (
         <Infra />
       ) : tab === "Journal" ? (
         <Journal />
-      ) : tab === "Coûts" ? (
+      ) : tab === "Costs" ? (
         <Costs />
       ) : (
         <div className="flex min-h-0 flex-1">
@@ -80,8 +80,8 @@ export default function Home() {
           />
           <main className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5 text-[11px] text-mut">
-              <span>{open.length} fenêtre(s)</span>
-              <span className="ml-auto">densité</span>
+              <span>{open.length} window(s)</span>
+              <span className="ml-auto">density</span>
               {DENSITIES.map((d) => (
                 <button
                   key={d}
@@ -92,7 +92,7 @@ export default function Home() {
             </div>
             {open.length === 0 ? (
               <div className="flex flex-1 items-center justify-center text-[13px] text-mut">
-                ← choisis une session dans le rail (ou spawn une tâche dans le Board)
+                ← pick a session in the rail (or spawn a task from the Board)
               </div>
             ) : (
               <div

@@ -33,27 +33,27 @@ export default function Journal() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-2">
-        <span className="text-[12.5px] font-semibold text-slate-200">Journal des actions</span>
-        <span className="text-[11px] text-mut">— qui a fait quoi, quand (pas le contenu des sessions)</span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrer (user, action, ressource)…"
+        <span className="text-[12.5px] font-semibold text-slate-200">Action log</span>
+        <span className="text-[11px] text-mut">— who did what, when (not session content)</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter (user, action, resource)…"
           className="ml-auto w-64 rounded border border-line bg-panel2 px-2 py-1 text-[12px] text-slate-200 outline-none focus:border-sea/50" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {err ? (
-          <div className="mt-10 text-center text-[12.5px] text-mut">journal non accessible (rôle dev requis)</div>
+          <div className="mt-10 text-center text-[12.5px] text-mut">log not accessible (dev role required)</div>
         ) : !events ? (
-          <div className="mt-10 text-center text-[12.5px] text-mut">chargement…</div>
+          <div className="mt-10 text-center text-[12.5px] text-mut">loading…</div>
         ) : !events.length ? (
-          <div className="mt-10 text-center text-[12.5px] text-mut">aucune action journalisée{q && " pour ce filtre"}</div>
+          <div className="mt-10 text-center text-[12.5px] text-mut">no logged actions{q && " for this filter"}</div>
         ) : (
           <table className="w-full border-separate border-spacing-0 text-[12px]">
             <thead>
               <tr className="text-left text-[11px] text-mut">
-                <th className="border-b border-line px-2 pb-1.5 font-medium">quand</th>
-                <th className="border-b border-line px-2 pb-1.5 font-medium">qui</th>
+                <th className="border-b border-line px-2 pb-1.5 font-medium">when</th>
+                <th className="border-b border-line px-2 pb-1.5 font-medium">who</th>
                 <th className="border-b border-line px-2 pb-1.5 font-medium">action</th>
-                <th className="border-b border-line px-2 pb-1.5 font-medium">ressource</th>
-                <th className="border-b border-line px-2 pb-1.5 font-medium">détail</th>
+                <th className="border-b border-line px-2 pb-1.5 font-medium">resource</th>
+                <th className="border-b border-line px-2 pb-1.5 font-medium">detail</th>
               </tr>
             </thead>
             <tbody>

@@ -47,8 +47,8 @@ export default function ToolCard({ m }: { m: Message }) {
                 err ? "text-red-300" : "text-mut"
               }`}
             >
-              {res.text || "(vide)"}
-              {res.truncated ? "\n… (tronqué)" : ""}
+              {res.text || "(empty)"}
+              {res.truncated ? "\n… (truncated)" : ""}
             </pre>
           )}
         </div>

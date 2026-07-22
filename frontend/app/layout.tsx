@@ -26,7 +26,7 @@ export const viewport = { themeColor: "#0B0C0F" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" className={baloo.variable}>
+    <html lang="en" className={baloo.variable}>
       <body>{children}</body>
     </html>
   );

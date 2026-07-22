@@ -13,7 +13,7 @@ function Thinking({ text }: { text: string }) {
         onClick={() => setOpen(!open)}
         className="text-[11.5px] italic text-mut hover:text-slate-300"
       >
-        💭 réflexion {open ? "▾" : "▸"}
+        💭 thinking {open ? "▾" : "▸"}
       </button>
       {open && (
         <div className="mt-1 whitespace-pre-wrap border-l-2 border-line pl-3 text-[12px] italic text-mut">

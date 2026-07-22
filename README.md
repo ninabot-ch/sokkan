@@ -57,7 +57,7 @@ docker compose up -d --build
 
 Open `http://localhost:3009`, enter your token, hit **+ session** — the first run downloads the local embedding model (~120 MB, cached in the data volume).
 
-**Upgrading:** re-run the same installer from the parent directory — it detects the existing install and updates it in place (your `.env` and data volumes are preserved; short interruption while it rebuilds). The cockpit checks for new releases daily and tells you in **Profile** when one is available (managed cloud instances get a one-click update button instead).
+**Upgrading:** re-run the same installer from the parent directory — it detects the existing install and updates it in place (your `.env` and data volumes are preserved; short interruption while it rebuilds). The cockpit checks for new releases daily and tells you in **Profile** when one is available (managed cloud instances get a one-click update button instead). Full upgrade & rollback guide: [`docs/UPGRADE.md`](docs/UPGRADE.md).
 
 > **Don't want to run the ops?** [SOKKAN Cloud](https://sokkan.ch/#cloud) is the same code, operated from Switzerland: a dedicated VM + private network per customer, your own `you.sokkan.ch`, BYOK or metered inference, extra workers and managed PostgreSQL from the cockpit. From 129 CHF/mo — or [book a demo](mailto:hello@sokkan.ch?subject=SOKKAN%20Cloud%20demo).
 

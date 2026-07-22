@@ -48,7 +48,7 @@ function LoginScreen() {
       <div className="flex flex-col items-center gap-4">
         <Wordmark className="text-[150px] lg:text-[210px]" />
         <div className="font-baloo txt-gold text-[40px] font-semibold leading-none lg:text-[52px]">
-          Le Gouvernail
+          The Helm
         </div>
       </div>
 
@@ -68,7 +68,7 @@ function LoginScreen() {
             disabled={!token.trim()}
             className="rounded-xl bg-gradient-to-r from-[#6E49EA] via-[#4870E2] to-[#1C9ED9] px-10 py-3 text-[15px] font-semibold text-white shadow-lg shadow-[#4870E2]/25 ring-1 ring-white/10 transition hover:brightness-110 active:scale-[0.98] disabled:opacity-40"
           >
-            Se connecter
+            Sign in
           </button>
           {err && <div className="text-center text-[12px] text-red-300">{err}</div>}
         </div>
@@ -77,7 +77,7 @@ function LoginScreen() {
           href="/api/auth/login"
           className="rounded-xl bg-gradient-to-r from-[#6E49EA] via-[#4870E2] to-[#1C9ED9] px-10 py-3 text-[15px] font-semibold text-white shadow-lg shadow-[#4870E2]/25 ring-1 ring-white/10 transition hover:brightness-110 active:scale-[0.98]"
         >
-          Se connecter (SSO)
+          Sign in (SSO)
         </a>
       )}
     </div>

@@ -6,11 +6,11 @@ import ChatMessage from "./ChatMessage";
 import { useCan } from "@/lib/me";
 
 const STATE_LABEL: Record<string, string> = {
-  booting: "démarrage de la session…",
-  working: "Claude travaille…",
-  awaiting: "Claude attend une réponse",
-  idle: "prête",
-  dead: "fenêtre fermée",
+  booting: "session starting…",
+  working: "Claude is working…",
+  awaiting: "Claude is awaiting a response",
+  idle: "ready",
+  dead: "window closed",
 };
 
 export default function ChatPane({
@@ -160,7 +160,7 @@ export default function ChatPane({
           <button
             onClick={() => onClose(id)}
             className="rounded px-1.5 text-mut hover:bg-panel2 hover:text-slate-200"
-            title="fermer"
+            title="close"
           >✕</button>
         </div>
       </header>
@@ -168,12 +168,12 @@ export default function ChatPane({
       {view === "chat" ? (
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {err && <div className="text-[12px] text-red-400">{err}</div>}
-          {!data && !err && <div className="text-[12px] text-mut">chargement…</div>}
+          {!data && !err && <div className="text-[12px] text-mut">loading…</div>}
           {data && data.messages.length === 0 && pending.length === 0 && !err && (
             <div className="mt-6 text-center text-[12px] text-mut">
               {st === "booting" || data.starting
-                ? "démarrage de la session…"
-                : "session prête — écris un message ci-dessous"}
+                ? "session starting…"
+                : "session ready — type a message below"}
             </div>
           )}
           {data?.messages.map((m, i) => <ChatMessage key={i} m={m} />)}
@@ -181,7 +181,7 @@ export default function ChatPane({
             <div key={`p${i}`} className="my-2 flex justify-end">
               <div className="max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-sea/10 px-3 py-2 text-[13px] text-slate-300 ring-1 ring-sea/20">
                 {t}
-                <span className="ml-1.5 align-middle text-[10px] text-mut">⏳ en file</span>
+                <span className="ml-1.5 align-middle text-[10px] text-mut">⏳ queued</span>
               </div>
             </div>
           ))}
@@ -194,7 +194,7 @@ export default function ChatPane({
         />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-[12px] text-mut">
-          {dead ? "session terminée — fenêtre tmux fermée" : "terminal indisponible — session non liée"}
+          {dead ? "session ended — tmux window closed" : "terminal unavailable — session not bound"}
         </div>
       )}
 
@@ -204,12 +204,12 @@ export default function ChatPane({
           <div className="flex items-center gap-2 text-[11.5px]">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${awaiting ? "bg-amber-400" : "animate-pulse bg-emerald-400"}`} />
             <span className={`min-w-0 flex-1 truncate ${awaiting ? "text-amber-200" : "text-slate-300"}`}>
-              {live?.activity || (awaiting ? "Claude attend une réponse" : "Claude travaille…")}
+              {live?.activity || (awaiting ? "Claude is awaiting a response" : "Claude is working…")}
             </span>
             <button
               onClick={() => setShowMirror((v) => !v)}
               className="shrink-0 rounded px-1.5 text-[10.5px] text-mut hover:text-slate-200"
-            >{showMirror ? "masquer" : "terminal ▾"}</button>
+            >{showMirror ? "hide" : "terminal ▾"}</button>
           </div>
 
           {/* boutons de choix : claude propose un menu (permission / sélection) */}
@@ -231,7 +231,7 @@ export default function ChatPane({
                 disabled={!canWrite}
                 onClick={() => press("Escape")}
                 className="rounded-md border border-line px-2 py-1 text-[11.5px] text-mut hover:text-slate-200 disabled:opacity-40"
-              >Échap</button>
+              >Esc</button>
             </div>
           ) : null}
 
@@ -247,7 +247,7 @@ export default function ChatPane({
       {/* composer — envoie à la fenêtre liée à CETTE session (pas de choix manuel) */}
       <div className="border-t border-line p-2">
         {bound && !canWrite ? (
-          <div className="text-center text-[11px] text-mut">lecture seule (rôle viewer)</div>
+          <div className="text-center text-[11px] text-mut">read-only (viewer role)</div>
         ) : bound ? (
           <>
             <div className="flex items-end gap-2">
@@ -258,22 +258,22 @@ export default function ChatPane({
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); }
                 }}
                 rows={2}
-                placeholder={`message → ${bound} (Entrée envoyer, Maj+Entrée newline)`}
+                placeholder={`message → ${bound} (Enter to send, Shift+Enter for newline)`}
                 className="min-h-[36px] flex-1 resize-y rounded-lg border border-line bg-[#0b0f16] px-2.5 py-1.5 text-[12.5px] text-slate-100 outline-none focus:border-sea/50"
               />
               <button
                 onClick={doSend}
                 disabled={sending || !text.trim()}
                 className="shrink-0 rounded-lg bg-sea/80 px-3 py-2 text-[12.5px] font-medium text-white disabled:opacity-40 hover:bg-sea"
-              >{sending ? "…" : "envoyer"}</button>
+              >{sending ? "…" : "send"}</button>
             </div>
             {sendErr && <div className="mt-1 text-[11px] text-red-400">{sendErr}</div>}
           </>
         ) : (
           <div className="text-center text-[11px] text-mut">
             {dead
-              ? "session terminée (fenêtre tmux fermée) — supprime-la depuis le rail"
-              : "envoi indisponible — session non liée à une fenêtre tmux"}
+              ? "session ended (tmux window closed) — remove it from the rail"
+              : "sending unavailable — session not bound to a tmux window"}
           </div>
         )}
       </div>

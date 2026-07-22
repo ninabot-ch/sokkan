@@ -206,7 +206,7 @@ def fleet_remove(rid: int, u: dict = Depends(require("admin"))):
     """Résiliation self-service d'une ressource de flotte (admin) : crédit du
     prorata restant + destruction — les données de la ressource sont perdues."""
     if not fleet.ENABLED:
-        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+        raise HTTPException(404, "fleet management is unavailable on this instance")
     try:
         r = fleet.remove_resource(rid)
     except Exception as e:  # noqa: BLE001
@@ -224,7 +224,7 @@ def llm_credit(body: CreditPack, u: dict = Depends(require("admin"))):
     """Achat d'un pack de crédits d'inférence (admin) → URL Stripe Checkout.
     Managé uniquement (le portail tient le wallet)."""
     if not fleet.ENABLED:
-        raise HTTPException(404, "crédits d'inférence indisponibles sur cette instance")
+        raise HTTPException(404, "inference credits are not available on this instance")
     try:
         r = fleet.credit_checkout(body.pack)
     except Exception as e:  # noqa: BLE001
@@ -280,7 +280,7 @@ def fleet_request(body: FleetReq, u: dict = Depends(require("admin"))):
     """Demande une ressource pour la flotte (admin de l'instance). Facturé (proration)
     puis provisionné au paiement, côté NINABOT."""
     if not fleet.ENABLED:
-        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+        raise HTTPException(404, "fleet management is unavailable on this instance")
     try:
         r = fleet.request_resource(body.sku, body.name)
     except Exception as e:  # noqa: BLE001
@@ -302,7 +302,7 @@ def fleet_route_add(body: RouteReq, u: dict = Depends(require("admin"))):
     """Route d'exposition web (gratuite, admin) : sous-domaine sokkan.ch via le
     tunnel, ou domaine du client via le caddy edge de cette VM."""
     if not fleet.ENABLED:
-        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+        raise HTTPException(404, "fleet management is unavailable on this instance")
     try:
         r = fleet.add_route(body.kind, body.name, body.hostname, body.target, body.port)
     except Exception as e:  # noqa: BLE001
@@ -316,7 +316,7 @@ def fleet_route_add(body: RouteReq, u: dict = Depends(require("admin"))):
 @app.delete("/api/fleet/routes/{rid}")
 def fleet_route_del(rid: int, u: dict = Depends(require("admin"))):
     if not fleet.ENABLED:
-        raise HTTPException(404, "gestion de flotte indisponible sur cette instance")
+        raise HTTPException(404, "fleet management is unavailable on this instance")
     try:
         r = fleet.remove_route(rid)
     except Exception as e:  # noqa: BLE001
@@ -331,7 +331,7 @@ def fleet_upgrade_self(u: dict = Depends(require("admin"))):
     """Met à jour cette instance managée vers la release courante (admin).
     Courte interruption : les conteneurs sont reconstruits puis redémarrés."""
     if not fleet.ENABLED:
-        raise HTTPException(404, "indisponible sur cette instance (self-hosted : relancez install.sh)")
+        raise HTTPException(404, "unavailable on this instance (self-hosted: re-run install.sh)")
     try:
         r = fleet.upgrade_cockpit()
     except Exception as e:  # noqa: BLE001
@@ -385,7 +385,7 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     jamais transmis à NINABOT. Une instance en « inférence incluse » est opérée
     par NINABOT → on n'autorise pas de la basculer en BYOK depuis le cockpit."""
     if llm.status().get("operator_managed"):
-        raise HTTPException(403, "cette instance est en inférence incluse (opérée par NINABOT)")
+        raise HTTPException(403, "this instance uses managed inference (operated by NINABOT)")
     if body.mode != "byok":
         raise HTTPException(400, "mode must be 'byok'")
     if body.anthropic_api_key.strip():
@@ -393,7 +393,7 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     elif body.claude_oauth_token.strip():
         llm.save({"mode": "byok", "claude_oauth_token": body.claude_oauth_token.strip()})
     else:
-        raise HTTPException(400, "anthropic_api_key ou claude_oauth_token requis")
+        raise HTTPException(400, "anthropic_api_key or claude_oauth_token required")
     audit.log(u["email"], "llm.config", f"byok:{llm.status().get('byok_kind')}")
     return llm.status()
 

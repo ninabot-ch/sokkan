@@ -117,22 +117,22 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
             </select>
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && create()}
-              placeholder="décris la tâche (prompt) — ex. « corrige le filtre promo jobup côté inbox »"
+              placeholder="describe the task (prompt) — e.g. 'fix the jobup promo filter on the inbox side'"
               className="min-w-64 flex-1 rounded border border-line bg-[#0b0f16] px-2.5 py-1.5 text-[12.5px] text-slate-100 outline-none focus:border-sea/50" />
-            <button onClick={create} className="rounded bg-sea/80 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-sea">+ carte</button>
+            <button onClick={create} className="rounded bg-sea/80 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-sea">+ card</button>
             <span className="mx-1 h-5 w-px bg-line" />
           </>
         )}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrer…"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter…"
           className="w-36 rounded border border-line bg-panel2 px-2 py-1 text-[12px] text-slate-200 outline-none focus:border-sea/50" />
         <select value={fTag} onChange={(e) => setFTag(e.target.value)}
           className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
-          <option value="">tous les tags</option>
+          <option value="">all tags</option>
           {tags.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-mut">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="accent-slate-500" />
-          archivées
+          archived
         </label>
       </div>
 
@@ -226,10 +226,10 @@ function CardTile({
         {c.priority < 2 && <span className={`text-[10px] ${p.text}`}>{p.label}</span>}
         {c.due && (
           <span className={`rounded px-1 text-[10px] ring-1 ${dueTone(c.due)}`}>
-            {new Date(`${c.due}T12:00:00`).toLocaleDateString("fr-CH", { day: "2-digit", month: "2-digit" })}
+            {new Date(`${c.due}T12:00:00`).toLocaleDateString("en-CH", { day: "2-digit", month: "2-digit" })}
           </span>
         )}
-        {c.archived ? <span className="text-[10px] text-red-300/70">archivée</span> : null}
+        {c.archived ? <span className="text-[10px] text-red-300/70">archived</span> : null}
         <span className="ml-auto text-[10px] text-mut/60">{ago(c.updated_at || c.created_at)}</span>
       </div>
       <div className="mt-1.5 text-[13px] leading-snug text-slate-100">{c.title}</div>
@@ -244,7 +244,7 @@ function CardTile({
         )}
         {c.session_id ? (
           <button onClick={() => onOpenSession(c.session_id!)}
-            className="rounded bg-sea/20 px-2 py-0.5 text-sea ring-1 ring-sea/30 hover:bg-sea/30">ouvrir</button>
+            className="rounded bg-sea/20 px-2 py-0.5 text-sea ring-1 ring-sea/30 hover:bg-sea/30">open</button>
         ) : canWrite && (
           <button onClick={onSpawn} disabled={busy}
             className="rounded bg-emerald-600/20 px-2 py-0.5 text-emerald-300 ring-1 ring-emerald-600/30 hover:bg-emerald-600/30 disabled:opacity-40">
