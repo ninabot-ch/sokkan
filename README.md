@@ -136,6 +136,8 @@ cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
 
 Early. Born as the internal cockpit running [ninjob.ch](https://ninjob.ch) and its sibling products (≈30 commits/week across 9 parallel sessions); extracted and open-sourced because thin wrappers die and memory is the part that compounds. Roadmap: multi-provider sessions (Codex, …), project scoping, one-command cloud deploy.
 
+The full story of why (and the memory architecture behind it): [I run 9 parallel Claude Code sessions. The bottleneck wasn't the model — it was memory.](https://dev.to/nicolas_micaud_20671fb4f2/i-run-9-parallel-claude-code-sessions-the-bottleneck-wasnt-the-model-it-was-memory-1n7c)
+
 ## License
 
 [Apache-2.0](LICENSE) — the code is free, self-hosted, BYOK. For teams that would rather not run the ops, [SOKKAN Cloud](https://sokkan.ch/#cloud) is live: a Swiss-hosted managed version (dedicated VM + private network per customer). The operation is the business, not withheld features — same code, same repo.
