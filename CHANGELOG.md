@@ -1,9 +1,9 @@
 # Changelog
 
-Notable changes, newest first. Versions are release hashes (see
+Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 2026-07-22
+## 0.9.0 — 2026-07-22
 - **Self-hosted upgrade path**: re-running the installer
   (`curl -fsSL https://sokkan.ch/install.sh | sh`) now upgrades an existing
   install in place — `.env` and data volumes preserved, short rebuild. The
