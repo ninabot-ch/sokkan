@@ -11,7 +11,13 @@ Notable changes, newest first. Versions: semver + release hash (see
   unchanged). Local-token auth.
 
 ## 1.2.0 — 2026-07-23 — "Open helm"
-Multi-provider, a self-summarizing memory, and an easier first contact.
+Multi-provider, a self-summarizing memory, an easier first contact — and Nina.
+- **Nina, the embedded DevOps assistant (S1)**: a floating 🧭 in the cockpit that
+  knows the product — sessions, memory, fleet, runbooks — and answers next to
+  your work. Strict guardrails: she never sees your secrets or your code, and
+  touches nothing — she guides, you hold the helm. Included on every SOKKAN
+  Cloud instance (zero setup); self-host ships her behind
+  `SOKKAN_FEATURE_ASSISTANT=1` with the model of your choice.
 - **Multi-provider models**: point sessions at any Anthropic-compatible endpoint
   (Kimi/Moonshot, GLM/Z.AI, DeepSeek, or a local LiteLLM→Ollama proxy) from
   **Profile → Model** — base URL + key + model, applied per session, presets
