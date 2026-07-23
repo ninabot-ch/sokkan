@@ -1253,6 +1253,27 @@ def memory_note(name: str) -> dict:
     return {"name": name, "body": mem.memory_get(name)}
 
 
+@app.post("/api/memory/digest")
+def memory_digest(u: dict = Depends(require("dev"))) -> dict:
+    """Memory Digest : spawn une session qui synthétise l'état du projet dans la
+    note `project-status` — la mémoire se résume elle-même, à la demande."""
+    mem_dir = os.environ.get("SOKKAN_MEMORY_DIR", "the workspace memory directory")
+    prompt = (
+        "Memory digest — refresh the project-status note.\n\n"
+        "1. Survey the memory: memory_search on the project's main topics, then "
+        "memory_get on the recent and priority notes.\n"
+        "2. If /workspace is a git repo, skim `git log --oneline -30` for recent work.\n"
+        "3. Write (or update) the note `project-status.md` in the memory directory "
+        f"({mem_dir}): what shipped recently, what is in flight, the durable "
+        "conventions and decisions a fresh session must know, open risks. One page "
+        "max, `[[wikilinks]]` to the source notes, standard frontmatter "
+        "(name: project-status, a strong description:, metadata.type: project)."
+    )
+    s = _spawn_sdk("docs", prompt, title="memory digest", user=u["email"])
+    audit.log(u["email"], "memory.digest", s["session_id"])
+    return s
+
+
 @app.get("/api/preview/repos")
 def preview_repos(_u: dict = Depends(require("dev")),
                   _f: None = Depends(feature_preview)) -> list[dict]:

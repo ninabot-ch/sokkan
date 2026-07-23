@@ -180,6 +180,8 @@ export const memoryStats = () => getJSON<MemStats>("/api/memory/stats");
 export const memoryNotes = () => getJSON<MemNote[]>("/api/memory/notes");
 export const memorySearch = (q: string, k = 8) =>
   getJSON<MemSearchResult[]>(`/api/memory/search?q=${encodeURIComponent(q)}&k=${k}`);
+export const memoryDigest = () =>
+  mutate<{ session_id: string }>("/api/memory/digest", "POST");
 export const memoryNote = (name: string) =>
   getJSON<{ name: string; body: string }>(`/api/memory/note/${encodeURIComponent(name)}`);
 

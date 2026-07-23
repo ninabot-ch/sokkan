@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memoryNote, memoryNotes, memorySearch, memoryStats } from "@/lib/api";
+import { memoryDigest, memoryNote, memoryNotes, memorySearch, memoryStats } from "@/lib/api";
+import MemoryGraph from "@/components/MemoryGraph";
 import type { MemNote, MemSearchResult, MemStats } from "@/lib/types";
 
 function ago(ts: number | null): string {
@@ -13,7 +14,7 @@ function ago(ts: number | null): string {
   return `${Math.round(s / 86400)}d`;
 }
 
-export default function MemoryKB() {
+export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: string) => void }) {
   const [stats, setStats] = useState<MemStats | null>(null);
   const [notes, setNotes] = useState<MemNote[]>([]);
   const [filter, setFilter] = useState("");
@@ -21,6 +22,8 @@ export default function MemoryKB() {
   const [results, setResults] = useState<MemSearchResult[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [body, setBody] = useState("");
+  const [graph, setGraph] = useState(false);
+  const [digesting, setDigesting] = useState(false);
 
   useEffect(() => {
     memoryStats().then(setStats).catch(() => {});
@@ -41,7 +44,11 @@ export default function MemoryKB() {
   }, [sel]);
 
   const byName = (n: string) => notes.find((x) => x.name === n);
-  const pick = (n: string) => { setSel(n); setQuery(""); };
+  const pick = (n: string) => { setSel(n); setQuery(""); setGraph(false); };
+  const digest = () => {
+    setDigesting(true);
+    memoryDigest().then((s) => onOpenSession?.(s.session_id)).catch(() => {}).finally(() => setDigesting(false));
+  };
   const note = sel ? byName(sel) : null;
   const filtered = notes.filter((n) =>
     !filter || n.name.includes(filter.toLowerCase()) || (n.description || "").toLowerCase().includes(filter.toLowerCase())
@@ -66,6 +73,15 @@ export default function MemoryKB() {
           placeholder="🔎 semantic search (RAG playground)…"
           className="ml-auto w-80 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
         />
+        <button onClick={() => setGraph((g) => !g)} title="knowledge graph of the [[wikilinks]]"
+          className={`rounded border px-2 py-1 text-[11.5px] ${graph ? "border-sea bg-sea/15 text-sea" : "border-line text-mut hover:text-slate-200"}`}>
+          ⬡ graph
+        </button>
+        <button onClick={digest} disabled={digesting}
+          title="spawn a session that summarizes the project state into the note project-status"
+          className="rounded border border-line px-2 py-1 text-[11.5px] text-mut hover:text-slate-200 disabled:opacity-50">
+          ✎ digest
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -81,7 +97,7 @@ export default function MemoryKB() {
             {filtered.map((n) => (
               <button key={n.name} onClick={() => pick(n.name)}
                 className={`block w-full border-b border-line/40 px-3 py-1.5 text-left hover:bg-panel2 ${sel === n.name ? "bg-panel2" : ""}`}>
-                <span className="block truncate text-[12px] text-slate-200">{n.name}</span>
+                <span className="block truncate text-[12px] text-slate-200">{n.priority && <span className="text-brass" title="priority: high">★ </span>}{n.name}</span>
                 <span className="block truncate text-[10px] text-mut">{n.type} · {n.chunks} chunks · {n.links.length}↗ {n.backlinks.length}↘</span>
               </button>
             ))}
@@ -89,8 +105,10 @@ export default function MemoryKB() {
         </aside>
 
         {/* détail / résultats */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-3">
-          {results ? (
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+          {graph ? (
+            <MemoryGraph notes={notes} onPick={pick} />
+          ) : results ? (
             <div className="space-y-2">
               <div className="text-[11px] text-mut">{results.length} results for "{query}"</div>
               {results.map((r) => (
@@ -98,7 +116,7 @@ export default function MemoryKB() {
                   className="block w-full rounded-lg border border-line bg-panel2/50 p-2 text-left hover:bg-panel2">
                   <div className="flex items-center gap-2">
                     <span className="rounded bg-sea/15 px-1.5 text-[10px] text-sea">{r.score}</span>
-                    <span className="truncate text-[12.5px] text-slate-100">{r.note_name}</span>
+                    <span className="truncate text-[12.5px] text-slate-100">{r.priority && <span className="text-brass" title="priority: high (boosted)">★ </span>}{r.note_name}</span>
                   </div>
                   <div className="mt-0.5 line-clamp-2 text-[11px] text-mut">{r.snippet}</div>
                 </button>
@@ -106,8 +124,8 @@ export default function MemoryKB() {
             </div>
           ) : note ? (
             <div>
-              <div className="text-[15px] font-semibold text-slate-100">{note.name}</div>
-              <div className="mt-0.5 text-[11px] text-mut">{note.type}</div>
+              <div className="text-[15px] font-semibold text-slate-100">{note.priority && <span className="text-brass" title="priority: high — boosted at recall">★ </span>}{note.name}</div>
+              <div className="mt-0.5 text-[11px] text-mut">{note.type}{note.priority ? " · priority" : ""}</div>
               {note.description && <div className="mt-1 text-[12.5px] text-slate-300">{note.description}</div>}
               {(note.links.length > 0 || note.backlinks.length > 0) && (
                 <div className="mt-2 space-y-1 rounded-lg border border-line bg-panel2/30 p-2">

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
   instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
-  llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription,
+  llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,

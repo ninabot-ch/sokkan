@@ -24,15 +24,21 @@ def list_notes() -> list[dict]:
     if not MEM_DB.exists():
         return []
     con = _con()
-    rows = con.execute(
-        "SELECT name, description, type, mtime, source_path FROM notes ORDER BY name"
-    ).fetchall()
+    try:
+        rows = con.execute(
+            "SELECT name, description, type, mtime, source_path, COALESCE(priority, 0) "
+            "FROM notes ORDER BY name"
+        ).fetchall()
+    except sqlite3.OperationalError:  # DB pré-migration sans colonne priority
+        rows = [(*r, 0) for r in con.execute(
+            "SELECT name, description, type, mtime, source_path FROM notes ORDER BY name"
+        ).fetchall()]
     counts = dict(con.execute("SELECT note_name, COUNT(*) FROM chunks GROUP BY note_name").fetchall())
     con.close()
     names = {r[0] for r in rows}
     incoming: dict[str, set] = {n: set() for n in names}
     out = []
-    for name, desc, typ, mtime, path in rows:
+    for name, desc, typ, mtime, path, priority in rows:
         links: list[str] = []
         try:
             body = Path(path).read_text(encoding="utf-8", errors="replace")
@@ -43,7 +49,8 @@ def list_notes() -> list[dict]:
             if tgt in incoming:
                 incoming[tgt].add(name)
         out.append({"name": name, "description": desc, "type": typ, "mtime": mtime,
-                    "chunks": counts.get(name, 0), "links": links})
+                    "chunks": counts.get(name, 0), "links": links,
+                    "priority": bool(priority)})
     for o in out:  # liens entrants (qui me cite)
         o["backlinks"] = sorted(incoming.get(o["name"], set()))
     return out

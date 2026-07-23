@@ -20,9 +20,9 @@ def _fake_chunks():
     # two notes, one chunk each, orthogonal unit embeddings
     return [
         ("note-deploy", "deployment note", "/x/note-deploy.md",
-         "deploy ninjob with the cloudflare tunnel", [1.0, 0.0]),
+         "deploy ninjob with the cloudflare tunnel", [1.0, 0.0], 0),
         ("note-jewelry", "jewelry note", "/x/note-jewelry.md",
-         "jewelry pipeline gemstones parametric seed", [0.0, 1.0]),
+         "jewelry pipeline gemstones parametric seed", [0.0, 1.0], 0),
     ]
 
 
@@ -61,6 +61,23 @@ def test_degraded_without_keywords_errors(mem, monkeypatch):
     # query with only stopwords → no lexical signal to degrade to
     res = mem.memory_search("de la et", top_k=2)
     assert "error" in res[0]
+
+
+def test_priority_note_gets_boost(mem, monkeypatch):
+    # same embedding + same text → identical base score; priority flips the order
+    def twins():
+        return [
+            ("note-plain", "d", "/x/a.md", "shared convention text", [1.0, 0.0], 0),
+            ("note-starred", "d", "/x/b.md", "shared convention text", [1.0, 0.0], 1),
+        ]
+
+    monkeypatch.setattr(mem, "_load_chunks", twins)
+    monkeypatch.setattr(mem, "_embed_query", lambda q: [1.0, 0.0])
+    res = mem.memory_search("shared convention", top_k=2)
+    assert res[0]["note_name"] == "note-starred"
+    assert res[0].get("priority") is True
+    assert "priority" not in res[1]
+    assert res[0]["score"] == pytest.approx(res[1]["score"] + mem.PRIORITY_BOOST, abs=1e-6)
 
 
 def test_empty_index_returns_info_not_error(mem, monkeypatch):

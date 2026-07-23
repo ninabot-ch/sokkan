@@ -67,7 +67,7 @@ export default function Home() {
       ) : tab === "Preview" ? (
         <Preview />
       ) : tab === "Memory/KB" ? (
-        <MemoryKB />
+        <MemoryKB onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Infra" ? (
         <Infra />
       ) : tab === "Operate" ? (

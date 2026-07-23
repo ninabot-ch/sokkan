@@ -162,6 +162,7 @@ export interface MemNote {
   chunks: number;
   links: string[];
   backlinks: string[];
+  priority?: boolean;
 }
 
 export interface MemStats {
@@ -178,6 +179,7 @@ export interface MemSearchResult {
   cosine?: number;
   snippet: string;
   path: string;
+  priority?: boolean;
 }
 
 export interface PreviewRepo {

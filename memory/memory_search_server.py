@@ -40,25 +40,34 @@ def _embed_query(text: str) -> list[float]:
     return embeddings.embed_query(text)
 
 
-def _load_chunks() -> list[tuple[str, str, str, str, list[float]]]:
-    """(note_name, description, source_path, body, embedding) for every chunk."""
+def _load_chunks() -> list[tuple[str, str, str, str, list[float], int]]:
+    """(note_name, description, source_path, body, embedding, priority) for every chunk."""
     if not DB_PATH.exists():
         return []
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     try:
-        rows = con.execute(
-            "SELECT c.note_name, n.description, n.source_path, c.body, c.embedding "
-            "FROM chunks c JOIN notes n ON n.name = c.note_name"
-        ).fetchall()
+        try:
+            rows = con.execute(
+                "SELECT c.note_name, n.description, n.source_path, c.body, c.embedding, "
+                "COALESCE(n.priority, 0) FROM chunks c JOIN notes n ON n.name = c.note_name"
+            ).fetchall()
+        except sqlite3.OperationalError:  # DB pré-migration sans colonne priority
+            rows = [(*r, 0) for r in con.execute(
+                "SELECT c.note_name, n.description, n.source_path, c.body, c.embedding "
+                "FROM chunks c JOIN notes n ON n.name = c.note_name"
+            ).fetchall()]
     finally:
         con.close()
-    return [(r[0], r[1], r[2], r[3], json.loads(r[4])) for r in rows]
+    return [(r[0], r[1], r[2], r[3], json.loads(r[4]), r[5]) for r in rows]
 
 
 # weight of the lexical (keyword-overlap) signal in the final blend; the dense
 # cosine carries the rest. Tuned so exact jargon hits ("promo", "jobup") surface
 # without drowning the semantic signal on keyword-free queries.
 LEXICAL_WEIGHT = 0.25
+# flat boost for notes marked `priority: high` — enough to surface a durable
+# fact over a marginally-more-similar note, small enough not to bury relevance
+PRIORITY_BOOST = 0.08
 _STOP = {
     "les", "des", "sur", "de", "la", "le", "du", "un", "une", "pour", "dans",
     "avec", "et", "the", "to", "and", "of", "on", "in", "how", "que", "qui",
@@ -110,7 +119,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
     # aggregate per note: best chunk (for snippet) + full-note lexical haystack;
     # chunk relevance = cosine, or keyword overlap in degraded lexical-only mode
     agg: dict[str, dict] = {}
-    for note_name, description, source_path, body, emb in chunks:
+    for note_name, description, source_path, body, emb, priority in chunks:
         if q is not None:
             rel = sum(a * b for a, b in zip(q, emb))
         else:
@@ -124,6 +133,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
                 "rel": rel,
                 "snippet": body,
                 "hay": f"{note_name} {description} {body}",
+                "priority": priority,
             }
         else:
             a["hay"] += " " + body
@@ -139,6 +149,8 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
             score = 0.7 * lex + 0.3 * a["rel"]
         else:
             score = (1 - LEXICAL_WEIGHT) * a["rel"] + LEXICAL_WEIGHT * lex
+        if a["priority"]:
+            score += PRIORITY_BOOST
         snippet = a["snippet"] if len(a["snippet"]) <= 320 else a["snippet"][:317] + "…"
         results.append({
             "note_name": a["note_name"],
@@ -147,6 +159,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
             "cosine": round(a["rel"], 4) if q is not None else None,
             "snippet": snippet,
             "path": a["path"],
+            **({"priority": True} if a["priority"] else {}),
             **({"degraded": degraded} if degraded else {}),
         })
     results.sort(key=lambda d: d["score"], reverse=True)
