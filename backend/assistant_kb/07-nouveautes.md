@@ -28,6 +28,8 @@ local ; les approbations restent dans le cockpit — la frontière HITL ne bouge
 images arm64 vérifiées en CI, GitHub Discussions ouvertes sur le repo.
 
 **Nina & souveraineté** : sur les instances SOKKAN Cloud, l'inférence de Nina
-(cet assistant) est servie par l'API IA d'Infomaniak, hébergée en Suisse — le
-contenu des échanges n'est ni conservé ni utilisé pour entraîner. En self-host,
-Nina utilise le modèle que vous configurez.
+(cet assistant) est **obligatoirement** servie par l'API IA d'Infomaniak,
+hébergée en Suisse — règle de la maison : dès que l'assistante a accès au
+contexte d'un client, l'inférence suisse est non négociable. Le contenu des
+échanges n'est ni conservé ni utilisé pour entraîner. En self-host, Nina
+utilise le modèle que vous configurez.
