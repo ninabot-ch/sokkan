@@ -75,7 +75,7 @@ export const infraNodes = () => getJSON<InfraNode[]>("/api/infra/nodes");
 export const infraTargets = () => getJSON<InfraTarget[]>("/api/infra/targets");
 export interface LlmStatus {
   mode: string; configured: boolean; byok_kind: string | null;
-  model: string | null; operator_managed: boolean;
+  model: string | null; base_url?: string | null; operator_managed: boolean;
 }
 export interface LlmUsage {
   client: string; day: string; used_today: number; daily_quota_tokens: number;
@@ -98,6 +98,8 @@ export const llmSetApiKey = (anthropic_api_key: string) =>
   mutate<LlmStatus>("/api/llm", "POST", { mode: "byok", anthropic_api_key });
 export const llmSetSubscription = (claude_oauth_token: string) =>
   mutate<LlmStatus>("/api/llm", "POST", { mode: "byok", claude_oauth_token });
+export const llmSetCustom = (base_url: string, auth_token: string, model: string, small_model = "") =>
+  mutate<LlmStatus>("/api/llm", "POST", { mode: "custom", base_url, auth_token, model, small_model });
 export const cloudEnvs = () => getJSON<CloudEnv[]>("/api/infra/envs");
 export const cloudEnvDetail = (client: string) => getJSON<CloudEnv>(`/api/infra/envs/${client}`);
 export const cloudEnvSpawn = (client: string, tier: string, owner_email: string) =>

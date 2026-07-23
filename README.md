@@ -45,7 +45,7 @@ Spawning a session *is* the "check your memory" ritual: the task description see
   install it for you** (official `get.docker.com` script). On Ubuntu, note the
   apt package is `docker.io`, not `docker` — or just let the installer handle it.
 - ~4 GB free RAM (local embedding model + first build), ~3 GB disk
-- An Anthropic API key, or a Claude Pro/Max subscription (`claude setup-token`)
+- An Anthropic API key, a Claude Pro/Max subscription (`claude setup-token`), or any [Anthropic-compatible provider](#using-another-provider-kimi-glm-deepseek-local-models) (Kimi, GLM, DeepSeek, local via proxy)
 
 ## Quickstart
 
@@ -81,6 +81,25 @@ If you use Claude Code with a Pro/Max subscription rather than an API key, gener
 claude setup-token          # one-time browser login
 # → paste the token into .env as CLAUDE_CODE_OAUTH_TOKEN
 ```
+
+### Using another provider (Kimi, GLM, DeepSeek, local models)
+
+Sessions run the Claude Code engine, but the model behind it is configurable:
+**Profile → Model → Other provider** takes any endpoint speaking the Anthropic
+Messages API — base URL + API key + model id, applied to every new session
+without restarting anything. Presets ship for:
+
+| Provider | Base URL | Example model |
+|---|---|---|
+| Moonshot (Kimi K2) | `https://api.moonshot.ai/anthropic` | `kimi-k2-0905-preview` |
+| Z.AI (GLM) | `https://api.z.ai/api/anthropic` | `glm-4.6` |
+| DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-chat` |
+| Local / other | your proxy URL | whatever it serves |
+
+For **local models**, put an Anthropic-compatible proxy (e.g. [LiteLLM](https://docs.litellm.ai/))
+in front of Ollama/vLLM and point the base URL at it. OpenAI-style APIs work the
+same way — through such a proxy. Model quality varies; Anthropic models remain
+the reference for agentic work.
 
 ## Configuration
 
@@ -146,7 +165,7 @@ cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
 
 ## Status
 
-Early. Born as the internal cockpit running [ninjob.ch](https://ninjob.ch) and its sibling products (≈30 commits/week across 9 parallel sessions); extracted and open-sourced because thin wrappers die and memory is the part that compounds. Roadmap: multi-provider sessions (Codex, …), project scoping, one-command cloud deploy.
+Early. Born as the internal cockpit running [ninjob.ch](https://ninjob.ch) and its sibling products (≈30 commits/week across 9 parallel sessions); extracted and open-sourced because thin wrappers die and memory is the part that compounds. Multi-provider models landed (any Anthropic-compatible endpoint — Kimi, GLM, DeepSeek, local via proxy). Roadmap: non-Claude session engines (Codex, …), project scoping, one-command cloud deploy.
 
 The full story of why (and the memory architecture behind it): [I run 9 parallel Claude Code sessions. The bottleneck wasn't the model — it was memory.](https://dev.to/nicolas_micaud_20671fb4f2/i-run-9-parallel-claude-code-sessions-the-bottleneck-wasnt-the-model-it-was-memory-1n7c)
 

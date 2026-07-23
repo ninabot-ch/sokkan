@@ -591,9 +591,14 @@ def llm_status(_u: dict = Depends(current_user)) -> dict:
 
 
 class LlmConfig(BaseModel):
-    mode: str  # 'byok'
+    mode: str  # 'byok' | 'custom'
     anthropic_api_key: str = ""
     claude_oauth_token: str = ""  # abonnement Claude Pro/Max (`claude setup-token`)
+    # mode 'custom' : endpoint compatible API Anthropic (Kimi, GLM, DeepSeek, LiteLLM…)
+    base_url: str = ""
+    auth_token: str = ""
+    model: str = ""
+    small_model: str = ""
 
 
 @app.get("/api/llm/usage")
@@ -609,15 +614,26 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     par NINABOT → on n'autorise pas de la basculer en BYOK depuis le cockpit."""
     if llm.status().get("operator_managed"):
         raise HTTPException(403, "this instance uses managed inference (operated by NINABOT)")
-    if body.mode != "byok":
-        raise HTTPException(400, "mode must be 'byok'")
-    if body.anthropic_api_key.strip():
-        llm.save({"mode": "byok", "anthropic_api_key": body.anthropic_api_key.strip()})
-    elif body.claude_oauth_token.strip():
-        llm.save({"mode": "byok", "claude_oauth_token": body.claude_oauth_token.strip()})
+    if body.mode == "byok":
+        if body.anthropic_api_key.strip():
+            llm.save({"mode": "byok", "anthropic_api_key": body.anthropic_api_key.strip()})
+        elif body.claude_oauth_token.strip():
+            llm.save({"mode": "byok", "claude_oauth_token": body.claude_oauth_token.strip()})
+        else:
+            raise HTTPException(400, "anthropic_api_key or claude_oauth_token required")
+        audit.log(u["email"], "llm.config", f"byok:{llm.status().get('byok_kind')}")
+    elif body.mode == "custom":
+        base = body.base_url.strip().rstrip("/")
+        if not base.startswith(("http://", "https://")):
+            raise HTTPException(400, "base_url must start with http(s)://")
+        if not (body.auth_token.strip() and body.model.strip()):
+            raise HTTPException(400, "auth_token and model required")
+        llm.save({"mode": "custom", "base_url": base,
+                  "auth_token": body.auth_token.strip(), "model": body.model.strip(),
+                  "small_model": body.small_model.strip()})
+        audit.log(u["email"], "llm.config", f"custom:{base} model={body.model.strip()}")
     else:
-        raise HTTPException(400, "anthropic_api_key or claude_oauth_token required")
-    audit.log(u["email"], "llm.config", f"byok:{llm.status().get('byok_kind')}")
+        raise HTTPException(400, "mode must be 'byok' or 'custom'")
     return llm.status()
 
 

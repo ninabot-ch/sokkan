@@ -131,12 +131,16 @@ function Model() {
   const isAdmin = useCan("admin");
   const [st, setSt] = useState<LlmStatus | null>(null);
   const [use, setUse] = useState<LlmUsage | null>(null);
-  const [choice, setChoice] = useState<"api" | "sub" | null>(null);
+  const [choice, setChoice] = useState<"api" | "sub" | "custom" | null>(null);
   const [val, setVal] = useState(""); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const [cUrl, setCUrl] = useState(""); const [cModel, setCModel] = useState(""); const [cSmall, setCSmall] = useState("");
   useEffect(() => { llmStatus().then(setSt).catch(() => {}); llmUsage().then(setUse).catch(() => setUse(null)); }, []);
-  const save = () => { setErr(""); if (!val.trim()) return; setBusy(true);
-    (choice === "api" ? llmSetApiKey(val.trim()) : llmSetSubscription(val.trim()))
-      .then((s) => { setSt(s); setChoice(null); setVal(""); }).catch((e) => setErr(String(e))).finally(() => setBusy(false)); };
+  const canSave = choice === "custom" ? !!(cUrl.trim() && val.trim() && cModel.trim()) : !!val.trim();
+  const save = () => { setErr(""); if (!canSave) return; setBusy(true);
+    (choice === "custom" ? llmSetCustom(cUrl.trim(), val.trim(), cModel.trim(), cSmall.trim())
+      : choice === "api" ? llmSetApiKey(val.trim()) : llmSetSubscription(val.trim()))
+      .then((s) => { setSt(s); setChoice(null); setVal(""); setCUrl(""); setCModel(""); setCSmall(""); })
+      .catch((e) => setErr(String(e))).finally(() => setBusy(false)); };
   if (!st) return null;
   const included = st.mode === "included";
   return (
@@ -147,6 +151,7 @@ function Model() {
           <span className="text-slate-200">{included ? "Managed inference — Qwen3 Coder (Frankfurt EU), prepaid"
             : st.byok_kind === "api_key" ? "Your Anthropic API key"
             : st.byok_kind === "subscription" ? "Your Claude Pro/Max subscription"
+            : st.mode === "custom" ? `Custom endpoint — ${st.model}${st.base_url ? ` (${st.base_url.replace(/^https?:\/\//, "")})` : ""}`
             : st.mode === "env" ? "Key configured (environment)" : "No model configured"}</span>
         </div>
         {included && use && (
@@ -206,18 +211,48 @@ function Model() {
           <button onClick={() => { setChoice("sub"); setVal(""); }} className={`block w-full rounded-lg border p-3 text-left ${choice === "sub" ? "border-sea bg-sea/10" : "border-line hover:border-line/80"}`}>
             <div className="text-[13px] text-slate-100">Claude Pro / Max subscription</div>
             <div className="text-[11px] text-mut">On your machine: <code className="text-slate-300">claude setup-token</code> → paste the token. Uses your subscription.</div></button>
+          <button onClick={() => { setChoice("custom"); setVal(""); }} className={`block w-full rounded-lg border p-3 text-left ${choice === "custom" ? "border-sea bg-sea/10" : "border-line hover:border-line/80"}`}>
+            <div className="text-[13px] text-slate-100">Other provider <span className="text-mut">(Anthropic-compatible endpoint)</span></div>
+            <div className="text-[11px] text-mut">Kimi (Moonshot), GLM (Z.AI), DeepSeek, or a local proxy (LiteLLM → Ollama). Base URL + key + model.</div></button>
           <div className="rounded-lg border border-line/60 bg-panel2/30 p-3 opacity-70">
             <div className="text-[13px] text-slate-300">Managed inference (Qwen3 Coder · Frankfurt EU)</div>
             <div className="text-[11px] text-mut">Prepaid with credits, billed per token. Chosen at signup.</div></div>
           {choice && (
             <div className="rounded-lg border border-line bg-panel2/40 p-3">
+              {choice === "custom" && (
+                <div className="mb-2 space-y-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    {([["Moonshot (Kimi)", "https://api.moonshot.ai/anthropic", "kimi-k2-0905-preview"],
+                       ["Z.AI (GLM)", "https://api.z.ai/api/anthropic", "glm-4.6"],
+                       ["DeepSeek", "https://api.deepseek.com/anthropic", "deepseek-chat"],
+                       ["Local proxy", "http://host.docker.internal:4000", ""]] as const).map(([label, url, model]) => (
+                      <button key={label} onClick={() => { setCUrl(url); setCModel(model); }}
+                        className="rounded-full border border-line px-2 py-0.5 text-[10.5px] text-mut hover:border-sea/60 hover:text-slate-200">{label}</button>
+                    ))}
+                  </div>
+                  <input value={cUrl} onChange={(e) => setCUrl(e.target.value)} placeholder="base URL — https://api.moonshot.ai/anthropic"
+                    className="w-full rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+                  <div className="flex gap-1.5">
+                    <input value={cModel} onChange={(e) => setCModel(e.target.value)} placeholder="model — kimi-k2-0905-preview"
+                      className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+                    <input value={cSmall} onChange={(e) => setCSmall(e.target.value)} placeholder="small/fast model (optional)"
+                      className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+                  </div>
+                </div>
+              )}
               <input value={val} onChange={(e) => setVal(e.target.value)} type="password"
-                placeholder={choice === "api" ? "sk-ant-…" : "token from claude setup-token…"}
+                placeholder={choice === "api" ? "sk-ant-…" : choice === "custom" ? "API key for that endpoint…" : "token from claude setup-token…"}
                 className="w-full rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
               <div className="mt-2 flex items-center gap-2">
-                <button disabled={busy} onClick={save} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-50">save</button>
+                <button disabled={busy || !canSave} onClick={save} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea disabled:opacity-50">save</button>
                 <button onClick={() => { setChoice(null); setVal(""); }} className="text-[12px] text-mut hover:text-slate-200">cancel</button>
                 <span className="ml-auto text-[10px] text-mut">stays on your VM, never transmitted</span></div>
+              {choice === "custom" && (
+                <div className="mt-1.5 text-[10px] text-mut">
+                  Any endpoint speaking the Anthropic Messages API works — sessions still run the Claude Code engine,
+                  pointed at your provider. Quality varies by model; Anthropic models remain the reference.
+                </div>
+              )}
               {err && <div className="mt-1 text-[11px] text-red-400">{err}</div>}
             </div>
           )}

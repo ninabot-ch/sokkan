@@ -6,14 +6,19 @@ modèle, sans recreate du container : la config vit dans un JSON persistant
 (`$SOKKAN_DATA_DIR/llm.json`) et `agentchat` injecte l'env correspondant à
 CHAQUE session (ClaudeAgentOptions.env).
 
-Deux modes :
+Trois modes :
 - **byok**     : la clé Anthropic du client. Ses sessions tapent Anthropic en
                  direct — la clé ne quitte jamais SA VM (souverain, zéro coût pour NINABOT).
+- **custom**   : n'importe quel endpoint compatible API Anthropic (Kimi/Moonshot,
+                 GLM, DeepSeek, proxy LiteLLM devant Ollama, …) — le client
+                 fournit base_url + clé + modèle, injectés dans chaque session.
 - **included** : routées vers la passerelle NINABOT (`infer.sokkan.ch`) qui
                  compte les tokens + applique le quota + forward vers Qwen/Anthropic.
 
 Format `llm.json` :
   {"mode": "byok", "anthropic_api_key": "sk-ant-..."}
+  {"mode": "custom", "base_url": "https://api.moonshot.ai/anthropic",
+   "auth_token": "sk-...", "model": "kimi-k2-0905-preview", "small_model": ""}
   {"mode": "included", "base_url": "https://infer.sokkan.ch",
    "auth_token": "sik_...", "model": "qwen3-coder-plus"}
 """
@@ -68,6 +73,8 @@ def configured() -> bool:
     c = load()
     if c.get("mode") == "byok":
         return _byok_kind(c) is not None
+    if c.get("mode") == "custom":
+        return bool(c.get("base_url") and c.get("auth_token") and c.get("model"))
     if c.get("mode") == "included":
         return bool(c.get("base_url") and c.get("auth_token"))
     # pas de config explicite : l'env du container (ANTHROPIC_API_KEY/OAUTH) fait foi
@@ -80,7 +87,8 @@ def status() -> dict:
     mode = c.get("mode") or ("env" if configured() else "none")
     return {"mode": mode, "configured": configured(),
             "byok_kind": _byok_kind(c) if mode == "byok" else None,
-            "model": c.get("model") if mode == "included" else None,
+            "model": c.get("model") if mode in ("included", "custom") else None,
+            "base_url": c.get("base_url") if mode == "custom" else None,
             # une instance « included » est opérée par NINABOT → le client ne peut
             # pas basculer en BYOK depuis le cockpit (et inversement)
             "operator_managed": mode == "included"}
@@ -99,6 +107,17 @@ def session_env(user_email: str = "") -> dict:
         if c.get("claude_oauth_token"):  # abonnement Claude Pro/Max (setup-token)
             return {"CLAUDE_CODE_OAUTH_TOKEN": c["claude_oauth_token"],
                     "ANTHROPIC_API_KEY": "", "ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": ""}
+    if c.get("mode") == "custom" and c.get("base_url") and c.get("auth_token"):
+        env = {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
+               "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
+               "ANTHROPIC_API_KEY": c["auth_token"],  # certains endpoints lisent x-api-key
+               "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        # modèle « rapide » (résumés, sous-tâches haiku-class) : le forcer aussi,
+        # sinon le CLI demande un modèle Anthropic que l'endpoint ne connaît pas
+        small = c.get("small_model") or c.get("model")
+        if small:
+            env["ANTHROPIC_SMALL_FAST_MODEL"] = small
+        return env
     if c.get("mode") == "included" and c.get("base_url") and c.get("auth_token"):
         env = {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
                "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
@@ -127,8 +146,8 @@ def usage() -> dict | None:
 
 
 def session_model() -> str | None:
-    """Modèle à forcer (mode included → l'ID upstream, ex. qwen3-coder-plus)."""
+    """Modèle à forcer (included/custom → l'ID upstream, ex. qwen3-coder-plus)."""
     c = load()
-    if c.get("mode") == "included":
+    if c.get("mode") in ("included", "custom"):
         return c.get("model") or None
     return None
