@@ -3,6 +3,25 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.2.0 — 2026-07-23 — "Open helm"
+Multi-provider, a self-summarizing memory, and an easier first contact.
+- **Multi-provider models**: point sessions at any Anthropic-compatible endpoint
+  (Kimi/Moonshot, GLM/Z.AI, DeepSeek, or a local LiteLLM→Ollama proxy) from
+  **Profile → Model** — base URL + key + model, applied per session, presets
+  included. Sessions still run the Claude Code engine.
+- **Priority notes**: mark a durable fact `priority: high` — it gets a recall
+  boost, a ★ in the cockpit, and tops the generated `MEMORY.md`.
+- **Memory digest**: one click spawns a session that condenses the whole memory
+  (+ recent git history) into a `project-status` note.
+- **Knowledge graph**: the Memory/KB tab renders the `[[wikilinks]]` as an
+  interactive force-directed map (no dependencies added).
+- **Sample workspace**: `examples/fastapi-notes/` — a tiny FastAPI project plus
+  the memory notes that make recall click, with a board-seeding script.
+- **`scripts/doctor.sh`**: read-only install checkup (prereqs, `.env`, stack health).
+- CI now cross-builds both images for **linux/arm64**; new integration tests for
+  the critical flow (spawn → memory pre-seed → tool approval) and the LLM modes.
+- GitHub Discussions opened; `good first issue` backlog seeded.
+
 ## 1.1.0 — 2026-07-22 — "Operate"
 The loop doesn't stop at deploy. New **Operate** capabilities — run your
 production from the cockpit, with agents that share the project memory:
