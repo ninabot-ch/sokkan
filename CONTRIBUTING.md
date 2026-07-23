@@ -54,6 +54,17 @@ CI runs the same three + a docker smoke (`compose up` + `/api/health`).
 - Memory pipeline: chunking, ranking, note curation tooling
 - Docs and examples of real memory-note workflows
 
+## Good first issues
+
+Issues labeled [`good first issue`](https://github.com/ninabot-ch/sokkan/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+are scoped to be shippable in an evening, touch one file or component, and come
+with pointers to the relevant code. Typical examples: a small UI affordance
+(sort/filter/export), a second sample workspace under `examples/`, a missing
+doc page. Comment on the issue to claim it — no need to ask permission to start.
+
+Questions, ideas, feedback from running SOKKAN on your own projects:
+[GitHub Discussions](https://github.com/ninabot-ch/sokkan/discussions).
+
 ## Reporting security issues
 
 Please do NOT open a public issue for vulnerabilities — email

@@ -3,7 +3,14 @@
 </p>
 
 <h1 align="center">SOKKAN</h1>
-<p align="center><em>The helm, not the autopilot.</em></p>
+<p align="center"><em>The helm, not the autopilot.</em></p>
+
+<p align="center">
+  <a href="https://github.com/ninabot-ch/sokkan/actions/workflows/ci.yml"><img src="https://github.com/ninabot-ch/sokkan/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/ninabot-ch/sokkan/tags"><img src="https://img.shields.io/github/v/tag/ninabot-ch/sokkan?label=version&color=2ea44f" alt="version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="license: Apache-2.0" /></a>
+  <a href="https://sokkan.ch"><img src="https://img.shields.io/badge/install-sokkan.ch-7c5cff" alt="install from sokkan.ch" /></a>
+</p>
 
 SOKKAN is a self-hosted web cockpit for running **multiple Claude Code sessions in parallel** — with the one thing no orchestrator gives you: **your project memory, automatically injected into every session at spawn**.
 
@@ -57,6 +64,8 @@ docker compose up -d --build
 ```
 
 Open `http://localhost:3009`, enter your token, hit **+ session** — the first run downloads the local embedding model (~120 MB, cached in the data volume).
+
+**No project at hand?** Point `SOKKAN_WORKSPACE` at [`examples/fastapi-notes`](examples/fastapi-notes/) — a ready-made sample workspace with pre-written memory notes and a seed script for three board cards. Spawn one and watch the session recall the port and the team conventions before touching the code.
 
 **Upgrading:** re-run the same installer from the parent directory — it detects the existing install and updates it in place (your `.env` and data volumes are preserved; short interruption while it rebuilds). The cockpit checks for new releases daily and tells you in **Profile** when one is available (managed cloud instances get a one-click update button instead). Full upgrade & rollback guide: [`docs/UPGRADE.md`](docs/UPGRADE.md).
 
