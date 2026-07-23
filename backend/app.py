@@ -38,6 +38,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSock
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+import assistant
 import audit
 import auth
 import board
@@ -149,17 +150,19 @@ def require(min_role: str):
     return dep
 
 
-def _feature(env_var: str):
+def _feature(env_var: str, default: str = "1"):
     """Server-side feature flag: the route 404s when the feature is disabled.
     /api/features is only a UI hint — enforcement happens here."""
     def dep() -> None:
-        if os.environ.get(env_var, "1") == "0":
+        if os.environ.get(env_var, default) == "0":
             raise HTTPException(404, "feature disabled on this instance")
     return dep
 
 
 feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
 feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
+# Nina : OFF par défaut (cloud-only v1 — le provisioner pose le flag + les creds LLM)
+feature_assistant = _feature("SOKKAN_FEATURE_ASSISTANT", "0")
 
 # référence forte sur les tâches fire-and-forget (asyncio ne garde qu'une weakref :
 # sans ça, un tour d'agent peut être garbage-collecté en plein vol)
@@ -631,7 +634,34 @@ def features() -> dict:
         "observe": observability.ENABLED,
         "preview": os.environ.get("SOKKAN_FEATURE_PREVIEW", "1") != "0",
         "tmux": os.environ.get("SOKKAN_FEATURE_TMUX", "1") != "0",
+        # Nina (agente d'assistance) : flag serveur + un LLM joignable
+        "assistant": (os.environ.get("SOKKAN_FEATURE_ASSISTANT", "0") != "0"
+                      and assistant.configured()),
     }
+
+
+class AssistantMsg(BaseModel):
+    message: str
+
+
+@app.get("/api/assistant/history")
+def assistant_history(user: dict = Depends(require("viewer")),
+                      _f: None = Depends(feature_assistant)) -> list[dict]:
+    return assistant.history(user["email"])
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(body: AssistantMsg, user: dict = Depends(require("viewer")),
+                   _f: None = Depends(feature_assistant)) -> dict:
+    """Un tour de chat avec Nina. Synchrone (S1) — le front affiche un spinner."""
+    try:
+        return assistant.chat(user["email"], body.message)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 — LLM upstream KO : message actionnable
+        audit.log(user["email"], "assistant.error", detail=str(e)[:200])
+        raise HTTPException(502, "Nina est momentanément indisponible — "
+                                 "réessayez, ou écrivez à hello@sokkan.ch")
 
 
 class LocalLogin(BaseModel):

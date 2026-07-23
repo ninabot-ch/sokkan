@@ -10,6 +10,7 @@ import MemoryKB from "@/components/MemoryKB";
 import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
 import Journal from "@/components/Journal";
+import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
 import { MeProvider } from "@/lib/me";
 import { FeaturesProvider } from "@/lib/features";
@@ -58,6 +59,7 @@ export default function Home() {
   return (
     <FeaturesProvider>
     <MeProvider>
+    <Assistant />
     <div className="flex h-screen flex-col">
       <Tabs active={tab} onChange={setTab} />
       {tab === "Board" ? (
