@@ -75,6 +75,24 @@ Open `http://localhost:3009`, enter your token, hit **+ session** — the first 
 
 Write memory notes as markdown files (one fact per file, with a `description:` frontmatter) — Claude Code sessions write them natively under the workspace's memory directory, and SOKKAN indexes them within ~2 minutes. From then on, every new session starts with that context. Add `priority: high` to the frontmatter of the facts that must always surface (conventions, hard constraints) — they get a ranking boost and a ★ in the cockpit.
 
+### CLI companion
+
+For terminal workflows, a zero-dependency companion talks to the same API as the web UI:
+
+```bash
+pipx install "git+https://github.com/ninabot-ch/sokkan"   # installs `sokkan`
+sokkan login http://localhost:3009                        # paste your access token once
+
+sokkan spawn "add pagination to GET /notes"   # memory recall first, waits for your go
+sokkan status                                 # instance · sessions · memory · model
+sokkan board                                  # the kanban, per bucket
+sokkan card "fix the flaky test" --spawn      # create a card and run it now
+sokkan mem "which port does the API use"      # the same semantic search a session gets
+sokkan digest                                 # refresh the project-status note
+```
+
+Approvals stay in the cockpit — the CLI spawns and inspects, the human gate remains where the chat panes are. (Local-token auth; OIDC/CF-Access instances: use the web UI.)
+
 ### Using a Claude subscription instead of an API key
 
 If you use Claude Code with a Pro/Max subscription rather than an API key, generate a long-lived token once on your desktop and put it in `.env`:

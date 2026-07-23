@@ -5,3 +5,6 @@ __pycache__/
 tsconfig.tsbuildinfo
 .env
 workspace/
+.venv/
+build/
+*.egg-info/

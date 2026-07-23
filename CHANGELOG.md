@@ -3,6 +3,13 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.3.0 — 2026-07-23 — "Companion"
+- **`sokkan` CLI**: a zero-dependency terminal companion for the cockpit —
+  `sokkan login/spawn/status/sessions/board/card/mem/note/digest/health`.
+  Install: `pipx install "git+https://github.com/ninabot-ch/sokkan"`.
+  Spawn and inspect from the terminal; approvals stay in the cockpit (HITL
+  unchanged). Local-token auth.
+
 ## 1.2.0 — 2026-07-23 — "Open helm"
 Multi-provider, a self-summarizing memory, and an easier first contact.
 - **Multi-provider models**: point sessions at any Anthropic-compatible endpoint

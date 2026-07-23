@@ -12,3 +12,22 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# --- CLI companion (pipx install "git+https://github.com/ninabot-ch/sokkan") ---
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sokkan-cli"
+version = "1.3.0"
+description = "Terminal companion for a SOKKAN cockpit — spawn, board, memory, status"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+[project.scripts]
+sokkan = "sokkan_cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "cli"}
+py-modules = ["sokkan_cli"]

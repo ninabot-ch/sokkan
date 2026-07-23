@@ -33,7 +33,7 @@ SOKKAN_DATA_DIR=/tmp/sokkan-dev uvicorn app:app --app-dir backend --port 8097 --
 ## Before you open a PR
 
 ```bash
-ruff check backend memory tests   # lint
+ruff check backend memory cli tests   # lint
 pytest -q                         # unit tests
 cd frontend && npx tsc --noEmit   # typecheck
 ```
