@@ -22,9 +22,9 @@ export default function Tabs({
       && (t !== "Operate" || feats.observe)
   );
   return (
-    <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 border-b border-line bg-panel px-4">
-      <Wordmark className="text-[42px]" />
-      <span className="mr-8" />
+    <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line bg-panel px-2 md:overflow-visible md:px-4">
+      <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
+      <span className="mr-2 md:mr-8" />
       {visible.map((t) => {
         const enabled = true;
         return (
@@ -32,7 +32,7 @@ export default function Tabs({
             key={t}
             disabled={!enabled}
             onClick={() => enabled && onChange(t)}
-            className={`rounded-md px-4 py-1.5 text-[15px] font-medium ${
+            className={`shrink-0 rounded-md px-2.5 py-1.5 text-[13px] font-medium md:px-4 md:text-[15px] ${
               active === t
                 ? "bg-panel2 text-slate-100 ring-1 ring-line"
                 : enabled

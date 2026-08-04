@@ -78,13 +78,21 @@ export default function Home() {
         <Costs />
       ) : (
         <div className="flex min-h-0 flex-1">
-          <SessionRail
-            open={open.map((x) => x.id)}
-            onOpen={toggle}
-            onDelete={close}
-          />
-          <main className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5 text-[11px] text-mut">
+          {/* mobile : rail plein écran tant qu'aucun pane n'est ouvert, masqué sinon */}
+          <div className={open.length ? "hidden md:contents" : "contents"}>
+            <SessionRail
+              open={open.map((x) => x.id)}
+              onOpen={toggle}
+              onDelete={close}
+            />
+          </div>
+          <main className={`min-h-0 flex-1 flex-col ${open.length === 0 ? "hidden md:flex" : "flex"}`}>
+            <div className="flex items-center border-b border-line bg-panel/60 px-3 py-2 md:hidden">
+              <button onClick={() => setOpen([])} className="text-[13px] font-medium text-slate-200">
+                ← sessions
+              </button>
+            </div>
+            <div className="hidden items-center gap-2 border-b border-line bg-panel/60 px-3 py-1.5 text-[11px] text-mut md:flex">
               <span>{open.length} window(s)</span>
               <span className="ml-auto">density</span>
               {DENSITIES.map((d) => (
@@ -101,7 +109,7 @@ export default function Home() {
               </div>
             ) : (
               <div
-                className="grid min-h-0 flex-1 gap-2 overflow-auto p-2"
+                className="grid min-h-0 flex-1 gap-2 overflow-auto p-2 max-md:!grid-cols-1"
                 style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
               >
                 {open.map((p) =>
