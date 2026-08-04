@@ -3,6 +3,19 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.3.1 — 2026-08-04 — "Clear view"
+- **Session history survives restarts**: the session pane now rehydrates its
+  full history (user turns, assistant messages, tool calls and results) from
+  the persisted transcript after a cockpit restart — panes no longer come back
+  empty.
+- **Viewers can read the chat**: the viewer role is read-only, not blind — the
+  agent stream now accepts viewer connections; every mutation (messages,
+  approvals, interrupts, mode changes) stays gated at dev and above, with an
+  explicit read-only notice.
+- **Mobile layout**: on small screens the Sessions view now stacks — full-width
+  session list, full-screen pane with a back bar, single-column panes,
+  scrollable tab bar.
+
 ## 1.3.0 — 2026-07-23 — "Companion"
 - **`sokkan` CLI**: a zero-dependency terminal companion for the cockpit —
   `sokkan login/spawn/status/sessions/board/card/mem/note/digest/health`.
