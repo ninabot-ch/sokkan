@@ -741,12 +741,14 @@ async def term_http(request: Request, path: str = "", _f: None = Depends(feature
 # --- Chantier B : chat interactif piloté par le Claude Agent SDK -------------
 def _ws_user(websocket: WebSocket) -> dict | None:
     """Identité d'une connexion WS (auth.current_user est duck-typé : WS a
-    .headers et .cookies comme Request). None si non authentifié / rôle insuffisant."""
+    .headers et .cookies comme Request). None si non authentifié / rôle insuffisant.
+    Un viewer est accepté (rôle = « lecture seule (chat/…) ») : il reçoit le flux
+    d'events ; toutes les mutations sont gatées ≥ dev dans la boucle WS."""
     try:
         user = auth.current_user(websocket)  # type: ignore[arg-type]
     except HTTPException:
         return None
-    if iam.rank(user["role"]) < iam.rank("dev"):
+    if iam.rank(user["role"]) < iam.rank("viewer"):
         return None
     return user
 
@@ -789,10 +791,20 @@ async def agent_ws(websocket: WebSocket, sid: str):
             await websocket.send_json(ev)
 
     pump_task = asyncio.create_task(pump())
+    can_drive = iam.rank(wsu["role"]) >= iam.rank("dev")
     try:
         while True:
             msg = await websocket.receive_json()
             t = msg.get("type")
+            if not can_drive:
+                # viewer : flux en lecture seule — aucune mutation acceptée
+                if t == "user":
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Lecture seule — l'historique est rejoué ; "
+                                   "interagir demande un rôle dev.",
+                    })
+                continue
             if t == "user" and msg.get("text", "").strip():
                 _bg(session.handle_user(msg["text"]))
             elif t == "permission":
