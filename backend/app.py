@@ -1179,7 +1179,7 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
 
 
 @app.get("/api/audit")
-def audit_recent(limit: int = 200, q: str = "", _u: dict = Depends(require("dev"))) -> list[dict]:
+def audit_recent(limit: int = 200, q: str = "", _u: dict = Depends(require("viewer"))) -> list[dict]:
     """Journal des actions (onglet Journal) : qui a fait quoi, quand."""
     return audit.recent(limit=limit, q=q)
 
