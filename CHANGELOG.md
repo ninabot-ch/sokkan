@@ -12,8 +12,9 @@ Notable changes, newest first. Versions: semver + release hash (see
   agent stream now accepts viewer connections; every mutation (messages,
   approvals, interrupts, mode changes) stays gated at dev and above, with an
   explicit read-only notice.
-- **Journal for viewers**: the audit journal is read-only supervision data —
-  it is now visible to the viewer role (mutations everywhere else unchanged).
+- **Journal & Costs for viewers**: the audit journal and the cost/usage view
+  are read-only supervision data — both are now visible to the viewer role
+  (mutations everywhere else unchanged).
 - **Mobile layout**: on small screens the Sessions view now stacks — full-width
   session list, full-screen pane with a back bar, single-column panes,
   scrollable tab bar.

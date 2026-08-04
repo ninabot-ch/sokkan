@@ -1459,6 +1459,6 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
 
 
 @app.get("/api/usage")
-def usage_summary(days: int = 30, _u: dict = Depends(require("dev"))) -> dict:
+def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict:
     """Coûts & tokens agrégés depuis les transcripts (onglet Coûts)."""
     return usage_mod.summary(days_back=min(days, 90))
