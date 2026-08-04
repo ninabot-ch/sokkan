@@ -16,6 +16,7 @@ export type PermMode = "default" | "acceptEdits" | "bypassPermissions" | "plan";
 export type AgentEvent =
   | { type: "session"; claude_session_id: string }
   | { type: "status"; state: "idle" | "working" }
+  | { type: "user"; text: string }
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool_use"; id?: string; tool: string; title: string; input: Record<string, unknown> }

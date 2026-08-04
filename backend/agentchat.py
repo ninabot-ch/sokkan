@@ -393,12 +393,60 @@ class AgentSession:
 _registry: dict[str, AgentSession] = {}
 
 
+def _transcript_path(csid: str) -> Path:
+    """Chemin du transcript persisté par Claude Code (même résolution que
+    PROJECT_DIR côté app.py — dupliquée ici pour éviter le cycle d'import)."""
+    claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
+    cwd_slug = (os.environ.get("SOKKAN_AGENT_CWD")
+                or ("/workspace" if os.path.isdir("/workspace") else os.getcwd())).replace("/", "-")
+    base = os.environ.get("SOKKAN_PROJECT_DIR", os.path.join(claude_dir, "projects", cwd_slug))
+    return Path(base) / f"{csid}.jsonl"
+
+
+def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
+    """Après un restart de sokkan-api, le ring buffer est vide : le pane d'une
+    session existante s'affichait vide alors que tout l'historique est dans le
+    transcript JSONL. On re-peuple le ring depuis le transcript pour que le
+    replay WS montre la conversation complète."""
+    path = _transcript_path(csid)
+    if s.events or not path.exists():
+        return
+    import transcript
+
+    try:
+        msgs = transcript.parse_file(path).get("messages", [])
+    except Exception:  # noqa: BLE001 — un transcript illisible ne doit pas bloquer la session
+        return
+    evs: list[dict] = []
+    for m in msgs:
+        role, kind, text = m.get("role"), m.get("kind"), m.get("text", "")
+        if role == "user" and kind == "text":
+            evs.append({"type": "user", "text": text})
+        elif role == "assistant" and kind == "text":
+            evs.append({"type": "text", "text": text})
+        elif role == "assistant" and kind == "thinking":
+            evs.append({"type": "thinking", "text": text})
+        elif kind == "tool":
+            evs.append({"type": "tool_use", "id": m.get("id"), "tool": m.get("tool", "tool"),
+                        "title": m.get("title", ""), "input": m.get("input", {}) or {}})
+            r = m.get("result")
+            if r and m.get("id"):
+                evs.append({"type": "tool_result", "tool_use_id": m["id"],
+                            "text": r.get("text", ""), "is_error": bool(r.get("is_error")),
+                            "truncated": bool(r.get("truncated"))})
+    if evs:
+        evs.append({"type": "status", "state": "idle"})
+        s.events.extend(evs[-RING_MAX:])
+
+
 def get_or_create(sid: str, resume: str | None = None, user: str = "") -> AgentSession:
     s = _registry.get(sid)
     if s is None:
         # après un restart de sokkan-api : reprendre le claude_session_id persisté
         resume = resume or (board.get_claude_session_id(sid) or None)
         s = AgentSession(sid, resume=resume, user=user)
+        if resume:
+            _seed_ring_from_transcript(s, resume)
         _registry[sid] = s
     elif user and not s.user:
         s.user = user  # rattachement avant le premier start (client pas encore créé)

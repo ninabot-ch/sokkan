@@ -70,6 +70,10 @@ export default function AgentChatPane({
       case "status":
         setWorking(e.state === "working");
         break;
+      case "user":
+        // replay d'historique après restart (ring re-peuplé depuis le transcript)
+        push({ role: "user", kind: "text", text: e.text });
+        break;
       case "text":
         push({ role: "assistant", kind: "text", text: e.text });
         break;
