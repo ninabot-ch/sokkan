@@ -290,6 +290,10 @@ def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     kv = os.environ.get("MAGNITUDE_KV", "")
     if kv:
         cmd += ["-ctk", kv, "-ctv", kv, "-fa", "on"]
+    # échappatoire tuning (rope-scaling yarn, -np, etc.) sans multiplier les env vars
+    extra = os.environ.get("MAGNITUDE_SERVER_ARGS", "")
+    if extra:
+        cmd += extra.split()
     if gpu:
         cmd += ["-ngl", "999"]
     RUN_DIR.mkdir(parents=True, exist_ok=True)
