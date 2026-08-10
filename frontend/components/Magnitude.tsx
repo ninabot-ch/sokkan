@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  magnitudeCmd, magnitudeConnect, magnitudePair, magnitudeState, magnitudeUnpair,
+  magnitudeCmd, magnitudeConnect, magnitudeNodeConfig, magnitudePair,
+  magnitudeState, magnitudeUnpair,
 } from "@/lib/api";
 import type {
-  MagnitudeBench, MagnitudeModel, MagnitudeProfile, MagnitudeServing, MagnitudeState,
-  MagnitudeStatus,
+  MagnitudeBench, MagnitudeModel, MagnitudeNode, MagnitudeProfile,
+  MagnitudeServing, MagnitudeState, MagnitudeStatus,
 } from "@/lib/api";
 import { useCan } from "@/lib/me";
 
@@ -70,7 +71,7 @@ function Hero({ admin, busy, onPair }: { admin: boolean; busy: boolean; onPair: 
     <div className="flex flex-col items-center gap-6 pt-16 text-center transition-all duration-500">
       <h1 className="text-4xl font-semibold tracking-tight text-slate-100 md:text-5xl">Magnitude</h1>
       <p className="max-w-md text-[15px] leading-relaxed text-mut">
-        Measure what your machine can really run. Locally. Privately.
+        Measure what your machines can really run. Locally. Privately.
       </p>
       {admin ? (
         <button
@@ -78,7 +79,7 @@ function Hero({ admin, busy, onPair }: { admin: boolean; busy: boolean; onPair: 
           disabled={busy}
           className="mt-4 rounded-xl bg-sea/80 px-8 py-3 text-[15px] font-medium text-white transition-all duration-300 hover:bg-sea active:scale-[0.98] disabled:opacity-40"
         >
-          Pair this machine
+          Pair a machine
         </button>
       ) : (
         <p className="mt-4 text-[13px] text-mut">An admin can pair a machine to get started.</p>
@@ -89,22 +90,19 @@ function Hero({ admin, busy, onPair }: { admin: boolean; busy: boolean; onPair: 
 
 function PairingCard({ command }: { command: string }) {
   return (
-    <div className="flex flex-col items-center gap-6 pt-16 transition-all duration-500">
-      <h1 className="text-4xl font-semibold tracking-tight text-slate-100 md:text-5xl">Magnitude</h1>
-      <p className="max-w-md text-center text-[15px] leading-relaxed text-mut">
-        Run this on the machine you want to measure. The token is shown only once.
+    <div className="w-full rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500">
+      <p className="mb-4 text-[14px] leading-relaxed text-mut">
+        Run this on the machine to pair. The token is shown only once.
       </p>
-      <div className="w-full rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500">
-        <div className="flex items-start gap-3">
-          <code className="min-w-0 flex-1 select-all break-all rounded-lg border border-line bg-ink px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-200">
-            {command}
-          </code>
-          <CopyButton text={command} />
-        </div>
-        <div className="mt-5 flex items-center gap-2.5 text-[13px] text-mut">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-sea/80" />
-          <span className="animate-pulse">waiting for the agent…</span>
-        </div>
+      <div className="flex items-start gap-3">
+        <code className="min-w-0 flex-1 select-all break-all rounded-lg border border-line bg-ink px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-200">
+          {command}
+        </code>
+        <CopyButton text={command} />
+      </div>
+      <div className="mt-5 flex items-center gap-2.5 text-[13px] text-mut">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-sea/80" />
+        <span className="animate-pulse">waiting for the agent…</span>
       </div>
     </div>
   );
@@ -122,7 +120,7 @@ function OpBanner({ status, label }: { status: MagnitudeStatus; label: string })
   const isError = status.phase === "error";
   return (
     <div
-      className={`sticky top-0 z-10 rounded-2xl border p-5 backdrop-blur transition-all duration-500 ${
+      className={`rounded-2xl border p-5 backdrop-blur transition-all duration-500 ${
         isError ? "border-red-400/30 bg-panel2/80" : "border-line bg-panel2/80"
       }`}
     >
@@ -302,12 +300,146 @@ function ModelCard({
   );
 }
 
+/** Endpoint of a node as sessions reach it — subtle, admin-editable inline. */
+function NodeEndpoint({
+  node, admin, busy, onSave,
+}: {
+  node: MagnitudeNode; admin: boolean; busy: boolean; onSave: (url: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [url, setUrl] = useState(node.shim_url);
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-mut">
+        <span>
+          Sessions reach this node at <code className="rounded bg-ink px-1.5 py-0.5 font-mono text-[11.5px] text-slate-300">{node.shim_url}</code>
+        </span>
+        {admin && (
+          <button
+            onClick={() => { setUrl(node.shim_url); setEditing(true); }}
+            className="text-sea/80 transition-colors hover:text-sea"
+          >
+            edit
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="http://<node-host>:8790"
+        className="w-72 rounded-lg border border-line bg-[#0b0f16] px-3 py-1.5 font-mono text-[12px] text-slate-200 outline-none focus:border-sea/50"
+      />
+      <button
+        onClick={() => { onSave(url); setEditing(false); }}
+        disabled={busy}
+        className="rounded-lg bg-sea/80 px-3 py-1.5 text-[12px] font-medium text-white transition-all hover:bg-sea disabled:opacity-40"
+      >
+        Save
+      </button>
+      <button onClick={() => setEditing(false)} className="text-[12px] text-mut hover:text-slate-300">
+        cancel
+      </button>
+    </div>
+  );
+}
+
+function NodeSection({
+  node, admin, busy, act,
+}: {
+  node: MagnitudeNode; admin: boolean; busy: boolean;
+  act: (fn: () => Promise<unknown>, failMsg: string) => void;
+}) {
+  const labelOf = (id: string | null | undefined) =>
+    (id && node.catalog.find((m) => m.id === id)?.label) || id || "model";
+  const opRunning = ["benching", "downloading", "starting"].includes(node.status.phase);
+  const canAct = node.online && !busy && !opRunning;
+
+  const unpair = () => {
+    if (!confirm(`Unpair ${node.name}? Its agent token is revoked and its bench data cleared.`)) return;
+    act(() => magnitudeUnpair(node.id), "unpair failed");
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-baseline gap-2.5">
+        <span className={`h-2 w-2 shrink-0 self-center rounded-full ${node.online ? "bg-emerald-400" : "bg-line"}`} />
+        <span className="text-[17px] font-semibold tracking-tight text-slate-100">{node.name}</span>
+        {node.connected && (
+          <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10.5px] font-medium text-emerald-300">
+            powering SOKKAN
+          </span>
+        )}
+        {admin && (
+          <button onClick={unpair} className="ml-auto text-[12px] text-mut transition-colors hover:text-slate-300">
+            Unpair
+          </button>
+        )}
+      </div>
+
+      {node.status.phase !== "idle" && node.status.phase !== "serving" && (
+        <OpBanner status={node.status} label={labelOf(node.status.model)} />
+      )}
+
+      {node.serving && (
+        <ServingCard
+          serving={node.serving}
+          label={labelOf(node.serving.model)}
+          connected={node.connected}
+          admin={admin}
+          online={node.online}
+          busy={busy}
+          onConnect={() => act(() => magnitudeConnect(node.id), "connect failed — model not serving or LLM config is operator-managed")}
+          onStop={() => act(() => magnitudeCmd(node.id, "stop"), "stop failed")}
+        />
+      )}
+
+      {node.profile ? (
+        <HardwareCard profile={node.profile} online={node.online} lastSeen={node.last_seen} />
+      ) : (
+        <div className="rounded-2xl border border-line bg-panel2/40 p-6 text-[13px] text-mut transition-all duration-500">
+          <span className="animate-pulse">
+            {node.online ? "profiling hardware…" : "waiting for the agent…"}
+          </span>
+        </div>
+      )}
+
+      <NodeEndpoint
+        node={node}
+        admin={admin}
+        busy={busy}
+        onSave={(url) => act(() => magnitudeNodeConfig(node.id, { shim_url: url }), "saving endpoint failed")}
+      />
+
+      {node.profile && (
+        <div className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2">
+          {node.catalog.map((m) => (
+            <ModelCard
+              key={m.id}
+              m={m}
+              bench={node.bench[m.id]}
+              live={node.serving?.model === m.id}
+              admin={admin}
+              canAct={canAct}
+              onBench={() => act(() => magnitudeCmd(node.id, "bench", m.id), `benchmark of ${m.label} failed to start`)}
+              onRun={() => act(() => magnitudeCmd(node.id, "run", m.id), `run of ${m.label} failed to start`)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ————— the tab —————
 
 export default function Magnitude() {
   const admin = useCan("admin");
   const [st, setSt] = useState<MagnitudeState | null>(null);
-  const [pairCmd, setPairCmd] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<{ node: string; command: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -319,6 +451,11 @@ export default function Magnitude() {
     return () => { alive = false; clearInterval(iv); };
   }, []);
 
+  // le node en cours d'appairage vient en ligne → la carte pairing a fini son travail
+  useEffect(() => {
+    if (pairing && st?.nodes.some((n) => n.id === pairing.node && n.online)) setPairing(null);
+  }, [st, pairing]);
+
   const act = async (fn: () => Promise<unknown>, failMsg: string) => {
     setBusy(true);
     setErr("");
@@ -328,17 +465,8 @@ export default function Magnitude() {
   const pair = () =>
     act(async () => {
       const r = await magnitudePair();
-      setPairCmd(r.command);
+      setPairing({ node: r.node, command: r.command });
     }, "pairing failed");
-
-  const unpair = () => {
-    if (!confirm("Unpair this machine? The agent will stop syncing and all bench data is cleared.")) return;
-    act(async () => {
-      await magnitudeUnpair();
-      setPairCmd(null);
-      setSt(await magnitudeState());
-    }, "unpair failed");
-  };
 
   if (!st) {
     return (
@@ -346,92 +474,40 @@ export default function Magnitude() {
     );
   }
 
-  const status = st.status;
-  const labelOf = (id: string | null | undefined) =>
-    (id && st.catalog.find((m) => m.id === id)?.label) || id || "model";
-  // agent busy on a long operation → hold new commands
-  const opRunning = !!status && ["benching", "downloading", "starting"].includes(status.phase);
-  const canAct = st.online && !busy && !opRunning;
-
-  let body: React.ReactNode;
-  if (pairCmd && !st.online) {
-    body = <PairingCard command={pairCmd} />;
-  } else if (!st.paired) {
-    body = <Hero admin={admin} busy={busy} onPair={pair} />;
-  } else {
-    body = (
-      <div className="space-y-6">
-        <div className="flex items-baseline justify-between pb-2">
-          <h1 className="text-4xl font-semibold tracking-tight text-slate-100 md:text-5xl">Magnitude</h1>
-          {admin && (
-            <button
-              onClick={unpair}
-              className="text-[12px] text-mut transition-colors hover:text-slate-300"
-            >
-              Unpair
-            </button>
-          )}
-        </div>
-
-        {status && status.phase !== "idle" && status.phase !== "serving" && (
-          <OpBanner status={status} label={labelOf(status.model)} />
-        )}
-
-        {st.serving && (
-          <ServingCard
-            serving={st.serving}
-            label={labelOf(st.serving.model)}
-            connected={st.connected}
-            admin={admin}
-            online={st.online}
-            busy={busy}
-            onConnect={() => act(() => magnitudeConnect(), "connect failed — model not serving or LLM config is operator-managed")}
-            onStop={() => act(() => magnitudeCmd("stop"), "stop failed")}
-          />
-        )}
-
-        {st.profile ? (
-          <HardwareCard profile={st.profile} online={st.online} lastSeen={st.last_seen} />
-        ) : (
-          <div className="rounded-2xl border border-line bg-panel2/40 p-6 text-[13px] text-mut transition-all duration-500">
-            <span className="animate-pulse">
-              {st.online ? "profiling hardware…" : "waiting for the agent…"}
-            </span>
-          </div>
-        )}
-
-        <div>
-          <div className="mb-3 mt-2 text-[15px] text-mut">
-            Models this machine can serve — benchmarked on your silicon, not on paper.
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {st.catalog.map((m) => (
-              <ModelCard
-                key={m.id}
-                m={m}
-                bench={st.bench[m.id]}
-                live={st.serving?.model === m.id}
-                admin={admin}
-                canAct={canAct}
-                onBench={() => act(() => magnitudeCmd("bench", m.id), `benchmark of ${m.label} failed to start`)}
-                onRun={() => act(() => magnitudeCmd("run", m.id), `run of ${m.label} failed to start`)}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // les nodes en attente de premier contact (jamais vus online, sans profil) ne
+  // s'affichent que via la carte pairing — sauf s'ils ont déjà vécu
+  const nodes = st.nodes.filter((n) => n.profile || n.online || n.last_seen || n.id !== pairing?.node);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-6 py-16">
+      <div className="mx-auto max-w-2xl px-6 py-12">
         {err && (
           <div className="mb-5 rounded-xl border border-red-400/30 bg-red-400/5 px-4 py-2.5 text-[13px] text-red-300">
             {err}
           </div>
         )}
-        {body}
+        {!st.paired && !pairing ? (
+          <Hero admin={admin} busy={busy} onPair={pair} />
+        ) : (
+          <div className="space-y-10">
+            <div className="flex items-baseline justify-between">
+              <h1 className="text-4xl font-semibold tracking-tight text-slate-100 md:text-5xl">Magnitude</h1>
+              {admin && !pairing && (
+                <button
+                  onClick={pair}
+                  disabled={busy}
+                  className="rounded-lg border border-line px-4 py-1.5 text-[13px] text-slate-300 transition-all duration-300 hover:bg-panel2 disabled:opacity-40"
+                >
+                  Pair a machine
+                </button>
+              )}
+            </div>
+            {nodes.map((n) => (
+              <NodeSection key={n.id} node={n} admin={admin} busy={busy} act={act} />
+            ))}
+            {pairing && <PairingCard command={pairing.command} />}
+          </div>
+        )}
       </div>
     </div>
   );

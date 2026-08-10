@@ -212,6 +212,7 @@ export interface MagnitudeGpu {
 }
 export interface MagnitudeProfile {
   schema: string; os: string; arch: string;
+  hostname?: string;
   gpu: MagnitudeGpu | null;
   cpu: string; cores: number; ram_gb: number | null;
   class: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
@@ -231,21 +232,27 @@ export interface MagnitudeModel {
   weights_gb: number; note: string;
   fits: boolean; fit: "comfortable" | "tight" | "no" | "unknown";
 }
-export interface MagnitudeState {
-  paired: boolean; online: boolean; last_seen: number | null;
+export interface MagnitudeNode {
+  id: string; name: string; online: boolean; last_seen: number | null;
+  shim_url: string; // URL du shim de ce node vue des sessions (défaut ou explicite)
   profile: MagnitudeProfile | null;
-  status: MagnitudeStatus | null;
+  status: MagnitudeStatus;
   bench: Record<string, MagnitudeBench>;
   serving: MagnitudeServing | null;
   connected: boolean;
   catalog: MagnitudeModel[];
 }
+export interface MagnitudeState {
+  paired: boolean; shim_default: string; nodes: MagnitudeNode[];
+}
 export const magnitudeState = () => getJSON<MagnitudeState>("/api/magnitude");
 export const magnitudePair = () =>
-  mutate<{ token: string; command: string }>("/api/magnitude/pair", "POST");
-export const magnitudeUnpair = () =>
-  mutate<{ ok: boolean }>("/api/magnitude/pair", "DELETE");
-export const magnitudeCmd = (action: "bench" | "run" | "stop", model?: string) =>
-  mutate<MagnitudeState>("/api/magnitude/cmd", "POST", model ? { action, model } : { action });
-export const magnitudeConnect = () =>
-  mutate<MagnitudeState>("/api/magnitude/connect", "POST");
+  mutate<{ node: string; token: string; command: string }>("/api/magnitude/pair", "POST");
+export const magnitudeUnpair = (node: string) =>
+  mutate<MagnitudeState>(`/api/magnitude/node/${encodeURIComponent(node)}`, "DELETE");
+export const magnitudeNodeConfig = (node: string, cfg: { name?: string; shim_url?: string }) =>
+  mutate<MagnitudeState>(`/api/magnitude/node/${encodeURIComponent(node)}`, "POST", cfg);
+export const magnitudeCmd = (node: string, action: "bench" | "run" | "stop", model?: string) =>
+  mutate<MagnitudeState>("/api/magnitude/cmd", "POST", model ? { node, action, model } : { node, action });
+export const magnitudeConnect = (node: string) =>
+  mutate<MagnitudeState>("/api/magnitude/connect", "POST", { node });

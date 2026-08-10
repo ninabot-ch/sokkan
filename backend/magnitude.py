@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """magnitude.py — SOKKAN : état cockpit de la feature Magnitude (LLM local).
 
-Magnitude profile le hardware du client, benche les modèles locaux servables
-et en fait tourner un (llama.cpp) branché au router LLM en un clic. L'agent
-host (`python3 -m magnitude` — package séparé, JAMAIS importé ici : le
-container n'y a pas accès) poll le backend en HTTP sortant ; ce module tient
-l'état partagé dans `$SOKKAN_DATA_DIR/magnitude.json` (chmod 600 — il contient
-le serve_token) :
+Magnitude profile le hardware des machines du client, benche les modèles locaux
+servables et en fait tourner un (llama.cpp) branché au router LLM en un clic.
+Chaque machine fait tourner l'agent host (`python3 -m magnitude` — package
+séparé, JAMAIS importé ici : le container n'y a pas accès) qui poll le backend
+en HTTP sortant. Ce module tient le REGISTRY multi-nodes dans
+`$SOKKAN_DATA_DIR/magnitude.json` (chmod 600 — il contient les serve_tokens) :
 
-  {"token_sha256": "…",             # sha256 du pairing token (jamais le clair)
-   "profile": {…},                  # profil hardware remonté par l'agent
-   "last_seen": 1754800000.0,       # dernier sync agent (online = < 15 s)
-   "status": {"phase": "…", …},     # idle|benching|downloading|starting|serving|error
-   "bench": {"<model>": {…}},       # résultats de bench par modèle
-   "serving": {"model", "shim_port", "serve_token", "since"},
-   "pending": {"action", "model"}}  # commande UI, livrée au prochain sync
+  {"schema": 2,
+   "nodes": {"<id>": {                # id = sha256(token)[:12]
+      "token_sha256": "…",            # sha256 du pairing token (jamais le clair)
+      "name": "",                     # nom explicite (sinon dérivé du profil)
+      "shim_url": null,               # URL du shim vue des sessions (sinon défaut)
+      "profile": {…},                 # profil hardware remonté par l'agent
+      "last_seen": 1754800000.0,      # dernier sync (online = < 15 s)
+      "status": {"phase": "…", …},    # idle|benching|downloading|starting|serving|error
+      "bench": {"<model>": {…}},      # résultats de bench par modèle
+      "serving": {"model", "shim_port", "serve_token", "since"},
+      "pending": {"action", "model"}}}}  # commande UI, livrée au prochain sync
 
-Le pairing token est généré ici (secrets.token_urlsafe) et montré UNE fois à
-l'UI ; l'agent le renvoie en header `x-magnitude-token`, vérifié en
-constant-time sur son sha256. Le serve_token (généré par l'agent) ne sort
-JAMAIS vers l'UI — il ne part que dans llm.json au « Connect ».
+Un pairing token par node, généré ici (secrets.token_urlsafe) et montré UNE
+fois à l'UI ; l'agent le renvoie en header `x-magnitude-token`, résolu vers son
+node en comparant les sha256 en constant-time. Les serve_tokens (générés par
+les agents) ne sortent JAMAIS vers l'UI — ils ne partent que dans llm.json au
+« Connect ». L'ancien schéma mono-agent (pré-multi) est migré à la lecture.
 """
 from __future__ import annotations
 
@@ -38,9 +43,9 @@ STATE = Path(os.path.join(
     "magnitude.json"))
 
 ONLINE_WINDOW_S = 15.0  # agent « online » = dernier sync il y a moins de 15 s
-# URL du shim Anthropic-compatible telle que VUE PAR LES SESSIONS. Défaut =
-# cockpit docker + agent sur le même host. Backend natif ou agent sur une autre
-# machine (GPU node distant) → SOKKAN_MAGNITUDE_SHIM_URL=http://<node>:8790
+# URL PAR DÉFAUT du shim telle que VUE PAR LES SESSIONS (node sans `shim_url`
+# explicite) : cockpit docker + agent sur le même host. Backend natif ou node
+# distant → SOKKAN_MAGNITUDE_SHIM_URL global, ou `shim_url` par node via l'UI.
 SHIM_URL = os.environ.get("SOKKAN_MAGNITUDE_SHIM_URL",
                           "http://host.docker.internal:8790")
 FIT_MARGIN_GB = 1.2  # marge KV cache / compute buffers au-dessus des poids
@@ -82,52 +87,114 @@ CATALOG: list[dict] = [
      "url": "https://huggingface.co/unsloth/Llama-3.3-70B-Instruct-GGUF/resolve/main/Llama-3.3-70B-Instruct-Q4_K_M.gguf"},
 ]
 
+_NODE_KEYS = ("token_sha256", "name", "shim_url", "profile", "last_seen",
+              "status", "bench", "serving", "pending")
+
+
+def _migrate(raw: dict) -> dict:
+    """Schéma v1 mono-agent → v2 registry (idempotent, en mémoire — persisté à
+    la prochaine mutation)."""
+    if "nodes" in raw:
+        return raw
+    nodes = {}
+    if raw.get("token_sha256"):
+        nid = raw["token_sha256"][:12]
+        nodes[nid] = {k: raw.get(k) for k in _NODE_KEYS if raw.get(k) is not None}
+    return {"schema": 2, "nodes": nodes}
+
 
 def load() -> dict:
     try:
-        return json.loads(STATE.read_text(encoding="utf-8")) or {}
+        return _migrate(json.loads(STATE.read_text(encoding="utf-8")) or {})
     except (FileNotFoundError, ValueError):
-        return {}
+        return {"schema": 2, "nodes": {}}
 
 
 def save(state: dict) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
     try:
-        STATE.chmod(0o600)  # contient le serve_token
+        STATE.chmod(0o600)  # contient les serve_tokens
     except OSError:
         pass
 
 
 # --- pairing -----------------------------------------------------------------
-def pair() -> str:
-    """Regénère le pairing token et REPART DE ZÉRO (pairing = nouveau départ :
-    profil/bench/serving appartiennent à la machine précédente). Retourne le
-    token en clair — montré une seule fois, seul son sha256 est persisté."""
+def pair() -> tuple[str, str]:
+    """Crée un NOUVEAU node (les autres ne bougent pas) et retourne
+    (node_id, token). Le token en clair est montré une seule fois — seul son
+    sha256 est persisté."""
     token = secrets.token_urlsafe(24)
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    nid = digest[:12]
     with _LOCK:
-        save({"token_sha256": hashlib.sha256(token.encode()).hexdigest()})
-    return token
+        st = load()
+        st["nodes"][nid] = {"token_sha256": digest, "paired_at": time.time()}
+        save(st)
+    return nid, token
 
 
-def unpair() -> None:
-    """Efface tout l'état (token, profil, bench, serving, pending)."""
+def unpair(node_id: str) -> bool:
+    """Retire UN node du registry (token révoqué, bench/serving oubliés)."""
     with _LOCK:
-        STATE.unlink(missing_ok=True)
+        st = load()
+        if node_id not in st["nodes"]:
+            return False
+        del st["nodes"][node_id]
+        save(st)
+    return True
 
 
-def verify_token(token: str) -> bool:
-    """Compare le token agent (header x-magnitude-token) au sha256 stocké."""
-    stored = load().get("token_sha256") or ""
-    if not stored or not token:
-        return False
-    return secrets.compare_digest(hashlib.sha256(token.encode()).hexdigest(), stored)
+def resolve_token(token: str) -> str | None:
+    """Header agent `x-magnitude-token` → node_id (constant-time sur les
+    sha256 ; on parcourt tous les nodes sans early-exit sur mismatch)."""
+    if not token:
+        return None
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    found = None
+    for nid, node in load()["nodes"].items():
+        if secrets.compare_digest(digest, node.get("token_sha256") or ""):
+            found = nid
+    return found
 
 
-def online(state: dict | None = None) -> bool:
-    st = load() if state is None else state
-    last = st.get("last_seen") or 0
+def get_node(node_id: str) -> dict | None:
+    return load()["nodes"].get(node_id)
+
+
+def node_config(node_id: str, name: str | None = None,
+                shim_url: str | None = None) -> bool:
+    """Config explicite d'un node ('' = revenir au défaut/auto)."""
+    with _LOCK:
+        st = load()
+        node = st["nodes"].get(node_id)
+        if node is None:
+            return False
+        if name is not None:
+            node["name"] = name.strip()
+        if shim_url is not None:
+            node["shim_url"] = shim_url.strip().rstrip("/") or None
+        save(st)
+    return True
+
+
+def online(node: dict) -> bool:
+    last = node.get("last_seen") or 0
     return bool(last) and (time.time() - last) < ONLINE_WINDOW_S
+
+
+def shim_url_of(node: dict) -> str:
+    """URL du shim de CE node telle que vue par les sessions."""
+    return (node.get("shim_url") or SHIM_URL).rstrip("/")
+
+
+def node_name(node_id: str, node: dict) -> str:
+    """Nom affiché : explicite > hostname du profil > GPU > CPU > id."""
+    if node.get("name"):
+        return node["name"]
+    p = node.get("profile") or {}
+    return (p.get("hostname") or (p.get("gpu") or {}).get("name")
+            or p.get("cpu") or node_id)
 
 
 # --- catalogue & fit ---------------------------------------------------------
@@ -174,60 +241,84 @@ def catalog_view(profile: dict | None) -> list[dict]:
 
 
 # --- commandes UI → agent ----------------------------------------------------
-def set_pending(action: str, model: str = "") -> None:
-    """Pose la commande à livrer au prochain sync agent (une seule en vol)."""
+def set_pending(node_id: str, action: str, model: str = "") -> bool:
+    """Pose la commande à livrer au prochain sync du node (une seule en vol)."""
     with _LOCK:
         st = load()
-        st["pending"] = {"action": action, "model": model}
+        node = st["nodes"].get(node_id)
+        if node is None:
+            return False
+        node["pending"] = {"action": action, "model": model}
         save(st)
+    return True
 
 
 # --- sync agent --------------------------------------------------------------
-def sync(payload: dict, serving_set: bool) -> dict | None:
+def sync(node_id: str, payload: dict, serving_set: bool) -> dict | None:
     """Applique un sync agent (profil/status/bench/serving/erreur) + last_seen,
-    et livre la commande pending s'il y en a une (effacée à la livraison).
-    `serving_set` distingue `serving: null` (stop effectif) du champ absent."""
+    et livre la commande pending du node s'il y en a une (effacée à la
+    livraison). `serving_set` distingue `serving: null` (stop effectif) du
+    champ absent."""
     with _LOCK:
         st = load()
+        node = st["nodes"].get(node_id)
+        if node is None:
+            return None
         if payload.get("profile") is not None:
-            st["profile"] = payload["profile"]
+            node["profile"] = payload["profile"]
         if payload.get("status") is not None:
-            st["status"] = payload["status"]
+            node["status"] = payload["status"]
         elif payload.get("error"):
-            st["status"] = {"phase": "error", "detail": str(payload["error"])[:300]}
+            node["status"] = {"phase": "error", "detail": str(payload["error"])[:300]}
         br = payload.get("bench_result")
         if br and br.get("model"):
             entry = {k: v for k, v in br.items() if k != "model"}
             entry.setdefault("at", time.time())
-            st.setdefault("bench", {})[br["model"]] = entry
+            node.setdefault("bench", {})[br["model"]] = entry
         if serving_set:
-            st["serving"] = payload.get("serving")
-        st["last_seen"] = time.time()
-        cmd = st.pop("pending", None)
+            node["serving"] = payload.get("serving")
+        node["last_seen"] = time.time()
+        cmd = node.pop("pending", None)
         save(st)
     return cmd or None
 
 
 # --- vue UI ------------------------------------------------------------------
-def connected() -> bool:
-    """Le router LLM de l'instance pointe-t-il sur le shim Magnitude ?"""
+def connected_node(state: dict | None = None) -> str | None:
+    """node_id dont le shim est branché au router LLM de l'instance, sinon None."""
     c = llm.load()
-    return c.get("mode") == "custom" and (c.get("base_url") or "").rstrip("/") == SHIM_URL.rstrip("/")
+    if c.get("mode") != "custom":
+        return None
+    base = (c.get("base_url") or "").rstrip("/")
+    st = load() if state is None else state
+    for nid, node in st["nodes"].items():
+        if base and base == shim_url_of(node):
+            return nid
+    return None
 
 
 def view() -> dict:
-    """État complet pour GET /api/magnitude — le serve_token n'en sort jamais."""
+    """État complet pour GET /api/magnitude — les serve_tokens n'en sortent
+    jamais. Nodes triés par date de pairing."""
     st = load()
-    serving = st.get("serving") or None
-    return {
-        "paired": bool(st.get("token_sha256")),
-        "online": online(st),
-        "last_seen": st.get("last_seen"),
-        "profile": st.get("profile"),
-        "status": st.get("status") or {"phase": "idle"},
-        "bench": st.get("bench") or {},
-        "serving": ({"model": serving.get("model"), "shim_url": SHIM_URL,
-                     "since": serving.get("since")} if serving else None),
-        "connected": connected(),
-        "catalog": catalog_view(st.get("profile")),
-    }
+    conn = connected_node(st)
+    nodes = []
+    for nid, node in sorted(st["nodes"].items(),
+                            key=lambda kv: kv[1].get("paired_at") or 0):
+        serving = node.get("serving") or None
+        nodes.append({
+            "id": nid,
+            "name": node_name(nid, node),
+            "online": online(node),
+            "last_seen": node.get("last_seen"),
+            "shim_url": shim_url_of(node),
+            "profile": node.get("profile"),
+            "status": node.get("status") or {"phase": "idle"},
+            "bench": node.get("bench") or {},
+            "serving": ({"model": serving.get("model"),
+                         "shim_url": shim_url_of(node),
+                         "since": serving.get("since")} if serving else None),
+            "connected": nid == conn,
+            "catalog": catalog_view(node.get("profile")),
+        })
+    return {"paired": bool(nodes), "shim_default": SHIM_URL, "nodes": nodes}

@@ -14,6 +14,7 @@ import os
 import platform
 import re
 import shutil
+import socket
 import subprocess
 import sys
 
@@ -178,9 +179,14 @@ def build_profile() -> dict:
     else:
         cpu, cores, ram_gb = _detect_host_linux()
     gpu = detect_gpu(os_name, arch, ram_gb)
+    try:
+        hostname = socket.gethostname().split(".")[0]
+    except OSError:
+        hostname = ""
     return {
         "schema": "sokkan-magnitude/profile/v1",
         "os": os_name, "arch": arch,
+        "hostname": hostname,  # nomme le node dans le registry du cockpit
         "gpu": gpu,
         "cpu": cpu, "cores": cores, "ram_gb": ram_gb,
         "class": _machine_class(gpu, ram_gb),

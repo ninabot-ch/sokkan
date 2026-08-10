@@ -12,6 +12,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   connects it to the session router through a local Anthropic-compatible
   endpoint: every new session runs on your own hardware — zero cloud, zero
   cost per token. Opt out per instance: `SOKKAN_FEATURE_MAGNITUDE=0`.
+- **Magnitude is multi-machine**: the tab is a registry of nodes — pair every
+  machine you own (the office workstation, the GPU box, a MacBook), each with
+  its own token, hardware profile, benchmarks and served model; pick which one
+  powers SOKKAN. Per-node endpoint override for remote nodes (`shim_url`,
+  default `SOKKAN_MAGNITUDE_SHIM_URL`). Existing single-agent state migrates
+  automatically.
 
 ## 1.4.0 — 2026-08-10 — "Open for missions"
 - **SOKKAN Missions link**: the header now shows a small live counter of open

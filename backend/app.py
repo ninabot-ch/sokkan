@@ -639,36 +639,58 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     return llm.status()
 
 
-# --- Magnitude : LLM local (profil hardware + bench + serve llama.cpp) -------
+# --- Magnitude : LLM local (registry de nodes, bench + serve llama.cpp) ------
 @app.get("/api/magnitude")
 def magnitude_state(_u: dict = Depends(require("viewer")),
                     _f: None = Depends(feature_magnitude)) -> dict:
-    """État Magnitude (agent, profil, bench, serving, catalogue annoté du fit).
-    Le serve_token n'en sort jamais."""
+    """Registry Magnitude (nodes : profil, bench, serving, catalogue annoté du
+    fit par machine). Les serve_tokens n'en sortent jamais."""
     return magnitude.view()
 
 
 @app.post("/api/magnitude/pair")
 def magnitude_pair(u: dict = Depends(require("admin")),
                    _f: None = Depends(feature_magnitude)) -> dict:
-    """(Re)génère le pairing token — montré UNE fois, reset complet de l'état.
-    Retourne la commande à lancer sur la machine à profiler."""
-    token = magnitude.pair()
-    audit.log(u["email"], "magnitude.pair", "", "token regenerated, state reset")
-    return {"token": token,
+    """Appaire une NOUVELLE machine (les nodes existants ne bougent pas).
+    Token montré UNE fois, avec la commande à lancer sur la machine."""
+    nid, token = magnitude.pair()
+    audit.log(u["email"], "magnitude.pair", nid, "new node token issued")
+    return {"node": nid, "token": token,
             "command": f"python3 -m magnitude --cockpit {PUBLIC_URL} --token {token}"}
 
 
-@app.delete("/api/magnitude/pair")
-def magnitude_unpair(u: dict = Depends(require("admin")),
+@app.delete("/api/magnitude/node/{nid}")
+def magnitude_unpair(nid: str, u: dict = Depends(require("admin")),
                      _f: None = Depends(feature_magnitude)) -> dict:
-    """Désappaire l'agent : efface tout l'état Magnitude."""
-    magnitude.unpair()
-    audit.log(u["email"], "magnitude.unpair", "", "")
-    return {"ok": True}
+    """Désappaire UN node : token révoqué, profil/bench/serving oubliés."""
+    if not magnitude.unpair(nid):
+        raise HTTPException(404, f"unknown node: {nid!r}")
+    audit.log(u["email"], "magnitude.unpair", nid, "")
+    return magnitude.view()
+
+
+class MagnitudeNodeBody(BaseModel):
+    """Config explicite d'un node ('' = revenir au défaut/auto)."""
+    name: str | None = None
+    shim_url: str | None = None  # URL du shim vue des sessions (node distant)
+
+
+@app.post("/api/magnitude/node/{nid}")
+def magnitude_node_config(nid: str, body: MagnitudeNodeBody,
+                          u: dict = Depends(require("admin")),
+                          _f: None = Depends(feature_magnitude)) -> dict:
+    if body.shim_url and body.shim_url.strip() \
+            and not body.shim_url.strip().startswith(("http://", "https://")):
+        raise HTTPException(400, "shim_url must start with http(s)://")
+    if not magnitude.node_config(nid, name=body.name, shim_url=body.shim_url):
+        raise HTTPException(404, f"unknown node: {nid!r}")
+    audit.log(u["email"], "magnitude.node", nid,
+              f"name={body.name!r} shim_url={body.shim_url!r}")
+    return magnitude.view()
 
 
 class MagnitudeCmdBody(BaseModel):
+    node: str
     action: str  # 'bench' | 'run' | 'stop'
     model: str = ""
 
@@ -676,7 +698,7 @@ class MagnitudeCmdBody(BaseModel):
 @app.post("/api/magnitude/cmd")
 def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
                   _f: None = Depends(feature_magnitude)) -> dict:
-    """Pose une commande pour l'agent (livrée à son prochain sync, ≤ 2 s)."""
+    """Pose une commande pour un node (livrée à son prochain sync, ≤ 2 s)."""
     action, model = body.action.strip(), body.model.strip()
     if action not in ("bench", "run", "stop"):
         raise HTTPException(400, "action must be 'bench', 'run' or 'stop'")
@@ -685,31 +707,38 @@ def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
             raise HTTPException(400, f"model required for {action!r}")
         if not magnitude.catalog_get(model):
             raise HTTPException(400, f"unknown model: {model!r}")
-    st = magnitude.load()
-    if not st.get("token_sha256"):
-        raise HTTPException(409, "no agent paired")
-    if not magnitude.online(st):
-        raise HTTPException(409, "agent is offline")
-    magnitude.set_pending(action, model)
-    audit.log(u["email"], "magnitude.cmd", action, model)
+    node = magnitude.get_node(body.node)
+    if node is None:
+        raise HTTPException(404, f"unknown node: {body.node!r}")
+    if not magnitude.online(node):
+        raise HTTPException(409, "agent is offline on this node")
+    magnitude.set_pending(body.node, action, model)
+    audit.log(u["email"], "magnitude.cmd", f"{body.node}:{action}", model)
     return magnitude.view()
 
 
+class MagnitudeConnectBody(BaseModel):
+    node: str
+
+
 @app.post("/api/magnitude/connect")
-def magnitude_connect(u: dict = Depends(require("admin")),
+def magnitude_connect(body: MagnitudeConnectBody, u: dict = Depends(require("admin")),
                       _f: None = Depends(feature_magnitude)) -> dict:
-    """Branche le router LLM de l'instance sur le shim local (mode custom) :
-    toute nouvelle session tourne sur le modèle servi par la machine du client."""
+    """Branche le router LLM de l'instance sur le shim d'UN node (mode custom) :
+    toute nouvelle session tourne sur le modèle servi par cette machine."""
     if llm.status().get("operator_managed"):
         raise HTTPException(403, "this instance uses managed inference (operated by NINABOT)")
-    st = magnitude.load()
-    serving = st.get("serving") or {}
-    if not serving.get("serve_token") or not magnitude.online(st):
+    node = magnitude.get_node(body.node)
+    if node is None:
+        raise HTTPException(404, f"unknown node: {body.node!r}")
+    serving = node.get("serving") or {}
+    if not serving.get("serve_token") or not magnitude.online(node):
         raise HTTPException(409, "no model served (or agent offline) — run one first")
     model = serving.get("model") or ""
-    llm.save({"mode": "custom", "base_url": magnitude.SHIM_URL,
+    shim = magnitude.shim_url_of(node)
+    llm.save({"mode": "custom", "base_url": shim,
               "auth_token": serving["serve_token"], "model": model, "small_model": model})
-    audit.log(u["email"], "magnitude.connect", model, magnitude.SHIM_URL)
+    audit.log(u["email"], "magnitude.connect", f"{body.node}:{model}", shim)
     return magnitude.view()
 
 
@@ -726,12 +755,13 @@ class MagnitudeSyncBody(BaseModel):
 @app.post("/api/magnitude/agent/sync")
 def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
                          _f: None = Depends(feature_magnitude)) -> dict:
-    """Poll de l'agent host (HTTP sortant, jamais de connexion entrante chez le
-    client). PAS d'auth cookie : header `x-magnitude-token`, comparé en
-    constant-time au sha256 stocké. Livre la commande pending et l'efface."""
-    if not magnitude.verify_token(request.headers.get("x-magnitude-token") or ""):
+    """Poll d'un agent host (HTTP sortant, jamais de connexion entrante chez le
+    client). PAS d'auth cookie : header `x-magnitude-token`, résolu vers son
+    node en constant-time. Livre la commande pending du node et l'efface."""
+    nid = magnitude.resolve_token(request.headers.get("x-magnitude-token") or "")
+    if nid is None:
         raise HTTPException(401, "invalid magnitude token")
-    cmd = magnitude.sync(body.model_dump(), "serving" in body.model_fields_set)
+    cmd = magnitude.sync(nid, body.model_dump(), "serving" in body.model_fields_set)
     return {"command": cmd}
 
 
