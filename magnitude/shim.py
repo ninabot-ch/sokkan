@@ -183,6 +183,12 @@ def openai_to_anthropic(resp: dict, model_id: str) -> dict:
     choice = (resp.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
     content: list[dict] = []
+    # modèles « thinking » (Qwen3, DeepSeek-R1…) : llama-server --jinja sépare la
+    # réflexion dans reasoning_content → block thinking Anthropic (sinon une
+    # réponse 100 % réflexion donnerait un content vide)
+    if msg.get("reasoning_content"):
+        content.append({"type": "thinking", "thinking": msg["reasoning_content"],
+                        "signature": ""})
     if msg.get("content"):
         content.append({"type": "text", "text": msg["content"]})
     for tc in msg.get("tool_calls") or []:
@@ -253,6 +259,20 @@ class StreamTranslator:
             return events
         choice = choices[0]
         delta = choice.get("delta") or {}
+
+        think = delta.get("reasoning_content")
+        if think:
+            if self._block_type != "thinking":
+                self._close_block(events)
+                self._block_index += 1
+                self._block_type = "thinking"
+                events.append(("content_block_start",
+                               {"type": "content_block_start", "index": self._block_index,
+                                "content_block": {"type": "thinking", "thinking": ""}}))
+            self._out_chars += len(think)
+            events.append(("content_block_delta",
+                           {"type": "content_block_delta", "index": self._block_index,
+                            "delta": {"type": "thinking_delta", "thinking": think}}))
 
         text = delta.get("content")
         if text:
