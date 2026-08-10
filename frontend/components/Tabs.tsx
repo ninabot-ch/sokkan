@@ -45,8 +45,35 @@ export default function Tabs({
           </button>
         );
       })}
+      <MissionsPill enabled={feats.missions_link} />
       <Identity />
     </header>
+  );
+}
+
+/** Discreet link to SOKKAN Missions — deliver client projects, get paid.
+ *  Fetches aggregate public counters only (no identifier sent, fail-silent).
+ *  Opt out per instance: SOKKAN_FEATURE_MISSIONS_LINK=0. */
+function MissionsPill({ enabled }: { enabled: boolean }) {
+  const [open, setOpenCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    fetch("https://app.sokkan.ch/missions/stats.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { if (s && typeof s.open === "number") setOpenCount(s.open); })
+      .catch(() => {});
+  }, [enabled]);
+  if (!enabled || open === null || open === 0) return null;
+  return (
+    <a
+      href="https://sokkan.ch/missions/devs/?utm_source=cockpit"
+      target="_blank"
+      rel="noopener"
+      className="ml-2 hidden shrink-0 items-center gap-1.5 rounded-full border border-brass/40 bg-brass/10 px-2.5 py-1 text-[11.5px] font-medium text-brass hover:bg-brass/20 sm:inline-flex"
+      title="Want to deliver client projects and get paid? SOKKAN Missions — fixed-price missions, environment provided, live right now."
+    >
+      ⚓ {open} open mission{open > 1 ? "s" : ""} · get paid
+    </a>
   );
 }
 

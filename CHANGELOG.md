@@ -3,6 +3,16 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.4.0 — 2026-08-10 — "Open for missions"
+- **SOKKAN Missions link**: the header now shows a small live counter of open
+  missions on the [SOKKAN Missions marketplace](https://sokkan.ch/missions/) —
+  fixed-price client projects you can deliver and get paid for, in a provided
+  per-mission environment. The cockpit fetches aggregate public counters only
+  (a plain GET, no identifier of any kind is ever sent), fails silently when
+  offline, and hides itself when there is nothing open.
+  Opt out per instance: `SOKKAN_FEATURE_MISSIONS_LINK=0`.
+- New backend feature flag `missions_link` in `/api/features`.
+
 ## 1.3.1 — 2026-08-04 — "Clear view"
 - **Session history survives restarts**: the session pane now rehydrates its
   full history (user turns, assistant messages, tool calls and results) from

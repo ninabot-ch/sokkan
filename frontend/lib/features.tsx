@@ -9,9 +9,10 @@ export interface Features {
   preview: boolean;
   tmux: boolean;
   assistant: boolean;
+  missions_link: boolean;
 }
 
-const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true, assistant: false };
+const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true, assistant: false, missions_link: true };
 const Ctx = createContext<Features>(DEFAULTS);
 
 export function FeaturesProvider({ children }: { children: React.ReactNode }) {

@@ -653,6 +653,9 @@ def features() -> dict:
         # Nina (agente d'assistance) : flag serveur + un LLM joignable
         "assistant": (os.environ.get("SOKKAN_FEATURE_ASSISTANT", "0") != "0"
                       and assistant.configured()),
+        # SOKKAN Missions link in the header (public counter — a plain GET of
+        # aggregate stats, no identifier ever sent). Opt out: SOKKAN_FEATURE_MISSIONS_LINK=0
+        "missions_link": os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0",
     }
 
 
