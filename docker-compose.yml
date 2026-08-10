@@ -34,6 +34,9 @@ services:
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
+    extra_hosts:
+      # reach services on the Docker host (Magnitude shim :8790, local proxies)
+      - "host.docker.internal:host-gateway"
     security_opt:
       - no-new-privileges:true
     healthcheck:

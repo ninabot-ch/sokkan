@@ -12,6 +12,7 @@ import Operate from "@/components/Operate";
 import Journal from "@/components/Journal";
 import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
+import Magnitude from "@/components/Magnitude";
 import { MeProvider } from "@/lib/me";
 import { FeaturesProvider } from "@/lib/features";
 import { fetchSessions } from "@/lib/api";
@@ -76,6 +77,8 @@ export default function Home() {
         <Journal />
       ) : tab === "Costs" ? (
         <Costs />
+      ) : tab === "Magnitude" ? (
+        <Magnitude />
       ) : (
         <div className="flex min-h-0 flex-1">
           {/* mobile : rail plein écran tant qu'aucun pane n'est ouvert, masqué sinon */}

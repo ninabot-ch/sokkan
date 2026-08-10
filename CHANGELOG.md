@@ -3,6 +3,16 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+- **Magnitude**: find out what your machine can really run — locally, privately.
+  Pair the cockpit with a tiny host agent (`python3 -m magnitude`, pure stdlib)
+  that profiles your GPU/RAM, benchmarks a curated catalogue of open models
+  with real numbers (gen tok/s, prefill speed, watts, €/Mtok), then downloads
+  and serves the one you pick with llama.cpp in a single click. One more click
+  connects it to the session router through a local Anthropic-compatible
+  endpoint: every new session runs on your own hardware — zero cloud, zero
+  cost per token. Opt out per instance: `SOKKAN_FEATURE_MAGNITUDE=0`.
+
 ## 1.4.0 — 2026-08-10 — "Open for missions"
 - **SOKKAN Missions link**: the header now shows a small live counter of open
   missions on the [SOKKAN Missions marketplace](https://sokkan.ch/missions/) —

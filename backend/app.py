@@ -58,6 +58,7 @@ import fleet
 import fleetterm
 import instance
 import llm
+import magnitude
 import panestate
 import preview
 import previewenv
@@ -163,6 +164,7 @@ feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
 feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
 # Nina : OFF par défaut (cloud-only v1 — le provisioner pose le flag + les creds LLM)
 feature_assistant = _feature("SOKKAN_FEATURE_ASSISTANT", "0")
+feature_magnitude = _feature("SOKKAN_FEATURE_MAGNITUDE")
 
 # référence forte sur les tâches fire-and-forget (asyncio ne garde qu'une weakref :
 # sans ça, un tour d'agent peut être garbage-collecté en plein vol)
@@ -637,6 +639,102 @@ def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     return llm.status()
 
 
+# --- Magnitude : LLM local (profil hardware + bench + serve llama.cpp) -------
+@app.get("/api/magnitude")
+def magnitude_state(_u: dict = Depends(require("viewer")),
+                    _f: None = Depends(feature_magnitude)) -> dict:
+    """État Magnitude (agent, profil, bench, serving, catalogue annoté du fit).
+    Le serve_token n'en sort jamais."""
+    return magnitude.view()
+
+
+@app.post("/api/magnitude/pair")
+def magnitude_pair(u: dict = Depends(require("admin")),
+                   _f: None = Depends(feature_magnitude)) -> dict:
+    """(Re)génère le pairing token — montré UNE fois, reset complet de l'état.
+    Retourne la commande à lancer sur la machine à profiler."""
+    token = magnitude.pair()
+    audit.log(u["email"], "magnitude.pair", "", "token regenerated, state reset")
+    return {"token": token,
+            "command": f"python3 -m magnitude --cockpit {PUBLIC_URL} --token {token}"}
+
+
+@app.delete("/api/magnitude/pair")
+def magnitude_unpair(u: dict = Depends(require("admin")),
+                     _f: None = Depends(feature_magnitude)) -> dict:
+    """Désappaire l'agent : efface tout l'état Magnitude."""
+    magnitude.unpair()
+    audit.log(u["email"], "magnitude.unpair", "", "")
+    return {"ok": True}
+
+
+class MagnitudeCmdBody(BaseModel):
+    action: str  # 'bench' | 'run' | 'stop'
+    model: str = ""
+
+
+@app.post("/api/magnitude/cmd")
+def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
+                  _f: None = Depends(feature_magnitude)) -> dict:
+    """Pose une commande pour l'agent (livrée à son prochain sync, ≤ 2 s)."""
+    action, model = body.action.strip(), body.model.strip()
+    if action not in ("bench", "run", "stop"):
+        raise HTTPException(400, "action must be 'bench', 'run' or 'stop'")
+    if action in ("bench", "run"):
+        if not model:
+            raise HTTPException(400, f"model required for {action!r}")
+        if not magnitude.catalog_get(model):
+            raise HTTPException(400, f"unknown model: {model!r}")
+    st = magnitude.load()
+    if not st.get("token_sha256"):
+        raise HTTPException(409, "no agent paired")
+    if not magnitude.online(st):
+        raise HTTPException(409, "agent is offline")
+    magnitude.set_pending(action, model)
+    audit.log(u["email"], "magnitude.cmd", action, model)
+    return magnitude.view()
+
+
+@app.post("/api/magnitude/connect")
+def magnitude_connect(u: dict = Depends(require("admin")),
+                      _f: None = Depends(feature_magnitude)) -> dict:
+    """Branche le router LLM de l'instance sur le shim local (mode custom) :
+    toute nouvelle session tourne sur le modèle servi par la machine du client."""
+    if llm.status().get("operator_managed"):
+        raise HTTPException(403, "this instance uses managed inference (operated by NINABOT)")
+    st = magnitude.load()
+    serving = st.get("serving") or {}
+    if not serving.get("serve_token") or not magnitude.online(st):
+        raise HTTPException(409, "no model served (or agent offline) — run one first")
+    model = serving.get("model") or ""
+    llm.save({"mode": "custom", "base_url": magnitude.SHIM_URL,
+              "auth_token": serving["serve_token"], "model": model, "small_model": model})
+    audit.log(u["email"], "magnitude.connect", model, magnitude.SHIM_URL)
+    return magnitude.view()
+
+
+class MagnitudeSyncBody(BaseModel):
+    """Sync agent — tous les champs optionnels ; `serving: null` (stop effectif)
+    se distingue du champ absent via model_fields_set."""
+    profile: dict | None = None
+    status: dict | None = None
+    bench_result: dict | None = None
+    serving: dict | None = None
+    error: str | None = None
+
+
+@app.post("/api/magnitude/agent/sync")
+def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
+                         _f: None = Depends(feature_magnitude)) -> dict:
+    """Poll de l'agent host (HTTP sortant, jamais de connexion entrante chez le
+    client). PAS d'auth cookie : header `x-magnitude-token`, comparé en
+    constant-time au sha256 stocké. Livre la commande pending et l'efface."""
+    if not magnitude.verify_token(request.headers.get("x-magnitude-token") or ""):
+        raise HTTPException(401, "invalid magnitude token")
+    cmd = magnitude.sync(body.model_dump(), "serving" in body.model_fields_set)
+    return {"command": cmd}
+
+
 @app.get("/api/features")
 def features() -> dict:
     """Onglets/capacités actifs sur cette instance — le front masque le reste."""
@@ -656,6 +754,8 @@ def features() -> dict:
         # SOKKAN Missions link in the header (public counter — a plain GET of
         # aggregate stats, no identifier ever sent). Opt out: SOKKAN_FEATURE_MISSIONS_LINK=0
         "missions_link": os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0",
+        # Magnitude : LLM local (profil hardware + bench + serve llama.cpp)
+        "magnitude": os.environ.get("SOKKAN_FEATURE_MAGNITUDE", "1") != "0",
     }
 
 
@@ -881,7 +981,10 @@ def auth_oidc_logout():
     return resp
 
 
-_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert")
+# NB : /api/magnitude/agent/sync a sa propre auth (header x-magnitude-token),
+# pas de cookie — l'agent host n'a pas de session utilisateur.
+_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
+              "/api/magnitude/agent/sync")
 
 
 @app.middleware("http")

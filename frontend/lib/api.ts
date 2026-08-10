@@ -201,3 +201,51 @@ export const spawnCard = (id: number) =>
   mutate<{ session_id: string; window: string; card_id: number }>(
     `/api/board/card/${id}/spawn`, "POST"
   );
+
+// magnitude — profile the host hardware, bench & run local models (llama.cpp),
+// connect the local Anthropic-compatible shim to the session router
+export interface MagnitudeGpu {
+  vendor: string; name: string; backend: string;
+  // null when the GPU was detected via vulkaninfo/lspci (no VRAM figures)
+  vram_total_gb: number | null; vram_free_gb: number | null;
+  driver: string | null; power_limit_w: number | null;
+}
+export interface MagnitudeProfile {
+  schema: string; os: string; arch: string;
+  gpu: MagnitudeGpu | null;
+  cpu: string; cores: number; ram_gb: number | null;
+  class: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
+}
+export interface MagnitudeStatus {
+  phase: "idle" | "benching" | "downloading" | "starting" | "serving" | "error";
+  model?: string | null; pct?: number | null; detail?: string | null;
+}
+export interface MagnitudeBench {
+  gen_tok_s: number | null; prefill_tok_s: number | null;
+  power_avg_w: number | null; eur_per_mtok_gen: number | null;
+  wall_s: number; at: number;
+}
+export interface MagnitudeServing { model: string; shim_url: string; since: number; }
+export interface MagnitudeModel {
+  id: string; label: string; params: string; moe: boolean;
+  weights_gb: number; note: string;
+  fits: boolean; fit: "comfortable" | "tight" | "no" | "unknown";
+}
+export interface MagnitudeState {
+  paired: boolean; online: boolean; last_seen: number | null;
+  profile: MagnitudeProfile | null;
+  status: MagnitudeStatus | null;
+  bench: Record<string, MagnitudeBench>;
+  serving: MagnitudeServing | null;
+  connected: boolean;
+  catalog: MagnitudeModel[];
+}
+export const magnitudeState = () => getJSON<MagnitudeState>("/api/magnitude");
+export const magnitudePair = () =>
+  mutate<{ token: string; command: string }>("/api/magnitude/pair", "POST");
+export const magnitudeUnpair = () =>
+  mutate<{ ok: boolean }>("/api/magnitude/pair", "DELETE");
+export const magnitudeCmd = (action: "bench" | "run" | "stop", model?: string) =>
+  mutate<MagnitudeState>("/api/magnitude/cmd", "POST", model ? { action, model } : { action });
+export const magnitudeConnect = () =>
+  mutate<MagnitudeState>("/api/magnitude/connect", "POST");
