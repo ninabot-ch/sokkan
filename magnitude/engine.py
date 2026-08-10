@@ -280,12 +280,16 @@ def bench(bindir: Path, gguf: Path, timeout=900) -> dict:
 def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     """Lance llama-server (127.0.0.1:8791). --jinja = chat template natif,
     requis pour le tool calling. -ngl 999 = tout offloader si GPU."""
-    # 16k par défaut ; une session Claude Code (system prompt + tools) veut 32k+
-    # quand la VRAM le permet → MAGNITUDE_CTX=32768
+    # 16k par défaut ; une session Claude Code démarre à ~40k de prompt (mesuré
+    # dogfood 2026-08-10) → MAGNITUDE_CTX=49152+. À ces tailles le KV f16 déborde
+    # les petites VRAM : MAGNITUDE_KV=q8_0 le divise par 2 (impose flash attn).
     ctx = os.environ.get("MAGNITUDE_CTX", "16384")
     cmd = [_bin(bindir, "llama-server"), "-m", str(gguf),
            "--host", "127.0.0.1", "--port", str(LLAMA_PORT),
            "-c", ctx, "--jinja"]
+    kv = os.environ.get("MAGNITUDE_KV", "")
+    if kv:
+        cmd += ["-ctk", kv, "-ctv", kv, "-fa", "on"]
     if gpu:
         cmd += ["-ngl", "999"]
     RUN_DIR.mkdir(parents=True, exist_ok=True)
