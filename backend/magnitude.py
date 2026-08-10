@@ -38,7 +38,11 @@ STATE = Path(os.path.join(
     "magnitude.json"))
 
 ONLINE_WINDOW_S = 15.0  # agent « online » = dernier sync il y a moins de 15 s
-SHIM_URL = "http://host.docker.internal:8790"  # shim Anthropic-compatible sur le host
+# URL du shim Anthropic-compatible telle que VUE PAR LES SESSIONS. Défaut =
+# cockpit docker + agent sur le même host. Backend natif ou agent sur une autre
+# machine (GPU node distant) → SOKKAN_MAGNITUDE_SHIM_URL=http://<node>:8790
+SHIM_URL = os.environ.get("SOKKAN_MAGNITUDE_SHIM_URL",
+                          "http://host.docker.internal:8790")
 FIT_MARGIN_GB = 1.2  # marge KV cache / compute buffers au-dessus des poids
 
 _LOCK = threading.Lock()  # sérialise les read-modify-write de l'état
@@ -208,7 +212,7 @@ def sync(payload: dict, serving_set: bool) -> dict | None:
 def connected() -> bool:
     """Le router LLM de l'instance pointe-t-il sur le shim Magnitude ?"""
     c = llm.load()
-    return c.get("mode") == "custom" and "host.docker.internal:8790" in (c.get("base_url") or "")
+    return c.get("mode") == "custom" and (c.get("base_url") or "").rstrip("/") == SHIM_URL.rstrip("/")
 
 
 def view() -> dict:
