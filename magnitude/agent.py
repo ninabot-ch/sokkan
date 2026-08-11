@@ -27,6 +27,9 @@ from . import __version__, catalog, engine, hw
 SHIM_PORT = 8790
 SYNC_INTERVAL = 2.0
 SYNC_TIMEOUT = 5
+# UA explicite : sans lui, un cockpit derrière Cloudflare (sokkan.ch, SOKKAN
+# Cloud) répond 403 au défaut « Python-urllib » et le sync échoue en silence.
+UA = "sokkan-magnitude/0.1"
 
 
 def _log(msg: str) -> None:
@@ -93,6 +96,7 @@ class Agent:
                 f"{self.cockpit}/api/magnitude/agent/sync",
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json",
+                         "User-Agent": UA,
                          "x-magnitude-token": self.token})
             with urllib.request.urlopen(req, timeout=SYNC_TIMEOUT) as r:
                 resp = json.loads(r.read())

@@ -655,8 +655,10 @@ def magnitude_pair(u: dict = Depends(require("admin")),
     Token montré UNE fois, avec la commande à lancer sur la machine."""
     nid, token = magnitude.pair()
     audit.log(u["email"], "magnitude.pair", nid, "new node token issued")
+    # forme --opt=val : un token token_urlsafe peut commencer par '-', que
+    # argparse prendrait sinon pour un flag
     return {"node": nid, "token": token,
-            "command": f"python3 -m magnitude --cockpit {PUBLIC_URL} --token {token}"}
+            "command": f"python3 -m magnitude --cockpit={PUBLIC_URL} --token={token}"}
 
 
 @app.delete("/api/magnitude/node/{nid}")
