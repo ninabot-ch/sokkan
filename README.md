@@ -37,6 +37,7 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 - **Nina** — an embedded DevOps assistant (🧭) that knows the product — sessions, memory, fleet, runbooks — and answers next to your work. Strict guardrails: never your secrets, never your code; she guides, you hold the helm. Behind `SOKKAN_FEATURE_ASSISTANT=1` self-host (bring your model config); included with zero setup on [SOKKAN Cloud](https://sokkan.ch/#cloud)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **create/move board cards**, and **push a preview** of what it changed
 - **Fleet & web exposure** (managed cloud) — order workers/databases into your private network from the cockpit, then expose what you build: one click for an HTTPS `*.sokkan.ch` subdomain, or bring **your own domain** (a CNAME + automatic TLS certificates)
+- **Magnitude** — see what your machines can *really* run, then run it: pair any machine (Linux, macOS Apple Silicon, Windows) with a tiny host agent, get its hardware profile and **real llama.cpp benchmarks** (gen & prefill tok/s, watts, €/Mtok) on a curated catalog of open models, serve the one you pick in a click and **power your sessions with it** — zero cloud, zero cost per token. Multi-machine registry: the GPU box, the MacBook, the idle workstation — you choose which one steers
 - **Operate** — the loop doesn't stop at deploy: **event-driven ops, human-gated**. An **Observability** stack (Prometheus + Grafana + Loki) your sessions read and write (« build a dashboard for my API p95 and 5xx »); a production alert becomes an **incident with a diagnosis session already started** — not a script, an on-call agent that has your project memory and waits for your go, with **HITL push** (Telegram/webhook) pinging you the moment it needs an approval; a **secrets vault** injected into sessions as env vars (never shown to the UI or the model); and **runbooks** — memory notes you replay as guided, supervised sessions
 
 ## Requirements
@@ -117,10 +118,37 @@ without restarting anything. Presets ship for:
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-chat` |
 | Local / other | your proxy URL | whatever it serves |
 
-For **local models**, put an Anthropic-compatible proxy (e.g. [LiteLLM](https://docs.litellm.ai/))
+For **local models**, the built-in way is [Magnitude](#magnitude--run-sessions-on-your-own-hardware)
+(below). Alternatively, put an Anthropic-compatible proxy (e.g. [LiteLLM](https://docs.litellm.ai/))
 in front of Ollama/vLLM and point the base URL at it. OpenAI-style APIs work the
 same way — through such a proxy. Model quality varies; Anthropic models remain
 the reference for agentic work.
+
+### Magnitude — run sessions on your own hardware
+
+**Magnitude tab → Pair a machine** shows a one-line command to run on the
+machine you want to measure:
+
+```bash
+python3 -m magnitude --cockpit https://your-cockpit --token <shown-once>
+```
+
+Pure stdlib — no pip install. Linux (Vulkan/CUDA), macOS (Metal, Apple
+Silicon), Windows (Vulkan). The agent profiles the machine (VRAM → S/M/L/XL
+class), benchmarks models from the catalog with real numbers, downloads
+llama.cpp prebuilts and GGUF weights on demand, and serves your pick behind a
+local Anthropic-compatible endpoint. **Connect to SOKKAN** then routes every
+new session to that machine. Pair as many machines as you like — the tab is a
+registry, and you pick which node powers SOKKAN.
+
+Sizing notes (measured, not guessed): a Claude Code session opens at **~40k
+prompt tokens**, so serve with a 64k context (`MAGNITUDE_CTX=65536`) and a
+quantized KV cache (`MAGNITUDE_KV=q8_0`) when VRAM is tight — a 24 GB class-L
+GPU or a 32 GB Apple Silicon machine is the comfort line for coding sessions.
+Agent-side tuning (context, KV, extra llama-server flags): see
+[`magnitude/README.md`](magnitude/README.md). For a node on a different host
+than the cockpit, set its endpoint in the node section of the tab (default:
+`SOKKAN_MAGNITUDE_SHIM_URL`, e.g. `http://gpu-box:8790`).
 
 ## Configuration
 
@@ -134,6 +162,8 @@ the reference for agentic work.
 | `ML_SERVICE_URL` | *(empty)* | Optional remote embedding endpoint; empty = local ONNX (multilingual MiniLM) |
 | `SOKKAN_AUTH_MODE` | `local` | `local` · `oidc` (Authentik/Keycloak/…) · `cf-access` |
 | `SOKKAN_FEATURE_PREVIEW` / `_TMUX` | `0` in container | Extra tabs for bare-metal installs (dev-server previews, tmux terminal mode) |
+| `SOKKAN_FEATURE_MAGNITUDE` | `1` | Magnitude tab (local-model registry & bench) |
+| `SOKKAN_MAGNITUDE_SHIM_URL` | `http://host.docker.internal:8790` | Default endpoint sessions use to reach a node's local model (override per node in the UI) |
 
 OIDC single sign-on (`SOKKAN_AUTH_MODE=oidc` + `SOKKAN_OIDC_*`) and multi-user roles (viewer/dev/admin/owner) are built in — see `backend/auth.py`.
 

@@ -48,6 +48,21 @@ python3 -m magnitude --profile
 
 Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
 
+## Tuning (env vars)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MAGNITUDE_CTX` | `16384` | `llama-server` context size. A Claude Code session opens at **~40k prompt tokens** (measured) — use `65536` for real agent sessions |
+| `MAGNITUDE_KV` | *(f16)* | Quantized KV cache, e.g. `q8_0` — halves KV VRAM at 64k (~4.7 GB → ~2.4 GB on an 8B), forces flash attention |
+| `MAGNITUDE_SERVER_ARGS` | *(empty)* | Extra `llama-server` flags, space-separated. Gotcha: llama-server caps per-request context at the model's training window even with YaRN — unlock with `--override-kv <arch>.context_length=int:65536` (e.g. `qwen3.context_length`) |
+| `MAGNITUDE_LLAMA_TAG` | latest | Pin the llama.cpp release |
+| `MAGNITUDE_HOME` | `~/.sokkan/magnitude` | Cache directory (runtimes, GGUF weights, logs) |
+
+Rule of thumb for coding sessions: weights + KV must fit — an 8B Q4 at 64k/q8
+needs ~8 GB; a 24 GB class-L GPU (or 32 GB Apple Silicon) runs the 30B-A3B MoE
+coder comfortably. Class-M cards (11–16 GB) are fine for chat and batch, tight
+for long agent sessions.
+
 ## Security
 
 - The **pairing token** is shown once in the cockpit UI; the backend only
