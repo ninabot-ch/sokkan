@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r /tmp/req-backend.txt -r /tmp/req-memory.txt
 
 COPY backend backend
 COPY memory memory
+# le package agent host n'est pas exécuté par le container, mais le backend en
+# sert install.sh (route /api/magnitude/install.sh) — il doit donc être présent
+COPY magnitude magnitude
 COPY scripts/api-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

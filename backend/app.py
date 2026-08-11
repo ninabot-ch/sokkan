@@ -35,7 +35,7 @@ import index_memory  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 import assistant
@@ -655,10 +655,34 @@ def magnitude_pair(u: dict = Depends(require("admin")),
     Token montré UNE fois, avec la commande à lancer sur la machine."""
     nid, token = magnitude.pair()
     audit.log(u["email"], "magnitude.pair", nid, "new node token issued")
-    # forme --opt=val : un token token_urlsafe peut commencer par '-', que
-    # argparse prendrait sinon pour un flag
+    # one-liner universel : le bootstrap pose un Python si besoin (macOS sans
+    # Command Line Tools), récupère l'agent et paire. Forme --opt=val en repli
+    # manuel : un token token_urlsafe peut commencer par '-' (sinon pris pour un
+    # flag par argparse).
     return {"node": nid, "token": token,
-            "command": f"python3 -m magnitude --cockpit={PUBLIC_URL} --token={token}"}
+            "command": f'curl -fsSL "{PUBLIC_URL}/api/magnitude/install.sh?token={token}" | sh',
+            "manual_command": f"python3 -m magnitude --cockpit={PUBLIC_URL} --token={token}"}
+
+
+# Python standalone (astral python-build-standalone) posé par le bootstrap quand
+# la machine n'a pas de python utilisable — version épinglée (releases gardées
+# indéfiniment), surchargeable par l'agent via env si besoin.
+_MAGNITUDE_PY_VER = "3.12.13"
+_MAGNITUDE_PY_DATE = "20260807"
+
+
+@app.get("/api/magnitude/install.sh")
+def magnitude_install_sh(token: str = "", ref: str = "refs/heads/main",
+                         _f: None = Depends(feature_magnitude)):
+    """Bootstrap host servi avec cockpit+token pré-remplis (pas d'auth cookie :
+    c'est un script public, le token est le secret de pairing montré une fois)."""
+    tpl = (Path(__file__).resolve().parent.parent / "magnitude" / "install.sh").read_text()
+    script = (tpl.replace("@COCKPIT@", PUBLIC_URL)
+                 .replace("@TOKEN@", token)
+                 .replace("@REF@", ref)
+                 .replace("@PYVER@", _MAGNITUDE_PY_VER)
+                 .replace("@PYDATE@", _MAGNITUDE_PY_DATE))
+    return PlainTextResponse(script, media_type="text/x-shellscript")
 
 
 @app.delete("/api/magnitude/node/{nid}")
@@ -1016,7 +1040,7 @@ def auth_oidc_logout():
 # NB : /api/magnitude/agent/sync a sa propre auth (header x-magnitude-token),
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
-              "/api/magnitude/agent/sync")
+              "/api/magnitude/agent/sync", "/api/magnitude/install.sh")
 
 
 @app.middleware("http")
