@@ -17,11 +17,20 @@ and run it with `python3 -m magnitude`.
 
 ## Usage
 
-Pair from the cockpit: open the **Magnitude** tab, click *Pair this machine*,
-and run the command it shows on the host:
+Pair from the cockpit: open the **Magnitude** tab, click *Pair a machine*, and
+run the one-liner it shows on the host:
 
 ```sh
-python3 -m magnitude --cockpit https://your-cockpit.example --token <pairing-token>
+curl -fsSL "https://your-cockpit.example/api/magnitude/install.sh?token=<token>" | sh
+```
+
+The bootstrap lays down a standalone Python if the machine has none (macOS
+without Command Line Tools — no `sudo`, no system changes, everything under
+`~/.sokkan`), fetches this agent, and pairs. Works on Linux, macOS and Windows
+(Git Bash/WSL). The manual form is equivalent when you already have Python 3.9+:
+
+```sh
+python3 -m magnitude --cockpit=https://your-cockpit.example --token=<pairing-token>
 ```
 
 The agent then polls the cockpit every 2 s (outbound HTTP only — it never
@@ -73,3 +82,13 @@ for long agent sessions.
   each time a model is started, sent as `x-api-key` or `Authorization: Bearer`).
 - The agent opens no other port and makes outbound requests only (cockpit sync,
   GitHub releases, Hugging Face downloads).
+
+## Credits
+
+This feature is named in homage to
+[Magnitude](https://github.com/magnitudedev/magnitude) by Tom Greenwald and
+Anders Lie (YC S25), whose hardware-profiling onboarding — profile the machine,
+recommend what it can actually run, show the value immediately — is the pattern
+this implementation follows. No code is shared: this is an independent,
+from-scratch implementation in pure-stdlib Python. Not affiliated with or
+endorsed by Magnitude.

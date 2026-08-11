@@ -12,6 +12,10 @@ Notable changes, newest first. Versions: semver + release hash (see
   connects it to the session router through a local Anthropic-compatible
   endpoint: every new session runs on your own hardware — zero cloud, zero
   cost per token. Opt out per instance: `SOKKAN_FEATURE_MAGNITUDE=0`.
+  Named in homage to [Magnitude](https://github.com/magnitudedev/magnitude)
+  by Tom Greenwald and Anders Lie, whose hardware-profiling onboarding
+  inspired this feature (independent from-scratch implementation, no code
+  shared, not affiliated).
 - **Magnitude is multi-machine**: the tab is a registry of nodes — pair every
   machine you own (the office workstation, the GPU box, a MacBook), each with
   its own token, hardware profile, benchmarks and served model; pick which one
