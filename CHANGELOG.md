@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## 1.5.0 — 2026-08-11 — "Your own silicon"
 - **Magnitude**: find out what your machine can really run — locally, privately.
   Pair the cockpit with a tiny host agent (`python3 -m magnitude`, pure stdlib)
   that profiles your GPU/RAM, benchmarks a curated catalogue of open models
