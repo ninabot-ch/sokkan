@@ -150,6 +150,31 @@ def _detect_host_linux():
     return cpu, os.cpu_count() or 0, ram_gb
 
 
+def _detect_host_windows():
+    cpu = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "")
+    ram_gb = None
+    try:  # GlobalMemoryStatusEx — stdlib ctypes, pas de wmic (déprécié)
+        import ctypes
+
+        class _MemStatus(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        st = _MemStatus()
+        st.dwLength = ctypes.sizeof(st)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+            ram_gb = round(st.ullTotalPhys / (1024 ** 3), 1)
+    except Exception:  # noqa: BLE001 — profil dégradé plutôt que crash
+        pass
+    return cpu, os.cpu_count() or 0, ram_gb
+
+
 def _machine_class(gpu, ram_gb) -> str:
     vram = (gpu or {}).get("vram_total_gb")
     if vram:
@@ -176,6 +201,8 @@ def build_profile() -> dict:
     os_name, arch = _os_name(), _arch()
     if os_name == "darwin":
         cpu, cores, ram_gb = _detect_host_darwin()
+    elif os_name == "windows":
+        cpu, cores, ram_gb = _detect_host_windows()
     else:
         cpu, cores, ram_gb = _detect_host_linux()
     gpu = detect_gpu(os_name, arch, ram_gb)
