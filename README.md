@@ -126,15 +126,18 @@ the reference for agentic work.
 
 ### Magnitude — run sessions on your own hardware
 
-**Magnitude tab → Pair a machine** shows a one-line command to run on the
-machine you want to measure:
+**Magnitude tab → Pair a machine** shows a one-liner to run on the machine you
+want to measure:
 
 ```bash
-python3 -m magnitude --cockpit https://your-cockpit --token <shown-once>
+curl -fsSL "https://your-cockpit/api/magnitude/install.sh?token=<shown-once>" | sh
 ```
 
-Pure stdlib — no pip install. Linux (Vulkan/CUDA), macOS (Metal, Apple
-Silicon), Windows (Vulkan). The agent profiles the machine (VRAM → S/M/L/XL
+It lays down a standalone Python if the machine has none (macOS without Command
+Line Tools — no sudo, nothing outside `~/.sokkan`), fetches the pure-stdlib
+agent, and pairs. Linux (Vulkan/CUDA), macOS (Metal, Apple Silicon), Windows
+(Vulkan). Already have Python 3.9+? The manual form is
+`python3 -m magnitude --cockpit=… --token=…`. The agent profiles the machine (VRAM → S/M/L/XL
 class), benchmarks models from the catalog with real numbers, downloads
 llama.cpp prebuilts and GGUF weights on demand, and serves your pick behind a
 local Anthropic-compatible endpoint. **Connect to SOKKAN** then routes every

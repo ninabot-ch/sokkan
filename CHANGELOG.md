@@ -22,6 +22,11 @@ Notable changes, newest first. Versions: semver + release hash (see
   powers SOKKAN. Per-node endpoint override for remote nodes (`shim_url`,
   default `SOKKAN_MAGNITUDE_SHIM_URL`). Existing single-agent state migrates
   automatically.
+- **One-line install**: pairing a machine is now a single
+  `curl … /api/magnitude/install.sh?token=… | sh`. It lays down a standalone
+  Python when the host has none (macOS without Command Line Tools — no sudo,
+  nothing outside `~/.sokkan`), fetches the agent, and pairs. Validated on
+  Linux and Apple Silicon; `python3 -m magnitude` remains the manual path.
 
 ## 1.4.0 — 2026-08-10 — "Open for missions"
 - **SOKKAN Missions link**: the header now shows a small live counter of open
