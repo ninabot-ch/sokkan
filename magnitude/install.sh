@@ -22,8 +22,12 @@ AGENT_DIR="$ROOT/agent"
 log()  { printf '\033[1;33m[magnitude]\033[0m %s\n' "$1" >&2; }
 die()  { printf '\033[1;31m[magnitude] %s\033[0m\n' "$1" >&2; exit 1; }
 
-[ -n "$TOKEN" ] && [ "$TOKEN" != "@TOKEN@" ] \
-  || die "no pairing token — copy the command from the cockpit's Magnitude tab"
+# guard: empty, or an un-substituted template still carrying a @…@ placeholder
+# (a base64url pairing token never contains '@'). NB: don't write the literal
+# placeholder here — the cockpit substitutes every occurrence, guard included.
+case "$TOKEN" in
+  ""|*@*) die "no pairing token — copy the command from the cockpit's Magnitude tab" ;;
+esac
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar  >/dev/null 2>&1 || die "tar is required"
 
