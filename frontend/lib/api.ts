@@ -100,6 +100,9 @@ export const llmSetSubscription = (claude_oauth_token: string) =>
   mutate<LlmStatus>("/api/llm", "POST", { mode: "byok", claude_oauth_token });
 export const llmSetCustom = (base_url: string, auth_token: string, model: string, small_model = "") =>
   mutate<LlmStatus>("/api/llm", "POST", { mode: "custom", base_url, auth_token, model, small_model });
+export interface LlmTier { id: string; label: string; description: string; chf_per_mtok_in: number; chf_per_mtok_out: number; }
+export const llmTiers = () => getJSON<{ tiers: LlmTier[]; current: string | null }>("/api/llm/tiers");
+export const llmSetTier = (tier: string) => mutate<{ ok: boolean; tier: string }>("/api/llm/tier", "POST", { tier });
 export const cloudEnvs = () => getJSON<CloudEnv[]>("/api/infra/envs");
 export const cloudEnvDetail = (client: string) => getJSON<CloudEnv>(`/api/infra/envs/${client}`);
 export const cloudEnvSpawn = (client: string, tier: string, owner_email: string) =>

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
   instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
-  llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom,
+  llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom, llmTiers, llmSetTier, type LlmTier,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
@@ -134,7 +134,10 @@ function Model() {
   const [choice, setChoice] = useState<"api" | "sub" | "custom" | null>(null);
   const [val, setVal] = useState(""); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const [cUrl, setCUrl] = useState(""); const [cModel, setCModel] = useState(""); const [cSmall, setCSmall] = useState("");
-  useEffect(() => { llmStatus().then(setSt).catch(() => {}); llmUsage().then(setUse).catch(() => setUse(null)); }, []);
+  const [tiers, setTiers] = useState<LlmTier[]>([]);
+  useEffect(() => { llmStatus().then(setSt).catch(() => {}); llmUsage().then(setUse).catch(() => setUse(null));
+    llmTiers().then((t) => setTiers(t.tiers)).catch(() => {}); }, []);
+  const pickTier = (id: string) => llmSetTier(id).then(() => llmStatus().then(setSt)).catch(() => {});
   const canSave = choice === "custom" ? !!(cUrl.trim() && val.trim() && cModel.trim()) : !!val.trim();
   const save = () => { setErr(""); if (!canSave) return; setBusy(true);
     (choice === "custom" ? llmSetCustom(cUrl.trim(), val.trim(), cModel.trim(), cSmall.trim())
@@ -148,7 +151,7 @@ function Model() {
       <div className="rounded-lg border border-line bg-panel2/50 p-3 text-[12.5px]">
         <div className="flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${st.configured ? "bg-emerald-500" : "bg-amber-400"}`} />
-          <span className="text-slate-200">{included ? "Managed inference — Qwen3 Coder (Frankfurt EU), prepaid"
+          <span className="text-slate-200">{included ? `Managed inference — SOKKAN ${st.model?.replace("sokkan-", "") ?? "ship"} · sovereign EU, prepaid`
             : st.byok_kind === "api_key" ? "Your Anthropic API key"
             : st.byok_kind === "subscription" ? "Your Claude Pro/Max subscription"
             : st.mode === "custom" ? `Custom endpoint — ${st.model}${st.base_url ? ` (${st.base_url.replace(/^https?:\/\//, "")})` : ""}`
@@ -196,9 +199,30 @@ function Model() {
         )}
       </div>
       {included ? (
-        <div className="text-[12px] text-mut">
-          Managed inference: <b className="text-slate-300">Qwen3 Coder</b> models, served from
-          Frankfurt (EU), prepaid with credits. To switch to your own key (BYOK), contact us.
+        <div className="space-y-2">
+          {isAdmin && tiers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] text-mut">Coding tier for your sessions</div>
+              {tiers.map((t) => {
+                const on = (st.model ?? "sokkan-ship") === t.id;
+                return (
+                  <button key={t.id} onClick={() => pickTier(t.id)}
+                    className={`block w-full rounded-lg border p-2.5 text-left ${on ? "border-sea bg-sea/10" : "border-line hover:border-line/80"}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-semibold text-slate-100">{t.label}
+                        {on && <span className="ml-2 text-[10px] text-sea">● active</span>}</span>
+                      <span className="text-[11px] text-mut">{t.chf_per_mtok_in.toFixed(2)} / {t.chf_per_mtok_out.toFixed(2)} CHF/M</span>
+                    </div>
+                    <div className="text-[11px] text-mut">{t.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="text-[12px] text-mut">
+            Managed inference: <b className="text-slate-300">SOKKAN Inference</b> — sovereign EU,
+            served through our gateway, prepaid with credits. To switch to your own key (BYOK), contact us.
+          </div>
         </div>
       ) : !isAdmin ? (
         <div className="text-[12px] text-mut">Model configuration is restricted to administrators.</div>

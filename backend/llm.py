@@ -33,6 +33,12 @@ CONFIG = Path(os.environ.get(
     os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
                  "llm.json")))
 
+# modèle par défaut en inférence incluse : le tier white-label « Ship » (coding EU
+# souverain), servi par la passerelle. Remplace l'ancien qwen3-coder-plus (Alibaba).
+# NB: `or` et pas de défaut dict — SOKKAN_INFER_MODEL est seedé à chaîne VIDE dans
+# les VMs (cloud-init), donc os.environ.get(k, default) renverrait "" (clé présente).
+DEFAULT_INCLUDED_MODEL = os.environ.get("SOKKAN_INFER_MODEL") or "sokkan-ship"
+
 
 def load() -> dict:
     """Config LLM : llm.json (posé par le cockpit) prioritaire, sinon fallback
@@ -85,9 +91,10 @@ def status() -> dict:
     """Résumé non-sensible pour l'UI (jamais la clé)."""
     c = load()
     mode = c.get("mode") or ("env" if configured() else "none")
+    eff_model = c.get("model") or (DEFAULT_INCLUDED_MODEL if mode == "included" else None)
     return {"mode": mode, "configured": configured(),
             "byok_kind": _byok_kind(c) if mode == "byok" else None,
-            "model": c.get("model") if mode in ("included", "custom") else None,
+            "model": eff_model if mode in ("included", "custom") else None,
             "base_url": c.get("base_url") if mode == "custom" else None,
             # une instance « included » est opérée par NINABOT → le client ne peut
             # pas basculer en BYOK depuis le cockpit (et inversement)
@@ -123,10 +130,42 @@ def session_env(user_email: str = "") -> dict:
                "ANTHROPIC_AUTH_TOKEN": c["auth_token"],
                "ANTHROPIC_API_KEY": c["auth_token"],  # gateway accepte x-api-key OU Bearer
                "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        # tier white-label (sokkan-ship/deep…) : forcer le modèle ET le small model,
+        # sinon le CLI demande un modèle Anthropic que la passerelle ne route pas.
+        tier = c.get("model") or DEFAULT_INCLUDED_MODEL
+        env["ANTHROPIC_MODEL"] = tier
+        env["ANTHROPIC_SMALL_FAST_MODEL"] = c.get("small_model") or tier
         if user_email:
             env["ANTHROPIC_CUSTOM_HEADERS"] = f"x-sokkan-user: {user_email}"
         return env
     return {}
+
+
+def tier_catalog() -> list[dict]:
+    """Grille des tiers proposés par la passerelle (pour le sélecteur du cockpit).
+    Vide hors mode included ou si la passerelle est injoignable."""
+    c = load()
+    if c.get("mode") != "included" or not c.get("base_url"):
+        return []
+    import httpx
+    try:
+        r = httpx.get(f"{c['base_url'].rstrip('/')}/tiers", timeout=8)
+        r.raise_for_status()
+        return r.json().get("tiers", [])
+    except httpx.HTTPError:
+        return []
+
+
+def set_tier(tier: str) -> None:
+    """Change le tier d'une instance en inférence incluse (préserve base_url/token)."""
+    c = load()
+    if c.get("mode") != "included":
+        raise ValueError("not a managed-inference instance")
+    valid = {t["id"] for t in tier_catalog()}
+    if valid and tier not in valid:
+        raise ValueError(f"unknown tier: {tier}")
+    c["model"] = tier
+    save(c)
 
 
 def usage() -> dict | None:

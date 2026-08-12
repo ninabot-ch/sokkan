@@ -65,8 +65,33 @@ def test_custom_status_never_leaks_token(cfg):
 
 def test_included_metering_header(cfg):
     cfg({"mode": "included", "base_url": "https://infer.sokkan.ch",
-         "auth_token": "sik_1", "model": "qwen3-coder-plus"})
+         "auth_token": "sik_1", "model": "sokkan-ship"})
     env = llm.session_env("nick@example.ch")
     assert env["ANTHROPIC_CUSTOM_HEADERS"] == "x-sokkan-user: nick@example.ch"
-    assert "ANTHROPIC_SMALL_FAST_MODEL" not in env
-    assert llm.session_model() == "qwen3-coder-plus"
+    # tier white-label : le modèle est forcé (sessions ciblent la passerelle coding)
+    assert env["ANTHROPIC_MODEL"] == "sokkan-ship"
+    assert env["ANTHROPIC_SMALL_FAST_MODEL"] == "sokkan-ship"
+    assert llm.session_model() == "sokkan-ship"
+
+
+def test_included_defaults_to_ship_when_model_empty(cfg, monkeypatch):
+    # SOKKAN_INFER_MODEL seedé à chaîne VIDE dans les VMs → doit retomber sur sokkan-ship
+    monkeypatch.setattr(llm, "DEFAULT_INCLUDED_MODEL", "sokkan-ship")
+    cfg({"mode": "included", "base_url": "https://infer.sokkan.ch", "auth_token": "sik_1", "model": ""})
+    assert llm.status()["model"] == "sokkan-ship"
+    assert llm.session_env()["ANTHROPIC_MODEL"] == "sokkan-ship"
+
+
+def test_set_tier_validates_and_switches(cfg, monkeypatch):
+    cfg({"mode": "included", "base_url": "https://infer.sokkan.ch", "auth_token": "sik_1", "model": "sokkan-ship"})
+    monkeypatch.setattr(llm, "tier_catalog", lambda: [{"id": "sokkan-ship"}, {"id": "sokkan-deep"}])
+    llm.set_tier("sokkan-deep")
+    assert llm.status()["model"] == "sokkan-deep"
+    with pytest.raises(ValueError):
+        llm.set_tier("bogus")
+
+
+def test_set_tier_rejected_when_not_included(cfg):
+    cfg({"mode": "custom", "base_url": "x", "auth_token": "k", "model": "m"})
+    with pytest.raises(ValueError):
+        llm.set_tier("sokkan-ship")

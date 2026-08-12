@@ -609,6 +609,27 @@ def llm_usage(_u: dict = Depends(current_user)):
     return llm.usage()
 
 
+@app.get("/api/llm/tiers")
+def llm_tiers(_u: dict = Depends(current_user)) -> dict:
+    """Grille des tiers d'inférence incluse (Ship/Fast/Deep) pour le sélecteur."""
+    return {"tiers": llm.tier_catalog(), "current": llm.status().get("model")}
+
+
+class TierSel(BaseModel):
+    tier: str
+
+
+@app.post("/api/llm/tier")
+def llm_set_tier(body: TierSel, u: dict = Depends(require("admin"))) -> dict:
+    """Choisit le tier white-label des sessions (instance en inférence incluse)."""
+    try:
+        llm.set_tier(body.tier)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "llm.tier", body.tier)
+    return {"ok": True, "tier": body.tier}
+
+
 @app.post("/api/llm")
 def llm_set(body: LlmConfig, u: dict = Depends(require("admin"))) -> dict:
     """Règle la clé LLM de l'instance (admin). La clé/le token reste sur CETTE VM,
