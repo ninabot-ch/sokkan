@@ -3,6 +3,18 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.6.0 — 2026-08-11 — "Sovereign inference"
+- **SOKKAN Inference**: managed inference now runs on our own sovereign-EU
+  gateway with agent-native tiers, instead of a single fixed upstream. Pick a
+  coding tier per instance from **Settings → Model**: **Ship** (fast coding
+  workhorse — Sonnet-level on our coding benchmark, ~30× cheaper), **Fast**
+  (economical generalist), **Deep** (frontier-open reasoning, the boost tier).
+  Requests escalate automatically when the fast tier struggles — never a flat
+  "not capable" — and fall over to a second EU provider on an outage. A
+  deterministic guard blocks secrets (API keys, tokens, private keys) from ever
+  leaving in a prompt. Prepaid in CHF, billed per token, data stays in the EU
+  (GDPR, no US CLOUD Act). New managed instances default to the Ship tier.
+
 ## 1.5.0 — 2026-08-11 — "Your own silicon"
 - **Magnitude**: find out what your machine can really run — locally, privately.
   Pair the cockpit with a tiny host agent (`python3 -m magnitude`, pure stdlib)
