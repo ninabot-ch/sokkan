@@ -3,6 +3,16 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 1.6.1 — 2026-08-31 — "Pin the mast"
+- **Fix: fresh installs were broken** — the unpinned `mcp` dependency started
+  resolving to mcp 2.x (FastMCP renamed → `ModuleNotFoundError`, api
+  crash-loop on any new build). Now pinned `mcp>=1.2,<2`. Existing installs
+  keep their built image and were not affected; re-run the installer if you
+  hit the crash on a new machine.
+- README: European positioning up front, honest comparison table, First
+  steps guide link. New site pages: [/en/trust](https://sokkan.ch/en/trust/)
+  and [/en/docs/first-steps](https://sokkan.ch/en/docs/first-steps/).
+
 ## 1.6.0 — 2026-08-11 — "Sovereign inference"
 - **SOKKAN Inference**: managed inference now runs on our own sovereign-EU
   gateway with agent-native tiers, instead of a single fixed upstream. Pick a
