@@ -16,6 +16,8 @@ SOKKAN is a self-hosted web cockpit for running **multiple Claude Code sessions 
 
 Spawning a session *is* the "check your memory" ritual: the task description seeds a semantic search over your accumulated project notes (RAG over the memory files Claude Code already writes), so every session starts already knowing what previous sessions learned. Nothing goes to Done without a human at the helm.
 
+**European by design.** Self-host it on your own hardware — your data never leaves your machine — or run it managed and **sovereign on Swiss infrastructure** ([SOKKAN Cloud](https://sokkan.ch/en/#cloud)): a dedicated VM and private network per customer, EU/CH inference options, and your content never used for training. Details on the [trust page](https://sokkan.ch/en/trust/).
+
 <p align="center">
   <img src="docs/demo.gif" width="900" alt="Demo: a kanban card is spawned into a session — the agent searches the project memory first, recalls the port and the health-endpoint convention (facts that only exist in the notes), reads the actual code, then proposes a plan and waits for the human go" />
 </p>
@@ -55,7 +57,7 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 curl -fsSL https://sokkan.ch/install.sh | sh
 ```
 
-— downloads the latest release from sokkan.ch (no GitHub dependency), generates an access token, and tells you what to fill in. Or the manual way:
+— downloads the latest release from sokkan.ch (no GitHub dependency), generates an access token, and tells you what to fill in. First time? The [First steps guide](https://sokkan.ch/en/docs/first-steps/) takes you from login to a working memory in 20 minutes. Or the manual way:
 
 ```bash
 git clone https://github.com/ninabot-ch/sokkan && cd sokkan
@@ -216,6 +218,23 @@ cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
 - No telemetry: the memory index, embeddings and data never leave your machine —
   the only outbound traffic is your prompts to Anthropic, as with any Claude Code use.
 - Vulnerabilities: email security@ninabot.ch (please don't open a public issue).
+
+## How it compares
+
+Honest positioning — pick what fits:
+
+| | tmux / terminal juggling | US-hosted SaaS orchestrators | **SOKKAN** |
+|---|---|---|---|
+| Parallel sessions | yes, by hand | yes | yes, with permission prompts as web widgets |
+| Project memory injected at spawn | — | rarely, opaque | **yes — RAG over plain markdown you own** |
+| Human-in-the-loop gates | you *are* the loop | varies | every mutating action waits for a click |
+| Kanban → pre-briefed session | — | some | yes (`▶ spawn`) |
+| Self-hostable / auditable | n/a | no | **Apache-2.0, your server** |
+| Data residency | yours | US cloud | **yours, or Swiss cloud (managed)** |
+| Cost visibility | — | varies | per-day / per-session token costs |
+
+If you're happy in raw terminals, stay there — SOKKAN earns its keep when the
+session count grows and the knowledge starts evaporating between them.
 
 ## Status
 
