@@ -311,7 +311,7 @@ def _describe_change(field: str, old, new) -> str:
         return f"priority: {PRIORITIES.get(old, old)} \u2192 {PRIORITIES.get(int(new), new)}"
     if field == "sort":
         return "reordered"
-    return f"{field} : {old or '∅'} → {new or '∅'}"
+    return f"{field}: {old or '\u2014'} \u2192 {new or '\u2014'}"
 
 
 def update_card(card_id: int, user: str = "", **fields) -> dict | None:
