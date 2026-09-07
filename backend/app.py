@@ -1603,7 +1603,7 @@ def board_add(body: CardCreate, u: dict = Depends(require("dev"))) -> dict:
         raise HTTPException(400, "title or prompt required")
     c = board.add_card(body.title, body.description, body.tag, body.bucket,
                        priority=body.priority, due=body.due, user=u["email"])
-    audit.log(u["email"], "board.card.create", f"carte #{c['id']}", c["title"])
+    audit.log(u["email"], "board.card.create", f"card #{c['id']}", c["title"])
     return c
 
 
@@ -1616,7 +1616,7 @@ def board_patch(card_id: int, body: CardPatch, u: dict = Depends(require("dev"))
     if not c:
         raise HTTPException(404, "card not found")
     changed = ", ".join(k for k in fields)
-    audit.log(u["email"], "board.card.update", f"carte #{card_id}", changed)
+    audit.log(u["email"], "board.card.update", f"card #{card_id}", changed)
     return c
 
 
@@ -1624,7 +1624,7 @@ def board_patch(card_id: int, body: CardPatch, u: dict = Depends(require("dev"))
 def board_delete(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     c = board.get_card(card_id)
     board.delete_card(card_id, user=u["email"])
-    audit.log(u["email"], "board.card.delete", f"carte #{card_id}", (c or {}).get("title", ""))
+    audit.log(u["email"], "board.card.delete", f"card #{card_id}", (c or {}).get("title", ""))
     return {"ok": True}
 
 
@@ -1637,7 +1637,7 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"])
     board.update_card(card_id, user=u["email"], session_id=s["session_id"],
                       window="", bucket="Doing")
-    audit.log(u["email"], "board.card.spawn", f"carte #{card_id}", s["title"])
+    audit.log(u["email"], "board.card.spawn", f"card #{card_id}", s["title"])
     return {**s, "card_id": card_id}
 
 

@@ -67,7 +67,7 @@ def create_card(title: str, tag: str = "backend", description: str = "",
     ctx = _session_ctx()
     card = board.add_card(title=title, description=description, tag=tag,
                           bucket=bucket, priority=priority, user=_actor(ctx))
-    audit.log(_actor(ctx), "board.card.create", f"carte #{card['id']}", title)
+    audit.log(_actor(ctx), "board.card.create", f"card #{card['id']}", title)
     return card
 
 
@@ -88,7 +88,7 @@ def move_card(card_id: int, bucket: str) -> dict:
     card = board.update_card(card_id, user=_actor(ctx), bucket=bucket)
     if not card:
         return {"error": f"carte {card_id} introuvable"}
-    audit.log(_actor(ctx), "board.card.move", f"carte #{card_id}", f"→ {bucket}")
+    audit.log(_actor(ctx), "board.card.move", f"card #{card_id}", f"→ {bucket}")
     return card
 
 
