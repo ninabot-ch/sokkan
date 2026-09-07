@@ -28,7 +28,7 @@ DB = Path(os.environ.get("SOKKAN_BOARD_DB", os.path.join(os.environ.get("SOKKAN_
 TMUX = os.environ.get("SOKKAN_SPAWN_TMUX", "sokkan")
 WD = os.environ.get("SOKKAN_PROJECT_WD", os.getcwd())
 BUCKETS = ["Backlog", "Doing", "Review", "Done"]
-PRIORITIES = {0: "urgente", 1: "haute", 2: "normale", 3: "basse"}
+PRIORITIES = {0: "urgent", 1: "high", 2: "normal", 3: "low"}
 
 # 20 tags qui ont du sens pour le studio (domaines + types de travail)
 TAGS = [
@@ -278,7 +278,7 @@ def add_card(title: str, description: str = "", tag: str = "backend",
         " VALUES(?,?,?,?,?,?,?,?,?)",
         (title, description.strip(), tag, bucket, now, now, int(priority), due, now),
     )
-    _event(con, cur.lastrowid, user, "création", f"« {title} » dans {bucket}")
+    _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}")
     con.commit()
     row = _card_out(con.execute("SELECT * FROM cards WHERE id=?", (cur.lastrowid,)).fetchone())
     con.close()
@@ -304,13 +304,13 @@ def card_events(card_id: int, limit: int = 50) -> list[dict]:
 
 def _describe_change(field: str, old, new) -> str:
     if field == "description":
-        return "description modifiée"
+        return "description updated"
     if field == "checklist":
-        return "checklist mise à jour"
+        return "checklist updated"
     if field == "priority":
-        return f"priorité : {PRIORITIES.get(old, old)} → {PRIORITIES.get(int(new), new)}"
+        return f"priority: {PRIORITIES.get(old, old)} \u2192 {PRIORITIES.get(int(new), new)}"
     if field == "sort":
-        return "réordonnée"
+        return "reordered"
     return f"{field} : {old or '∅'} → {new or '∅'}"
 
 
@@ -337,11 +337,11 @@ def update_card(card_id: int, user: str = "", **fields) -> dict | None:
         ov = json.dumps(old.get(k), ensure_ascii=False) if k == "checklist" else old.get(k)
         if ov != v:
             if k == "bucket":
-                _event(con, card_id, user, "déplacement", f"{old['bucket']} → {v}")
+                _event(con, card_id, user, "moved", f"{old['bucket']} \u2192 {v}")
             elif k == "archived":
-                _event(con, card_id, user, "archivage" if v else "restauration", "")
+                _event(con, card_id, user, "archived" if v else "restored", "")
             else:
-                _event(con, card_id, user, "édition", _describe_change(k, old.get(k), v))
+                _event(con, card_id, user, "edited", _describe_change(k, old.get(k), v))
     con.commit()
     con.close()
     return get_card(card_id)
