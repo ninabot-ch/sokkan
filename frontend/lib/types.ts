@@ -132,6 +132,7 @@ export interface InfraNode {
   mem_avail: number | null;
   disk_total: number | null;
   disk_avail: number | null;
+  disks: { mount: string; total: number | null; avail: number | null }[];
   load1: number | null;
   uptime_s: number | null;
 }

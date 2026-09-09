@@ -36,6 +36,21 @@ def _by_ip(expr: str) -> dict:
     return out
 
 
+def _fs_by_ip(metric: str) -> dict:
+    """ip → {mountpoint → valeur} sur les filesystems réels (exclut /boot*)."""
+    out: dict[str, dict[str, float]] = {}
+    try:
+        for r in _q(metric + '{fstype=~"ext4|xfs|btrfs|zfs"}'):
+            ip = r["metric"].get("instance", "").split(":")[0]
+            mnt = r["metric"].get("mountpoint", "")
+            if mnt.startswith("/boot"):
+                continue
+            out.setdefault(ip, {})[mnt] = float(r["value"][1])
+    except Exception:  # noqa: BLE001 — Prometheus indispo → métrique absente
+        pass
+    return out
+
+
 def nodes() -> list[dict]:
     if not ENABLED:
         return []
@@ -43,8 +58,8 @@ def nodes() -> list[dict]:
     cpu = _by_ip('100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))*100)')
     memt = _by_ip("node_memory_MemTotal_bytes")
     mema = _by_ip("node_memory_MemAvailable_bytes")
-    dsz = _by_ip('node_filesystem_size_bytes{mountpoint="/"}')
-    dav = _by_ip('node_filesystem_avail_bytes{mountpoint="/"}')
+    fsz = _fs_by_ip("node_filesystem_size_bytes")
+    fav = _fs_by_ip("node_filesystem_avail_bytes")
     load = _by_ip("node_load1")
     cores = _by_ip('count by(instance)(node_cpu_seconds_total{mode="idle"})')
     uptime = _by_ip("node_time_seconds - node_boot_time_seconds")
@@ -54,6 +69,10 @@ def nodes() -> list[dict]:
     for ip in ips:
         meta = NODES.get(ip, {"name": ip, "role": "?"})
         monitored = ip in up or ip in cpu
+        disks = [
+            {"mount": m, "total": fsz[ip][m], "avail": fav.get(ip, {}).get(m)}
+            for m in sorted(fsz.get(ip, {}))
+        ]
         out.append({
             "ip": ip, "name": meta["name"], "role": meta["role"],
             "monitored": monitored,
@@ -61,7 +80,8 @@ def nodes() -> list[dict]:
             "cpu_pct": round(cpu[ip], 1) if ip in cpu else None,
             "cores": int(cores[ip]) if ip in cores else None,
             "mem_total": memt.get(ip), "mem_avail": mema.get(ip),
-            "disk_total": dsz.get(ip), "disk_avail": dav.get(ip),
+            "disk_total": fsz.get(ip, {}).get("/"), "disk_avail": fav.get(ip, {}).get("/"),
+            "disks": disks,
             "load1": load.get(ip), "uptime_s": uptime.get(ip),
         })
     return out

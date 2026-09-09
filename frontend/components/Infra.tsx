@@ -42,7 +42,7 @@ function Topo() {
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
         {nodes.map((n) => {
           const memPct = n.mem_total && n.mem_avail != null ? (1 - n.mem_avail / n.mem_total) * 100 : null;
-          const diskPct = n.disk_total && n.disk_avail != null ? (1 - n.disk_avail / n.disk_total) * 100 : null;
+          const disks = n.disks?.length ? n.disks : [{ mount: "/", total: n.disk_total, avail: n.disk_avail }];
           return (
             <div key={n.ip} className={`rounded-xl border p-3 ${n.up ? "border-line bg-panel" : "border-line/60 bg-panel/40"}`}>
               <div className="flex items-center gap-2">
@@ -55,7 +55,11 @@ function Topo() {
                 <div className="mt-2.5 space-y-2">
                   <Metric label={`CPU · ${n.cores} cores`} value={`${n.cpu_pct ?? "—"}%`} pct={n.cpu_pct ?? 0} />
                   <Metric label="RAM" value={`${gb(n.mem_avail)} / ${gb(n.mem_total)} GB free`} pct={memPct ?? 0} />
-                  <Metric label="disk /" value={`${gb(n.disk_avail)} / ${gb(n.disk_total)} GB free`} pct={diskPct ?? 0} />
+                  {disks.map((d) => (
+                    <Metric key={d.mount} label={`disk ${d.mount}`}
+                      value={`${gb(d.avail)} / ${gb(d.total)} GB free`}
+                      pct={d.total && d.avail != null ? (1 - d.avail / d.total) * 100 : 0} />
+                  ))}
                   <div className="flex justify-between text-[10.5px] text-mut"><span>load {n.load1?.toFixed(2)}</span><span>uptime {uptime(n.uptime_s)}</span></div>
                 </div>
               ) : <div className="mt-3 text-[11px] text-mut">{n.up === false ? "offline (target down)" : "not monitored"}</div>}
