@@ -47,9 +47,9 @@ def test_events_recorded(board):
     board.update_card(c["id"], user="nick", bucket="Doing")
     board.update_card(c["id"], user="nick", priority=0)
     actions = [e["action"] for e in board.card_events(c["id"])]
-    assert "création" in actions
-    assert "déplacement" in actions
-    assert "édition" in actions
+    assert "created" in actions
+    assert "moved" in actions
+    assert "edited" in actions
 
 
 def test_sdk_session_store_roundtrip(board):

@@ -38,7 +38,6 @@ MEMORY_DIR = Path(
     )
 )
 DB_PATH = Path(os.environ.get("SOKKAN_MEMORY_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "memory.db")))
-MODEL = os.environ.get("SOKKAN_EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 CHUNK_TARGET = 1200  # chars; notes longer than this are split on paragraph boundaries
 BATCH = 64
 # MEMORY.md is loaded whole into every session's context; the harness truncates
@@ -254,7 +253,7 @@ def run_index(rebuild: bool = False) -> dict:
             con.execute("DELETE FROM notes WHERE name = ?", (n,))
         con.execute(
             "INSERT INTO meta(key,value) VALUES('model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (MODEL,),
+            (embeddings.backend(),),  # identité réelle (remote:url | local:modèle)
         )
         con.commit()
 

@@ -20,14 +20,9 @@ from pathlib import Path
 CFG = Path(os.environ.get("SOKKAN_PREVIEW_ENVS", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview-envs.json")))
 LOG_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview")))
 
-_SEED = {
-    "ninjob-frontend": {
-        "cwd": "/root/ninjob-work/frontend",
-        "cmd": "npm run dev -- -p {port}",
-        "port": 4311,
-        "label": "ninjob — frontend (next dev, WIP)",
-    },
-}
+# Pas de seed par défaut : chaque install déclare ses dev-servers dans
+# preview-envs.json ({name: {cwd, cmd, port, label, host?}}).
+_SEED: dict = {}
 
 
 def _load() -> dict:
@@ -55,7 +50,7 @@ def list_envs() -> list[dict]:
             "name": name, "label": e.get("label", name), "cwd": e["cwd"],
             "port": port, "url": f"http://localhost:{port}",
             # URL interactive publique (cloudflared + CF Access ; cf. <env>-preview.ninabot.ch)
-            "preview_url": e.get("host", f"https://{name}-preview.ninabot.ch"),
+            "preview_url": e.get("host", ""),  # URL publique optionnelle (clé host)
             "running": _listening(port),
             "cwd_exists": Path(e["cwd"]).is_dir(),
         })
@@ -124,5 +119,5 @@ def latest_trigger() -> dict | None:
     if e:
         data["running"] = _listening(int(e["port"]))
         data["url"] = f"http://localhost:{e['port']}"
-        data["preview_url"] = e.get("host", f"https://{data['env']}-preview.ninabot.ch")
+        data["preview_url"] = e.get("host", "")
     return data

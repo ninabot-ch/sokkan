@@ -18,7 +18,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-PROJECT_DIR = Path(os.environ.get("SOKKAN_PROJECT_DIR", os.path.expanduser("~/.claude/projects")))
+# même résolution que app.py : CLAUDE_CONFIG_DIR + slug du workspace — sans ça,
+# l'onglet Coûts est vide sur toute install Docker (transcripts jamais trouvés)
+_claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
+_cwd_slug = (os.environ.get("SOKKAN_AGENT_CWD")
+             or ("/workspace" if os.path.isdir("/workspace") else os.getcwd())).replace("/", "-")
+PROJECT_DIR = Path(
+    os.environ.get("SOKKAN_PROJECT_DIR", os.path.join(_claude_dir, "projects", _cwd_slug))
+)
 DB = Path(os.environ.get("SOKKAN_USAGE_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "usage.db")))
 TZ = ZoneInfo(os.environ.get("SOKKAN_TZ", "Europe/Zurich"))
 

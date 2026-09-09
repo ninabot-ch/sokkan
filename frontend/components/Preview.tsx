@@ -6,7 +6,7 @@ import {
 import type { DiffData, PreviewEnv, PreviewRepo, PreviewTrigger } from "@/lib/types";
 import { ago } from "@/lib/fmt";
 
-const QUICK = ["https://sokkan.ninabot.ch", "https://ninjob.ch", "https://nakisa.ch"];
+const QUICK = ["http://localhost:3000", "http://localhost:8000"];
 
 function DiffView({ text }: { text: string }) {
   return (
