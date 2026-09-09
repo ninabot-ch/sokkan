@@ -32,7 +32,8 @@ ENV SOKKAN_DATA_DIR=/data \
     CLAUDE_CONFIG_DIR=/data/claude \
     SOKKAN_AGENT_CWD=/workspace \
     SOKKAN_MEMORY_DIR=/data/claude/projects/-workspace/memory \
-    SOKKAN_FEATURE_PREVIEW=0 \
+    SOKKAN_PROJECT_WD=/workspace \
+    SOKKAN_FEATURE_PREVIEW=1 \
     SOKKAN_FEATURE_TMUX=0 \
     HOME=/data
 

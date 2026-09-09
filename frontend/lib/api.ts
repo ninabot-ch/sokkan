@@ -59,6 +59,9 @@ export const deleteCard = (id: number) =>
 export const fetchAudit = (limit = 200, q = "") =>
   getJSON<AuditEvent[]>(`/api/audit?limit=${limit}&q=${encodeURIComponent(q)}`);
 
+export interface TestRun { repo: string; cmd: string; code: number; passed: boolean; output: string }
+export const runPreviewTests = (repo: string) => mutate<TestRun>(`/api/preview/test/${repo}`, "POST");
+
 // preview — trigger poussé par une session (MCP open_preview)
 export const fetchPreviewTrigger = () =>
   getJSON<{ trigger: PreviewTrigger | null }>("/api/preview/trigger");
@@ -97,10 +100,13 @@ export const llmCredit = (pack: number) =>
   mutate<{ ok: boolean; checkout_url: string }>("/api/llm/credit", "POST", { pack });
 export interface InstanceInfo {
   org_name: string; tier: string; public_url: string; owner_email: string;
+  budget_session_usd?: number; budget_day_usd?: number; // 0 = off
   update?: { local_version: string; latest: string | null; update_available: boolean };
 }
 export const instanceInfo = () => getJSON<InstanceInfo>("/api/instance");
 export const instanceRename = (org_name: string) => mutate<InstanceInfo>("/api/instance", "POST", { org_name });
+export const instanceBudgets = (budget_session_usd: number, budget_day_usd: number) =>
+  mutate<InstanceInfo>("/api/instance", "POST", { budget_session_usd, budget_day_usd });
 export const llmStatus = () => getJSON<LlmStatus>("/api/llm");
 export const llmUsage = () => getJSON<LlmUsage | null>("/api/llm/usage");
 export const llmSetApiKey = (anthropic_api_key: string) =>

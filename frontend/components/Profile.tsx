@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
-  instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
+  instanceBudgets, instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom, llmTiers, llmSetTier, type LlmTier,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
@@ -70,6 +70,23 @@ function Org() {
         <div className="rounded-lg border border-line bg-panel2/40 p-3">
           <div className="text-[11px] text-mut">Address</div>
           <a href={inf.public_url} target="_blank" rel="noreferrer" className="truncate text-[12px] text-sea hover:underline">{inf.public_url || "—"}</a></div>
+      </div>
+      <div className="rounded-lg border border-line bg-panel2/40 p-3">
+        <div className="text-[11px] text-mut">Cost budgets (estimated USD — 0 = off)</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
+          <label className="flex items-center gap-1.5 text-mut">per session
+            <input type="number" min={0} step={1} disabled={!isAdmin} defaultValue={inf.budget_session_usd ?? 0}
+              onBlur={(e) => isAdmin && instanceBudgets(parseFloat(e.target.value) || 0, inf.budget_day_usd ?? 0).then(setInf)}
+              className="w-20 rounded border border-line bg-[#0b0f16] px-1.5 py-0.5 text-[12px] text-slate-100 outline-none focus:border-sea/50 disabled:opacity-50" /></label>
+          <label className="flex items-center gap-1.5 text-mut">per day
+            <input type="number" min={0} step={1} disabled={!isAdmin} defaultValue={inf.budget_day_usd ?? 0}
+              onBlur={(e) => isAdmin && instanceBudgets(inf.budget_session_usd ?? 0, parseFloat(e.target.value) || 0).then(setInf)}
+              className="w-20 rounded border border-line bg-[#0b0f16] px-1.5 py-0.5 text-[12px] text-slate-100 outline-none focus:border-sea/50 disabled:opacity-50" /></label>
+        </div>
+        <div className="mt-1 text-[10.5px] text-mut">
+          A session warns at 80% and stops accepting new turns at its budget (raise it here to
+          continue — human decision, not silent). The daily budget warns at spawn.
+        </div>
       </div>
       {inf.update?.update_available && (
         <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-3 text-[12px] text-sky-200">

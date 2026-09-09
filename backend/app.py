@@ -576,15 +576,22 @@ def edge_ask(domain: str = ""):
     return {"ok": True}
 
 
-class OrgName(BaseModel):
-    org_name: str
+class InstanceSettings(BaseModel):
+    org_name: str = ""
+    budget_session_usd: float | None = None  # 0 = désactivé
+    budget_day_usd: float | None = None
 
 
 @app.post("/api/instance")
-def instance_set(body: OrgName, u: dict = Depends(require("admin"))) -> dict:
-    r = instance.set_org_name(body.org_name)
-    audit.log(u["email"], "instance.rename", body.org_name)
-    return r
+def instance_set(body: InstanceSettings, u: dict = Depends(require("admin"))) -> dict:
+    if body.org_name.strip():
+        instance.set_org_name(body.org_name)
+        audit.log(u["email"], "instance.rename", body.org_name)
+    if body.budget_session_usd is not None or body.budget_day_usd is not None:
+        instance.set_budgets(body.budget_session_usd, body.budget_day_usd)
+        audit.log(u["email"], "instance.budgets",
+                  f"session={body.budget_session_usd} day={body.budget_day_usd}")
+    return instance.info()
 
 
 @app.get("/api/llm")
@@ -1183,6 +1190,17 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> d
     sid = agentchat.new_sid()
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
     session = agentchat.get_or_create(sid, user=user)
+    day_budget = instance.budgets().get("budget_day_usd", 0.0)
+    if day_budget:
+        try:  # avertissement (pas un blocage) — le jour est déjà bien entamé ?
+            spent = usage_mod.summary(1)["totals"]["today"]["cost"]
+            if spent >= day_budget:
+                session._emit({"type": "error", "message": (
+                    f"Daily budget notice: today's estimated spend is ${spent:.2f}, "
+                    f"over the ${day_budget:.2f}/day budget. This session still works — "
+                    "consider wrapping up or raising the budget (Profile → Organisation).")})
+        except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
+            pass
     if prompt.strip():
         recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt)
         _bg(session.handle_user(board.seed_text(prompt, recall)))
@@ -1518,6 +1536,21 @@ def preview_diff(repo: str, _u: dict = Depends(require("dev")),
         return preview.diff(repo)
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+@app.post("/api/preview/test/{repo}")
+def preview_test(repo: str, u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_preview)) -> dict:
+    """Lance la commande de tests du repo (déclarée dans SOKKAN_REPOS) — sur
+    clic humain uniquement, jamais automatique. Timeout 10 min."""
+    try:
+        r = preview.run_tests(repo)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:  # noqa: BLE001 — timeout etc.
+        raise HTTPException(502, f"tests: {e}")
+    audit.log(u["email"], "preview.test", repo, f"exit {r['code']}")
+    return r
 
 
 @app.get("/api/preview/envs")

@@ -19,7 +19,12 @@ from urllib.parse import urlparse
 # repos autorisés au diff (pas de chemin arbitraire) — env JSON {"nom": "/chemin"} ;
 # défaut = le workspace courant
 import json
-REPOS = json.loads(os.environ.get("SOKKAN_REPOS", "{}")) or {"workspace": os.environ.get("SOKKAN_PROJECT_WD", os.getcwd())}
+_raw_repos = json.loads(os.environ.get("SOKKAN_REPOS", "{}")) or {
+    "workspace": os.environ.get("SOKKAN_PROJECT_WD", os.getcwd())}
+# valeur = chemin (str) OU {"path": ..., "test_cmd": ...} — test_cmd optionnel,
+# lancé UNIQUEMENT sur clic humain (POST /api/preview/test/{repo}), jamais auto
+REPOS = {k: (v["path"] if isinstance(v, dict) else v) for k, v in _raw_repos.items()}
+TEST_CMDS = {k: v.get("test_cmd", "") for k, v in _raw_repos.items() if isinstance(v, dict)}
 SHOT_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview")))
 CHROMIUM = os.environ.get("SOKKAN_CHROMIUM", "chromium")
 DIFF_MAX = 200_000  # octets
@@ -55,8 +60,34 @@ def diff(repo: str) -> dict:
     status = _git(path, "status", "--short")
     d = _git(path, "diff", "HEAD")  # staged + unstaged vs dernier commit
     truncated = len(d) > DIFF_MAX
+    # résumé structuré par fichier (numstat) — la vue Preview s'en sert pour la
+    # colonne fichiers + compteurs +/- ; les binaires remontent added/deleted null
+    files = []
+    for line in _git(path, "diff", "--numstat", "HEAD").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        a, r, f = parts
+        files.append({"path": f,
+                      "added": int(a) if a.isdigit() else None,
+                      "deleted": int(r) if r.isdigit() else None})
     return {"repo": repo, "path": path, "branch": branch,
-            "status": status, "diff": d[:DIFF_MAX], "truncated": truncated}
+            "status": status, "diff": d[:DIFF_MAX], "truncated": truncated,
+            "files": files, "has_tests": bool(TEST_CMDS.get(repo))}
+
+
+def run_tests(repo: str) -> dict:
+    """Lance la commande de tests déclarée pour ce repo (SOKKAN_REPOS →
+    {"path":…, "test_cmd":…}). Déclenchée par un CLIC humain uniquement."""
+    path = REPOS.get(repo)
+    cmd = TEST_CMDS.get(repo, "")
+    if not path or not cmd:
+        raise ValueError(f"no test_cmd configured for repo: {repo}")
+    r = subprocess.run(cmd, shell=True, cwd=path, capture_output=True,
+                       text=True, timeout=600)
+    tail = (r.stdout + r.stderr)[-4000:]
+    return {"repo": repo, "cmd": cmd, "code": r.returncode,
+            "passed": r.returncode == 0, "output": tail}
 
 
 def _assert_url_allowed(url: str) -> None:
@@ -83,6 +114,11 @@ def _assert_url_allowed(url: str) -> None:
 
 
 def screenshot(url: str, width: int = 1440, height: int = 900) -> Path:
+    import shutil
+    if not shutil.which(CHROMIUM):
+        raise RuntimeError(
+            f"{CHROMIUM} not found — screenshots need a Chromium binary "
+            "(install it, or set SOKKAN_CHROMIUM). The diff and env views work without it.")
     _assert_url_allowed(url)
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(f"{url}|{width}|{height}".encode()).hexdigest()[:16]

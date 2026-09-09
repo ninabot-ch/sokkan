@@ -208,6 +208,8 @@ export interface DiffData {
   status: string;
   diff: string;
   truncated: boolean;
+  files?: { path: string; added: number | null; deleted: number | null }[];
+  has_tests?: boolean; // une test_cmd est déclarée pour ce repo (SOKKAN_REPOS)
 }
 
 export interface ChecklistItem {

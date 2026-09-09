@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  fetchDiff, fetchEnvs, fetchPreviewRepos, fetchPreviewTrigger, shotUrl, startEnv, stopEnv,
+  fetchDiff, fetchEnvs, fetchPreviewRepos, fetchPreviewTrigger, runPreviewTests, shotUrl, startEnv, stopEnv,
 } from "@/lib/api";
 import type { DiffData, PreviewEnv, PreviewRepo, PreviewTrigger } from "@/lib/types";
+import type { TestRun } from "@/lib/api";
 import { ago } from "@/lib/fmt";
 
 const QUICK = ["http://localhost:3000", "http://localhost:8000"];
@@ -78,6 +79,9 @@ export default function Preview() {
   const [repos, setRepos] = useState<PreviewRepo[]>([]);
   const [repo, setRepo] = useState("");
   const [diff, setDiff] = useState<DiffData | null>(null);
+  const [fileFilter, setFileFilter] = useState<string | null>(null);
+  const [testRun, setTestRun] = useState<TestRun | null>(null);
+  const [testing, setTesting] = useState(false);
   useEffect(() => { fetchPreviewRepos().then((r) => { setRepos(r); if (r[0]) setRepo((x) => x || r[0].name); }).catch(() => {}); }, []);
   useEffect(() => {
     if (mode !== "diff" || !repo) return;
@@ -145,7 +149,20 @@ export default function Preview() {
               className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
               {repos.map((r) => <option key={r.name} value={r.name}>{r.name} ({r.branch}, {r.modified})</option>)}
             </select>
-            {diff && <span className="text-[11px] text-mut">{diff.truncated ? "diff truncated" : `${diff.status.split("\n").filter(Boolean).length} files`}</span>}
+            {diff && <span className="text-[11px] text-mut">{diff.truncated ? "diff truncated" : `${(diff.files?.length ?? diff.status.split("\n").filter(Boolean).length)} files`}</span>}
+            {diff?.has_tests && (
+              <button onClick={() => { setTesting(true); setTestRun(null); runPreviewTests(repo).then(setTestRun).catch(() => setTestRun({ repo, cmd: "", code: -1, passed: false, output: "test run failed to start" })).finally(() => setTesting(false)); }}
+                disabled={testing}
+                className="rounded border border-line px-2 py-0.5 text-[11px] text-mut hover:text-slate-200 disabled:opacity-50">
+                {testing ? "running tests…" : "▶ run tests"}
+              </button>
+            )}
+            {testRun && (
+              <span className={`rounded px-1.5 py-0.5 text-[10.5px] ${testRun.passed ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}
+                title={testRun.output}>
+                {testRun.passed ? "✓ tests pass" : `✗ exit ${testRun.code}`}
+              </span>
+            )}
           </>
         )}
 
@@ -163,10 +180,24 @@ export default function Preview() {
         {mode === "diff" ? (
           diff ? (
             <div className="space-y-3">
-              {diff.status.trim()
+              {diff.files?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {diff.files.map((f) => (
+                    <button key={f.path} onClick={() => setFileFilter(fileFilter === f.path ? null : f.path)}
+                      className={`rounded border px-1.5 py-0.5 font-mono text-[10.5px] ${fileFilter === f.path ? "border-sea text-sea" : "border-line text-mut hover:text-slate-300"}`}>
+                      {f.path} <span className="text-emerald-400">+{f.added ?? "·"}</span> <span className="text-red-400">−{f.deleted ?? "·"}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : diff.status.trim()
                 ? <pre className="rounded-lg border border-line bg-panel2/40 p-2 text-[11.5px] text-slate-300">{diff.status}</pre>
                 : <div className="text-[12px] text-mut">no uncommitted changes in {diff.repo}</div>}
-              {diff.diff.trim() && <DiffView text={diff.diff} />}
+              {testRun && !testRun.passed && (
+                <pre className="max-h-48 overflow-auto rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-[11px] text-red-200">{testRun.output}</pre>
+              )}
+              {diff.diff.trim() && <DiffView text={fileFilter
+                ? diff.diff.split(/^(?=diff --git )/m).filter((sec) => sec.includes(` b/${fileFilter}`) || sec.includes(` a/${fileFilter}`)).join("")
+                : diff.diff} />}
             </div>
           ) : <div className="mt-10 text-center text-[12px] text-mut">loading diff…</div>
         ) : mode === "env" ? (

@@ -45,6 +45,7 @@ except ImportError:  # pragma: no cover
     )
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
+import instance  # budgets de coût (hard stop HITL par session)
 import llm  # config LLM par instance (BYOK / inférence incluse)
 import notify  # HITL push : ping si une permission traîne sans réponse
 import vault  # coffre de secrets par instance → env des sessions (jamais au LLM)
@@ -135,6 +136,8 @@ class AgentSession:
         self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
         self._start_lock = asyncio.Lock()
+        self.cost_usd = 0.0          # coût estimé cumulé (ResultMessage.total_cost_usd)
+        self._budget_warned = False  # avertissement 80 % émis une seule fois
         self._model_seen: str | None = None
         self.mode = "default"  # default | acceptEdits | bypassPermissions | plan
 
@@ -292,6 +295,15 @@ class AgentSession:
             self._emit({"type": "error",
                         "message": "A turn is already running — interrupt it first."})
             return
+        # budget par session (hard stop HITL) : au-delà, plus de nouveau tour —
+        # relever le budget (Profil → Organisation) ou ouvrir une session neuve.
+        budget = instance.budgets().get("budget_session_usd", 0.0)
+        if budget and self.cost_usd >= budget:
+            self._emit({"type": "error",
+                        "message": (f"Session budget reached (${self.cost_usd:.2f} ≥ "
+                                    f"${budget:.2f}). Raise the budget in Profile → "
+                                    "Organisation, or spawn a fresh session.")})
+            return
         await self.ensure_started()
         assert self.client is not None
         self._busy = True
@@ -352,13 +364,24 @@ class AgentSession:
             return
 
         if isinstance(msg, ResultMessage):
+            turn_cost = getattr(msg, "total_cost_usd", None)
+            if turn_cost:
+                self.cost_usd += float(turn_cost)
             self._emit({
                 "type": "result",
                 "text": getattr(msg, "result", "") or "",
                 "is_error": bool(getattr(msg, "is_error", False)),
                 "num_turns": getattr(msg, "num_turns", None),
-                "cost_usd": getattr(msg, "total_cost_usd", None),
+                "cost_usd": turn_cost,
+                "session_cost_usd": round(self.cost_usd, 4),
             })
+            budget = instance.budgets().get("budget_session_usd", 0.0)
+            if budget and not self._budget_warned and self.cost_usd >= 0.8 * budget:
+                self._budget_warned = True
+                self._emit({"type": "error",
+                            "message": (f"Heads-up: this session has used ${self.cost_usd:.2f} "
+                                        f"of its ${budget:.2f} budget (≥80%). It will stop "
+                                        "accepting new turns at the limit.")})
             return
 
         # AssistantMessage (et UserMessage portant des tool_result)

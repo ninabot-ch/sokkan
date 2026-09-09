@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { fetchUsage } from "@/lib/api";
+import { fetchUsage, instanceInfo } from "@/lib/api";
+import type { InstanceInfo } from "@/lib/api";
 import type { UsageSummary } from "@/lib/types";
 import { ago } from "@/lib/fmt";
 
@@ -9,21 +10,25 @@ const usd = (v: number) =>
 const ktok = (v: number) =>
   v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`;
 
-function Tile({ label, cost, sub }: { label: string; cost: number; sub: string }) {
+function Tile({ label, cost, sub, budget }: { label: string; cost: number; sub: string; budget?: number }) {
+  const over = !!budget && cost >= budget;
+  const warn = !!budget && !over && cost >= 0.8 * budget;
   return (
-    <div className="flex-1 rounded-xl border border-line bg-panel p-4">
+    <div className={`flex-1 rounded-xl border bg-panel p-4 ${over ? "border-red-500/50" : warn ? "border-amber-500/50" : "border-line"}`}>
       <div className="text-[11px] uppercase tracking-wide text-mut">{label}</div>
-      <div className="mt-1 text-[26px] font-semibold tabular-nums text-slate-100">{usd(cost)}</div>
-      <div className="text-[11px] text-mut">{sub}</div>
+      <div className={`mt-1 text-[26px] font-semibold tabular-nums ${over ? "text-red-300" : warn ? "text-amber-200" : "text-slate-100"}`}>{usd(cost)}</div>
+      <div className="text-[11px] text-mut">{sub}{budget ? ` · budget ${usd(budget)}/day` : ""}</div>
     </div>
   );
 }
 
 export default function Costs() {
   const [data, setData] = useState<UsageSummary | null>(null);
+  const [inst, setInst] = useState<InstanceInfo | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
+    instanceInfo().then(setInst).catch(() => {});
     let alive = true;
     const load = () => fetchUsage(30).then((d) => alive && setData(d)).catch(() => alive && setErr(true));
     load();
@@ -62,7 +67,8 @@ export default function Costs() {
         {/* tuiles */}
         <div className="flex flex-wrap gap-3">
           <Tile label="today" cost={data.totals.today.cost}
-            sub={`${data.totals.today.turns} turns · ${ktok(data.totals.today.out_tokens)} tok out`} />
+            sub={`${data.totals.today.turns} turns · ${ktok(data.totals.today.out_tokens)} tok out`}
+            budget={inst?.budget_day_usd || 0} />
           <Tile label="7 days" cost={data.totals["7d"].cost}
             sub={`${data.totals["7d"].turns} turns · ${ktok(data.totals["7d"].out_tokens)} tok out`} />
           <Tile label="30 days" cost={data.totals["30d"].cost}
