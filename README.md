@@ -14,7 +14,7 @@
 
 SOKKAN is a self-hosted web cockpit for running **multiple Claude Code sessions in parallel** — with the one thing no orchestrator gives you: **your project memory, automatically injected into every session at spawn**.
 
-Spawning a session *is* the "check your memory" ritual: the task description seeds a semantic search over your accumulated project notes (RAG over the memory files Claude Code already writes), so every session starts already knowing what previous sessions learned. Nothing goes to Done without a human at the helm.
+Spawning a session *is* the "check your memory" ritual — and since 2.0 it's a **mechanical guarantee**: the server runs the semantic search itself and injects the top notes into the session's first message (RAG over the memory files Claude Code already writes). Every session starts already knowing what previous sessions learned, whether or not the model feels like asking. Nothing goes to Done without a human at the helm.
 
 **European by design.** Self-host it on your own hardware — your data never leaves your machine — or run it managed and **sovereign on Swiss infrastructure** ([SOKKAN Cloud](https://sokkan.ch/en/#cloud)): a dedicated VM and private network per customer, EU/CH inference options, and your content never used for training. Details on the [trust page](https://sokkan.ch/en/trust/).
 
@@ -32,9 +32,10 @@ Spawning a session *is* the "check your memory" ritual: the task description see
 ## Features
 
 - **Sessions** — a rail of live sessions and a multi-pane chat grid (built on the official Claude Agent SDK: tool calls, permission prompts and multiple-choice questions render as native web widgets, not scraped terminal output)
-- **Board** — a kanban where cards spawn pre-seeded sessions (`▶ spawn` → the card's description becomes the task, memory context loads first, the agent proposes a plan and waits for your go)
-- **Memory/KB** — inspect the RAG store: notes, links, backlinks, a **knowledge graph** of the `[[wikilinks]]`, and a search playground showing exactly what a session would recall. Mark durable facts `priority: high` to boost them at recall; hit **✎ digest** to spawn a session that condenses the whole memory into a `project-status` note
-- **Costs** — per-day / per-session token usage and estimated API cost, aggregated from the transcripts
+- **Board** — a kanban where cards spawn pre-seeded sessions (`▶ spawn` → the card's description becomes the task, **the server runs the memory search itself and injects the top notes into the first message** — deterministic recall, not a ritual the model may skip — then the agent proposes a plan and waits for your go)
+- **Playbooks** — curated session templates (refactor, debug, ops incident, code review, memory digest, memory onboarding): pick one at spawn, it shapes the mission — the HITL guardrails stay on top
+- **Memory/KB** — inspect the RAG store: notes, links and backlinks (indexed, with `[[target|label]]` aliases), a **knowledge graph** of the `[[wikilinks]]` with type filters and cluster chips, and a search playground showing exactly what a session would recall. Sessions navigate the graph too (`memory_links` MCP tool). Mark durable facts `priority: high` to boost them at recall; **⚡ onboard** seeds the first notes from a fresh repo in one click; **✎ digest** condenses the whole memory into a `project-status` note
+- **Costs & budgets** — per-day / per-session token usage and estimated API cost, aggregated from the transcripts; set a **budget per session and per day** (Profile → Organisation): sessions warn at 80% and hard-stop at the limit — raising it is your explicit call, nothing silent
 - **Journal** — an audit trail of every action (who spawned, moved, deleted what — the basis for reverting)
 - **Nina** — an embedded DevOps assistant (🧭) that knows the product — sessions, memory, fleet, runbooks — and answers next to your work. Strict guardrails: never your secrets, never your code; she guides, you hold the helm. Behind `SOKKAN_FEATURE_ASSISTANT=1` self-host (bring your model config); included with zero setup on [SOKKAN Cloud](https://sokkan.ch/#cloud)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **create/move board cards**, and **push a preview** of what it changed

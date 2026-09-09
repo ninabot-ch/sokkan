@@ -3,6 +3,32 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 2.0.0 — 2026-09-10 — "Memory, guaranteed"
+- **Deterministic memory recall at spawn**: the server performs the semantic
+  search itself and injects the top notes into the session's first message.
+  The moat stops depending on the model obeying an instruction — it is now a
+  mechanical guarantee (the ritual remains as fallback on empty memory).
+- **Wikilinks are first-class**: parsed at index time into the store (with
+  `[[target|label]]` aliases), backlinks served from the DB, and a new
+  auto-approved `memory_links` MCP tool lets sessions navigate the graph.
+- **Priority boost bounded**: `priority: high` is now a multiplicative,
+  configurable nudge (`SOKKAN_PRIORITY_BOOST`) — a weak match can no longer
+  jump above genuinely relevant notes.
+- **Knowledge graph**: filter by note type, isolate connected clusters.
+- **Playbooks**: session templates (refactor, debug, ops incident, review,
+  digest, memory onboarding) — spawn selector + `GET /api/playbooks`.
+- **Memory onboarding**: one click on a fresh repo writes the first notes
+  (conventions, ports, architecture) — useful memory in 5 minutes.
+- **Cost budgets**: estimated-USD budget per session (warn at 80%, HITL
+  hard-stop at 100%) and per day (spawn warning, Costs tile) — Profile →
+  Organisation.
+- **Preview, structured**: per-file +/- counters and file filtering on the
+  diff; optional per-repo `test_cmd` with a human-triggered "run tests"
+  button; the Preview tab now works in the Docker install.
+- Fixes: Costs tab was empty on Docker installs (transcript dir resolution);
+  green CI (stale test labels); internal defaults purged from previewenv;
+  truthful embedding-model id in stats; memory README rewritten.
+
 ## 1.6.1 — 2026-08-31 — "Pin the mast"
 - **Fix: fresh installs were broken** — the unpinned `mcp` dependency started
   resolving to mcp 2.x (FastMCP renamed → `ModuleNotFoundError`, api

@@ -841,6 +841,8 @@ def features() -> dict:
         "missions_link": os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0",
         # Magnitude : LLM local (profil hardware + bench + serve llama.cpp)
         "magnitude": os.environ.get("SOKKAN_FEATURE_MAGNITUDE", "1") != "0",
+        # bannière de visite guidée (instance de démo publique read-only)
+        "demo": os.environ.get("SOKKAN_DEMO_BANNER", "0") != "0",
     }
 
 
