@@ -31,6 +31,13 @@ services:
       # API flotte : le client gère/étend son infra depuis le cockpit
       SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
+      # rôle des identités inconnues (viewer par défaut ; none = 403)
+      SOKKAN_DEFAULT_ROLE: ${SOKKAN_DEFAULT_ROLE:-viewer}
+      # bannière de visite guidée (démo publique read-only uniquement)
+      SOKKAN_DEMO_BANNER: ${SOKKAN_DEMO_BANNER:-0}
+      # budgets de coût estimé en USD (0 = off ; modifiables aussi dans Profil)
+      SOKKAN_BUDGET_SESSION_USD: ${SOKKAN_BUDGET_SESSION_USD:-0}
+      SOKKAN_BUDGET_DAY_USD: ${SOKKAN_BUDGET_DAY_USD:-0}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
