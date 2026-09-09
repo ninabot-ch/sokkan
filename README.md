@@ -126,6 +126,28 @@ in front of Ollama/vLLM and point the base URL at it. OpenAI-style APIs work the
 same way — through such a proxy. Model quality varies; Anthropic models remain
 the reference for agentic work.
 
+### SOKKAN Inference — the fair-billing rules
+
+[SOKKAN Inference](https://sokkan.ch/inference/) is the optional metered
+backend (sovereign EU, prepaid in CHF) used by managed cloud instances and
+available to any Anthropic-compatible client. Its billing rules are public
+and verifiable, and the operator holds itself to them:
+
+- **Prepaid, no daily cap.** Your balance is the only limit (requests are
+  refused at zero). No subscription, no surprise invoice.
+- **Exact per-token metering.** No per-request minimum — sub-centime
+  fractions accrue to your credit, not the operator's.
+- **Escalation never earns the operator money.** When your tier's upstream
+  fails, requests first fail over to a second EU provider *at the same
+  price*, then escalate to the Deep tier as a last resort. Unrequested
+  escalation is billed **at your tier's price** for the first 1M escalated
+  tokens each month. A gauge in the cockpit (**Profile → Model**) and in
+  `GET /usage` shows exactly how much was escalated — if the operator ever
+  escalated gratuitously, it would pay the price difference itself, in
+  public view.
+- **Everything above is inspectable** with your own token: balance, monthly
+  spend in CHF, per-user usage, escalation gauge — `GET /usage`.
+
 ### Magnitude — run sessions on your own hardware
 
 **Magnitude tab → Pair a machine** shows a one-liner to run on the machine you
