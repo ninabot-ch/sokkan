@@ -77,7 +77,9 @@ def test_priority_note_gets_boost(mem, monkeypatch):
     assert res[0]["note_name"] == "note-starred"
     assert res[0].get("priority") is True
     assert "priority" not in res[1]
-    assert res[0]["score"] == pytest.approx(res[1]["score"] + mem.PRIORITY_BOOST, abs=1e-6)
+    # boost MULTIPLICATIF : proportionnel au score de base (un match faible
+    # n'est plus propulsé par un +flat), borné par construction
+    assert res[0]["score"] == pytest.approx(res[1]["score"] * (1 + mem.PRIORITY_BOOST), abs=1e-6)
 
 
 def test_empty_index_returns_info_not_error(mem, monkeypatch):

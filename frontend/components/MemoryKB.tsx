@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memoryDigest, memoryNote, memoryNotes, memorySearch, memoryStats } from "@/lib/api";
+import { memoryDigest, memoryNote, memoryNotes, memorySearch, memoryStats, spawnSession } from "@/lib/api";
 import MemoryGraph from "@/components/MemoryGraph";
 import type { MemNote, MemSearchResult, MemStats } from "@/lib/types";
 
@@ -24,6 +24,7 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
   const [body, setBody] = useState("");
   const [graph, setGraph] = useState(false);
   const [digesting, setDigesting] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
 
   useEffect(() => {
     memoryStats().then(setStats).catch(() => {});
@@ -48,6 +49,11 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
   const digest = () => {
     setDigesting(true);
     memoryDigest().then((s) => onOpenSession?.(s.session_id)).catch(() => {}).finally(() => setDigesting(false));
+  };
+  const onboard = () => {
+    setOnboarding(true);
+    spawnSession("docs", "", "", "sdk", "onboard-memory")
+      .then((s) => onOpenSession?.(s.session_id)).catch(() => {}).finally(() => setOnboarding(false));
   };
   const note = sel ? byName(sel) : null;
   const filtered = notes.filter((n) =>
@@ -81,6 +87,11 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
           title="spawn a session that summarizes the project state into the note project-status"
           className="rounded border border-line px-2 py-1 text-[11.5px] text-mut hover:text-slate-200 disabled:opacity-50">
           ✎ digest
+        </button>
+        <button onClick={onboard} disabled={onboarding}
+          title="scan the repo and write the first memory notes (conventions, ports, architecture) — useful memory in 5 minutes"
+          className={`rounded border px-2 py-1 text-[11.5px] disabled:opacity-50 ${notes.length === 0 ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:border-amber-400" : "border-line text-mut hover:text-slate-200"}`}>
+          ⚡ onboard
         </button>
       </div>
 

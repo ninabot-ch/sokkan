@@ -148,7 +148,19 @@ def _uniquify(tag: str) -> str:
     return f"{tag}-{n}"
 
 
-def _seed_text(prompt: str) -> str:
+def _seed_text(prompt: str, recall: str = "") -> str:
+    """Seed d'une session. `recall` = bloc mémoire PRÉ-INJECTÉ (recherche faite
+    côté serveur au spawn — déterministe, n'attend pas que le modèle obéisse).
+    Sans recall (mémoire vide, backend down, spawn tmux), on retombe sur le
+    rituel textuel historique."""
+    if recall:
+        return (
+            f"{prompt.strip()}\n\n{recall}\n"
+            "The notes above were auto-recalled from project memory for this task. "
+            "Call the mcp__sokkan-memory__memory_get MCP tool on any note you need in full, and "
+            "mcp__sokkan-memory__memory_search for other angles (real MCP tool calls, not shell "
+            "commands). Then propose a short plan — don't execute anything without my go-ahead."
+        ).strip()
     return (
         f"{prompt.strip()} "
         "Start by calling the mcp__sokkan-memory__memory_search MCP tool on this topic to load "
@@ -251,8 +263,8 @@ def get_claude_session_id(sid: str) -> str:
     return (r["claude_session_id"] if r else "") or ""
 
 
-def seed_text(prompt: str) -> str:
-    return _seed_text(prompt)
+def seed_text(prompt: str, recall: str = "") -> str:
+    return _seed_text(prompt, recall)
 
 
 # ---------- cartes ----------

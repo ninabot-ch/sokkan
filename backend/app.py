@@ -50,6 +50,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import playbooks
 import edge
 import notify
 import observability
@@ -1146,23 +1147,69 @@ class SpawnBody(BaseModel):
     prompt: str = ""
     title: str = ""
     kind: str = "sdk"  # 'sdk' (chat SDK, défaut) | 'tmux' (terminal power-user)
+    playbook: str = ""  # id d'un template de session (GET /api/playbooks) — optionnel
+
+
+def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400) -> str:
+    """Recherche mémoire DÉTERMINISTE au spawn : le serveur fait le memory_search
+    lui-même et pré-injecte le top-k dans le premier message — le rappel ne
+    dépend plus de l'obéissance du modèle au rituel. Best-effort : mémoire vide
+    ou backend down → chaîne vide (le seed retombe sur le rituel textuel)."""
+    try:
+        hits = mem.memory_search(query, top_k=top_k)
+    except Exception:  # noqa: BLE001 — le spawn ne doit jamais échouer sur la mémoire
+        return ""
+    if not isinstance(hits, list) or not hits or hits and hits[0].get("empty"):
+        return ""
+    lines = ["=== Project memory (auto-recalled) ==="]
+    for h in hits:
+        if not h.get("note_name"):
+            continue
+        star = "★ " if h.get("priority") else ""
+        line = f"- {star}[{h['note_name']}] {h.get('description', '')}".rstrip()
+        snip = (h.get("snippet") or "").replace("\n", " ").strip()
+        if snip:
+            line += f" — {snip}"
+        lines.append(line[:400])
+        if sum(len(x) + 1 for x in lines) > max_chars:
+            break
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> dict:
     """Session SDK : enregistrée dans le store + AgentSession créée ; le seed
-    (sujet + consigne memory_search + HITL) part en tâche de fond — les events
+    (sujet + mémoire pré-injectée + HITL) part en tâche de fond — les events
     sont bufferisés et rejoués quand le pane se connecte."""
     sid = agentchat.new_sid()
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
     session = agentchat.get_or_create(sid, user=user)
     if prompt.strip():
-        _bg(session.handle_user(board.seed_text(prompt)))
+        recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt)
+        _bg(session.handle_user(board.seed_text(prompt, recall)))
     return s
+
+
+@app.get("/api/playbooks")
+def playbooks_list(_u: dict = Depends(current_user)) -> list[dict]:
+    """Templates de sessions (spawn UI) : refactor, debug, onboarding mémoire…"""
+    return playbooks.catalog()
 
 
 @app.post("/api/spawn")
 async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> dict:
-    """Crée une session SOKKAN — chat SDK par défaut, fenêtre tmux si kind='tmux'."""
+    """Crée une session SOKKAN — chat SDK par défaut, fenêtre tmux si kind='tmux'.
+    `playbook` applique un template (prompt façonné + tag par défaut) au sujet tapé."""
+    if body.playbook:
+        rendered = playbooks.render(body.playbook, body.prompt)
+        if rendered is None:
+            raise HTTPException(400, f"unknown playbook: {body.playbook}")
+        pb = playbooks.get(body.playbook)
+        body.prompt, default_tag = rendered
+        if body.tag in ("", "session"):
+            body.tag = default_tag
+        if not body.title:
+            subj = body.prompt.splitlines()[0][:60]
+            body.title = pb["label"] if pb.get("subject_optional") else f"{pb['label']}: {subj}"
     if body.kind == "tmux":
         s = board.spawn(body.tag, prompt=body.prompt, title=body.title)
     else:
@@ -1452,19 +1499,8 @@ def memory_note(name: str) -> dict:
 def memory_digest(u: dict = Depends(require("dev"))) -> dict:
     """Memory Digest : spawn une session qui synthétise l'état du projet dans la
     note `project-status` — la mémoire se résume elle-même, à la demande."""
-    mem_dir = os.environ.get("SOKKAN_MEMORY_DIR", "the workspace memory directory")
-    prompt = (
-        "Memory digest — refresh the project-status note.\n\n"
-        "1. Survey the memory: memory_search on the project's main topics, then "
-        "memory_get on the recent and priority notes.\n"
-        "2. If /workspace is a git repo, skim `git log --oneline -30` for recent work.\n"
-        "3. Write (or update) the note `project-status.md` in the memory directory "
-        f"({mem_dir}): what shipped recently, what is in flight, the durable "
-        "conventions and decisions a fresh session must know, open risks. One page "
-        "max, `[[wikilinks]]` to the source notes, standard frontmatter "
-        "(name: project-status, a strong description:, metadata.type: project)."
-    )
-    s = _spawn_sdk("docs", prompt, title="memory digest", user=u["email"])
+    prompt, tag = playbooks.render("digest")
+    s = _spawn_sdk(tag, prompt, title="memory digest", user=u["email"])
     audit.log(u["email"], "memory.digest", s["session_id"])
     return s
 

@@ -99,6 +99,20 @@ def embed_text(name: str, description: str, chunk: str) -> str:
     return f"{name}. {description}. {chunk}"
 
 
+WIKILINK = __import__("re").compile(r"\[\[([A-Za-z0-9_\-]+)(?:\|[^\]]*)?\]\]")
+
+
+def parse_links(body: str, self_name: str) -> list[str]:
+    """[[wikilinks]] du corps (alias [[cible|libellé]] supporté), dédupliqués,
+    sans auto-lien, en minuscules (les names de notes sont kebab-case)."""
+    out: list[str] = []
+    for m in WIKILINK.finditer(body or ""):
+        dst = m.group(1).lower()
+        if dst != self_name and dst not in out:
+            out.append(dst)
+    return out
+
+
 def normalize(v: list[float]) -> list[float]:
     n = math.sqrt(sum(x * x for x in v)) or 1.0
     return [x / n for x in v]
@@ -128,6 +142,12 @@ def init_db(con: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_chunks_note ON chunks(note_name);
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE IF NOT EXISTS links (
+            src TEXT NOT NULL,
+            dst TEXT NOT NULL,
+            PRIMARY KEY (src, dst)
+        );
+        CREATE INDEX IF NOT EXISTS idx_links_dst ON links(dst);
         """
     )
     # migration DBs pré-priorité
@@ -206,7 +226,7 @@ def run_index(rebuild: bool = False) -> dict:
         con.execute("PRAGMA foreign_keys = ON")
         init_db(con)
         if rebuild:
-            con.executescript("DELETE FROM chunks; DELETE FROM notes;")
+            con.executescript("DELETE FROM chunks; DELETE FROM notes; DELETE FROM links;")
             con.commit()
 
         files = sorted(p for p in MEMORY_DIR.glob("*.md") if p.name != "MEMORY.md")
@@ -242,6 +262,9 @@ def run_index(rebuild: bool = False) -> dict:
                 "INSERT INTO chunks(note_name, chunk_idx, body, embedding) VALUES(?,?,?,?)",
                 [(name, i, c, json.dumps(v)) for i, (c, v) in enumerate(zip(chunks, vecs))],
             )
+            con.execute("DELETE FROM links WHERE src = ?", (name,))
+            con.executemany("INSERT OR IGNORE INTO links(src, dst) VALUES(?,?)",
+                            [(name, d) for d in parse_links(note["body"], name)])
             con.commit()
             reindexed += 1
             print(f"  · {name}: {len(chunks)} chunk(s)")
@@ -251,6 +274,7 @@ def run_index(rebuild: bool = False) -> dict:
         for n in pruned:
             con.execute("DELETE FROM chunks WHERE note_name = ?", (n,))
             con.execute("DELETE FROM notes WHERE name = ?", (n,))
+            con.execute("DELETE FROM links WHERE src = ?", (n,))
         con.execute(
             "INSERT INTO meta(key,value) VALUES('model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (embeddings.backend(),),  # identité réelle (remote:url | local:modèle)

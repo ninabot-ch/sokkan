@@ -98,3 +98,33 @@ def test_resolving_unknown_permission_is_noop():
     sess.resolve_permission("nope", {"decision": "allow"})  # must not raise
     assert not sess.events or all(e.get("id") != "nope" or e["type"] != "permission_resolved"
                                   for e in sess.events)
+
+
+def test_seed_text_with_recall_preinjects_memory():
+    """Le rappel mémoire pré-injecté (déterministe) remplace le rituel « va
+    chercher » : les notes sont DANS le premier message, memory_get reste
+    disponible pour approfondir."""
+    import board
+
+    recall = "=== Project memory (auto-recalled) ===\n- [ports-note] the API listens on 5055"
+    seed = board.seed_text("Fix the healthcheck", recall)
+    assert "the API listens on 5055" in seed
+    assert "mcp__sokkan-memory__memory_get" in seed
+    assert "go-ahead" in seed
+    # sans recall → rituel historique inchangé
+    legacy = board.seed_text("Fix the healthcheck")
+    assert "Start by calling the mcp__sokkan-memory__memory_search" in legacy
+
+
+def test_playbooks_render_and_catalog():
+    import playbooks
+
+    cat = playbooks.catalog()
+    ids = {p["id"] for p in cat}
+    assert {"onboard-memory", "refactor", "debug", "digest"} <= ids
+    prompt, tag = playbooks.render("refactor", "split billing.py")
+    assert "split billing.py" in prompt and tag == "backend"
+    assert "behavior must stay identical" in prompt
+    prompt2, _ = playbooks.render("onboard-memory")
+    assert "ONE durable fact per file" in prompt2
+    assert playbooks.render("nope") is None

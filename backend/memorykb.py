@@ -13,7 +13,7 @@ import sqlite3
 from pathlib import Path
 
 MEM_DB = Path(os.environ.get("SOKKAN_MEMORY_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "memory.db")))
-LINK_RE = re.compile(r"\[\[([a-z0-9_\-]+)\]\]", re.I)
+LINK_RE = re.compile(r"\[\[([a-z0-9_\-]+)(?:\|[^\]]*)?\]\]", re.I)  # alias [[cible|libellé]] ok
 
 
 def _con() -> sqlite3.Connection:
@@ -34,22 +34,32 @@ def list_notes() -> list[dict]:
             "SELECT name, description, type, mtime, source_path FROM notes ORDER BY name"
         ).fetchall()]
     counts = dict(con.execute("SELECT note_name, COUNT(*) FROM chunks GROUP BY note_name").fetchall())
+    # liens depuis la table `links` remplie à l'indexation (plus de relecture
+    # disque de chaque note à chaque requête) ; fallback disque si DB pré-2.0
+    outgoing: dict[str, list] = {}
+    incoming: dict[str, set] = {r[0]: set() for r in rows}
+    try:
+        link_rows = con.execute("SELECT src, dst FROM links ORDER BY dst").fetchall()
+        for src, dst in link_rows:
+            outgoing.setdefault(src, []).append(dst)
+            if dst in incoming:
+                incoming[dst].add(src)
+    except sqlite3.OperationalError:  # DB pré-migration sans table links
+        for name, _d, _t, _m, path, _p in rows:
+            try:
+                body = Path(path).read_text(encoding="utf-8", errors="replace")
+                links = sorted({m.lower() for m in LINK_RE.findall(body) if m.lower() != name})
+            except OSError:
+                links = []
+            outgoing[name] = links
+            for tgt in links:
+                if tgt in incoming:
+                    incoming[tgt].add(name)
     con.close()
-    names = {r[0] for r in rows}
-    incoming: dict[str, set] = {n: set() for n in names}
     out = []
     for name, desc, typ, mtime, path, priority in rows:
-        links: list[str] = []
-        try:
-            body = Path(path).read_text(encoding="utf-8", errors="replace")
-            links = sorted({m for m in LINK_RE.findall(body) if m != name})
-        except OSError:
-            pass
-        for tgt in links:
-            if tgt in incoming:
-                incoming[tgt].add(name)
         out.append({"name": name, "description": desc, "type": typ, "mtime": mtime,
-                    "chunks": counts.get(name, 0), "links": links,
+                    "chunks": counts.get(name, 0), "links": outgoing.get(name, []),
                     "priority": bool(priority)})
     for o in out:  # liens entrants (qui me cite)
         o["backlinks"] = sorted(incoming.get(o["name"], set()))

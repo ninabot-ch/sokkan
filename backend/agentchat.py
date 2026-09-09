@@ -71,6 +71,7 @@ MODEL = os.environ.get("SOKKAN_AGENT_MODEL") or None  # None → défaut du CLI
 SAFE_TOOLS = [
     "Read", "Glob", "Grep", "TodoWrite", "NotebookRead",
     "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get",
+    "mcp__sokkan-memory__memory_links",
     "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
     # observabilité en LECTURE : diagnostiquer sans gate ; create_dashboard
     # (écriture) reste soumis à permission.

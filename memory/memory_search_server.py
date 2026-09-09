@@ -65,9 +65,10 @@ def _load_chunks() -> list[tuple[str, str, str, str, list[float], int]]:
 # cosine carries the rest. Tuned so exact jargon hits ("promo", "jobup") surface
 # without drowning the semantic signal on keyword-free queries.
 LEXICAL_WEIGHT = 0.25
-# flat boost for notes marked `priority: high` — enough to surface a durable
-# fact over a marginally-more-similar note, small enough not to bury relevance
-PRIORITY_BOOST = 0.08
+# relative boost for notes marked `priority: high` — MULTIPLICATIVE (score
+# *= 1+boost): a weak match stays weak (no flat +0.08 dominating low-cosine
+# queries), a strong match gets a real nudge. Tunable per install.
+PRIORITY_BOOST = float(os.environ.get("SOKKAN_PRIORITY_BOOST", "0.08"))
 _STOP = {
     "les", "des", "sur", "de", "la", "le", "du", "un", "une", "pour", "dans",
     "avec", "et", "the", "to", "and", "of", "on", "in", "how", "que", "qui",
@@ -150,7 +151,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
         else:
             score = (1 - LEXICAL_WEIGHT) * a["rel"] + LEXICAL_WEIGHT * lex
         if a["priority"]:
-            score += PRIORITY_BOOST
+            score *= 1 + PRIORITY_BOOST
         snippet = a["snippet"] if len(a["snippet"]) <= 320 else a["snippet"][:317] + "…"
         results.append({
             "note_name": a["note_name"],
@@ -189,6 +190,42 @@ def memory_get(note_name: str) -> str:
     if not rows:
         return f"note not found: {note_name}"
     return "\n\n".join(r[0] for r in rows)
+
+
+@mcp.tool()
+def memory_links(note_name: str) -> dict:
+    """Navigation du graphe memoire : liens sortants ([[wikilinks]] de la note)
+    et entrants (notes qui la citent), avec leurs descriptions. Permet a une
+    session de suivre le graphe sans relire les fichiers."""
+    if not DB_PATH.exists():
+        return {"error": f"memory index not found: {DB_PATH}"}
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        try:
+            out_rows = con.execute(
+                "SELECT l.dst AS name, n.description FROM links l "
+                "LEFT JOIN notes n ON n.name = l.dst WHERE l.src = ? ORDER BY l.dst",
+                (note_name,)).fetchall()
+            in_rows = con.execute(
+                "SELECT l.src AS name, n.description FROM links l "
+                "JOIN notes n ON n.name = l.src WHERE l.dst = ? ORDER BY l.src",
+                (note_name,)).fetchall()
+        except sqlite3.OperationalError:
+            return {"note": note_name, "links": [], "backlinks": [],
+                    "info": "links table absent - reindex the memory (pre-2.0 DB)"}
+        exists = {r[0] for r in con.execute("SELECT name FROM notes")}
+    finally:
+        con.close()
+    if note_name not in exists:
+        return {"error": f"note not found: {note_name}"}
+    return {
+        "note": note_name,
+        "links": [{"name": r["name"], "description": r["description"] or "",
+                   "exists": r["name"] in exists} for r in out_rows],
+        "backlinks": [{"name": r["name"], "description": r["description"] or ""}
+                      for r in in_rows],
+    }
 
 
 if __name__ == "__main__":

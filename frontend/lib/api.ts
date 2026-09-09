@@ -30,9 +30,12 @@ export const fetchTags = () => getJSON<string[]>("/api/tags");
 export const fetchTmux = () => getJSON<TmuxWindow[]>("/api/tmux");
 export const fetchBindings = () => getJSON<Binding[]>("/api/bindings");
 
-export const spawnSession = (tag: string, prompt = "", title = "", kind: "sdk" | "tmux" = "sdk") =>
+export interface Playbook { id: string; label: string; description: string; tag: string; subject_optional: boolean }
+export const fetchPlaybooks = () => getJSON<Playbook[]>("/api/playbooks");
+
+export const spawnSession = (tag: string, prompt = "", title = "", kind: "sdk" | "tmux" = "sdk", playbook = "") =>
   mutate<{ session_id: string; tag: string; window: string; title: string; kind?: string }>(
-    "/api/spawn", "POST", { tag, prompt, title, kind }
+    "/api/spawn", "POST", { tag, prompt, title, kind, playbook }
   );
 
 export const deleteSession = (id: string) =>

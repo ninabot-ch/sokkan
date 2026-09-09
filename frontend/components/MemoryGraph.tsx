@@ -58,9 +58,44 @@ const TYPE_COLORS: Record<string, string> = {
   project: "#5aa7d6", feedback: "#d6a75a", reference: "#8b7ad6", user: "#5ad68f",
 };
 
+// composantes connexes (union-find) — sert au filtre « cluster » : cliquer un
+// cluster isole son sous-graphe, les notes orphelines se repèrent d'un coup d'œil
+function components(notes: MemNote[]): Map<string, number> {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(x, r);
+    return r;
+  };
+  for (const n of notes) parent.set(n.name, n.name);
+  const names = new Set(notes.map((n) => n.name));
+  for (const n of notes) for (const l of n.links) if (names.has(l)) parent.set(find(n.name), find(l));
+  const comp = new Map<string, number>();
+  const ids = new Map<string, number>();
+  for (const n of notes) {
+    const root = find(n.name);
+    if (!ids.has(root)) ids.set(root, ids.size);
+    comp.set(n.name, ids.get(root)!);
+  }
+  return comp;
+}
+
 export default function MemoryGraph({ notes, onPick }: { notes: MemNote[]; onPick: (n: string) => void }) {
   const [hover, setHover] = useState<string | null>(null);
-  const { nodes, edges } = useMemo(() => layout(notes), [notes]);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [compFilter, setCompFilter] = useState<number | null>(null);
+  const comp = useMemo(() => components(notes), [notes]);
+  const clusters = useMemo(() => {
+    const sizes = new Map<number, number>();
+    for (const c of comp.values()) sizes.set(c, (sizes.get(c) || 0) + 1);
+    return [...sizes.entries()].sort((a, b) => b[1] - a[1]);
+  }, [comp]);
+  const types = useMemo(() => [...new Set(notes.map((n) => n.type || "?"))].sort(), [notes]);
+  const filtered = useMemo(() => notes.filter((n) =>
+    (typeFilter === null || (n.type || "?") === typeFilter)
+    && (compFilter === null || comp.get(n.name) === compFilter)), [notes, typeFilter, compFilter, comp]);
+  const { nodes, edges } = useMemo(() => layout(filtered), [filtered]);
   const idx = useMemo(() => new Map(nodes.map((n) => [n.name, n])), [nodes]);
   const linked = useMemo(() => {
     if (!hover) return null;
@@ -69,11 +104,31 @@ export default function MemoryGraph({ notes, onPick }: { notes: MemNote[]; onPic
     return s;
   }, [hover, edges]);
 
-  if (!nodes.length) return <div className="mt-10 text-center text-[13px] text-mut">no notes to graph yet</div>;
+  if (!notes.length) return <div className="mt-10 text-center text-[13px] text-mut">no notes to graph yet</div>;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center gap-1.5 px-1 pb-1.5">
+        {types.map((t) => (
+          <button key={t} onClick={() => setTypeFilter(typeFilter === t ? null : t)}
+            className={`rounded-full border px-2 py-0.5 text-[10px] ${typeFilter === t ? "border-sea text-sea" : "border-line text-mut hover:text-slate-300"}`}
+            style={{ borderColor: typeFilter === t ? undefined : TYPE_COLORS[t] ? `${TYPE_COLORS[t]}55` : undefined }}>
+            <span style={{ color: TYPE_COLORS[t] || "#7d8a99" }}>●</span> {t}
+          </button>
+        ))}
+        {clusters.length > 1 && clusters.slice(0, 6).map(([cid, size]) => (
+          <button key={`c${cid}`} onClick={() => setCompFilter(compFilter === cid ? null : cid)}
+            title={`connected cluster of ${size} note${size > 1 ? "s" : ""}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] ${compFilter === cid ? "border-amber-400 text-amber-300" : "border-line text-mut hover:text-slate-300"}`}>
+            ⬡ {size}
+          </button>
+        ))}
+        {(typeFilter !== null || compFilter !== null) && (
+          <button onClick={() => { setTypeFilter(null); setCompFilter(null); }}
+            className="rounded-full border border-line px-2 py-0.5 text-[10px] text-mut hover:text-slate-300">✕ all</button>
+        )}
+      </div>
       <div className="px-1 pb-1 text-[10.5px] text-mut">
-        {nodes.length} notes · {edges.length} links — node size = connections · ★ = priority · click to open
+        {nodes.length} notes · {edges.length} links · {clusters.length} cluster{clusters.length > 1 ? "s" : ""} — node size = connections · ★ = priority · click to open
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="min-h-0 w-full flex-1 rounded-lg border border-line bg-[#0b0f16]">
         {edges.map(([a, b], i) => {

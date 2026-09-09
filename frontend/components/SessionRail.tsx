@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { deleteSession, fetchSessions, fetchTags, spawnSession } from "@/lib/api";
+import { deleteSession, fetchPlaybooks, fetchSessions, fetchTags, spawnSession } from "@/lib/api";
+import type { Playbook } from "@/lib/api";
 import type { SessionSummary } from "@/lib/types";
 import { useCan } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
@@ -23,6 +24,8 @@ export default function SessionRail({
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
+  const [playbook, setPlaybook] = useState("");
   const [tag, setTag] = useState("backend");
   const [prompt, setPrompt] = useState("");
   const [adding, setAdding] = useState(false);
@@ -37,6 +40,7 @@ export default function SessionRail({
   useEffect(() => {
     reload();
     fetchTags().then(setTags).catch(() => {});
+    fetchPlaybooks().then(setPlaybooks).catch(() => {});
     const iv = setInterval(reload, 5000);
     return () => clearInterval(iv);
   }, []);
@@ -45,7 +49,7 @@ export default function SessionRail({
     setBusy(true);
     try {
       const kind = asTmux ? "tmux" as const : "sdk" as const;
-      const s = await spawnSession(tag, prompt, "", kind);
+      const s = await spawnSession(tag, prompt, "", kind, playbook);
       setPrompt(""); setAdding(false);
       onOpen({ session_id: s.session_id, kind, title: s.title, tag: s.tag });
       reload();
@@ -68,6 +72,17 @@ export default function SessionRail({
 
       {adding && (
         <div className="space-y-1.5 border-b border-line bg-panel2/40 p-2">
+          {playbooks.length > 0 && (
+            <select
+              value={playbook}
+              onChange={(e) => { setPlaybook(e.target.value); const pb = playbooks.find((p) => p.id === e.target.value); if (pb) setTag(pb.tag); }}
+              title={playbooks.find((p) => p.id === playbook)?.description || "free-form session"}
+              className="w-full rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200"
+            >
+              <option value="">free-form session</option>
+              {playbooks.map((p) => <option key={p.id} value={p.id}>{`playbook: ${p.label}`}</option>)}
+            </select>
+          )}
           <select
             value={tag}
             onChange={(e) => setTag(e.target.value)}
@@ -79,7 +94,7 @@ export default function SessionRail({
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={2}
-            placeholder="initial prompt (optional)…"
+            placeholder={playbook ? (playbooks.find((p) => p.id === playbook)?.subject_optional ? "subject (optional for this playbook)…" : "subject — what should this playbook work on?…") : "initial prompt (optional)…"}
             className="w-full resize-y rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
           />
           {feats.tmux && (
