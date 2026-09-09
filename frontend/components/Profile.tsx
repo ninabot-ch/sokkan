@@ -180,6 +180,18 @@ function Model() {
                 <span className="text-slate-300">{fmt(use.used_today)} / {use.daily_quota_tokens ? fmt(use.daily_quota_tokens) : "∞"} tokens</span></div>
               <div className="mt-1"><Bar used={use.used_today} quota={use.daily_quota_tokens} /></div>
             </div>
+            {use.spent_month_centimes != null && (
+              <div className="flex justify-between text-[11px] text-mut"><span>Spent this month</span>
+                <span className="text-slate-300">{((use.spent_month_centimes ?? 0) / 100).toFixed(2)} CHF
+                  <span className="text-mut"> · today {((use.spent_today_centimes ?? 0) / 100).toFixed(2)}</span></span></div>
+            )}
+            {use.escalation_franchise_tokens != null && (
+              <div title="When your tier's provider is down, requests escalate to the Deep tier. The first tokens served that way each month are billed at YOUR tier's price — this gauge keeps us honest: gratuitous escalation would cost us, not you.">
+                <div className="flex justify-between text-[11px] text-mut"><span>Deep escalation — billed at your tier</span>
+                  <span className="text-slate-300">{fmt(use.escalated_month_tokens ?? 0)} / {fmt(use.escalation_franchise_tokens)} tokens</span></div>
+                <div className="mt-1"><Bar used={use.escalated_month_tokens ?? 0} quota={use.escalation_franchise_tokens} /></div>
+              </div>
+            )}
             {!!use.per_user?.length && (
               <div>
                 <div className="text-[11px] text-mut">This month's usage by user</div>

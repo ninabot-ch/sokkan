@@ -81,8 +81,14 @@ export interface LlmUsage {
   client: string; day: string; used_today: number; daily_quota_tokens: number;
   used_month: number; monthly_quota_tokens: number;
   balance_centimes?: number; // wallet prépayé (inférence gérée)
+  spent_today_centimes?: number; spent_month_centimes?: number; // dépenses réelles (ledger)
+  // jauge d'escalade : tokens servis en tier supérieur, facturés au tier demandé
+  // jusqu'à la franchise mensuelle (engagement public anti-escalade-artificielle)
+  escalated_month_tokens?: number; escalation_franchise_tokens?: number;
   per_user?: { user: string; input_tokens: number; output_tokens: number; requests: number }[];
   rates_chf_per_mtok?: { up_to_input: number; input: number; output: number }[];
+  coding_tiers_chf_per_mtok?: { id: string; label: string; description: string;
+                                chf_per_mtok_in: number; chf_per_mtok_out: number }[];
 }
 export const llmCredit = (pack: number) =>
   mutate<{ ok: boolean; checkout_url: string }>("/api/llm/credit", "POST", { pack });
