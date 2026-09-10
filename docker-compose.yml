@@ -28,6 +28,14 @@ services:
       SOKKAN_INFER_BASE_URL: ${SOKKAN_INFER_BASE_URL:-}
       SOKKAN_INFER_TOKEN: ${SOKKAN_INFER_TOKEN:-}
       SOKKAN_INFER_MODEL: ${SOKKAN_INFER_MODEL:-}
+      # Nina, the embedded DevOps assistant. Server-side feature flag; the
+      # LLM vars are seeded at provisioning on managed instances (house
+      # account — we pay), and optional self-host (falls back to your own
+      # configured model when only the flag is set).
+      SOKKAN_FEATURE_ASSISTANT: ${SOKKAN_FEATURE_ASSISTANT:-0}
+      SOKKAN_ASSISTANT_LLM_URL: ${SOKKAN_ASSISTANT_LLM_URL:-}
+      SOKKAN_ASSISTANT_LLM_TOKEN: ${SOKKAN_ASSISTANT_LLM_TOKEN:-}
+      SOKKAN_ASSISTANT_LLM_MODEL: ${SOKKAN_ASSISTANT_LLM_MODEL:-}
       # API flotte : le client gère/étend son infra depuis le cockpit
       SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
