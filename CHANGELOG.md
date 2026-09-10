@@ -3,6 +3,20 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 2.0.1 — 2026-09-10 — "Nina, visible"
+- **Fix: the embedded assistant was never reachable.**
+  `SOKKAN_FEATURE_ASSISTANT` and the three `SOKKAN_ASSISTANT_LLM_*` variables
+  were documented and shipped, but were missing from the `api` service's
+  `environment:` block in `docker-compose.yml` — Compose interpolates `.env`
+  into the compose file, so an undeclared variable never enters the container.
+  `/api/features` therefore reported `assistant: false` on every instance,
+  self-hosted and managed alike, and Nina's panel stayed hidden. Declared now.
+- **Nina can run on your own hardware**: `SOKKAN_ASSISTANT_LLM_API=openai`
+  points her at any `/chat/completions` endpoint (Ollama, vLLM, LiteLLM)
+  instead of an Anthropic-shaped one — e.g. `URL=http://<host>:11434/v1`,
+  `MODEL=phi4:14b-q4_K_M`. Default stays `anthropic`; managed instances are
+  unaffected.
+
 ## 2.0.0 — 2026-09-10 — "Memory, guaranteed"
 - **Deterministic memory recall at spawn**: the server performs the semantic
   search itself and injects the top notes into the session's first message.

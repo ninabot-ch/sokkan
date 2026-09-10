@@ -106,19 +106,51 @@ def _llm_config() -> dict | None:
     url = os.environ.get("SOKKAN_ASSISTANT_LLM_URL", "")
     tok = os.environ.get("SOKKAN_ASSISTANT_LLM_TOKEN", "")
     if url and tok:
+        # `api` : "anthropic" (défaut — la passerelle managée parle Messages) ou
+        # "openai" pour un endpoint /chat/completions (Ollama, vLLM, LiteLLM…),
+        # ce qui permet de faire tourner Nina sur du silicium maison.
         return {"url": url.rstrip("/"), "token": tok,
+                "api": os.environ.get("SOKKAN_ASSISTANT_LLM_API", "anthropic").lower(),
                 "model": os.environ.get("SOKKAN_ASSISTANT_LLM_MODEL", "qwen3-coder-plus")}
     c = llm.load()
     if c.get("mode") == "included" and c.get("base_url") and c.get("auth_token"):
         return {"url": c["base_url"].rstrip("/"), "token": c["auth_token"],
-                "model": c.get("model") or "qwen3-coder-plus"}
+                "api": "anthropic", "model": c.get("model") or "qwen3-coder-plus"}
     if c.get("mode") == "byok" and c.get("anthropic_api_key"):
         return {"url": "https://api.anthropic.com", "token": c["anthropic_api_key"],
-                "model": "claude-haiku-4-5-20251001"}
+                "api": "anthropic", "model": "claude-haiku-4-5-20251001"}
     if os.environ.get("ANTHROPIC_API_KEY"):
         return {"url": "https://api.anthropic.com", "token": os.environ["ANTHROPIC_API_KEY"],
-                "model": "claude-haiku-4-5-20251001"}
+                "api": "anthropic", "model": "claude-haiku-4-5-20251001"}
     return None
+
+
+def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
+    """Un aller-retour modèle. Deux dialectes, une seule sortie texte."""
+    hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
+    if cfg.get("api") == "openai":
+        r = httpx.post(
+            f"{cfg['url']}/chat/completions",
+            headers={"Authorization": f"Bearer {cfg['token']}", **hdr_user},
+            json={"model": cfg["model"], "max_tokens": MAX_TOKENS,
+                  "messages": [{"role": "system", "content": system}, *msgs]},
+            timeout=120,  # un modèle local sur GPU maison est plus lent qu'une API
+        )
+        r.raise_for_status()
+        m = (r.json().get("choices") or [{}])[0].get("message") or {}
+        # les modèles à raisonnement rendent content=None et tout mettent dans
+        # reasoning_content (piège déjà vu sur la passerelle d'inférence)
+        return (m.get("content") or m.get("reasoning_content") or "").strip()
+    r = httpx.post(
+        f"{cfg['url']}/v1/messages",
+        headers={"x-api-key": cfg["token"], "anthropic-version": "2023-06-01", **hdr_user},
+        json={"model": cfg["model"], "max_tokens": MAX_TOKENS,
+              "system": system, "messages": msgs},
+        timeout=60,
+    )
+    r.raise_for_status()
+    return "".join(b.get("text", "") for b in r.json().get("content", [])
+                   if b.get("type") == "text").strip()
 
 
 def configured() -> bool:
@@ -147,18 +179,7 @@ def chat(user_email: str, message: str) -> dict:
     msgs.append({"role": "user", "content": message})
     system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb()}"
 
-    r = httpx.post(
-        f"{cfg['url']}/v1/messages",
-        headers={"x-api-key": cfg["token"], "anthropic-version": "2023-06-01",
-                 "x-sokkan-user": f"assistant:{user_email}"},
-        json={"model": cfg["model"], "max_tokens": MAX_TOKENS,
-              "system": system, "messages": msgs},
-        timeout=60,
-    )
-    r.raise_for_status()
-    data = r.json()
-    reply = "".join(b.get("text", "") for b in data.get("content", [])
-                    if b.get("type") == "text").strip() or "(réponse vide)"
+    reply = _ask(cfg, system, msgs, user_email) or "(réponse vide)"
 
     now = time.time()
     con.execute("INSERT INTO messages(user_email, role, content, ts) VALUES(?,?,?,?)",
