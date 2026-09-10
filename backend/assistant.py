@@ -8,8 +8,16 @@ par cœur (corpus `assistant_kb/*.md`, injecté ENTIER dans le prompt système �
 Frontière (spec docs/sokkan/spec-agente-devops.md, décision Nick 23-07) :
 enforcement STRUCTUREL — ce module n'a aucun accès au workspace, aux fichiers,
 à l'env des sessions ni au control plane. Ce qu'il ne reçoit pas, il ne peut
-pas le divulguer. S1 = sans dossier client (S2 l'ajoutera via les endpoints
-curés fleet/usage/llm.status).
+pas le divulguer.
+
+S2 (2026-09-10) ajoute le DOSSIER CLIENT et la MÉMOIRE PROJET au prompt, via
+des accesseurs curés en LECTURE SEULE (fleet.view / llm.status+usage /
+usage.summary / memory_search). Deux garde-fous structurels :
+- `_dossier()` recopie une **allowlist** de champs, jamais le dict brut : l'URI
+  de connexion d'une DBaaS ne peut pas fuir même si le portail l'envoie ;
+- la mémoire est **pré-récupérée** et injectée (pas d'outil à appeler), même
+  doctrine que le recall déterministe au spawn de la 2.0 — la garantie est
+  mécanique, elle ne dépend pas du bon vouloir du modèle.
 
 LLM : SOKKAN_ASSISTANT_LLM_{URL,TOKEN,MODEL} si posés (service NINABOT, seedé
 au provisioning cloud — le wallet du client n'est jamais débité), sinon
@@ -19,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -37,6 +46,13 @@ PERSONA = """Tu es Nina, l'ingénieure DevOps embarquée dans le cockpit SOKKAN 
 Tu connais le produit par cœur (la base de connaissance ci-dessous) et tu aides
 l'utilisateur à réussir : importer son projet, semer sa mémoire, piloter ses
 sessions, gérer sa flotte et ses coûts.
+
+Tu disposes plus bas de trois blocs : la base de connaissance produit, le
+DOSSIER CLIENT (l'état réel de cette instance : plan, flotte, conso, crédits,
+catalogue et prix) et des EXTRAITS DE MÉMOIRE PROJET pertinents pour la
+question posée. Appuie-toi dessus : cite les vrais chiffres, les vrais noms de
+machines, le vrai solde. Si le dossier ne contient pas l'information, dis-le et
+indique l'écran — n'invente jamais un chiffre.
 
 Règles absolues :
 - Tu ne lis, ne cites et ne devines JAMAIS un secret : credentials, URI de
@@ -125,6 +141,25 @@ def _llm_config() -> dict | None:
     return None
 
 
+def _fallback_config() -> dict | None:
+    """Endpoint de repli (`SOKKAN_ASSISTANT_LLM_FALLBACK_*`). Sert à mettre Nina
+    sur du silicium maison SANS la rendre indisponible quand il ne tourne pas :
+    primaire = XPU local, repli = passerelle managée."""
+    url = os.environ.get("SOKKAN_ASSISTANT_LLM_FALLBACK_URL", "")
+    tok = os.environ.get("SOKKAN_ASSISTANT_LLM_FALLBACK_TOKEN", "")
+    if not (url and tok):
+        return None
+    return {"url": url.rstrip("/"), "token": tok,
+            "api": os.environ.get("SOKKAN_ASSISTANT_LLM_FALLBACK_API", "anthropic").lower(),
+            "model": os.environ.get("SOKKAN_ASSISTANT_LLM_FALLBACK_MODEL", "sokkan-ship")}
+
+
+# Un primaire injoignable ne doit pas coûter son timeout à CHAQUE message :
+# on le met au coin pendant PRIMARY_RETRY_S avant de retenter.
+PRIMARY_RETRY_S = 120
+_primary_down_until = 0.0
+
+
 def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
     """Un aller-retour modèle. Deux dialectes, une seule sortie texte."""
     hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
@@ -154,7 +189,144 @@ def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
 
 
 def configured() -> bool:
-    return _llm_config() is not None and bool(_kb())
+    return (_llm_config() or _fallback_config()) is not None and bool(_kb())
+
+
+def _ask_with_fallback(cfg: dict, fb: dict | None, system: str, msgs: list[dict],
+                       user_email: str) -> tuple[str, str]:
+    """Primaire d'abord, repli si le primaire ne répond pas. Pensé pour mettre
+    Nina sur du silicium maison (vLLM-XPU) sans la rendre indisponible quand
+    celui-ci ne tourne pas : « quand dispo » est une bascule, pas un pari.
+    Retourne (réponse, backend qui a répondu)."""
+    global _primary_down_until
+    if fb and time.time() < _primary_down_until:
+        return _ask(fb, system, msgs, user_email), "fallback"
+    try:
+        out = _ask(cfg, system, msgs, user_email)
+        _primary_down_until = 0.0
+        return out, "primary"
+    except (httpx.HTTPError, ValueError) as e:
+        if not fb:
+            raise
+        _primary_down_until = time.time() + PRIMARY_RETRY_S
+        print(f"[assistant] primaire KO ({e}) → repli pour {PRIMARY_RETRY_S}s")
+        return _ask(fb, system, msgs, user_email), "fallback"
+
+
+# ---- dossier client (S2) — accesseurs curés, LECTURE SEULE ---------------
+_DOSSIER_TTL = 60.0
+_dossier_cache: tuple[float, str] = (0.0, "")
+
+
+def _fleet_lines() -> list[str]:
+    """Ressources + catalogue, par ALLOWLIST de champs. L'URI d'une DBaaS et
+    tout autre secret que le portail enverrait ne sont jamais recopiés."""
+    import fleet
+    if not fleet.ENABLED:
+        return []
+    v = fleet.view()
+    out = [f"plan courant : {v.get('plan') or '—'}"]
+    res = v.get("resources") or []
+    if res:
+        out.append("ressources de la flotte :")
+        for r in res:
+            if r.get("status") == "destroyed":
+                continue
+            bits = [f"  - {r.get('name') or r.get('sku')} ({r.get('sku')}) — {r.get('status')}"]
+            if r.get("fleet_host"):
+                bits.append(f", joignable en `{r['fleet_host']}`")
+            if r.get("private_ip"):
+                bits.append(f" ({r['private_ip']})")
+            out.append("".join(bits))
+    else:
+        out.append("ressources de la flotte : aucune pour l'instant")
+    cat = [c for c in (v.get("catalog") or []) if c.get("price_chf")]
+    if cat:
+        out.append("catalogue commandable (prix mensuel CHF) :")
+        out += [f"  - {c['sku']} · {c['label']} · {c['price_chf']} CHF" for c in cat]
+    routes = v.get("routes") or []
+    if routes:
+        out.append("services exposés sur le web : "
+                   + ", ".join(str(r.get("hostname")) for r in routes))
+    return out
+
+
+def _inference_lines() -> list[str]:
+    out = []
+    st = llm.status()
+    tier = st.get("model") or "—"
+    out.append(f"inférence : mode {st.get('mode')}, modèle/tier {tier}")
+    u = llm.usage()
+    if u:
+        bal = u.get("balance_centimes")
+        if bal is not None:
+            out.append(f"solde de crédits : {bal / 100:.2f} CHF")
+        if u.get("spent_month_centimes") is not None:
+            out.append(f"dépensé — aujourd'hui {u.get('spent_today_centimes', 0) / 100:.2f} CHF, "
+                       f"ce mois {u['spent_month_centimes'] / 100:.2f} CHF")
+        if u.get("used_today") is not None:
+            out.append(f"tokens d'inférence — aujourd'hui {u['used_today']}, "
+                       f"ce mois {u.get('used_month', '?')}")
+        for tier in (u.get("coding_tiers_chf_per_mtok") or []):
+            out.append(f"  tarif {tier.get('id')} : {tier.get('chf_per_mtok_in')} CHF/Mtok en entrée, "
+                       f"{tier.get('chf_per_mtok_out')} en sortie")
+    return out
+
+
+def _sessions_lines() -> list[str]:
+    import usage
+    tot = (usage.summary(days_back=30) or {}).get("totals") or {}
+    def _fmt(k: str, label: str) -> str | None:
+        d = tot.get(k)
+        if not d:
+            return None
+        return (f"  - {label} : {d.get('turns', 0)} tours, "
+                f"{d.get('out_tokens', 0)} tokens produits, ~{d.get('cost', 0):.2f} USD estimés")
+    lines = [x for x in (_fmt("today", "aujourd'hui"), _fmt("7d", "7 derniers jours"),
+                         _fmt("30d", "30 derniers jours")) if x]
+    return ["consommation des sessions d'agent :", *lines] if lines else []
+
+
+def _dossier() -> str:
+    """État réel de l'instance, en texte compact. Chaque source est isolée :
+    une brique indisponible (portail down, pas de flotte) en retire une ligne,
+    elle ne casse pas la conversation."""
+    global _dossier_cache
+    now = time.time()
+    if _dossier_cache[0] > now - _DOSSIER_TTL:
+        return _dossier_cache[1]
+    lines: list[str] = [
+        f"version de l'instance : {os.environ.get('SOKKAN_VERSION', 'dev')}",
+        f"offre : {os.environ.get('SOKKAN_TIER') or 'self-hosted'}",
+    ]
+    for source in (_fleet_lines, _inference_lines, _sessions_lines):
+        try:
+            lines += source()
+        except Exception as e:  # noqa: BLE001 — un accesseur muet vaut mieux qu'un chat mort
+            print(f"[assistant] dossier: {source.__name__} indisponible ({e})")
+    text = "\n".join(lines)
+    _dossier_cache = (now, text)
+    return text
+
+
+def _memory_context(query: str, top_k: int = 4) -> str:
+    """Extraits de la mémoire projet pertinents pour la question. Pré-récupérés
+    (pas d'outil à appeler) — même doctrine que le recall au spawn."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
+        import memory_search_server as mem
+        hits = mem.memory_search(query, top_k) or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[assistant] mémoire indisponible ({e})")
+        return ""
+    out = []
+    for h in hits:
+        name = h.get("note_name")
+        if not name:  # {"info": …} quand la mémoire est vide, {"error": …} si l'index est KO
+            continue
+        excerpt = (h.get("snippet") or "").strip().replace("\n", " ")
+        out.append(f"[[{name}]] — {h.get('description') or ''}\n{excerpt[:600]}")
+    return "\n\n".join(out)
 
 
 def chat(user_email: str, message: str) -> dict:
@@ -164,7 +336,9 @@ def chat(user_email: str, message: str) -> dict:
         raise ValueError("message vide")
     if len(message) > 4000:
         raise ValueError("message trop long (4000 caractères max)")
-    cfg = _llm_config()
+    cfg, fb = _llm_config(), _fallback_config()
+    if not cfg and fb:  # primaire absent : le repli devient le chemin normal
+        cfg, fb = fb, None
     if not cfg:
         raise ValueError("assistant non configuré sur cette instance")
 
@@ -178,8 +352,16 @@ def chat(user_email: str, message: str) -> dict:
     msgs = [{"role": m["role"], "content": m["content"]} for m in past]
     msgs.append({"role": "user", "content": message})
     system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb()}"
+    dossier = _dossier()
+    if dossier:
+        system += f"\n\n=== DOSSIER CLIENT (état réel, lecture seule) ===\n\n{dossier}"
+    notes = _memory_context(message)
+    if notes:
+        system += ("\n\n=== EXTRAITS DE MÉMOIRE PROJET (pertinents pour la question) ==="
+                   f"\n\n{notes}")
 
-    reply = _ask(cfg, system, msgs, user_email) or "(réponse vide)"
+    reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
+    reply = reply or "(réponse vide)"
 
     now = time.time()
     con.execute("INSERT INTO messages(user_email, role, content, ts) VALUES(?,?,?,?)",
@@ -188,4 +370,4 @@ def chat(user_email: str, message: str) -> dict:
                 (user_email, "assistant", reply, now + 0.001))
     con.commit()
     con.close()
-    return {"reply": reply}
+    return {"reply": reply, "via": via}

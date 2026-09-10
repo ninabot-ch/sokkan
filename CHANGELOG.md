@@ -3,6 +3,22 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+- **Nina knows your instance (S2).** Her prompt now carries a read-only client
+  dossier — plan, fleet resources and their `.fleet` names, orderable catalogue
+  with prices, credit balance and spend, agent-session consumption — plus the
+  memory notes relevant to the question asked. She answers with your real
+  figures instead of generalities. Two structural guardrails: the dossier is
+  built from an **allowlist** of fields, so a database connection URI cannot
+  reach the prompt even though the portal returns one; and memory is
+  **pre-retrieved** rather than exposed as a tool, so recall does not depend on
+  the model choosing to call it — the same doctrine as spawn-time recall in 2.0.
+  Every source is isolated: a dead one drops a line, it never breaks the chat.
+- **Assistant failover**: `SOKKAN_ASSISTANT_LLM_FALLBACK_*` defines a second
+  endpoint. Nina prefers the primary, falls back on connection failure, and
+  retries the primary every two minutes — so you can point her at your own GPU
+  box without her going down when it is off.
+
 ## 2.0.1 — 2026-09-10 — "Nina, visible"
 - **Fix: the embedded assistant was never reachable.**
   `SOKKAN_FEATURE_ASSISTANT` and the three `SOKKAN_ASSISTANT_LLM_*` variables
