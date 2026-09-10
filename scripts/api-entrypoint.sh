@@ -6,6 +6,13 @@ set -e
 # puis on DROP vers l'utilisateur non-privilégié avant de lancer quoi que ce soit.
 if [ "$(id -u)" = "0" ]; then
   chgrp sokkan /etc/hosts 2>/dev/null && chmod 664 /etc/hosts 2>/dev/null || true
+  # /workspace créé par l'installeur (souvent root) → l'agent uid 1000 ne peut
+  # pas écrire (Write → EACCES, constaté e2e 2026-09-10). On ne chown QUE le
+  # dossier top-level ET seulement s'il appartient à root : le projet d'un
+  # utilisateur (son uid) n'est jamais touché, et jamais récursivement.
+  if [ -d /workspace ] && [ "$(stat -c %u /workspace 2>/dev/null)" = "0" ]; then
+    chown sokkan:sokkan /workspace 2>/dev/null || true
+  fi
   exec setpriv --reuid=sokkan --regid=sokkan --init-groups "$0" "$@"
 fi
 
