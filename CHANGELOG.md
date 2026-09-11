@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## 2.2.0 — 2026-09-11 — "Nina, without the wait"
 - **Nina's prompt got smaller.** The product knowledge base was re-injected
   whole on every turn — 7.5 kB, two thirds of the system prompt. It now carries
   the full table of contents (so she always knows what exists and where to point
@@ -22,6 +22,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   question is an infrastructure trade-off; streaming is what makes that
   affordable, rather than capping her output. Failover to the secondary endpoint
   stays possible until the first byte — after that the stream is committed.
+- **Fix: an empty answer when the endpoint does not stream.** The SSE reader
+  looked for `data:` frames and found none when the endpoint replies with a
+  single JSON body — which is what the managed gateway does on house accounts,
+  precisely Nina's *fallback* path. A failure of the primary would have produced
+  an empty answer instead of a working fallback. The reader now checks the
+  content type and reads the whole body when it is not an event stream.
 
 ## 2.1.1 — 2026-09-11 — "Nina, in your language"
 - **Fix: Nina now answers in the language you asked in.** The persona already
