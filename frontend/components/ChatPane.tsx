@@ -5,6 +5,10 @@ import type { Binding, LiveState, SessionDetail } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
 import { useCan } from "@/lib/me";
 
+// Au-delà, le coût de rendu (ReactMarkdown × messages) gèle l'onglet sur les
+// grosses sessions — on ne monte que la fin, le reste à la demande.
+const RENDER_CAP = 250;
+
 const STATE_LABEL: Record<string, string> = {
   booting: "session starting…",
   working: "Claude is working…",
@@ -29,6 +33,7 @@ export default function ChatPane({
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [view, setView] = useState<"chat" | "term">("chat");
+  const [showAll, setShowAll] = useState(false);
   const [showMirror, setShowMirror] = useState(false);
   const [pending, setPending] = useState<string[]>([]); // prompts envoyés, pas encore dans le transcript
   const canWrite = useCan("dev");
@@ -40,7 +45,13 @@ export default function ChatPane({
     const load = async () => {
       try {
         const d = await fetchSession(id);
-        if (alive) { setData(d); setErr(null); }
+        if (alive) {
+          // transcript inchangé → on garde l'identité précédente : aucun re-render
+          setData((prev) =>
+            prev && prev.mtime === d.mtime && prev.size === d.size
+              && prev.n_messages === d.n_messages ? prev : d);
+          setErr(null);
+        }
       } catch (e) {
         if (alive) setErr(String(e));
       }
@@ -176,7 +187,26 @@ export default function ChatPane({
                 : "session ready — type a message below"}
             </div>
           )}
-          {data?.messages.map((m, i) => <ChatMessage key={i} m={m} />)}
+          {(() => {
+            const msgs = data?.messages ?? [];
+            const start = showAll ? 0 : Math.max(0, msgs.length - RENDER_CAP);
+            return (
+              <>
+                {start > 0 && (
+                  <div className="my-2 text-center">
+                    <button
+                      onClick={() => setShowAll(true)}
+                      className="rounded-full border border-line bg-panel2 px-3 py-0.5 text-[11px] text-mut hover:text-slate-200"
+                    >
+                      afficher les {start} messages précédents
+                    </button>
+                  </div>
+                )}
+                {/* clé = index absolu : identité stable quand la fenêtre glisse */}
+                {msgs.slice(start).map((m, i) => <ChatMessage key={start + i} m={m} />)}
+              </>
+            );
+          })()}
           {pending.map((t, i) => (
             <div key={`p${i}`} className="my-2 flex justify-end">
               <div className="max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-sea/10 px-3 py-2 text-[13px] text-slate-300 ring-1 ring-sea/20">

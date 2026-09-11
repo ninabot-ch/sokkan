@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "@/lib/types";
@@ -24,7 +24,7 @@ function Thinking({ text }: { text: string }) {
   );
 }
 
-export default function ChatMessage({ m }: { m: Message }) {
+function ChatMessage({ m }: { m: Message }) {
   if (m.kind === "tool") return <ToolCard m={m} />;
   if (m.kind === "thinking") return <Thinking text={m.text || ""} />;
 
@@ -67,3 +67,9 @@ export default function ChatMessage({ m }: { m: Message }) {
     </div>
   );
 }
+
+// Le polling recrée tous les objets message à chaque tick : sans comparateur,
+// memo() ne sert à rien (identités neuves). On compare le contenu — seul le
+// dernier message d'un transcript en cours d'écriture change réellement.
+export default memo(ChatMessage, (prev, next) =>
+  prev.m === next.m || JSON.stringify(prev.m) === JSON.stringify(next.m));
