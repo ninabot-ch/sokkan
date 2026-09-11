@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## 2.1.0 — 2026-09-11 — "Nina, briefed"
 - **Nina knows your instance (S2).** Her prompt now carries a read-only client
   dossier — plan, fleet resources and their `.fleet` names, orderable catalogue
   with prices, credit balance and spend, agent-session consumption — plus the
