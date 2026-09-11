@@ -104,21 +104,87 @@ def _today_count(con: sqlite3.Connection, user_email: str) -> int:
 
 
 # ---- KB (corpus produit, cache par mtime) ---------------------------------
-_kb_cache: tuple[float, str] | None = None
+_kb_cache: tuple[float, list] | None = None
 
 
-def _kb() -> str:
+def _kb_files() -> list[tuple[str, str]]:
+    """[(titre, contenu)] des fichiers de KB, cache par mtime."""
     global _kb_cache
     if not KB_DIR.is_dir():
-        return ""
+        return []
     mtime = max((p.stat().st_mtime for p in KB_DIR.glob("*.md")), default=0.0)
     if _kb_cache and _kb_cache[0] == mtime:
         return _kb_cache[1]
-    parts = [p.read_text(encoding="utf-8", errors="replace")
-             for p in sorted(KB_DIR.glob("*.md"))]
-    text = "\n\n---\n\n".join(parts)[:KB_CAP]
-    _kb_cache = (mtime, text)
-    return text
+    out = []
+    for f in sorted(KB_DIR.glob("*.md")):
+        body = f.read_text(encoding="utf-8", errors="replace").strip()
+        title = body.split("\n", 1)[0].lstrip("# ").strip() or f.stem
+        out.append((title, body))
+    _kb_cache = (mtime, out)
+    return out
+
+
+def _kb() -> str:
+    """KB entière — conservée pour les tests et tout appel hors chat."""
+    return "\n\n---\n\n".join(b for _, b in _kb_files())[:KB_CAP]
+
+
+_WORD = re.compile(r"[a-zà-ÿ0-9]{4,}", re.I)
+KB_SPINE = "01-"        # le tour du produit : toujours injecté, c'est la colonne vertébrale
+KB_TOP_K = 2            # + les 2 fichiers les plus pertinents pour la question
+
+# La KB est en français, les questions arrivent aussi en anglais : sans pont, une
+# question anglaise ne matche rien et on déplie la mauvaise section (constaté sur
+# « how do credits work » → « Nouveautés »). Une quinzaine de termes métier suffit ;
+# c'est déterministe, sans latence et auditable — pas besoin d'embeddings ici.
+_KB_BRIDGE = {
+    "fleet": "flotte", "credits": "crédits", "credit": "crédits", "balance": "solde",
+    "memory": "mémoire", "note": "notes", "notes": "mémoire", "cost": "coût",
+    "costs": "coûts", "pricing": "tarif", "price": "prix", "board": "kanban",
+    "card": "carte", "cards": "cartes", "session": "sessions", "worker": "worker",
+    "database": "postgresql", "inference": "inférence", "model": "modèle",
+    "plan": "plan", "repository": "dépôt", "repo": "dépôt", "troubleshoot": "dépannage",
+    "broken": "dépannage", "error": "dépannage", "help": "aide", "billing": "facturation",
+}
+
+
+def _kb_for(question: str) -> str:
+    """Sommaire complet + le corps des sections pertinentes.
+
+    La KB entière (7,5 ko ≈ 2 000 tokens) était réinjectée à chaque tour et
+    pesait les deux tiers du prompt système — or sur silicium maison le prefill
+    coûte ~3,2 ms/token, donc ce confort se payait en secondes d'attente à
+    chaque question. On garde le SOMMAIRE de tous les fichiers (Nina sait donc
+    toujours ce qui existe et peut renvoyer au bon écran) et on ne déplie que
+    la colonne vertébrale + les 2 sections les plus proches de la question.
+    """
+    files = _kb_files()
+    if not files:
+        return ""
+    q = {w.lower() for w in _WORD.findall(question or "")}
+    q |= {_KB_BRIDGE[w] for w in list(q) if w in _KB_BRIDGE}
+    scored = []
+    for i, (title, body) in enumerate(files):
+        if _kb_path_prefix(i).startswith(KB_SPINE):
+            continue
+        words = {w.lower() for w in _WORD.findall(f"{title} {title} {body}")}
+        # normalisé par la taille : sans ça le fichier le plus long gagne par
+        # accident (« Nouveautés », 2 ko, raflait les questions sur les crédits)
+        hits = len(q & words)
+        scored.append((hits / (len(words) ** 0.5 or 1), hits, i))
+    scored.sort(reverse=True)
+    keep = {i for i, (title, _) in enumerate(files) if _kb_path_prefix(i).startswith(KB_SPINE)}
+    keep |= {i for _, hits, i in scored[:KB_TOP_K] if hits > 0}
+    if len(keep) == 1:        # rien n'a matché : on déplie le dépannage, qui
+        keep |= {i for i in range(len(files))   # oriente vers le bon écran
+                 if _kb_path_prefix(i).startswith("06-")}
+    toc = "\n".join(f"- {title}" for title, _ in files)
+    bodies = "\n\n---\n\n".join(files[i][1] for i in sorted(keep))
+    return f"Sections disponibles :\n{toc}\n\n---\n\n{bodies}"[:KB_CAP]
+
+
+def _kb_path_prefix(i: int) -> str:
+    return sorted(KB_DIR.glob("*.md"))[i].name if KB_DIR.is_dir() else ""
 
 
 # ---- LLM -----------------------------------------------------------------
@@ -424,7 +490,7 @@ def _prepare(user_email: str, message: str) -> tuple[dict, dict | None, str, lis
     msgs = [{"role": m["role"], "content": m["content"]}
             for m in history(user_email, HISTORY_TURNS)]
     msgs.append({"role": "user", "content": message})
-    system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb()}"
+    system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb_for(message)}"
     dossier = _dossier()
     if dossier:
         system += f"\n\n=== DOSSIER CLIENT (état réel, lecture seule) ===\n\n{dossier}"

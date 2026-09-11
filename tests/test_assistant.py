@@ -248,3 +248,35 @@ def test_stream_falls_back_before_first_byte(monkeypatch):
     out = list(assistant.chat_stream("a@b.ch", "question"))
     assert [k for k, _ in out] == ["delta", "delta", "done"]
     assert out[-1][1] == "de secours"
+
+
+# ---- KB sélective ---------------------------------------------------------
+def _titles(kb: str) -> list[str]:
+    import re as _re
+    return _re.findall(r"^# (.+)$", kb, _re.M)
+
+
+def test_kb_always_carries_the_toc_and_the_spine():
+    kb = assistant._kb_for("Combien coûte un worker ?")
+    assert "Sections disponibles" in kb          # Nina sait ce qui existe…
+    assert "Dépannage courant" in kb             # …même quand ce n'est pas déplié
+    assert "Le cockpit, écran par écran" in _titles(kb)   # colonne vertébrale
+    assert len(kb) < len(assistant._kb())        # et c'est plus court que tout injecter
+
+
+def test_kb_selection_is_cross_lingual():
+    """Question anglaise, KB française : sans pont on dépliait la mauvaise section."""
+    assert "La flotte (cloud managé)" in _titles(assistant._kb_for("what is the fleet tab for?"))
+    assert "Inférence et coûts" in _titles(
+        assistant._kb_for("How do credits work when the balance hits zero?"))
+
+
+def test_kb_selection_is_not_biased_by_file_length():
+    """« Nouveautés » est le plus gros fichier : il ne doit pas rafler les questions."""
+    kb = assistant._kb_for("How do credits work when the balance hits zero?")
+    assert not any(t.startswith("Nouveautés") for t in _titles(kb))
+
+
+def test_kb_off_topic_question_falls_back_to_troubleshooting():
+    assert "Dépannage courant & escalade" in _titles(
+        assistant._kb_for("quelle est la capitale du Pérou"))

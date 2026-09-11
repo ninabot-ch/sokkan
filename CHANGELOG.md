@@ -4,6 +4,15 @@ Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
 ## Unreleased
+- **Nina's prompt got smaller.** The product knowledge base was re-injected
+  whole on every turn — 7.5 kB, two thirds of the system prompt. It now carries
+  the full table of contents (so she always knows what exists and where to point
+  you) plus the spine and the two sections closest to your question. On
+  self-hosted silicon, where prefill costs ~3.3 ms/token, that is ~1,500 fewer
+  tokens to chew before the first word appears: measured 12.8 s → 9.2 s to first
+  token on a 80B, with no change in eval score. Selection is lexical and
+  cross-lingual (an English question finds the French section), normalised by
+  section length so the longest file cannot win by accident.
 - **Nina streams.** Her answers now arrive token by token
   (`POST /api/assistant/chat/stream`, SSE) instead of landing whole after a
   spinner. The model's throughput is unchanged — what changes is that you read
