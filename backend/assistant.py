@@ -25,11 +25,13 @@ fallback sur la config LLM de l'instance (llm.py) pour le dev/test.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sqlite3
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
@@ -40,6 +42,9 @@ KB_DIR = Path(__file__).parent / "assistant_kb"
 DB = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))) / "assistant.db"
 DAILY_LIMIT = int(os.environ.get("SOKKAN_ASSISTANT_DAILY_LIMIT", "50"))
 MAX_TOKENS = 800
+# Le flux peut durer : sur du silicium maison une réponse détaillée met 40 s.
+# Ce n'est pas un problème tant qu'elle s'écrit à l'écran.
+STREAM_TIMEOUT = 300
 HISTORY_TURNS = 12  # messages (user+assistant confondus) rejoués au modèle
 KB_CAP = 40_000     # garde-fou : au-delà on tronque (et il sera temps d'indexer)
 
@@ -191,6 +196,42 @@ def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
 
 def configured() -> bool:
     return (_llm_config() or _fallback_config()) is not None and bool(_kb())
+
+
+def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str) -> Iterator[str]:
+    """Lit un flux SSE et n'en rend que le texte. Deux dialectes, une sortie."""
+    hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
+    openai = cfg.get("api") == "openai"
+    url = f"{cfg['url']}/chat/completions" if openai else f"{cfg['url']}/v1/messages"
+    headers = ({"Authorization": f"Bearer {cfg['token']}"} if openai
+               else {"x-api-key": cfg["token"], "anthropic-version": "2023-06-01"})
+    body: dict = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "stream": True}
+    if openai:
+        body["messages"] = [{"role": "system", "content": system}, *msgs]
+    else:
+        body["system"], body["messages"] = system, msgs
+    with httpx.stream("POST", url, headers={**headers, **hdr_user}, json=body,
+                      timeout=STREAM_TIMEOUT) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                ev = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            if openai:
+                d = (ev.get("choices") or [{}])[0].get("delta") or {}
+                # modèles à raisonnement : le texte peut arriver en reasoning_content
+                chunk = d.get("content") or d.get("reasoning_content") or ""
+            else:
+                chunk = (ev.get("delta") or {}).get("text", "") \
+                    if ev.get("type") == "content_block_delta" else ""
+            if chunk:
+                yield chunk
 
 
 def _ask_with_fallback(cfg: dict, fb: dict | None, system: str, msgs: list[dict],
@@ -360,8 +401,8 @@ def _memory_context(query: str, top_k: int = 4) -> str:
     return "\n\n".join(out)
 
 
-def chat(user_email: str, message: str) -> dict:
-    """Un tour de chat. Retourne {reply} ou lève ValueError (limite/config)."""
+def _prepare(user_email: str, message: str) -> tuple[dict, dict | None, str, list[dict]]:
+    """Validations, quota, et montage du prompt. Partagé par chat() et chat_stream()."""
     message = (message or "").strip()
     if not message:
         raise ValueError("message vide")
@@ -374,13 +415,14 @@ def chat(user_email: str, message: str) -> dict:
         raise ValueError("assistant non configuré sur cette instance")
 
     con = _con()
-    if _today_count(con, user_email) >= DAILY_LIMIT:
-        con.close()
+    over = _today_count(con, user_email) >= DAILY_LIMIT
+    con.close()
+    if over:
         raise ValueError("limite quotidienne atteinte — réessayez demain, "
                          "ou écrivez à hello@sokkan.ch")
 
-    past = history(user_email, HISTORY_TURNS)
-    msgs = [{"role": m["role"], "content": m["content"]} for m in past]
+    msgs = [{"role": m["role"], "content": m["content"]}
+            for m in history(user_email, HISTORY_TURNS)]
     msgs.append({"role": "user", "content": message})
     system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb()}"
     dossier = _dossier()
@@ -392,15 +434,70 @@ def chat(user_email: str, message: str) -> dict:
                    f"\n\n{notes}")
     # en dernier : ce qui est en fin de prompt système pèse le plus
     system += _language_directive(message)
+    return cfg, fb, system, msgs
 
-    reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
-    reply = reply or "(réponse vide)"
 
+def _persist(user_email: str, message: str, reply: str) -> None:
     now = time.time()
+    con = _con()
     con.execute("INSERT INTO messages(user_email, role, content, ts) VALUES(?,?,?,?)",
-                (user_email, "user", message, now))
+                (user_email, "user", message.strip(), now))
     con.execute("INSERT INTO messages(user_email, role, content, ts) VALUES(?,?,?,?)",
                 (user_email, "assistant", reply, now + 0.001))
     con.commit()
     con.close()
+
+
+def chat(user_email: str, message: str) -> dict:
+    """Un tour de chat, réponse complète. Retourne {reply, via}."""
+    cfg, fb, system, msgs = _prepare(user_email, message)
+    reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
+    reply = reply or "(réponse vide)"
+    _persist(user_email, message, reply)
     return {"reply": reply, "via": via}
+
+
+def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
+    """Un tour de chat en flux. Émet ('delta', texte) puis ('done', réponse complète).
+
+    Pourquoi : sur du silicium maison le décodage plafonne à ~32-36 tok/s, donc
+    une réponse détaillée met 20-40 s à s'écrire — alors que le PREMIER token
+    arrive en ~2 s. Le débit ne changera pas ; ce qui change, c'est qu'on lise
+    pendant que ça s'écrit. C'est le correctif de latence perçue, et il laisse
+    Nina répondre aussi longuement que la question le mérite (ce qui compte
+    pour une assistante DevOps : un arbitrage d'infra n'est pas un tweet).
+
+    Le basculement vers le repli n'est possible qu'AVANT le premier octet —
+    après, le flux est engagé (même règle que la passerelle d'inférence).
+    """
+    cfg, fb, system, msgs = _prepare(user_email, message)
+    global _primary_down_until
+    chain = [cfg] if not fb else ([fb] if time.time() < _primary_down_until else [cfg, fb])
+    last_err: Exception | None = None
+    for i, c in enumerate(chain):
+        parts: list[str] = []
+        try:
+            for delta in _stream(c, system, msgs, user_email):
+                if not parts and c is cfg:
+                    _primary_down_until = 0.0
+                parts.append(delta)
+                yield "delta", delta
+        except (httpx.HTTPError, ValueError) as e:
+            if parts or i == len(chain) - 1:   # flux engagé, ou plus de recours
+                if parts:
+                    break
+                raise
+            last_err = e
+            if c is cfg and fb:
+                _primary_down_until = time.time() + PRIMARY_RETRY_S
+                print(f"[assistant] primaire KO ({e}) → repli pour {PRIMARY_RETRY_S}s")
+            continue
+        reply = "".join(parts).strip() or "(réponse vide)"
+        _persist(user_email, message, reply)
+        yield "done", reply
+        return
+    reply = "(réponse vide)"
+    _persist(user_email, message, reply)
+    yield "done", reply
+    if last_err:
+        print(f"[assistant] flux terminé après erreur: {last_err}")

@@ -196,3 +196,55 @@ def test_language_directive():
     # franglais franc (≥2 indices) → français assumé, c'est un locuteur FR
     assert assistant._language_directive("show me the fleet dans le cockpit") \
         == "\n\nRÉPONDS EN FRANÇAIS."
+
+
+# ---- streaming ------------------------------------------------------------
+def _sse(lines):
+    class R:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def raise_for_status(self): pass
+        def iter_lines(self): return iter(lines)
+    return R()
+
+
+def test_stream_openai_deltas(monkeypatch):
+    monkeypatch.setattr(assistant.httpx, "stream", lambda *a, **k: _sse([
+        'data: {"choices":[{"delta":{"content":"Sal"}}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"ut"}}]}',
+        'data: {"choices":[{"delta":{}}]}',          # trame vide : ignorée
+        'data: pas du json',                          # bruit : ignoré
+        'data: [DONE]',
+    ]))
+    cfg = {"url": "http://x/v1", "token": "t", "api": "openai", "model": "m"}
+    assert list(assistant._stream(cfg, "S", [], "a@b.ch")) == ["Sal", "ut"]
+
+
+def test_stream_anthropic_deltas(monkeypatch):
+    monkeypatch.setattr(assistant.httpx, "stream", lambda *a, **k: _sse([
+        'data: {"type":"message_start"}',
+        'data: {"type":"content_block_delta","delta":{"text":"ok"}}',
+        'data: {"type":"message_stop"}',
+    ]))
+    cfg = {"url": "https://infer.sokkan.ch", "token": "t", "api": "anthropic", "model": "m"}
+    assert list(assistant._stream(cfg, "S", [], "a@b.ch")) == ["ok"]
+
+
+def test_stream_falls_back_before_first_byte(monkeypatch):
+    """Le repli n'est possible qu'AVANT le 1er octet — après, le flux est engagé."""
+    monkeypatch.setattr(assistant, "_primary_down_until", 0.0)
+    monkeypatch.setattr(assistant, "_prepare",
+                        lambda u, m: ({"url": "xpu"}, {"url": "gw"}, "S", []))
+    monkeypatch.setattr(assistant, "_persist", lambda *a: None)
+
+    def fake_stream(cfg, system, msgs, user_email):
+        if cfg["url"] == "xpu":
+            raise assistant.httpx.ConnectError("éteint")
+        yield "de "
+        yield "secours"
+
+    monkeypatch.setattr(assistant, "_stream", fake_stream)
+    out = list(assistant.chat_stream("a@b.ch", "question"))
+    assert [k for k, _ in out] == ["delta", "delta", "done"]
+    assert out[-1][1] == "de secours"

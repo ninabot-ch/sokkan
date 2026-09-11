@@ -3,6 +3,17 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+- **Nina streams.** Her answers now arrive token by token
+  (`POST /api/assistant/chat/stream`, SSE) instead of landing whole after a
+  spinner. The model's throughput is unchanged — what changes is that you read
+  while it writes. This matters most on self-hosted silicon, where decoding runs
+  at ~37 tok/s: a detailed answer takes ~30 s to finish but starts appearing
+  immediately. A DevOps assistant should be free to give a long answer when the
+  question is an infrastructure trade-off; streaming is what makes that
+  affordable, rather than capping her output. Failover to the secondary endpoint
+  stays possible until the first byte — after that the stream is committed.
+
 ## 2.1.1 — 2026-09-11 — "Nina, in your language"
 - **Fix: Nina now answers in the language you asked in.** The persona already
   said so, but buried in ~3,100 tokens of context the instruction was ignored

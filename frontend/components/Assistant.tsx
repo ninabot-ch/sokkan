@@ -40,14 +40,63 @@ export default function Assistant() {
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setBusy(true);
     try {
-      const r = await fetch("/api/assistant/chat", {
+      // Flux SSE : le débit du modèle ne change pas, mais on lit pendant que ça
+      // s'écrit. Sur silicium maison une réponse détaillée met 30 s à sortir —
+      // l'attendre en entier derrière un spinner la rendait inutilisable.
+      const r = await fetch("/api/assistant/chat/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data?.detail || `erreur ${r.status}`);
-      setMsgs((m) => [...m, { role: "assistant", content: data.reply }]);
+      if (!r.ok || !r.body) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.detail || `erreur ${r.status}`);
+      }
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let started = false;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        // une trame SSE se termine par une ligne vide ; on ne traite que les
+        // trames complètes et on garde le reste en tampon
+        const frames = buf.split("\n\n");
+        buf = frames.pop() ?? "";
+        for (const frame of frames) {
+          const ev = /^event:\s*(\w+)/m.exec(frame)?.[1];
+          const raw = /^data:\s*(.*)$/m.exec(frame)?.[1];
+          if (!ev || !raw) continue;
+          let payload: { text?: string; detail?: string };
+          try {
+            payload = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+          if (ev === "error") throw new Error(payload.detail || "erreur inconnue");
+          if (ev === "delta" && payload.text) {
+            const chunk = payload.text;
+            setMsgs((m) => {
+              if (!started) return [...m, { role: "assistant", content: chunk }];
+              const last = m[m.length - 1];
+              return [...m.slice(0, -1), { ...last, content: last.content + chunk }];
+            });
+            // le spinner disparaît au 1er fragment : c'est là que l'attente cesse
+            if (!started) setBusy(false);
+            started = true;
+          }
+          if (ev === "done" && payload.text) {
+            const full = payload.text;
+            setMsgs((m) =>
+              started
+                ? [...m.slice(0, -1), { role: "assistant", content: full }]
+                : [...m, { role: "assistant", content: full }],
+            );
+            started = true;
+          }
+        }
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "erreur inconnue");
     } finally {

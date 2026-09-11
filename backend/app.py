@@ -15,6 +15,7 @@ Run (dev):  /opt/sokkan/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8097 --
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import secrets
@@ -35,7 +36,8 @@ import index_memory  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse,
+                               RedirectResponse, StreamingResponse)
 from pydantic import BaseModel
 
 import assistant
@@ -856,10 +858,37 @@ def assistant_history(user: dict = Depends(require("viewer")),
     return assistant.history(user["email"])
 
 
+@app.post("/api/assistant/chat/stream")
+def assistant_chat_stream(body: AssistantMsg, user: dict = Depends(require("viewer")),
+                          _f: None = Depends(feature_assistant)):
+    """Un tour de chat avec Nina, en flux SSE.
+
+    Le débit du modèle ne change pas — ce qui change est qu'on lise pendant que
+    ça s'écrit : sur silicium maison le 1er token arrive en ~2 s là où la
+    réponse complète met 20-40 s. Événements : `delta` (fragment de texte) et
+    `done` (réponse complète), plus `error` si le tour échoue avant le 1er octet.
+    """
+    def events():
+        try:
+            for kind, payload in assistant.chat_stream(user["email"], body.message):
+                yield f"event: {kind}\ndata: {json.dumps({'text': payload})}\n\n"
+        except ValueError as e:
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+        except Exception as e:  # noqa: BLE001
+            audit.log(user["email"], "assistant.error", detail=str(e)[:200])
+            yield ("event: error\ndata: "
+                   + json.dumps({"detail": "Nina est momentanément indisponible — "
+                                           "réessayez, ou écrivez à hello@sokkan.ch"})
+                   + "\n\n")
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
 @app.post("/api/assistant/chat")
 def assistant_chat(body: AssistantMsg, user: dict = Depends(require("viewer")),
                    _f: None = Depends(feature_assistant)) -> dict:
-    """Un tour de chat avec Nina. Synchrone (S1) — le front affiche un spinner."""
+    """Un tour de chat avec Nina, réponse complète (repli si le flux échoue)."""
     try:
         return assistant.chat(user["email"], body.message)
     except ValueError as e:
