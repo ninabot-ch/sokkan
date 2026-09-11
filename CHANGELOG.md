@@ -3,6 +3,18 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 2.1.1 — 2026-09-11 — "Nina, in your language"
+- **Fix: Nina now answers in the language you asked in.** The persona already
+  said so, but buried in ~3,100 tokens of context the instruction was ignored
+  about half the time by locally-served open models — measured on both
+  `gpt-oss-20b` and `qwen3-next-80b`, which answered a question asked in
+  English in French. A frontier model obeyed, which hid the defect for anyone
+  serving through the managed gateway. The language is now decided in Python
+  from the message and stated explicitly at the end of the system prompt, where
+  it carries most weight; an ambiguous or very short message falls back to the
+  persona. Same doctrine as deterministic memory recall and the dossier
+  allowlist: what can be decided in code is not left to the model's goodwill.
+
 ## 2.1.0 — 2026-09-11 — "Nina, briefed"
 - **Nina knows your instance (S2).** Her prompt now carries a read-only client
   dossier — plan, fleet resources and their `.fleet` names, orderable catalogue
