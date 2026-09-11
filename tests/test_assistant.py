@@ -181,3 +181,18 @@ def test_memory_context_maps_the_real_search_shape(monkeypatch):
     assert "[[flotte-exoscale]] — archi flotte" in out
     assert "privnet dédié par client" in out   # les retours ligne sont aplatis
     assert "None" not in out
+
+
+def test_language_directive():
+    """La persona seule ne suffit pas aux modèles locaux : on tranche en Python."""
+    assert assistant._language_directive("In two sentences: what is the fleet tab for?") \
+        == "\n\nREPLY IN ENGLISH."
+    assert assistant._language_directive("Comment je commande un worker supplémentaire ?") \
+        == "\n\nRÉPONDS EN FRANÇAIS."
+    # trop court pour trancher → on laisse la persona décider
+    assert assistant._language_directive("ok ?") == ""
+    # exactement un indice FR : ambigu, on s'abstient plutôt que de parier
+    assert assistant._language_directive("show me the worker status pour today") == ""
+    # franglais franc (≥2 indices) → français assumé, c'est un locuteur FR
+    assert assistant._language_directive("show me the fleet dans le cockpit") \
+        == "\n\nRÉPONDS EN FRANÇAIS."

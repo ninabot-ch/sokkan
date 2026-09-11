@@ -26,6 +26,7 @@ fallback sur la config LLM de l'instance (llm.py) pour le dev/test.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -309,6 +310,36 @@ def _dossier() -> str:
     return text
 
 
+# Mots-outils français : présents dans presque toute phrase FR, quasi absents
+# d'une phrase EN. Assez pour trancher une question de chat ; volontairement
+# pas une lib de détection de langue pour trois lignes de prompt.
+_FR_HINTS = re.compile(
+    r"(?i)\b(je|tu|il|elle|nous|vous|le|la|les|un|une|des|du|de|mon|ma|mes|ton|ta|tes|"
+    r"est|sont|c.est|qu.est|quel|quelle|comment|pourquoi|combien|où|avec|dans|pour|sur|"
+    r"pas|plus|pourrais|peux|dois|pourquoi|ça|pourrait)\b")
+
+
+def _language_directive(message: str) -> str:
+    """Dire explicitement au modèle dans quelle langue répondre.
+
+    La persona le demande déjà (« la langue de l'utilisateur »), mais noyée dans
+    ~3 100 tokens de contexte, les modèles ouverts locaux l'ignorent une fois sur
+    deux — mesuré le 11.09 sur gpt-oss-20b ET qwen3-next-80b, qui répondaient en
+    français à une question anglaise. Même doctrine que le reste de S2 : ce qui
+    peut être décidé en Python ne se délègue pas au bon vouloir du modèle.
+    Message trop court ou ambigu → pas de directive, on laisse la persona faire.
+    """
+    words = re.findall(r"[A-Za-zÀ-ÿ']+", message)
+    if len(words) < 3:
+        return ""
+    fr = len(_FR_HINTS.findall(message))
+    if fr >= 2:
+        return "\n\nRÉPONDS EN FRANÇAIS."
+    if fr == 0:
+        return "\n\nREPLY IN ENGLISH."
+    return ""
+
+
 def _memory_context(query: str, top_k: int = 4) -> str:
     """Extraits de la mémoire projet pertinents pour la question. Pré-récupérés
     (pas d'outil à appeler) — même doctrine que le recall au spawn."""
@@ -359,6 +390,8 @@ def chat(user_email: str, message: str) -> dict:
     if notes:
         system += ("\n\n=== EXTRAITS DE MÉMOIRE PROJET (pertinents pour la question) ==="
                    f"\n\n{notes}")
+    # en dernier : ce qui est en fin de prompt système pèse le plus
+    system += _language_directive(message)
 
     reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
     reply = reply or "(réponse vide)"
