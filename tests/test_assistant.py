@@ -201,6 +201,7 @@ def test_language_directive():
 # ---- streaming ------------------------------------------------------------
 def _sse(lines):
     class R:
+        headers = {"content-type": "text/event-stream"}
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def raise_for_status(self): pass
@@ -280,3 +281,19 @@ def test_kb_selection_is_not_biased_by_file_length():
 def test_kb_off_topic_question_falls_back_to_troubleshooting():
     assert "Dépannage courant & escalade" in _titles(
         assistant._kb_for("quelle est la capitale du Pérou"))
+
+
+def test_stream_handles_a_non_streaming_endpoint(monkeypatch):
+    """Tous les endpoints n'honorent pas `stream: true` — la passerelle répond
+    en JSON d'un bloc sur les comptes maison. Sans repli, Nina rendait du vide."""
+    class R:
+        headers = {"content-type": "application/json"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def raise_for_status(self): pass
+        def read(self): pass
+        def json(self): return {"content": [{"type": "text", "text": "réponse entière"}]}
+        def iter_lines(self): raise AssertionError("ne doit pas lire de trames SSE")
+    monkeypatch.setattr(assistant.httpx, "stream", lambda *a, **k: R())
+    cfg = {"url": "https://infer.sokkan.ch", "token": "t", "api": "anthropic", "model": "m"}
+    assert list(assistant._stream(cfg, "S", [], "a@b.ch")) == ["réponse entière"]

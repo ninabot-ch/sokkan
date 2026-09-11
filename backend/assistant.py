@@ -279,6 +279,22 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str) -> Iterat
     with httpx.stream("POST", url, headers={**headers, **hdr_user}, json=body,
                       timeout=STREAM_TIMEOUT) as r:
         r.raise_for_status()
+        # Tous les endpoints n'honorent pas `stream: true` : la passerelle
+        # répond en JSON d'un bloc sur les comptes maison. Sans ce repli, le
+        # lecteur SSE ne trouvait aucune trame `data:` et Nina rendait une
+        # réponse VIDE (constaté le 11.09 sur le chemin de repli).
+        if "text/event-stream" not in r.headers.get("content-type", ""):
+            r.read()
+            data = r.json()
+            if openai:
+                m = (data.get("choices") or [{}])[0].get("message") or {}
+                whole = (m.get("content") or m.get("reasoning_content") or "").strip()
+            else:
+                whole = "".join(b.get("text", "") for b in data.get("content", [])
+                                if b.get("type") == "text").strip()
+            if whole:
+                yield whole
+            return
         for line in r.iter_lines():
             if not line.startswith("data:"):
                 continue
