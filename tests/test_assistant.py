@@ -1,5 +1,4 @@
 """Nina — sélection du dialecte LLM et extraction de la réponse."""
-import os
 import sys
 from pathlib import Path
 
