@@ -148,6 +148,23 @@ def _uniquify(tag: str) -> str:
     return f"{tag}-{n}"
 
 
+# Où vivent les notes — même défaut que memory/index_memory.py. Une session
+# libre l'ignorait totalement : seuls les playbooks `onboard-memory`/`digest`
+# injectaient le chemin, donc un agent à qui on demandait « écris une note »
+# partait en `find /` (constaté sur les 2 missions blanches, 09.2026).
+MEMORY_DIR = os.environ.get(
+    "SOKKAN_MEMORY_DIR", os.path.expanduser("~/.sokkan/memory"))
+
+
+def _memory_howto() -> str:
+    """Une ligne, dans CHAQUE seed : comment écrire dans la mémoire. Le rappel
+    (lecture) est déjà pré-injecté ; c'est l'écriture qui manquait."""
+    return (
+        "To record a decision or a lesson, call the mcp__sokkan-memory__memory_write MCP "
+        f"tool (one durable fact per note); the notes themselves live in {MEMORY_DIR}."
+    )
+
+
 def _seed_text(prompt: str, recall: str = "") -> str:
     """Seed d'une session. `recall` = bloc mémoire PRÉ-INJECTÉ (recherche faite
     côté serveur au spawn — déterministe, n'attend pas que le modèle obéisse).
@@ -159,14 +176,16 @@ def _seed_text(prompt: str, recall: str = "") -> str:
             "The notes above were auto-recalled from project memory for this task. "
             "Call the mcp__sokkan-memory__memory_get MCP tool on any note you need in full, and "
             "mcp__sokkan-memory__memory_search for other angles (real MCP tool calls, not shell "
-            "commands). Then propose a short plan — don't execute anything without my go-ahead."
+            f"commands). {_memory_howto()} "
+            "Then propose a short plan — don't execute anything without my go-ahead."
         ).strip()
     return (
         f"{prompt.strip()} "
         "Start by calling the mcp__sokkan-memory__memory_search MCP tool on this topic to load "
         "any relevant project context (then mcp__sokkan-memory__memory_get on the useful notes — "
         "real MCP tool calls, not shell commands). If the project memory is still empty, just note "
-        "that and carry on. Then propose a short plan — don't execute anything without my go-ahead."
+        f"that and carry on. {_memory_howto()} "
+        "Then propose a short plan — don't execute anything without my go-ahead."
     ).strip()
 
 

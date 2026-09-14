@@ -3,6 +3,30 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 2.3.0 — 2026-09-14 — "Memory writes back"
+- **Sessions can write to memory.** Recall was solid — `memory_search`,
+  `memory_get`, `memory_links`, plus a deterministic pre-seed at spawn — but the
+  memory was read-only: a session asked to record a decision had no tool for it,
+  had to guess where the notes live, and ended up running `find /`. New
+  `memory_write(name, description, body, priority, type, overwrite)` MCP tool:
+  it writes the note atomically, in the project format
+  (frontmatter + `[[wikilinks]]`), refuses to clobber an existing note unless
+  you ask, and returns a readable error — with the remedy — when the memory
+  directory is not writable. The index and the embeddings follow on their own.
+  It is a write, so it goes through the approval gate like any other: you see
+  the note before it enters the memory — reads stay auto-approved.
+  Found the hard way: two candidates on a hands-on trial were both asked to
+  document their decisions, and neither could.
+- **Every session is told how.** The spawn seed now carries one line naming the
+  memory directory and the write tool, in both the pre-seeded and the fallback
+  form. Until now only the `onboard-memory` and `digest` playbooks mentioned it,
+  so a free-form session — the common case — knew how to read the memory but not
+  how to add to it.
+- **A playbook that needs a subject no longer starts without one.** Spawning
+  "Debug" with an empty subject produced the bare prompt `Bug to investigate:`
+  and sent the agent exploring at random; `POST /api/spawn` now answers 400 and
+  the button in the session rail stays disabled until you type the subject.
+
 ## 2.2.0 — 2026-09-11 — "Nina, without the wait"
 - **Nina's prompt got smaller.** The product knowledge base was re-injected
   whole on every turn — 7.5 kB, two thirds of the system prompt. It now carries

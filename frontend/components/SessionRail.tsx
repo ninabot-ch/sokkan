@@ -45,6 +45,12 @@ export default function SessionRail({
     return () => clearInterval(iv);
   }, []);
 
+  // un playbook qui attend un sujet ne part pas à vide (le backend renvoie 400) :
+  // on désactive le bouton plutôt que de laisser l'humain découvrir l'erreur.
+  const needsSubject = !!playbook
+    && !playbooks.find((p) => p.id === playbook)?.subject_optional
+    && !prompt.trim();
+
   const create = async () => {
     setBusy(true);
     try {
@@ -105,9 +111,10 @@ export default function SessionRail({
           )}
           <button
             onClick={create}
-            disabled={busy}
+            disabled={busy || needsSubject}
+            title={needsSubject ? "this playbook needs a subject" : undefined}
             className="w-full rounded bg-sea/80 py-1 text-[12px] font-medium text-white disabled:opacity-40 hover:bg-sea"
-          >{busy ? "creating…" : `open a "${tag}" session`}</button>
+          >{busy ? "creating…" : needsSubject ? "subject required" : `open a "${tag}" session`}</button>
         </div>
       )}
 

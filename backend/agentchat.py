@@ -91,6 +91,9 @@ _TOOL_TITLE_FIELD = {
     "NotebookEdit": "file_path", "Glob": "pattern", "Grep": "pattern",
     "Task": "description", "Agent": "description", "WebFetch": "url",
     "WebSearch": "query", "Skill": "skill",
+    "mcp__sokkan-memory__memory_write": "name",
+    "mcp__sokkan-memory__memory_get": "note_name",
+    "mcp__sokkan-memory__memory_search": "query",
 }
 
 

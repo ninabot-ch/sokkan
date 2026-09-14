@@ -128,3 +128,25 @@ def test_playbooks_render_and_catalog():
     prompt2, _ = playbooks.render("onboard-memory")
     assert "ONE durable fact per file" in prompt2
     assert playbooks.render("nope") is None
+
+
+def test_every_seed_says_how_to_write_to_memory(monkeypatch):
+    """Le rappel (lecture) était pré-injecté, l'écriture n'était nulle part :
+    deux candidats de mission blanche ont cherché le dossier au `find /`."""
+    monkeypatch.setattr(board, "MEMORY_DIR", "/data/claude/projects/-workspace/memory")
+    for seed in (board.seed_text("Fix the healthcheck"),
+                 board.seed_text("Fix the healthcheck", recall="- [note] a fact")):
+        assert "memory_write" in seed
+        assert "/data/claude/projects/-workspace/memory" in seed
+        assert "go-ahead" in seed  # le gate HITL survit à l'ajout
+
+
+def test_playbook_that_needs_a_subject_is_flagged_as_such():
+    """Le garde-fou de /api/spawn s'appuie sur ce drapeau : `debug` sans sujet
+    rendait « Bug to investigate: » tout court et la session partait à l'aveugle."""
+    import playbooks
+
+    flags = {p["id"]: p["subject_optional"] for p in playbooks.catalog()}
+    assert flags["debug"] is False and flags["refactor"] is False
+    assert flags["onboard-memory"] is True and flags["digest"] is True
+    assert playbooks.render("debug", "")[0].startswith("Bug to investigate:")

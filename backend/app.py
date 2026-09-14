@@ -1253,6 +1253,12 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
         if rendered is None:
             raise HTTPException(400, f"unknown playbook: {body.playbook}")
         pb = playbooks.get(body.playbook)
+        # sujet vide sur un playbook qui en attend un = session lancée à l'aveugle
+        # (« Bug to investigate: » tout court). Vu en vrai sur une mission blanche :
+        # l'agent part explorer au hasard et l'humain doit tout re-prompter.
+        if not pb.get("subject_optional") and not body.prompt.strip():
+            raise HTTPException(400, f"the \"{pb['label']}\" playbook needs a subject — "
+                                     "what should it work on?")
         body.prompt, default_tag = rendered
         if body.tag in ("", "session"):
             body.tag = default_tag

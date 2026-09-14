@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """memory_search_server.py — SOKKAN P0 : MCP stdio server for semantic memory recall.
 
-Exposes two tools to any Claude Code session over MCP stdio:
+Exposes to any Claude Code session over MCP stdio:
 
   • memory_search(query, top_k=8) → ranked notes (best chunk per note) with score+snippet
   • memory_get(note_name)         → the full body of one note
+  • memory_links(note_name)       → outgoing [[wikilinks]] + backlinks
+  • memory_write(name, …)         → create/update a note (the only write path)
 
 Retrieval = cosine over unit-normalized embeddings (dot product) computed by
 ``index_memory.py`` and stored in the local SQLite DB. The query is embedded at
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -32,6 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import embeddings
 
 DB_PATH = Path(os.environ.get("SOKKAN_MEMORY_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "memory.db")))
+# même défaut que memory/index_memory.py — les notes sont la source, la DB est dérivée
+MEMORY_DIR = Path(os.environ.get("SOKKAN_MEMORY_DIR", os.path.expanduser("~/.sokkan/memory")))
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 
 mcp = FastMCP("sokkan-memory")
 
@@ -226,6 +232,59 @@ def memory_links(note_name: str) -> dict:
         "backlinks": [{"name": r["name"], "description": r["description"] or ""}
                       for r in in_rows],
     }
+
+
+@mcp.tool()
+def memory_write(name: str, description: str, body: str,
+                 priority: bool = False, type: str = "project",
+                 overwrite: bool = False) -> dict:
+    """Écrit une note mémoire — LE chemin d'écriture de la mémoire projet.
+
+    Une note = UN fait durable. `name` = slug kebab-case sans .md (il devient le
+    nom du fichier ET la cible des [[wikilinks]]). `description` = la ligne de
+    l'index et le levier de recall : la soigner. `priority=True` épingle la note
+    (★) et la remonte dans le rappel automatique. `overwrite=False` refuse
+    d'écraser une note existante (relire d'abord avec memory_get).
+
+    L'index et les embeddings suivent tout seuls (réindexation du backend).
+    """
+    name = (name or "").strip().removesuffix(".md")
+    if not NAME_RE.match(name):
+        return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
+                                      "2-64 chars, no path separator (e.g. 'decision-delete-404')"}
+    if not (description or "").strip():
+        return {"ok": False, "error": "description is required — it is the index line "
+                                      "and the main recall lever"}
+    if not (body or "").strip():
+        return {"ok": False, "error": "body is required — one durable fact, with [[links]] "
+                                      "to the related notes"}
+    path = MEMORY_DIR / f"{name}.md"
+    if path.exists() and not overwrite:
+        return {"ok": False, "error": f"note already exists: {name} — read it with memory_get, "
+                                      "then call again with overwrite=true to replace it",
+                "path": str(path)}
+    fm = [
+        "---",
+        f"name: {name}",
+        # json.dumps = scalaire YAML double-quoted valide (guillemets, ':' , '#'…) ;
+        # ensure_ascii=False pour garder les accents lisibles dans le fichier
+        f"description: {json.dumps(' '.join(description.split()), ensure_ascii=False)}",
+    ]
+    if priority:
+        fm.append("priority: high")
+    fm += ["metadata:", f"  type: {type or 'project'}", "---", ""]
+    try:
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".md.tmp")
+        tmp.write_text("\n".join(fm) + body.strip() + "\n", encoding="utf-8")
+        tmp.replace(path)  # atomique : jamais de note à moitié écrite pour l'indexeur
+    except OSError as e:
+        return {"ok": False, "error": f"cannot write {path}: {e}",
+                "hint": f"the memory directory must be writable by uid {os.getuid()} "
+                        "(SOKKAN_MEMORY_DIR)"}
+    return {"ok": True, "note": name, "path": str(path), "updated": overwrite,
+            "indexed": "the backend reindexes changed notes within ~2 min "
+                       "(memory_search/memory_get see it after that)"}
 
 
 if __name__ == "__main__":

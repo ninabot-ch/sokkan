@@ -33,6 +33,10 @@ _TOOL_TITLE_FIELD = {
     "WebFetch": "url",
     "WebSearch": "query",
     "Skill": "skill",
+    # outils MCP SOKKAN : le sujet de la carte est la note visée
+    "mcp__sokkan-memory__memory_write": "name",
+    "mcp__sokkan-memory__memory_get": "note_name",
+    "mcp__sokkan-memory__memory_search": "query",
 }
 
 

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 
@@ -88,3 +90,74 @@ def test_empty_index_returns_info_not_error(mem, monkeypatch):
     res = mem.memory_search("anything")
     assert res[0].get("empty") is True and "info" in res[0]
     assert "error" not in res[0]
+
+
+# ---- memory_write : le seul chemin d'écriture de la mémoire ------------------
+
+@pytest.fixture()
+def memdir(mem, tmp_path, monkeypatch):
+    monkeypatch.setattr(mem, "MEMORY_DIR", tmp_path / "memory")
+    return tmp_path / "memory"
+
+
+def test_write_creates_a_note_with_frontmatter(mem, memdir):
+    r = mem.memory_write("decision-delete-404",
+                         "DELETE on a missing id answers 404 with the error envelope",
+                         "Decided after the bugfix card. See [[conventions-api]].")
+    assert r["ok"] and r["note"] == "decision-delete-404"
+    body = (memdir / "decision-delete-404.md").read_text()
+    assert body.startswith("---\nname: decision-delete-404\n")
+    assert "description: \"DELETE on a missing id" in body
+    assert "priority:" not in body  # non épinglée par défaut
+    assert body.rstrip().endswith("[[conventions-api]].")
+
+
+def test_write_pins_and_types(mem, memdir):
+    mem.memory_write("team-workflow", "how we work", "Plan first.",
+                     priority=True, type="feedback")
+    body = (memdir / "team-workflow.md").read_text()
+    assert "priority: high" in body and "type: feedback" in body
+
+
+def test_description_with_quotes_and_colons_stays_valid_yaml(mem, memdir):
+    import yaml
+    mem.memory_write("conventions-api", 'the "envelope": {ok, data} — always', "body")
+    fm = (memdir / "conventions-api.md").read_text().split("---")[1]
+    assert yaml.safe_load(fm)["description"] == 'the "envelope": {ok, data} — always'
+
+
+def test_write_refuses_bad_names_and_empty_fields(mem, memdir):
+    for bad in ("../escape", "Not-Kebab", "a", "sub/dir", ""):
+        assert mem.memory_write(bad, "d", "b")["ok"] is False
+    assert mem.memory_write("ok-name", "", "b")["ok"] is False
+    assert mem.memory_write("ok-name", "d", "  ")["ok"] is False
+    assert not memdir.exists() or not list(memdir.glob("*.md"))
+
+
+def test_write_does_not_clobber_without_overwrite(mem, memdir):
+    mem.memory_write("note", "first", "one")
+    r = mem.memory_write("note", "second", "two")
+    assert r["ok"] is False and "already exists" in r["error"]
+    assert "one" in (memdir / "note.md").read_text()
+    r = mem.memory_write("note", "second", "two", overwrite=True)
+    assert r["ok"] and r["updated"] is True
+    assert "two" in (memdir / "note.md").read_text()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignore les permissions du dossier")
+def test_write_reports_an_unwritable_directory_instead_of_raising(mem, memdir, monkeypatch):
+    memdir.mkdir(parents=True)
+    memdir.chmod(0o500)
+    try:
+        r = mem.memory_write("note", "d", "b")
+    finally:
+        memdir.chmod(0o700)
+    assert r["ok"] is False and "cannot write" in r["error"] and "uid" in r["hint"]
+
+
+def test_the_name_is_the_wikilink_target(mem, memdir):
+    """Écrire `foo` puis y lier depuis une autre note doit résoudre : même slug."""
+    mem.memory_write("foo", "d", "b")
+    mem.memory_write("bar", "d", "see [[foo]]")
+    assert (memdir / "foo.md").exists()
+    assert "[[foo]]" in (memdir / "bar.md").read_text()
