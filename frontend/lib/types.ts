@@ -171,6 +171,7 @@ export interface MemStats {
   chunks: number;
   model: string | null;
   last_mtime: number | null;
+  cortex_url?: string | null;
 }
 
 export interface MemSearchResult {

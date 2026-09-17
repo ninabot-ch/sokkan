@@ -75,4 +75,6 @@ def stats() -> dict:
     m = con.execute("SELECT value FROM meta WHERE key='model'").fetchone()
     last = con.execute("SELECT MAX(mtime) FROM notes").fetchone()[0]
     con.close()
-    return {"notes": n, "chunks": c, "model": m[0] if m else None, "last_mtime": last}
+    return {"notes": n, "chunks": c, "model": m[0] if m else None, "last_mtime": last,
+            # Cockpit externe du graphe mémoire (HEXIS Cortex) si l'opérateur en a un.
+            "cortex_url": os.environ.get("SOKKAN_CORTEX_URL") or None}
