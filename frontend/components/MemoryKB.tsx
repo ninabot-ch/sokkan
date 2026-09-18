@@ -74,9 +74,9 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
           {stats ? <>{stats.notes} notes · {stats.chunks} chunks · <span className="text-slate-300">{stats.model}</span> · reindexed {ago(stats.last_mtime)}</> : "…"}
         </span>
         {stats?.cortex_url && (
-          <a href={stats.cortex_url} target="_blank" rel="noreferrer" title="Graphe vivant + revue automatique de la mémoire (HEXIS Cortex)"
+          <a href={stats.cortex_url} target="_blank" rel="noreferrer" title="Graphe vivant + revue automatique de la mémoire (CortHeXis)"
              className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 hover:bg-amber-400/20">
-            🧠 Cortex ↗
+            🧠 CortHeXis ↗
           </a>
         )}
         <input
