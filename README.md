@@ -238,8 +238,14 @@ cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
 **Other notes.**
 - Set `SOKKAN_LOCAL_TOKEN` unless the instance is unreachable from anything you don't trust.
 - The audit journal records actions, not conversation content.
-- No telemetry: the memory index, embeddings and data never leave your machine —
-  the only outbound traffic is your prompts to Anthropic, as with any Claude Code use.
+- No telemetry: your notes, embeddings, transcripts and workspace never leave
+  the machine, and nothing sent out carries an instance identifier. The full
+  list of outbound traffic, all of it optional: your prompts to Anthropic, as
+  with any Claude Code use; one GET a day to `sokkan.ch/dist/VERSION` so the UI
+  can tell you a release is out (`SOKKAN_UPDATE_CHECK=0` to stop it); one GET
+  every six hours for the open-missions counter in the header, made by the
+  instance and never by your browser (`SOKKAN_FEATURE_MISSIONS_LINK=0`).
+  Building the images pulls from Docker Hub, npm and PyPI, as any build does.
 - Vulnerabilities: email security@ninabot.ch (please don't open a public issue).
 
 ## How it compares
