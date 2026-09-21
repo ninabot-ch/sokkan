@@ -27,8 +27,19 @@ RUN groupadd -g 1000 sokkan \
  && useradd -u 1000 -g 1000 -d /data -s /usr/sbin/nologin sokkan \
  && mkdir -p /data && chown -R sokkan:sokkan /data /app
 
+# Embedding model baked into the image (~120 MB): without this, the first
+# memory search downloads it from Hugging Face, which breaks an air-gapped
+# install and sends a request we do not need. Overriding SOKKAN_EMBED_MODEL at
+# runtime falls back to downloading that other model on first use.
+RUN mkdir -p /opt/sokkan/models \
+ && python -c "from fastembed import TextEmbedding; \
+TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', \
+cache_dir='/opt/sokkan/models')" \
+ && chown -R sokkan:sokkan /opt/sokkan
+
 # conventions container : workspace monté sur /workspace, état sur /data
-ENV SOKKAN_DATA_DIR=/data \
+ENV FASTEMBED_CACHE_PATH=/opt/sokkan/models \
+    SOKKAN_DATA_DIR=/data \
     CLAUDE_CONFIG_DIR=/data/claude \
     SOKKAN_AGENT_CWD=/workspace \
     SOKKAN_MEMORY_DIR=/data/claude/projects/-workspace/memory \

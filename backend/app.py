@@ -33,6 +33,7 @@ import jwt
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
 import index_memory  # noqa: E402
+import missions  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -194,6 +195,13 @@ def auth_info() -> dict:
 @app.get("/api/instance")
 def instance_info(_u: dict = Depends(current_user)) -> dict:
     return {**instance.info(), "update": updatecheck.state()}
+
+
+@app.get("/api/missions/stats")
+def missions_stats(_u: dict = Depends(current_user)) -> dict:
+    """Open-missions counter, fetched by this instance (cached 6 h) so the
+    browser never talks to a third party. See backend/missions.py."""
+    return missions.stats()
 
 
 @app.get("/api/fleet")
@@ -838,8 +846,9 @@ def features() -> dict:
         # Nina (agente d'assistance) : flag serveur + un LLM joignable
         "assistant": (os.environ.get("SOKKAN_FEATURE_ASSISTANT", "0") != "0"
                       and assistant.configured()),
-        # SOKKAN Missions link in the header (public counter — a plain GET of
-        # aggregate stats, no identifier ever sent). Opt out: SOKKAN_FEATURE_MISSIONS_LINK=0
+        # SOKKAN Missions link in the header. The counter is fetched by this
+        # instance, not by the browser (backend/missions.py), and cached 6 h.
+        # Opt out of link and fetch alike: SOKKAN_FEATURE_MISSIONS_LINK=0
         "missions_link": os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0",
         # Magnitude : LLM local (profil hardware + bench + serve llama.cpp)
         "magnitude": os.environ.get("SOKKAN_FEATURE_MAGNITUDE", "1") != "0",

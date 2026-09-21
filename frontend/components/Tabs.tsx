@@ -81,13 +81,14 @@ function DemoBanner({ onChange }: { onChange: (t: Tab) => void }) {
 }
 
 /** Discreet link to SOKKAN Missions — deliver client projects, get paid.
- *  Fetches aggregate public counters only (no identifier sent, fail-silent).
+ *  The counter comes from this instance's own API, which fetches it upstream at
+ *  most once every six hours: your browser never talks to sokkan.ch for it.
  *  Opt out per instance: SOKKAN_FEATURE_MISSIONS_LINK=0. */
 function MissionsPill({ enabled }: { enabled: boolean }) {
   const [open, setOpenCount] = useState<number | null>(null);
   useEffect(() => {
     if (!enabled) return;
-    fetch("https://app.sokkan.ch/missions/stats.json")
+    fetch("/api/missions/stats", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => { if (s && typeof s.open === "number") setOpenCount(s.open); })
       .catch(() => {});
