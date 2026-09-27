@@ -1,0 +1,27 @@
+# SOKKAN — CI sur la forge Ninabot (standard §P7 de docs/infra/cicd-plan.md, ninabot-pro).
+# La forge porte lint + tests + typage du frontend. Le smoke docker compose et le build arm64 sous QEMU
+# restent dans .github/workflows/ci.yml, exécutés par GitHub sur le miroir public (gratuit pour un dépôt
+# public, et c'est là que les contributeurs externes ouvrent leurs PR). La release reste la procédure par tag.
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  lint-tests:
+    runs-on: python
+    steps:
+      - name: Clone
+        run: |
+          git clone -q --depth 20 --branch "${{ github.head_ref || github.ref_name }}" "http://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@100.124.110.23:3003/${{ github.repository }}.git" . && git checkout -q "${{ github.sha }}"
+          git log -1 --format='%h %s' | cut -c1-90
+      - name: ruff + pytest
+        run: |
+          python3 -m pip install -q --disable-pip-version-check -r backend/requirements.txt -r memory/requirements.txt -r requirements-dev.txt >/dev/null
+          ruff check backend memory cli tests
+          python3 -m pytest -q
+  frontend:
+    runs-on: docker   # node 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: tsc --noEmit
+        run: cd frontend && npm ci --no-audit --no-fund --loglevel=error && npx tsc --noEmit && echo "typage ok"
