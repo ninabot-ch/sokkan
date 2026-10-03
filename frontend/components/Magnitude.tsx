@@ -9,6 +9,7 @@ import type {
   MagnitudeServing, MagnitudeState, MagnitudeStatus,
 } from "@/lib/api";
 import { useCan } from "@/lib/me";
+import MemoryCard from "@/components/MemoryCard";
 
 // ————— formatting helpers —————
 
@@ -508,6 +509,9 @@ export default function Magnitude() {
             {pairing && <PairingCard command={pairing.command} />}
           </div>
         )}
+        <div className="mt-12">
+          <MemoryCard admin={admin} />
+        </div>
       </div>
     </div>
   );

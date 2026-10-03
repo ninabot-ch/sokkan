@@ -274,3 +274,116 @@ export const magnitudeCmd = (node: string, action: "bench" | "run" | "stop", mod
   mutate<MagnitudeState>("/api/magnitude/cmd", "POST", model ? { node, action, model } : { node, action });
 export const magnitudeConnect = (node: string) =>
   mutate<MagnitudeState>("/api/magnitude/connect", "POST", { node });
+
+// comme mutate, mais l'erreur porte le `detail` du backend (affiché tel quel dans l'UI)
+async function mutateD<T>(url: string, method: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    let detail = "";
+    try { detail = (await r.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === "string" && detail ? detail : `${method} ${url} → ${r.status}`);
+  }
+  return r.json();
+}
+
+// mémoire (CortHeXis) — banc de recall sur les notes du client
+export interface BenchMetrics { n: number; weight: number; h1: number | null; h5: number | null; mrr: number | null; ndcg10: number | null; }
+export interface BenchRun {
+  id: number; generation_id: number | null; embed_identity: string | null; profile: string | null;
+  trigger: string; status: "running" | "done" | "failed"; started_at: string; finished_at: string | null;
+  n_questions: number; error: string | null;
+  metrics: { overall?: BenchMetrics; by_source?: Record<string, BenchMetrics>; stale?: number;
+             errors?: number; search_ms_p50?: number | null; search_ms_p95?: number | null };
+  regression: BenchComparison | null;
+}
+export interface BenchExample { id: number; question: string | null; expected: string[]; rank_before: number | null; rank_after: number | null; top_after: string[]; }
+export interface BenchComparison {
+  common: number; enough: boolean; regressed: boolean; max_drop?: number; reason?: string;
+  base?: BenchMetrics; new?: BenchMetrics; delta?: Record<string, number | null>;
+  lost?: number; gained?: number; worse?: number;
+  lost_examples?: BenchExample[]; worse_examples?: BenchExample[]; gained_examples?: BenchExample[];
+}
+export interface BenchFinding { check: string; severity: "critical" | "warning" | "info"; title: string; detail: string; remedy: string; notes: string[]; }
+export interface BenchCounts { active: number; disabled: number; }
+export interface BenchOverview {
+  available: boolean; reason?: string;
+  questions?: { transcript: BenchCounts; client: BenchCounts; generated: BenchCounts; total_active: number };
+  runs?: BenchRun[]; last?: BenchRun | null; active_generation?: number | null;
+  findings?: BenchFinding[]; busy?: string[]; llm?: boolean; max_drop?: number;
+  weights?: Record<string, number>;
+}
+export interface BenchQuestion {
+  id: number; question: string; expected: string[]; source: "transcript" | "client" | "generated";
+  weight: number; status: "active" | "disabled"; author: string | null; seen: number;
+  created_at: string | null; measured: boolean; rank: number | null;
+}
+export const benchOverview = () => getJSON<BenchOverview>("/api/memory/eval");
+export const benchQuestions = () => getJSON<BenchQuestion[]>("/api/memory/eval/questions");
+export const benchAdd = (question: string, notes: string[]) =>
+  mutateD<BenchQuestion>("/api/memory/eval/questions", "POST", { question, notes });
+export const benchSetStatus = (id: number, status: "active" | "disabled") =>
+  mutateD<{ ok: boolean }>(`/api/memory/eval/questions/${id}/status`, "POST", { status });
+export const benchDelete = (id: number) =>
+  mutateD<{ ok: boolean }>(`/api/memory/eval/questions/${id}`, "DELETE");
+export const benchRun = () => mutateD<{ started: boolean }>("/api/memory/eval/run", "POST");
+export const benchHarvest = () =>
+  mutateD<{ files: number; pairs: number; new: number }>("/api/memory/eval/harvest", "POST");
+export const benchGenerate = () => mutateD<{ started: boolean }>("/api/memory/eval/generate", "POST");
+
+// carte « Mémoire » de Magnitude — profil, changement surveillé par le banc, licence
+export interface MemProfileCosts {
+  ram_gb: number; vram_gb: number; download_mb: number; query_ms_p50: number;
+  rerank_ms_top10: number | null; index_chunks_per_s: number; reindex_250k_h: number;
+  mrr: number; mrr_reranked?: number; mrr_fallback: number;
+}
+export interface MemProfile {
+  id: "leger" | "standard" | "gpu"; label: string; embed: string; embed_device: string;
+  reranker: string | null; rerank_policy: string; fits: boolean; costs: MemProfileCosts;
+  min: Record<string, number>;
+}
+export interface MemoryView {
+  current: string | null; recommended: string;
+  local: { recommended: string; reason: string; warnings: string[] };
+  nodes: { id: string; name: string; online: boolean; recommended: string; reason: string }[];
+  profiles: MemProfile[];
+  engine: { profile?: string; identity?: string; model?: string; label?: string; licence?: string;
+            urls?: string[]; rerank_url?: string | null; error?: string };
+  models: { active: { embed?: string | null; reason?: string } | null; installed: Record<string, boolean>;
+            licence: { decision: string | null; terms_version: string | null; at: string | null;
+                       by: string | null; via: string | null; current: boolean };
+            terms_version: string; terms_url: string; policy_url: string };
+}
+export interface SwitchTarget { profile: string; model: string | null; urls: string[]; rerank_url: string | null; rebuild?: boolean; }
+export interface SwitchJob {
+  id: number; kind: "switch" | "rollback";
+  status: "building" | "evaluating" | "switched" | "blocked" | "failed" | "cancelled" | "rolled_back";
+  phase: string | null; progress: number; detail: string | null;
+  from_generation: number | null; to_generation: number | null; from_target: SwitchTarget | null;
+  to_target: SwitchTarget; built: boolean; comparison: BenchComparison | null;
+  requested_by: string | null; decided_by: string | null; started_at: string; finished_at: string | null;
+}
+export interface MemGeneration {
+  id: number; status: "building" | "active" | "retired"; identity: string; dim: number; chunks: number;
+  created_at: string; activated_at: string | null; retired_at: string | null;
+  rollback_until: string | null; profile: string | null;
+}
+export interface SwitchState {
+  available: boolean; active_generation?: number | null; identity?: string | null;
+  current?: SwitchTarget; job?: SwitchJob | null; history?: SwitchJob[]; generations?: MemGeneration[];
+  max_drop?: number; min_questions?: number; retention_days?: number;
+  rollback?: { switch: number; to_generation: number; to_target: SwitchTarget; since: string; until: string } | null;
+}
+export const memoryView = () => getJSON<MemoryView>("/api/magnitude/memory");
+export const memorySwitchState = () => getJSON<SwitchState>("/api/magnitude/memory/switch");
+export const memorySwitch = (t: { profile: string; model?: string | null; urls?: string[]; rebuild?: boolean }) =>
+  mutateD<SwitchJob>("/api/magnitude/memory/switch", "POST", t);
+export const memorySwitchDecide = (id: number, action: "approve" | "cancel") =>
+  mutateD<SwitchJob>(`/api/magnitude/memory/switch/${id}/${action}`, "POST");
+export const memoryRollback = () => mutateD<SwitchJob>("/api/magnitude/memory/rollback", "POST");
+export const memoryLicence = (decision: "accepted" | "declined") =>
+  mutateD<{ licence: MemoryView["models"]["licence"]; downloading: boolean; installed: boolean }>(
+    "/api/magnitude/memory/licence", "POST", { decision });

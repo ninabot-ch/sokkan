@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { memoryDigest, memoryNote, memoryNotes, memorySearch, memoryStats, spawnSession } from "@/lib/api";
 import MemoryGraph from "@/components/MemoryGraph";
+import MemoryBench from "@/components/MemoryBench";
 import type { MemNote, MemSearchResult, MemStats } from "@/lib/types";
 
 function ago(ts: number | null): string {
@@ -23,6 +24,7 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
   const [sel, setSel] = useState<string | null>(null);
   const [body, setBody] = useState("");
   const [graph, setGraph] = useState(false);
+  const [bench, setBench] = useState(false);
   const [digesting, setDigesting] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
 
@@ -45,7 +47,7 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
   }, [sel]);
 
   const byName = (n: string) => notes.find((x) => x.name === n);
-  const pick = (n: string) => { setSel(n); setQuery(""); setGraph(false); };
+  const pick = (n: string) => { setSel(n); setQuery(""); setGraph(false); setBench(false); };
   const digest = () => {
     setDigesting(true);
     memoryDigest().then((s) => onOpenSession?.(s.session_id)).catch(() => {}).finally(() => setDigesting(false));
@@ -85,7 +87,11 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
           placeholder="🔎 semantic search (RAG playground)…"
           className="ml-auto w-80 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
         />
-        <button onClick={() => setGraph((g) => !g)} title="knowledge graph of the [[wikilinks]]"
+        <button onClick={() => setBench((b) => !b)} title="recall bench: does the memory find the right note for real questions?"
+          className={`rounded border px-2 py-1 text-[11.5px] ${bench ? "border-sea bg-sea/15 text-sea" : "border-line text-mut hover:text-slate-200"}`}>
+          ◎ bench
+        </button>
+        <button onClick={() => { setGraph((g) => !g); setBench(false); }} title="knowledge graph of the [[wikilinks]]"
           className={`rounded border px-2 py-1 text-[11.5px] ${graph ? "border-sea bg-sea/15 text-sea" : "border-line text-mut hover:text-slate-200"}`}>
           ⬡ graph
         </button>
@@ -123,7 +129,9 @@ export default function MemoryKB({ onOpenSession }: { onOpenSession?: (sid: stri
 
         {/* détail / résultats */}
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
-          {graph ? (
+          {bench ? (
+            <MemoryBench noteNames={notes.map((n) => n.name)} onPickNote={pick} />
+          ) : graph ? (
             <MemoryGraph notes={notes} onPick={pick} />
           ) : results ? (
             <div className="space-y-2">

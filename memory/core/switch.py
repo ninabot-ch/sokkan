@@ -500,8 +500,10 @@ class Switcher:
         prev = self.store.get_generation(job["from_generation"])
         if prev is None:
             return None                      # purged
+        until = (datetime.datetime.fromisoformat(job["finished_at"])
+                 + datetime.timedelta(days=self.retention_days)).isoformat()
         return {"switch": job["id"], "to_generation": prev.id,
-                "to_target": job["from_target"], "since": job["finished_at"]}
+                "to_target": job["from_target"], "since": job["finished_at"], "until": until}
 
     def rollback(self, by: str) -> dict:
         """Back to the generation and setup in service before the last switch (one call;

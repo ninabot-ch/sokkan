@@ -227,8 +227,11 @@ def router(require: Callable, feature_magnitude: Callable,
                        _u: dict = viewer) -> list[dict]:
         from core import eval as ev
 
-        return [q.as_dict() for q in ev.list_questions(_store(), source=source, status=status,
-                                                        limit=500)]
+        st = _store()
+        last = ev.overview(st, runs=10)["last"]
+        ranks = ev.question_ranks(st, last["id"]) if last else {}
+        return [{**q.as_dict(), "measured": q.id in ranks, "rank": ranks.get(q.id)}
+                for q in ev.list_questions(st, source=source, status=status, limit=500)]
 
     @r.post("/api/memory/eval/questions")
     def eval_add(body: QuestionIn, u: dict = dev) -> dict:

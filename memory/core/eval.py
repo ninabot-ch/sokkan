@@ -636,6 +636,11 @@ def _results(store, run_id: int) -> dict[int, dict]:
             "WHERE run_id = %s", (int(run_id),)).fetchall()}
 
 
+def question_ranks(store, run_id: int) -> dict[int, int | None]:
+    """Rank of the expected note for each question of a run (None = not in the top 10)."""
+    return {i: r["rank"] for i, r in _results(store, run_id).items()}
+
+
 def compare(store, base_run: int, new_run: int, *, max_drop_: float | None = None,
             examples: int = 8) -> dict:
     """Two runs on the questions they share: metrics of each, deltas, and the questions
