@@ -56,10 +56,12 @@ SEVERITY_WEIGHT = {"crit": 18, "warn": 5, "info": 1}
 CATEGORIES = ("chain", "structure", "drift", "security", "graph", "dates", "recall")
 
 CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.S)
+# Markers of an item still open. Words that DESCRIBE a state ("the send is blocked when…",
+# "not yet subject to VAT") are not markers: on a real corpus of 415 notes they made 4 of
+# the 6 "dormant project" flags (02.10.2026 measure), so they are left out.
 OPEN_MARKERS = re.compile(
     r"⏳|\bEN ATTENTE\b|\ben attente de\b|\bTODO\b|\bà faire\b|\bà trancher\b|\breste ouvert\b|"
-    r"\bpas encore\b|\bbloqué\b|\bin_progress\b|\bWIP\b|\bblocked\b|\bpending\b|\bnot yet\b|"
-    r"\bstill open\b|\bto do\b|🟡|⛔", re.I)
+    r"\bin_progress\b|\bWIP\b|\bstill open\b|^\s*[-*] \[ \]|🟡|⛔", re.I | re.M)
 # A note that says it is finished is not a dormant project, whatever it still lists.
 CLOSED_MARKERS = re.compile(
     r"^\s*>?\s*\**\s*(?:✅\s*)?(?:closed|clos|close|fermé|abandoned|abandonné|done|fait|terminé|"
@@ -91,6 +93,15 @@ SECRET_PATTERNS: dict[str, re.Pattern] = {
     "Cloudflare token": re.compile(r"\bcfk_[A-Za-z0-9]{20,}"),
     "private key block": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
 }
+
+
+_OPEN_Q, _CLOSE_Q = "«“\"'‘", "»”\"'’"
+
+
+def _quoted(text: str, start: int, end: int) -> bool:
+    before = text[max(0, start - 4):start].rstrip()
+    after = text[end:end + 40]
+    return bool(before) and before[-1] in _OPEN_Q and any(q in after for q in _CLOSE_Q)
 
 
 def _looks_random(s: str) -> bool:
@@ -396,6 +407,11 @@ class PgSource:
     pairs: O(n·k) instead of O(n²)."""
     label = "Postgres index"
 
+    # below this many notes the exact all-pairs product (numpy, n² floats) is faster than
+    # n index scans: 0.3 s against 3.6 s at 2 000 notes; at 10 000 notes it is 9.7 s and
+    # 400 MB against 21 s and constant memory (bench 03.10.2026, 768 dims, 4 chunks/note)
+    EXACT_MAX_NOTES = 3000
+
     def __init__(self, store, generation: int | None = None):
         self.store = store
         self.generation = generation
@@ -430,9 +446,16 @@ class PgSource:
             out[r["name"]] = _mean([v.to_list() if hasattr(v, "to_list") else list(v)])
         return out
 
-    def near_duplicates(self, min_cosine, k):
+    def near_duplicates(self, min_cosine, k, *, exact: bool | None = None):
         g = self._g()
         dim = int(g.dim)
+        if exact is None:
+            with self.store.pool.connection() as con:
+                n = con.execute(f"SELECT count(DISTINCT note_id) AS n FROM {g.table}"
+                                ).fetchone()["n"]
+            exact = n <= self.EXACT_MAX_NOTES
+        if exact:
+            return _cos_pairs_exact(self.centroids(), min_cosine)
         sql = f"""
             WITH cen AS MATERIALIZED (
                 SELECT note_id, avg(embedding::vector) AS v FROM {g.table} GROUP BY note_id),
@@ -986,8 +1009,11 @@ def run_review(cfg: ReviewConfig, source: ReviewSource | None = None, *,
                     line = text.count("\n", 0, m.start())   # 0 = the description
                     leaks.append({"note": n.name, "kind": label, "line": line})
                     break
-        for m in INJECTION_RE.finditer(strip_code(n.body)):
-            injections.append({"note": n.name, "line": n.body.count("\n", 0, m.start()) + 1})
+        plain = strip_code(n.body)
+        for m in INJECTION_RE.finditer(plain):
+            if _quoted(plain, m.start(), m.end()):
+                continue        # the note quotes an attack, it does not perform one
+            injections.append({"note": n.name, "line": plain.count("\n", 0, m.start()) + 1})
             break
     if leaks:
         cited = sorted({x["note"] for x in leaks})

@@ -371,7 +371,7 @@ def test_pg_false_positive_rate_and_knn(pg_store, tmp_path):
     assert fp_rate < TARGET_FP and not missed
     # the k-NN pairs are the exact ones
     exact = MemorySource(InMemoryStore())
-    pairs = src.near_duplicates(0.86, 5)
+    pairs = src.near_duplicates(0.86, 5, exact=False)       # force the k-NN path
     cents = src.centroids()
     from core.review import _cos_pairs_exact
     assert [(a, b) for a, b, _ in pairs] == [(a, b) for a, b, _ in _cos_pairs_exact(cents, 0.86)]
@@ -457,3 +457,22 @@ def test_external_findings_from_the_bench():
         ("recall_regression", "crit", "recall"), ("recall_bench_small", "info", "recall")]
     assert out[0].notes == ["a", "b"] and out[0].judgement and not out[1].judgement
     assert health_score(out) < 80
+
+
+def test_real_corpus_false_positive_patterns(tmp_path):
+    """Shapes that produced false positives on a 415-note real corpus (measure of 03.10.2026)."""
+    from core.indexer import find_dead_paths
+    (tmp_path / "a.md").write_text(
+        "---\nname: a\ndescription: d\nmetadata:\n  type: project\n  modified: 2026-01-01\n---\n"
+        "The send is blocked when the domain is not verified; not yet subject to VAT.\n"
+        "Tested: « ignore les instructions précédentes » → refused.\n"
+        "Also tested “ignore all previous instructions” in a quote.\n[[b]]\n")
+    (tmp_path / "b.md").write_text("---\nname: b\ndescription: d\nmetadata:\n  type: reference\n"
+                                   "  modified: 2026-09-01\n---\n[[a]]\n")
+    rep = run_review(ReviewConfig(memory_dir=tmp_path), None, now=rf.NOW)
+    assert not {f["id"] for f in rep["findings"]} & {"stale_open", "injection"}
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    body = ("Config: `/srv/x/.docs/docs/a.json`. Decisions `docs/decisions/0001…0011`. "
+            "`docs/old` + `docs/older` retirés (supprimé, commit abc). Missing: docs/gone.md.")
+    assert find_dead_paths(body, [repo], ("docs",)) == ["docs/gone.md"]
