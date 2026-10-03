@@ -5,6 +5,7 @@ Skipped unless a server is given:
   CORTHEXIS_TEST_EMBED_URL=http://127.0.0.1:18180      # llama.cpp --embedding (corthexis-embed)
   CORTHEXIS_TEST_EMBED_MODEL=embeddinggemma-300m-q8    # what it serves (default)
   CORTHEXIS_TEST_RERANK_URL=http://127.0.0.1:18181     # optional, llama.cpp --reranking
+  CORTHEXIS_TEST_MAX_QUERY_MS=1000                     # latency budget (p50) for this machine
 
 e.g. `docker compose -f docker/embed/compose.yml up -d corthexis-embed` with a
 published port, then `pytest tests/test_core_embed_integration.py`.
@@ -19,6 +20,7 @@ from core import embed
 URL = os.environ.get("CORTHEXIS_TEST_EMBED_URL")
 MODEL = os.environ.get("CORTHEXIS_TEST_EMBED_MODEL", "embeddinggemma-300m-q8")
 RERANK = os.environ.get("CORTHEXIS_TEST_RERANK_URL")
+MAX_QUERY_S = float(os.environ.get("CORTHEXIS_TEST_MAX_QUERY_MS", "1000")) / 1000
 
 pytestmark = pytest.mark.skipif(not URL, reason="CORTHEXIS_TEST_EMBED_URL not set")
 
@@ -89,4 +91,4 @@ def test_latency_budget(e):
         t0 = time.perf_counter()
         e.embed_query(f"question {i} sur la mémoire")
         t.append(time.perf_counter() - t0)
-    assert sorted(t)[len(t) // 2] < 1.0  # generous: a loaded CPU box still answers well under 1 s
+    assert sorted(t)[len(t) // 2] < MAX_QUERY_S
