@@ -461,8 +461,13 @@ class Migration:
                 edited[final] = max(edited_pre.get(s, 0) for s in srcs)
             if final in touched and p.exists():
                 ts = max([files[s]["mtime"] for s in srcs] + [edited.get(final, 0)])
-                os.utime(p, (ts, ts))
-                restored += 1
+                try:
+                    os.utime(p, (ts, ts))
+                    restored += 1
+                except PermissionError:
+                    # Not the file's owner (e.g. a note created by root, the API running as
+                    # `sokkan`): a rename keeps the mtime anyway, and a rewritten file is ours.
+                    self.log(f"normalize: date of {final} left as is (not the owner)")
         self._mapping_override = None
         mapping["touched"] = sorted(touched)
         mapping["edited"] = edited

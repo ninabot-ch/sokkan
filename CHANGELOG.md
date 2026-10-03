@@ -3,6 +3,13 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.0.1 — 2026-10-03 — "One memory"
+- **The 2.x memory migration no longer stops on a note owned by another user.** When a
+  note file belongs to someone else (e.g. created by root while the API runs as
+  `sokkan`), restoring its date after a rename failed with "Operation not permitted" and
+  the migration stopped at the repair step (the 2.x index kept serving, nothing lost).
+  A rename keeps the date anyway: the migration now logs it and goes on.
+
 ## 3.0.0 — 2026-10-03 — "One memory"
 - **A new memory engine, CortHeXis.** The SQLite index (`memory.db`, vectors as
   JSON scanned in Python at every search) is replaced by a Postgres + pgvector
