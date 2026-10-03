@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS notes (
     type            text,
     priority        smallint NOT NULL DEFAULT 0,
     source_path     text,
-    modified        timestamptz,
+    modified        text,           -- ISO 8601, kept verbatim (effective date, see truth)
     modified_source text,
     body            text NOT NULL DEFAULT '',
     head_tokens     text[] NOT NULL DEFAULT '{}',
@@ -75,23 +75,30 @@ CREATE TABLE IF NOT EXISTS lex_df (
     df      integer NOT NULL
 );
 
--- Content history of a note: one row per (name, fingerprint). Owned by the "truth" logic
--- (effective_modified / note_seen): first_seen is when this content was first indexed,
--- date_source the provenance of the date (frontmatter | indexed | inferred |
--- migrated-mtime | ...). Keyed by NAME, not notes.id: the history survives a deletion and
--- lets a renamed note inherit its date (lookup by fingerprint).
+-- Content history of a note (contract.SeenRecord): one row per version as the indexer saw it.
+-- A version is appended when the body hash OR the description changes, else the latest row
+-- is refreshed. first_seen = when this BODY was first seen (carried across description-only
+-- changes and renames), date_source = its provenance. Description and body are kept so the
+-- "description != body" drift check can compare versions. Keyed by NAME, not notes.id: the
+-- history survives a deletion, and a renamed note finds its date by content_hash.
+-- Dates are ISO 8601 text, kept verbatim as the truth code wrote them.
 CREATE TABLE IF NOT EXISTS note_versions (
-    id           bigserial PRIMARY KEY,
-    note_name    text NOT NULL,
-    fingerprint  text NOT NULL,
-    first_seen   timestamptz NOT NULL,
-    last_seen    timestamptz NOT NULL,
-    date_source  text,
-    seeded       boolean NOT NULL DEFAULT false,
-    UNIQUE (note_name, fingerprint)
+    id            bigserial PRIMARY KEY,
+    note_name     text NOT NULL,
+    content_hash  text NOT NULL,
+    first_seen    text NOT NULL,
+    seeded        boolean NOT NULL DEFAULT false,
+    date_source   text NOT NULL DEFAULT 'indexed' CHECK (date_source IN
+                  ('frontmatter', 'indexed', 'migrated-mtime', 'inferred', 'transcript',
+                   'inconnue')),
+    description   text NOT NULL DEFAULT '',
+    body          text NOT NULL DEFAULT '',
+    seen_at       text NOT NULL DEFAULT '',
+    last_seen     timestamptz NOT NULL DEFAULT now(),   -- last refresh of this version
+    extra         jsonb NOT NULL DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS note_versions_fingerprint ON note_versions (fingerprint);
-CREATE INDEX IF NOT EXISTS note_versions_last_seen ON note_versions (note_name, last_seen DESC);
+CREATE INDEX IF NOT EXISTS note_versions_name ON note_versions (note_name, id DESC);
+CREATE INDEX IF NOT EXISTS note_versions_hash ON note_versions (content_hash);
 
 -- Chunks, one partition per generation (see header).
 -- tsv = the chunk's folded keywords (array_to_tsvector of search.tokens), so that the
@@ -101,7 +108,9 @@ CREATE TABLE IF NOT EXISTS chunks (
     note_id        bigint  NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
     idx            integer NOT NULL,
     body           text    NOT NULL,
-    embedding      halfvec NOT NULL,
+    -- PLAIN: never TOASTed. A 768-d halfvec is 1.5 kB; out-of-line storage would cost a
+    -- TOAST lookup per row in every exact scan.
+    embedding      halfvec STORAGE PLAIN NOT NULL,
     tsv            tsvector NOT NULL,
     PRIMARY KEY (generation_id, note_id, idx)
 ) PARTITION BY LIST (generation_id);
@@ -129,7 +138,7 @@ CREATE TABLE IF NOT EXISTS recall_log (
     rank           integer,
     score          real,
     rerank         real,
-    fingerprint    text,
+    content_hash   text,                  -- version of the note that was injected
     generation_id  integer
 );
 CREATE INDEX IF NOT EXISTS recall_log_session ON recall_log (session_id, at);

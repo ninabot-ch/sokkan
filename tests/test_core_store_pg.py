@@ -20,8 +20,15 @@ pytest.importorskip("pgvector")
 pytest.importorskip("psycopg_pool")
 
 from core import search as rk  # noqa: E402
+from core.contract import IndexStore, SeenRecord  # noqa: E402
 from core.store import (  # noqa: E402
     ChunkRecord, DimensionMismatch, NoteRecord, SearchConfig, Store, StoreError)
+
+
+def N(name, description="", *, type="project", priority=0, source_path=None, modified=None,
+      modified_source="indexed", body=""):
+    return NoteRecord(name, description, type, priority, source_path or f"/notes/{name}.md",
+                      modified, modified_source, body)
 
 DSN = os.environ.get("SOKKAN_TEST_PG_DSN", "")
 pytestmark = pytest.mark.skipif(not DSN, reason="SOKKAN_TEST_PG_DSN not set (needs Postgres)")
@@ -77,8 +84,9 @@ def _corpus(seed=7, n_notes=40):
             chunks.append(ChunkRecord(j, " ".join(words) + f" para{j}", v.tolist()))
         mod = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc) + \
             datetime.timedelta(days=int(rng.integers(0, 250)))
-        notes.append((NoteRecord(name, desc, "project", 0, f"/notes/{name}.md", mod,
-                                 "frontmatter" if i % 3 else "indexed", "body"), chunks))
+        notes.append((N(name, desc, modified=mod.isoformat(),
+                        modified_source="frontmatter" if i % 3 else "indexed", body="body"),
+                       chunks))
     queries = []
     for i in range(16):
         topic = list(TOPICS)[i % len(TOPICS)]
@@ -263,12 +271,16 @@ def test_two_generations_of_different_dimensions(store):
     assert len(store.note_names()) == len(notes)
 
 
+def test_store_honours_the_indexer_protocol(store):
+    assert isinstance(store, IndexStore)
+
+
 def test_upsert_replace_delete_and_idf_stats(store):
     g = store.create_generation("t@4", 4)
-    store.upsert_note(NoteRecord("alpha", "first note", body="b"),
+    store.upsert_note(N("alpha", "first note", body="b"),
                       [ChunkRecord(0, "zebra tunnel", [1, 0, 0, 0]),
                        ChunkRecord(1, "giraffe", [0, 1, 0, 0])], g.id)
-    store.upsert_note(NoteRecord("beta", "second"), [ChunkRecord(0, "zebra", [0, 0, 1, 0])], g.id)
+    store.upsert_note(N("beta", "second"), [ChunkRecord(0, "zebra", [0, 0, 1, 0])], g.id)
 
     def df():
         with store.pool.connection() as con:
@@ -277,12 +289,19 @@ def test_upsert_replace_delete_and_idf_stats(store):
     d = df()
     assert d[""] == 2 and d["zebra"] == 2 and d["giraffe"] == 1
     # replace alpha: its old chunks go, giraffe disappears from the stats
-    store.upsert_note(NoteRecord("alpha", "first note"), [ChunkRecord(0, "zebra", [1, 0, 0, 0])],
-                      g.id)
+    store.upsert_note(N("alpha", "first note"), [ChunkRecord(0, "zebra", [1, 0, 0, 0])], g.id)
     d = df()
     assert "giraffe" not in d and d["zebra"] == 2 and d[""] == 2
     assert store.get_generation(g.id).chunk_count == 2
-    assert store.get_chunks("alpha", g.id) == ["zebra"]
+    assert [c.body for c in store.get_chunks("alpha", g.id)] == ["zebra"]
+    # metadata-only update: chunks kept, description re-tokenised
+    store.upsert_note(N("alpha", "renamed topic", modified="2026-03-01T09:00:00+02:00"), None,
+                      g.id)
+    assert [c.body for c in store.get_chunks("alpha", g.id)] == ["zebra"]
+    assert store.get_note("alpha").modified == "2026-03-01T09:00:00+02:00"  # verbatim
+    d = df()
+    assert d["renamed"] == 1 and "first" not in d
+    assert store.note_names(g.id) == {"alpha", "beta"}
     store.delete_note("beta", g.id)
     d = df()
     assert d[""] == 1 and d["zebra"] == 1 and "second" not in d
@@ -292,43 +311,54 @@ def test_upsert_replace_delete_and_idf_stats(store):
 
 def test_links_and_note_lookup(store):
     g = store.create_generation("t@4", 4)
-    store.upsert_note(NoteRecord("a-note", "A", source_path="/m/a_note.md", links=["b", "zz"]),
+    store.upsert_note(N("a-note", "A", source_path="/m/a_note.md"),
                       [ChunkRecord(0, "x", [1, 0, 0, 0])], g.id)
-    store.upsert_note(NoteRecord("b", "B", links=["a-note"]), [ChunkRecord(0, "y", [0, 1, 0, 0])],
-                      g.id)
+    store.upsert_note(N("b", "B"), [ChunkRecord(0, "y", [0, 1, 0, 0])], g.id)
+    store.set_links("a-note", ["b", "zz", "a-note"])
+    store.set_links("b", ["a-note"])
     ln = store.links("a-note")
     assert [(x["name"], x["exists"]) for x in ln["links"]] == [("b", True), ("zz", False)]
     assert [x["name"] for x in ln["backlinks"]] == ["b"]
-    assert store.get_note("a-note").links == ["b", "zz"]
-    # links=None leaves them alone
-    store.upsert_note(NoteRecord("a-note", "A2", source_path="/m/a_note.md"), [ChunkRecord(0, "x", [1, 0, 0, 0])], g.id)
-    assert store.get_note("a-note").links == ["b", "zz"]
+    store.set_links("a-note", [])
+    assert store.links("a-note")["links"] == []
     assert store.find_note_by_path("a-note") == "a-note"
 
 
-def test_note_versions(store):
-    assert not store.has_versions()
-    t0 = datetime.datetime(2026, 5, 1, tzinfo=datetime.timezone.utc)
-    v = store.record_seen("n", "h1", first_seen=t0, date_source="frontmatter", seeded=True,
-                          seen_at=t0)
-    assert v.first_seen == t0 and v.seeded
-    t1 = t0 + datetime.timedelta(days=3)
-    v = store.record_seen("n", "h1", first_seen=t1, seen_at=t1)
-    assert v.first_seen == t0 and v.last_seen == t1 and v.date_source == "frontmatter"
-    t2 = t1 + datetime.timedelta(days=1)
-    store.record_seen("n", "h2", seen_at=t2, date_source="indexed")
-    assert store.note_seen("n").fingerprint == "h2"
-    # rename: the same content under another name finds the old date
-    assert store.versions_by_fingerprint(["h1", "zz"])[0].first_seen == t0
-    v = store.record_seen("n", "h1", first_seen=t2, seen_at=t2, reset_first_seen=True)
-    assert v.first_seen == t2
-    assert store.has_versions() and store.note_seen("missing") is None
+def _seen(name, h, first, desc="d", **kw):
+    return SeenRecord(name=name, content_hash=h, first_seen=first, description=desc,
+                      body=kw.pop("body", "body " + h), seen_at=kw.pop("seen_at", first), **kw)
+
+
+def test_note_versions_follow_the_reference_semantics(store):
+    """Same behaviour as core.memstore.InMemoryStore (the executable spec)."""
+    assert store.seen_count() == 0 and store.note_seen("n") is None
+    t0, t1, t2 = "2026-05-01T00:00:00+00:00", "2026-05-04T00:00:00+00:00",         "2026-05-05T00:00:00+02:00"
+    store.record_seen(_seen("n", "h1", t0, seeded=True, date_source="frontmatter"))
+    # same hash + description: the latest version is refreshed, not duplicated
+    store.record_seen(_seen("n", "h1", t0, date_source="indexed", body="new body"))
+    assert len(store.note_versions("n")) == 1
+    v = store.note_seen("n")
+    assert (v.first_seen, v.seeded, v.date_source, v.body) == (t0, False, "indexed", "new body")
+    # description change -> new version, first_seen carried by the caller
+    store.record_seen(_seen("n", "h1", t0, desc="other", seen_at=t1))
+    store.record_seen(_seen("n", "h2", t2, desc="other", extra={"why": "edit"}))
+    hist = store.note_versions("n")
+    assert [(x.content_hash, x.description) for x in hist] ==         [("h1", "d"), ("h1", "other"), ("h2", "other")]
+    assert store.note_versions("n", limit=1)[0].extra == {"why": "edit"}
+    assert store.note_seen("n").first_seen == t2  # verbatim, offset kept
+    # rename inheritance: oldest version under any name with one of the hashes
+    store.record_seen(_seen("m", "h2", t1))
+    assert store.find_seen(["h2", "zz"]).first_seen == t1
+    assert store.find_seen(["h1"]).name == "n" and store.find_seen(["nope"]) is None
+    assert store.seen_count() == 2
+    with pytest.raises(StoreError):
+        store.record_seen(_seen("n", "h3", t2, date_source="guess"))
 
 
 def test_recall_log(store):
     notes, queries = _corpus()
     _load(store, notes)
-    store.record_seen(notes[0][0].name, "fp-x")
+    store.record_seen(_seen(notes[0][0].name, "fp-x", "2026-05-01T00:00:00+00:00"))
     hits = store.search(queries[0][0], queries[0][1], 3)
     assert store.log_recall("prompt", hits, session_id="s1", query=queries[0][1]) == 3
     with store.pool.connection() as con:

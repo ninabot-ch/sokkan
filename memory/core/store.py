@@ -19,7 +19,6 @@ Dependencies: ``psycopg[binary]>=3.2``, ``psycopg-pool``, ``pgvector``, ``numpy`
 from __future__ import annotations
 
 import datetime
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,10 +29,16 @@ import psycopg
 from pgvector import HalfVector
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from . import search as rk
+from .config import env, env_int
+from .contract import DATE_SOURCES, ChunkRecord, NoteRecord, SeenRecord
 from .search import Candidate, Hit, Reranker
+
+__all__ = ["Store", "SearchConfig", "Generation", "NoteRecord", "ChunkRecord", "SeenRecord",
+           "StoreError", "DimensionMismatch", "DATE_SOURCES"]
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
@@ -42,37 +47,18 @@ _MIGRATION_LOCK = 0x50_4B_4B_33  # pg_advisory_xact_lock key ("SKK3")
 
 
 # --------------------------------------------------------------------------- records
-
-@dataclass
-class NoteRecord:
-    name: str
-    description: str = ""
-    type: str | None = None
-    priority: int = 0
-    source_path: str | None = None
-    modified: datetime.datetime | str | None = None
-    modified_source: str | None = None
-    body: str = ""
-    # extension to the contract: [[wikilinks]] of the note. None = leave links untouched.
-    links: Sequence[str] | None = None
-
-
-@dataclass
-class ChunkRecord:
-    idx: int
-    body: str
-    embedding: Sequence[float]
-
+# NoteRecord / ChunkRecord / SeenRecord: contract.py (shared with the indexer).
 
 @dataclass
 class Generation:
+    """contract.Generation plus the store's bookkeeping (dates as ISO 8601 strings)."""
     id: int
     embed_identity: str
     dim: int
-    created_at: datetime.datetime
+    created_at: str
     status: str
-    activated_at: datetime.datetime | None = None
-    retired_at: datetime.datetime | None = None
+    activated_at: str | None = None
+    retired_at: str | None = None
     chunk_count: int = 0
     hnsw_m: int = 16
     hnsw_ef_construction: int = 64
@@ -81,16 +67,6 @@ class Generation:
     @property
     def table(self) -> str:
         return f"chunks_g{int(self.id)}"
-
-
-@dataclass
-class NoteVersion:
-    note_name: str
-    fingerprint: str
-    first_seen: datetime.datetime
-    last_seen: datetime.datetime
-    date_source: str | None
-    seeded: bool
 
 
 @dataclass
@@ -111,6 +87,30 @@ class SearchConfig:
     # a query word present in more than this share of the notes is not used to PICK
     # lexical candidates (it still counts in their score): it would select half the corpus
     lexical_filter_df: float = 0.05
+
+    @classmethod
+    def from_env(cls, **overrides) -> "SearchConfig":
+        """``CORTHEXIS_<KNOB>`` (or the ``SOKKAN_<KNOB>`` of 2.x installs)."""
+        def f(name, default):
+            raw = env(name)
+            try:
+                return float(raw) if raw is not None else default
+            except ValueError:
+                return default
+        d = cls()
+        cfg = cls(
+            lexical_weight=f("LEXICAL_WEIGHT", d.lexical_weight),
+            head_share=f("HEAD_SHARE", d.head_share),
+            fusion=(env("SEARCH_FUSION") or d.fusion).lower(),
+            rrf_k=env_int("RRF_K", d.rrf_k),
+            priority_boost=f("PRIORITY_BOOST", d.priority_boost),
+            rerank_top=env_int("RERANK_TOP", d.rerank_top),
+            exact_max_chunks=env_int("SEARCH_EXACT_MAX_CHUNKS", d.exact_max_chunks),
+            dense_candidates=env_int("SEARCH_DENSE_CANDIDATES", d.dense_candidates),
+            lexical_candidates=env_int("SEARCH_LEXICAL_CANDIDATES", d.lexical_candidates),
+            ef_search=env_int("HNSW_EF_SEARCH", d.ef_search),
+        )
+        return cls(**{**cfg.__dict__, **overrides})
 
 
 class StoreError(RuntimeError):
@@ -138,6 +138,15 @@ def _tsv_tokens(text: str) -> list[str]:
     return sorted(rk.tokens(text))
 
 
+def _iso(v) -> str | None:
+    """Dates are carried as ISO 8601 strings (contract); kept verbatim when already one."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (datetime.datetime, datetime.date)):
+        return v.isoformat()
+    return str(v)
+
+
 def _to_dt(v) -> datetime.datetime | None:
     if v is None or v == "":
         return None
@@ -157,7 +166,24 @@ _GEN_COLS = ("id, embed_identity, dim, created_at, status, activated_at, retired
 
 
 def _gen(row) -> Generation | None:
-    return Generation(**row) if row else None
+    if not row:
+        return None
+    row = dict(row)
+    for k in ("created_at", "activated_at", "retired_at"):
+        row[k] = _iso(row[k])
+    return Generation(**row)
+
+
+_SEEN_COLS = ("note_name AS name, content_hash, first_seen, seeded, date_source, description, "
+              "body, seen_at, extra")
+
+
+def _seen(row) -> SeenRecord | None:
+    if not row:
+        return None
+    row = dict(row)
+    row["extra"] = row["extra"] or {}
+    return SeenRecord(**row)
 
 
 # --------------------------------------------------------------------------- store
@@ -166,10 +192,10 @@ class Store:
     def __init__(self, dsn: str | None = None, *, min_size: int = 1, max_size: int = 4,
                  migrate: bool = True, config: SearchConfig | None = None,
                  connect_timeout: float = 10.0):
-        self.dsn = dsn or os.environ.get("SOKKAN_DATABASE_URL", "")
+        self.dsn = dsn or env("DATABASE_URL") or ""
         if not self.dsn:
-            raise StoreError("no database: pass a DSN or set SOKKAN_DATABASE_URL")
-        self.config = config or SearchConfig()
+            raise StoreError("no database: pass a DSN or set CORTHEXIS_DATABASE_URL")
+        self.config = config or SearchConfig.from_env()
         if migrate:
             self.migrate()
         self.pool = ConnectionPool(
@@ -336,11 +362,15 @@ class Store:
         return g
 
     # ------------------------------------------------------------------ notes
-    def upsert_note(self, note: NoteRecord, chunks: list[ChunkRecord],
+    def upsert_note(self, note: NoteRecord, chunks: list[ChunkRecord] | None,
                     generation: int | Generation) -> None:
         """Create or replace a note and ITS chunks in ``generation`` (other generations'
-        chunks are untouched), in one transaction."""
-        self.upsert_notes([(note, chunks)], generation)
+        chunks are untouched), in one transaction. ``chunks=None``: metadata-only update,
+        the chunks stay as they are."""
+        if chunks is None:
+            self._upsert_meta(note, generation)
+        else:
+            self.upsert_notes([(note, chunks)], generation)
 
     def upsert_notes(self, items: Iterable[tuple[NoteRecord, list[ChunkRecord]]],
                      generation: int | Generation) -> int:
@@ -353,59 +383,19 @@ class Store:
         prepared = []
         for note, chunks in items:
             vecs = [_unit(c.embedding, g.dim) for c in chunks]  # validate before writing
-            bodies = [c.body for c in chunks] or [note.body]
-            head = sorted(rk.head_tokens(note.name, note.description))
-            lex = sorted(rk.body_tokens(note.name, note.description, bodies))
-            prepared.append((note, chunks, vecs, head, lex))
+            prepared.append((note, chunks, vecs, [c.body for c in chunks]))
         written = 0
         with self.pool.connection() as con, con.transaction():
-            names = [p[0].name for p in prepared]
-            old = {r["name"]: (r["id"], set(r["lex_tokens"])) for r in con.execute(
-                "SELECT id, name, lex_tokens FROM notes WHERE name = ANY(%s) ORDER BY name "
-                "FOR UPDATE", (names,)).fetchall()}
-            delta: dict[str, int] = {}
-            ids: dict[str, int] = {}
-            for note, _chunks, _vecs, head, lex in prepared:
-                prev = old.get(note.name)
-                prev_tokens = prev[1] if prev else set()
-                new_tokens = set(lex)
-                for t in new_tokens - prev_tokens:
-                    delta[t] = delta.get(t, 0) + 1
-                for t in prev_tokens - new_tokens:
-                    delta[t] = delta.get(t, 0) - 1
-                if prev is None:
-                    delta[""] = delta.get("", 0) + 1
-                row = con.execute(
-                    "INSERT INTO notes(name, description, type, priority, source_path, modified,"
-                    " modified_source, body, head_tokens, lex_tokens, updated_at)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())"
-                    " ON CONFLICT (name) DO UPDATE SET description = excluded.description,"
-                    " type = excluded.type, priority = excluded.priority,"
-                    " source_path = excluded.source_path, modified = excluded.modified,"
-                    " modified_source = excluded.modified_source, body = excluded.body,"
-                    " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
-                    " updated_at = now() RETURNING id",
-                    (note.name, note.description or "", note.type, int(note.priority or 0),
-                     note.source_path, _to_dt(note.modified), note.modified_source,
-                     note.body or "", head, lex)).fetchone()
-                ids[note.name] = row["id"]
-                if note.links is not None:
-                    con.execute("DELETE FROM links WHERE src = %s", (note.name,))
-                    dsts = sorted({d for d in note.links if d and d != note.name})
-                    if dsts:
-                        con.execute("INSERT INTO links(src, dst) SELECT %s, unnest(%s::text[]) "
-                                    "ON CONFLICT DO NOTHING", (note.name, dsts))
-            self._apply_df(con, delta)
+            ids = self._write_notes(con, [(p[0], p[3]) for p in prepared])
             removed = con.execute(
                 f"DELETE FROM {g.table} WHERE note_id = ANY(%s)", (list(ids.values()),)).rowcount
-            con.execute("CREATE TEMP TABLE IF NOT EXISTS _sokkan_chunk_load ("
-                        "note_id bigint, idx int, body text, embedding halfvec, toks text[])"
-                        " ON COMMIT DELETE ROWS")
+            con.execute("CREATE TEMP TABLE IF NOT EXISTS _chunk_load (note_id bigint, idx int, "
+                        "body text, embedding halfvec, toks text[]) ON COMMIT DELETE ROWS")
             with con.cursor().copy(
-                    "COPY _sokkan_chunk_load (note_id, idx, body, embedding, toks) FROM STDIN "
+                    "COPY _chunk_load (note_id, idx, body, embedding, toks) FROM STDIN "
                     "WITH (FORMAT BINARY)") as cp:
                 cp.set_types(["int8", "int4", "text", "halfvec", "text[]"])
-                for note, chunks, vecs, _head, _lex in prepared:
+                for note, chunks, vecs, _bodies in prepared:
                     nid = ids[note.name]
                     for c, v in zip(chunks, vecs):
                         cp.write_row((nid, int(c.idx), c.body, v, _tsv_tokens(c.body)))
@@ -413,10 +403,56 @@ class Store:
             con.execute(
                 f"INSERT INTO {g.table} (generation_id, note_id, idx, body, embedding, tsv) "
                 f"SELECT {g.id}, note_id, idx, body, embedding, array_to_tsvector(toks) "
-                "FROM _sokkan_chunk_load")
+                "FROM _chunk_load")
             con.execute("UPDATE index_generations SET chunk_count = chunk_count + %s "
                         "WHERE id = %s", (written - removed, g.id))
         return written
+
+    def _upsert_meta(self, note: NoteRecord, generation: int | Generation) -> None:
+        g = self._require_gen(generation)
+        with self.pool.connection() as con, con.transaction():
+            bodies = [r["body"] for r in con.execute(
+                f"SELECT c.body FROM {g.table} c JOIN notes n ON n.id = c.note_id "
+                "WHERE n.name = %s ORDER BY c.idx", (note.name,)).fetchall()]
+            self._write_notes(con, [(note, bodies)])
+
+    def _write_notes(self, con, items: list[tuple[NoteRecord, list[str]]]) -> dict[str, int]:
+        """Upsert the notes rows and keep the IDF statistics (lex_df) in step.
+        ``items`` = (note, chunk bodies) ; the lexical body = name + description + chunks
+        (the note body when there is no chunk)."""
+        names = sorted({n.name for n, _ in items})
+        old = {r["name"]: set(r["lex_tokens"]) for r in con.execute(
+            "SELECT name, lex_tokens FROM notes WHERE name = ANY(%s) ORDER BY name FOR UPDATE",
+            (names,)).fetchall()}
+        delta: dict[str, int] = {}
+        ids: dict[str, int] = {}
+        for note, bodies in items:
+            head = sorted(rk.head_tokens(note.name, note.description))
+            lex = sorted(rk.body_tokens(note.name, note.description, bodies or [note.body or ""]))
+            prev = old.get(note.name)
+            new = set(lex)
+            for t in new - (prev or set()):
+                delta[t] = delta.get(t, 0) + 1
+            for t in (prev or set()) - new:
+                delta[t] = delta.get(t, 0) - 1
+            if prev is None:
+                delta[""] = delta.get("", 0) + 1
+            old[note.name] = new
+            ids[note.name] = con.execute(
+                "INSERT INTO notes(name, description, type, priority, source_path, modified,"
+                " modified_source, body, head_tokens, lex_tokens, updated_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())"
+                " ON CONFLICT (name) DO UPDATE SET description = excluded.description,"
+                " type = excluded.type, priority = excluded.priority,"
+                " source_path = excluded.source_path, modified = excluded.modified,"
+                " modified_source = excluded.modified_source, body = excluded.body,"
+                " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
+                " updated_at = now() RETURNING id",
+                (note.name, note.description or "", note.type, int(note.priority or 0),
+                 note.source_path, _iso(note.modified), note.modified_source,
+                 note.body or "", head, lex)).fetchone()["id"]
+        self._apply_df(con, delta)
+        return ids
 
     def delete_note(self, name: str, generation: int | Generation | None = None) -> None:
         """Delete the note's chunks in ``generation`` (all generations if None). The note
@@ -464,15 +500,15 @@ class Store:
             "INSERT INTO lex_df(token, df) SELECT t, d FROM unnest(%s::text[], %s::int[]) "
             "AS x(t, d) ORDER BY t ON CONFLICT (token) DO UPDATE SET df = lex_df.df + excluded.df",
             (toks, [delta[t] for t in toks]))
-        con.execute("DELETE FROM lex_df WHERE token = ANY(%s) AND df <= 0",
-                    ([t for t in toks if delta[t] < 0],))
+        neg = [t for t in toks if delta[t] < 0]
+        if neg:
+            con.execute("DELETE FROM lex_df WHERE token = ANY(%s) AND df <= 0", (neg,))
 
     def get_note(self, name: str) -> NoteRecord | None:
         with self.pool.connection() as con:
             r = con.execute(
                 "SELECT name, description, type, priority, source_path, modified, "
-                "modified_source, body, ARRAY(SELECT dst FROM links WHERE src = n.name "
-                "ORDER BY dst) AS links FROM notes n WHERE name = %s", (name,)).fetchone()
+                "modified_source, body FROM notes WHERE name = %s", (name,)).fetchone()
         return NoteRecord(**r) if r else None
 
     def find_note_by_path(self, stem: str) -> str | None:
@@ -486,66 +522,88 @@ class Store:
                     return r["name"]
         return None
 
-    def get_chunks(self, name: str, generation: int | Generation | None = None) -> list[str]:
+    def get_chunks(self, name: str, generation: int | Generation | None = None
+                   ) -> list[ChunkRecord]:
+        """Chunks of a note in ``generation`` (active by default), in order. Embeddings come
+        back unit-normalised and rounded to half precision."""
         g = self._require_gen(generation)
         with self.pool.connection() as con:
-            return [r["body"] for r in con.execute(
-                f"SELECT c.body FROM {g.table} c JOIN notes n ON n.id = c.note_id "
-                "WHERE n.name = %s ORDER BY c.idx", (name,)).fetchall()]
+            return [ChunkRecord(r["idx"], r["body"], r["embedding"].to_list())
+                    for r in con.execute(
+                        f"SELECT c.idx, c.body, c.embedding FROM {g.table} c "
+                        "JOIN notes n ON n.id = c.note_id WHERE n.name = %s ORDER BY c.idx",
+                        (name,)).fetchall()]
 
-    def note_names(self) -> list[str]:
+    def note_names(self, generation: int | Generation | None = None) -> set[str]:
+        """Notes that have chunks in ``generation``; every known note when None."""
         with self.pool.connection() as con:
-            return [r["name"] for r in con.execute("SELECT name FROM notes ORDER BY name")]
+            if generation is None:
+                return {r["name"] for r in con.execute("SELECT name FROM notes")}
+            g = self._require_gen(generation)
+            return {r["name"] for r in con.execute(
+                f"SELECT n.name FROM notes n WHERE EXISTS "
+                f"(SELECT 1 FROM {g.table} c WHERE c.note_id = n.id)")}
+
+    def generations(self) -> list[Generation]:
+        return self.list_generations()
 
     # ------------------------------------------------------------------ dates (truth)
-    def note_seen(self, name: str) -> NoteVersion | None:
-        """Latest known version of a note (by last_seen)."""
+    # One row of note_versions = one SeenRecord. Semantics = memstore.InMemoryStore.
+    def note_seen(self, name: str) -> SeenRecord | None:
+        """Latest version recorded under this name."""
         with self.pool.connection() as con:
-            r = con.execute(
-                "SELECT note_name, fingerprint, first_seen, last_seen, date_source, seeded "
-                "FROM note_versions WHERE note_name = %s ORDER BY last_seen DESC, id DESC "
-                "LIMIT 1", (name,)).fetchone()
-        return NoteVersion(**r) if r else None
+            return _seen(con.execute(
+                f"SELECT {_SEEN_COLS} FROM note_versions WHERE note_name = %s "
+                "ORDER BY id DESC LIMIT 1", (name,)).fetchone())
 
-    def versions_by_fingerprint(self, fingerprints: Sequence[str]) -> list[NoteVersion]:
-        """Every version carrying one of these fingerprints, oldest first (rename
-        inheritance: a renamed note finds the date of its previous name)."""
-        with self.pool.connection() as con:
-            return [NoteVersion(**r) for r in con.execute(
-                "SELECT note_name, fingerprint, first_seen, last_seen, date_source, seeded "
-                "FROM note_versions WHERE fingerprint = ANY(%s) ORDER BY first_seen, id",
-                (list(fingerprints),)).fetchall()]
-
-    def has_versions(self) -> bool:
-        """False on a fresh store (the bootstrap pass of effective_modified)."""
-        with self.pool.connection() as con:
-            return con.execute("SELECT EXISTS (SELECT 1 FROM note_versions) AS e"
-                               ).fetchone()["e"]
-
-    def record_seen(self, name: str, fingerprint: str, *, first_seen=None,
-                    date_source: str | None = None, seeded: bool = False,
-                    seen_at=None, reset_first_seen: bool = False) -> NoteVersion:
-        """Record that ``name`` was indexed with content ``fingerprint``.
-
-        A new (name, fingerprint) pair is inserted with ``first_seen`` (default: now). A known
-        pair only moves ``last_seen`` — unless ``reset_first_seen`` (content that came back
-        after a change is new again, as in the reference effective_modified)."""
-        now = _to_dt(seen_at) or datetime.datetime.now(datetime.timezone.utc)
-        fs = _to_dt(first_seen) or now
+    def record_seen(self, rec: SeenRecord) -> None:
+        """Append a version when (content_hash, description) changed, else refresh the
+        latest one (first_seen, seeded, date_source, body)."""
+        if rec.date_source not in DATE_SOURCES:
+            raise StoreError(f"unknown date_source {rec.date_source!r} ({', '.join(DATE_SOURCES)})")
         with self.pool.connection() as con, con.transaction():
-            r = con.execute(
-                "INSERT INTO note_versions(note_name, fingerprint, first_seen, last_seen,"
-                " date_source, seeded) VALUES (%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (note_name, fingerprint) DO UPDATE SET"
-                " last_seen = GREATEST(note_versions.last_seen, excluded.last_seen),"
-                " first_seen = CASE WHEN %s THEN excluded.first_seen"
-                "                   ELSE note_versions.first_seen END,"
-                " seeded = CASE WHEN %s THEN excluded.seeded ELSE note_versions.seeded END,"
-                " date_source = COALESCE(excluded.date_source, note_versions.date_source)"
-                " RETURNING note_name, fingerprint, first_seen, last_seen, date_source, seeded",
-                (name, fingerprint, fs, now, date_source, bool(seeded),
-                 bool(reset_first_seen), bool(reset_first_seen))).fetchone()
-        return NoteVersion(**r)
+            con.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("note_versions:" + rec.name,))
+            last = con.execute(
+                "SELECT id, content_hash, description FROM note_versions WHERE note_name = %s "
+                "ORDER BY id DESC LIMIT 1", (rec.name,)).fetchone()
+            if last and (last["content_hash"], last["description"]) == (rec.content_hash,
+                                                                         rec.description or ""):
+                con.execute(
+                    "UPDATE note_versions SET first_seen = %s, seeded = %s, date_source = %s, "
+                    "body = %s, last_seen = now() WHERE id = %s",
+                    (_iso(rec.first_seen), bool(rec.seeded), rec.date_source, rec.body or "",
+                     last["id"]))
+                return
+            con.execute(
+                "INSERT INTO note_versions(note_name, content_hash, first_seen, seeded, "
+                "date_source, description, body, seen_at, extra) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (rec.name, rec.content_hash, _iso(rec.first_seen), bool(rec.seeded),
+                 rec.date_source, rec.description or "", rec.body or "",
+                 _iso(rec.seen_at) or "", Jsonb(rec.extra or {})))
+
+    def find_seen(self, content_hashes: Sequence[str]) -> SeenRecord | None:
+        """Oldest version, under any name, carrying one of these hashes (a renamed note
+        inherits the date of its previous name)."""
+        with self.pool.connection() as con:
+            return _seen(con.execute(
+                f"SELECT {_SEEN_COLS} FROM note_versions WHERE content_hash = ANY(%s) "
+                "ORDER BY first_seen::timestamptz, id LIMIT 1",
+                (list(content_hashes),)).fetchone())
+
+    def seen_count(self) -> int:
+        """Number of notes with a recorded history (0 = bootstrap pass)."""
+        with self.pool.connection() as con:
+            return con.execute("SELECT count(DISTINCT note_name) AS n FROM note_versions"
+                               ).fetchone()["n"]
+
+    def note_versions(self, name: str, limit: int = 20) -> list[SeenRecord]:
+        """The last ``limit`` versions of a note, oldest first."""
+        with self.pool.connection() as con:
+            rows = con.execute(
+                f"SELECT {_SEEN_COLS} FROM note_versions WHERE note_name = %s "
+                "ORDER BY id DESC LIMIT %s", (name, int(limit))).fetchall()
+        return [_seen(r) for r in reversed(rows)]
 
     # ------------------------------------------------------------------ links / recall
     def set_links(self, src: str, dsts: Iterable[str]) -> None:
@@ -577,10 +635,10 @@ class Store:
             with con.cursor() as cur:
                 cur.executemany(
                     "INSERT INTO recall_log(channel, session_id, agent_id, query, note_name,"
-                    " rank, score, rerank, fingerprint, generation_id)"
+                    " rank, score, rerank, content_hash, generation_id)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,"
-                    " (SELECT fingerprint FROM note_versions WHERE note_name = %s"
-                    "  ORDER BY last_seen DESC LIMIT 1), %s)",
+                    " (SELECT content_hash FROM note_versions WHERE note_name = %s"
+                    "  ORDER BY id DESC LIMIT 1), %s)",
                     [(channel, session_id, agent_id, query, h.note_name, i + 1, h.score,
                       h.rerank, h.note_name, h.generation) for i, h in enumerate(hits)])
         return len(hits)
