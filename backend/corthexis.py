@@ -116,6 +116,16 @@ def chain_config() -> rv.ChainConfig:
         "/workspace" if os.path.isdir("/workspace") else os.getcwd()))
     if not cfg.hook_settings:
         cfg.hook_settings = [claude_dir / "settings.json", cwd / ".claude" / "settings.json"]
+    try:
+        import memrecall
+        if memrecall.active():
+            # terminal sessions get the recall through this settings file (chat sessions
+            # through in-process callbacks): it must exist and carry the hook
+            path = memrecall.cli_settings_path()
+            cfg.hook_settings = [Path(path)] if path else [DATA_DIR / "claude-hooks" / "missing"]
+            cfg.hook_pattern, cfg.expect_hook = "recall_hook.py", True
+    except Exception:  # noqa: BLE001 — recall not part of this build
+        pass
     if not cfg.embed_urls and _pg():
         try:
             from core import embed
@@ -138,7 +148,7 @@ def run(*, chain: bool | None = None, alert: bool = True) -> dict:
             return _state["report"] or {}
         _state["running"] = True
     try:
-        findings = rv.chain_checks(chain_config()) if chain else []
+        findings = rv.chain_checks(chain_config()) + recall_api_check() if chain else []
         findings += bench_findings()
         report = rv.run_review(review_config(), source(), chain=findings)
         try:
@@ -154,6 +164,33 @@ def run(*, chain: bool | None = None, alert: bool = True) -> dict:
     finally:
         with _lock:
             _state["running"] = False
+
+
+def recall_api_check() -> list:
+    """The warm path of the recall hook (``POST /api/memory/hook``), probed the way a
+    terminal session's hook calls it. Down = every message pays a cold recall (~1 s)."""
+    try:
+        import memrecall
+        if not memrecall.active():
+            return []
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(
+            memrecall.api_url().rstrip("/") + "/api/memory/hook", method="POST",
+            data=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id":
+                             "corthexis-review-probe", "prompt": "memory health probe"}).encode(),
+            headers={"content-type": "application/json",
+                     "x-sokkan-hook-token": memrecall.hook_token()})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            r.read(64)
+        return []
+    except Exception as e:  # noqa: BLE001
+        return [rv.Finding(
+            "recall_api_down", "warn", "chain", "Recall at each message takes the slow path",
+            f"The terminal sessions' recall hook cannot reach the backend ({str(e)[:120]}); "
+            "it falls back to a cold recall of about a second per message, or none.",
+            remedy="Check SOKKAN_RECALL_API_URL / SOKKAN_API_PORT: the hook must reach the "
+                   "backend on its loopback port.", count=1)]
 
 
 def bench_findings() -> list:

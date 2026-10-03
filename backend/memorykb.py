@@ -20,7 +20,19 @@ def _con() -> sqlite3.Connection:
     return sqlite3.connect(f"file:{MEM_DB}?mode=ro", uri=True)
 
 
+def _store():
+    """3.0 : le store Postgres quand il est le backend (sinon None → memory.db 2.x)."""
+    try:
+        import store_backend
+    except ImportError:
+        return None
+    return store_backend.get_store() if store_backend.enabled() else None
+
+
 def list_notes() -> list[dict]:
+    st = _store()
+    if st is not None:
+        return st.list_notes()
     if not MEM_DB.exists():
         return []
     con = _con()
@@ -67,6 +79,9 @@ def list_notes() -> list[dict]:
 
 
 def stats() -> dict:
+    st = _store()
+    if st is not None:
+        return {**st.stats(), "cortex_url": os.environ.get("SOKKAN_CORTEX_URL") or None}
     if not MEM_DB.exists():
         return {"notes": 0, "chunks": 0, "model": None, "last_mtime": None}
     con = _con()

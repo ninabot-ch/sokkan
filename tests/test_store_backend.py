@@ -40,15 +40,23 @@ def mem(monkeypatch):
     monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "postgres")
     fake = FakeStore()
     monkeypatch.setattr(sb, "_store", fake)
-    monkeypatch.setattr(m, "_embed_query", lambda q: [1.0, 0.0])
+    monkeypatch.setattr(sb, "embed_query", lambda q: [1.0, 0.0])
+    monkeypatch.setattr(sb, "_reranker", lambda deep=False: None)
     return m, fake
 
 
-def test_flag_off_by_default(monkeypatch):
+def test_backend_follows_the_database(monkeypatch):
     import store_backend as sb
-    monkeypatch.delenv("CORTHEXIS_MEMORY_BACKEND", raising=False)
-    monkeypatch.delenv("SOKKAN_MEMORY_BACKEND", raising=False)
-    assert not sb.enabled()
+    for v in ("CORTHEXIS_MEMORY_BACKEND", "SOKKAN_MEMORY_BACKEND", "CORTHEXIS_DATABASE_URL",
+              "SOKKAN_DATABASE_URL"):
+        monkeypatch.delenv(v, raising=False)
+    assert not sb.enabled()                       # no database: the 2.x memory.db
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "postgresql://u:p@db/x")
+    assert sb.enabled()                           # 3.0 default: the store
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "sqlite")
+    assert not sb.enabled()                       # explicit opt-out (migration)
+    monkeypatch.delenv("CORTHEXIS_MEMORY_BACKEND")
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
     monkeypatch.setenv("SOKKAN_MEMORY_BACKEND", "postgres")
     assert sb.enabled()
 
@@ -69,7 +77,8 @@ def test_embedding_down_degrades_to_lexical(mem, monkeypatch):
     def boom(_q):
         raise RuntimeError("down")
 
-    monkeypatch.setattr(m, "_embed_query", boom)
+    import store_backend as sb
+    monkeypatch.setattr(sb, "embed_query", boom)
     res = m.memory_search("deploy tunnel", top_k=2)
     assert fake.calls[-1][0] is None and "lexical-only" in res[0]["degraded"]
     assert "error" in m.memory_search("de la et", top_k=2)[0]

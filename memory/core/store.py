@@ -688,6 +688,125 @@ class Store:
                       h.rerank, h.note_name, h.generation) for i, h in enumerate(hits)])
         return len(hits)
 
+    def recalled_notes(self, session_id: str, *, agent_id: str | None = None,
+                       channels: Sequence[str] = ("prompt", "spawn")) -> set[str]:
+        """Notes already injected in this session (``agent_id`` None = the main thread):
+        the per-turn recall does not inject them again."""
+        if not session_id:
+            return set()
+        with self.pool.connection() as con:
+            rows = con.execute(
+                "SELECT DISTINCT note_name FROM recall_log WHERE session_id = %s"
+                " AND agent_id IS NOT DISTINCT FROM %s AND channel = ANY(%s)",
+                (session_id, agent_id, list(channels))).fetchall()
+        return {r["note_name"] for r in rows}
+
+    def existing_names(self, names: Iterable[str]) -> set[str]:
+        """The subset of ``names`` that are notes of the store."""
+        names = sorted({n for n in names if n})
+        if not names:
+            return set()
+        with self.pool.connection() as con:
+            return {r["name"] for r in con.execute(
+                "SELECT name FROM notes WHERE name = ANY(%s)", (names,)).fetchall()}
+
+    def log_recall_turn(self, channel: str, *, session_id: str | None = None,
+                        agent_id: str | None = None, query: str | None = None,
+                        candidates: int = 0, injected: int = 0, deduplicated: int = 0,
+                        skipped: str | None = None, degraded: bool = False,
+                        reranked: bool = False, latency_ms: int | None = None,
+                        threshold: float | None = None, profile: str | None = None,
+                        generation: int | None = None) -> None:
+        """One recall attempt (migration 0010), whether it injected something or not."""
+        with self.pool.connection() as con:
+            con.execute(
+                "INSERT INTO recall_turns(channel, session_id, agent_id, query, candidates,"
+                " injected, deduplicated, skipped, degraded, reranked, latency_ms, threshold,"
+                " profile, generation_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (channel, session_id, agent_id, (query or "")[:2000] or None, candidates,
+                 injected, deduplicated, skipped, degraded, reranked, latency_ms, threshold,
+                 profile, generation))
+
+    def recall_log(self, *, session_id: str | None = None, note: str | None = None,
+                   limit: int = 200) -> list[dict]:
+        """Latest injected notes, newest first (read API of the UI)."""
+        where, args = [], []
+        if session_id:
+            where.append("session_id = %s")
+            args.append(session_id)
+        if note:
+            where.append("note_name = %s")
+            args.append(note)
+        sql = ("SELECT id, at, channel, session_id, agent_id, query, note_name, rank, score,"
+               " rerank, content_hash, generation_id FROM recall_log"
+               + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY id DESC LIMIT %s")
+        with self.pool.connection() as con:
+            rows = con.execute(sql, (*args, max(1, min(int(limit), 2000)))).fetchall()
+        for r in rows:
+            r["at"] = _iso(r["at"])
+        return rows
+
+    def recall_summary(self, since: datetime.timedelta = datetime.timedelta(days=7)) -> dict:
+        """Share of the turns that received a recall, latency per profile and channel."""
+        with self.pool.connection() as con:
+            rows = con.execute(
+                "SELECT channel, coalesce(profile, '') AS profile, count(*) AS turns,"
+                " count(*) FILTER (WHERE skipped IS NULL) AS searched,"
+                " count(*) FILTER (WHERE injected > 0) AS recalled,"
+                " sum(injected) AS notes, sum(deduplicated) AS deduplicated,"
+                " count(*) FILTER (WHERE degraded) AS degraded,"
+                " percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)"
+                "   FILTER (WHERE skipped IS NULL) AS p50_ms,"
+                " percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)"
+                "   FILTER (WHERE skipped IS NULL) AS p95_ms"
+                " FROM recall_turns WHERE at > now() - %s GROUP BY 1, 2 ORDER BY 1, 2",
+                (since,)).fetchall()
+        out = []
+        for r in rows:
+            r = dict(r)
+            r["notes"] = int(r["notes"] or 0)
+            r["deduplicated"] = int(r["deduplicated"] or 0)
+            r["recall_rate"] = round(r["recalled"] / r["searched"], 3) if r["searched"] else None
+            out.append(r)
+        return {"since_days": since.days, "by_channel": out}
+
+    def list_notes(self) -> list[dict]:
+        """Every note with its chunk count (active generation), links and backlinks."""
+        g = self.active_generation()
+        with self.pool.connection() as con:
+            counts = {}
+            if g is not None:
+                counts = {r["note_id"]: r["n"] for r in con.execute(
+                    f"SELECT note_id, count(*) AS n FROM {g.table} GROUP BY note_id")}
+            rows = con.execute(
+                "SELECT id, name, description, type, priority, source_path, modified,"
+                " modified_source FROM notes ORDER BY name").fetchall()
+            links = con.execute("SELECT src, dst FROM links ORDER BY dst").fetchall()
+        out_l: dict[str, list[str]] = {}
+        back: dict[str, set[str]] = {}
+        for r in links:
+            out_l.setdefault(r["src"], []).append(r["dst"])
+            back.setdefault(r["dst"], set()).add(r["src"])
+        return [{"name": r["name"], "description": r["description"], "type": r["type"],
+                 "modified": r["modified"], "date_source": r["modified_source"],
+                 "mtime": (_to_dt(r["modified"]).timestamp() if _to_dt(r["modified"])
+                           else None),
+                 "path": (r["source_path"] or "").rsplit("/", 1)[-1],
+                 "priority": bool(r["priority"]), "chunks": counts.get(r["id"], 0),
+                 "links": out_l.get(r["name"], []), "backlinks": sorted(back.get(r["name"], ()))}
+                for r in rows]
+
+    def stats(self) -> dict:
+        g = self.active_generation()
+        with self.pool.connection() as con:
+            n = con.execute("SELECT count(*) AS n, max(modified) AS last,"
+                            " extract(epoch FROM max(updated_at))::float8 AS indexed"
+                            " FROM notes").fetchone()
+        return {"notes": n["n"], "chunks": g.chunk_count if g else 0,
+                "model": g.embed_identity if g else None, "generation": g.id if g else None,
+                "last_modified": n["last"], "last_mtime": n["indexed"]}
+
     # ------------------------------------------------------------------ search
     def search(self, query_vec: Sequence[float] | None, query_text: str, k: int = 8, *,
                generation: int | Generation | None = None, rerank: Reranker | None = None,

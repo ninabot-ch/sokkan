@@ -3,7 +3,17 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased (3.0) — CortHeXis tab
+## 3.0.0 — unreleased — "One memory"
+- **Recall at every message, and in every sub-agent.** SOKKAN installs two hooks in
+  every session it starts (chat and terminal): each message brings the related notes
+  into the context (top 4, a threshold calibrated per embedding model, a note named in
+  the message always comes, no note twice in a session), and a sub-agent started with
+  the Task / Agent tool receives the recall of its own task in its prompt — until now
+  it started with nothing. Every recall is recorded (`GET /api/memory/recall-log`):
+  which session or sub-agent received which notes, with which score, from which index.
+- **The 3.0 memory store is the default**: notes are indexed into Postgres + pgvector
+  at start, when a file changes (~6 s) and periodically; `sokkan memory
+  index|search|get|status`. `CORTHEXIS_MEMORY_BACKEND=sqlite` keeps the 2.x index.
 - **The memory tab is now CortHeXis: the memory, visible and repairable.** A live graph
   of the notes (links, missing notes, meaning, age, health), the note with its problems,
   the memory's health score and its history, and the recall bench. The review runs every
