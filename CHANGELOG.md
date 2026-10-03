@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.0.0 — unreleased — "One memory"
+## 3.0.0 — 2026-10-03 — "One memory"
 - **A new memory engine, CortHeXis.** The SQLite index (`memory.db`, vectors as
   JSON scanned in Python at every search) is replaced by a Postgres + pgvector
   store (`db` service): hybrid search (dense HNSW + lexical on name/description
