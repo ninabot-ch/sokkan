@@ -64,9 +64,11 @@ restored for 7 days (`rollback`); `Store.purge_retired` drops it afterwards. Que
 
 `docker/embed/compose.yml` runs llama.cpp (`ghcr.io/ggml-org/llama.cpp`, pinned
 build): `corthexis-embed` (`--embedding`), `corthexis-rerank` (`--reranking`,
-compose profile `rerank`) and the one-shot `corthexis-embed-fetch`. GPU:
-`compose.sycl.yml` (Intel, SYCL) or `compose.cuda.yml` add `corthexis-embed-gpu`
-in front of the CPU server. Apple GPU: Docker has no Metal — run
+compose profile `rerank`) and the one-shot `corthexis-embed-fetch`. SOKKAN carries the
+same services in its own `docker-compose.yml` (no `include:`: any Compose v2 from 2.12
+runs it). GPU: `compose.sycl.yml` (Intel, SYCL) or `compose.cuda.yml`, overrides of the
+SOKKAN compose (`-f`, or `COMPOSE_FILE` in `.env` as memory-setup.sh writes it), add
+`corthexis-embed-gpu` in front of the CPU server. Apple GPU: Docker has no Metal — run
 `docker/embed/run.sh` natively (`LLAMA_SERVER=llama-server`).
 
 `CORTHEXIS_EMBED_URLS` lists servers of the **same model**, tried in order (GPU

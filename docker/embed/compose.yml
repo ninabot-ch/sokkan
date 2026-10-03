@@ -1,7 +1,8 @@
 # CortHeXis memory engine — model servers (llama.cpp) and first-run model setup.
 #
-# Self-contained: usable alone (`docker compose -f docker/embed/compose.yml up -d`)
-# or included by an application compose (SOKKAN: `include:` in docker-compose.yml).
+# Self-contained copy for CortHeXis alone (`docker compose -f docker/embed/compose.yml up -d`).
+# SOKKAN does not include it: the same services are written in docker-compose.yml (no
+# `include:`, which needs Docker Compose 2.20+); tests/test_compose.py keeps both in sync.
 # Variables: CORTHEXIS_* (SOKKAN_* read as a fallback). Nothing is published on
 # the host: clients reach the servers on the compose network.
 #
@@ -12,9 +13,9 @@
 #   corthexis-rerank       llama.cpp --reranking (compose profile `rerank`:
 #                          Standard = background only, GPU = interactive top 10)
 #
-# GPU: add docker/embed/compose.sycl.yml (Intel Arc, llama.cpp SYCL) or
-# compose.cuda.yml (NVIDIA). Apple GPU: Docker has no Metal — run docker/embed/run.sh
-# natively with LLAMA_SERVER=llama-server.
+# GPU (SOKKAN): docker/embed/compose.sycl.yml (Intel Arc, llama.cpp SYCL) or
+# compose.cuda.yml (NVIDIA), overrides of the SOKKAN docker-compose.yml. Apple GPU:
+# Docker has no Metal — run docker/embed/run.sh natively with LLAMA_SERVER=llama-server.
 #
 # First run, interactive (shows the terms, asks):
 #   docker compose run --rm corthexis-embed-fetch python /opt/corthexis/models.py setup --interactive

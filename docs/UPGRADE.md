@@ -65,8 +65,8 @@ do not have to do anything, and searches keep working while it runs.
 
 ### Before you update
 
-- **Docker Compose 2.20 or newer** (the compose file uses `include:`); the
-  installer checks it.
+- **Docker Compose v2** (`docker compose`), 2.12 or newer — the oldest release the
+  update is tested with; `scripts/doctor.sh` tells you which one you have.
 - **RAM**: the Light profile adds Postgres and the embedding server to the
   stack — about **250 MB** more than 2.x at rest on a small memory (measured: Postgres
   65 MB, embedding server 160 MB, plus the 330 MB model file in the page cache;

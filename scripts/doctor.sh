@@ -30,10 +30,14 @@ if command -v docker >/dev/null 2>&1; then
   fi
   if CV="$($DC compose version --short 2>/dev/null)"; then
     CV="${CV#v}"; CMAJ="${CV%%.*}"; CMIN="${CV#*.}"; CMIN="${CMIN%%.*}"
-    if [ "$CMAJ" -gt 2 ] 2>/dev/null || { [ "$CMAJ" -eq 2 ] && [ "$CMIN" -ge 20 ]; } 2>/dev/null; then
+    # the compose file runs on any Compose v2 from 2.12 (end-to-end tested); 2.6-2.11
+    # parse it (untested end to end); older ones cannot read it
+    if [ "$CMAJ" -gt 2 ] 2>/dev/null || { [ "$CMAJ" -eq 2 ] && [ "$CMIN" -ge 12 ]; } 2>/dev/null; then
       ok "Compose $CV"
+    elif [ "$CMAJ" -eq 2 ] 2>/dev/null && [ "$CMIN" -ge 6 ] 2>/dev/null; then
+      warn "Compose $CV — older than the oldest tested release (2.12) — update: get.docker.com"
     else
-      fail "Compose $CV — 2.20+ required (include:) — update: get.docker.com"
+      fail "Compose $CV — too old for this compose file (2.12+) — update: get.docker.com"
     fi
   else
     fail "no Compose v2 plugin — distro/snap docker? use get.docker.com"

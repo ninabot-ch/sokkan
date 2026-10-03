@@ -13,8 +13,10 @@
 # SOKKAN_EMBED_MODEL to `legacy` (the 2.x embeddings, kept); --force or --profile picks
 # the 3.0 model. The memory itself is migrated by the api container at its first start.
 #
-# Writes to .env: SOKKAN_MEMORY_PROFILE, SOKKAN_EMBED_ACCEL (cpu | sycl | cuda) and
-# the `rerank` entry of COMPOSE_PROFILES (Standard, GPU). Everything else is kept.
+# Writes to .env: SOKKAN_MEMORY_PROFILE, SOKKAN_EMBED_ACCEL (cpu | sycl | cuda), the
+# `rerank` entry of COMPOSE_PROFILES (Standard, GPU) and, for a GPU container,
+# COMPOSE_FILE=docker-compose.yml:docker/embed/compose.<accel>.yml (the override a plain
+# `docker compose` then reads). Everything else is kept.
 set -eu
 
 cd "$(dirname "$0")/.." || exit 1
@@ -95,7 +97,18 @@ CP="$(env_get COMPOSE_PROFILES | tr ',' '\n' | grep -v '^rerank$' | grep -v '^$'
 case "$CHOSEN" in standard|gpu) CP="${CP:+$CP,}rerank" ;; esac
 if [ -n "$CP" ]; then env_set COMPOSE_PROFILES "$CP"
 else grep -v '^COMPOSE_PROFILES=' .env > .env.tmp || true; mv .env.tmp .env; fi
-echo "  ✔ .env: SOKKAN_MEMORY_PROFILE=$CHOSEN SOKKAN_EMBED_ACCEL=$ACCEL${CP:+ COMPOSE_PROFILES=$CP}"
+# GPU container: the accelerator override, read by every `docker compose` through .env
+# (a COMPOSE_FILE the user wrote for something else is kept, the override added to it)
+CF="$(env_get COMPOSE_FILE | tr ':' '\n' | grep -v '^docker/embed/compose\.[a-z]*\.yml$' | grep -v '^$' | paste -sd: - || true)"
+case "$ACCEL" in
+  sycl|cuda) CF="${CF:-docker-compose.yml}:docker/embed/compose.$ACCEL.yml" ;;
+  *) if [ "$CF" = "docker-compose.yml" ]; then CF=""; fi ;;
+esac
+if [ -n "$CF" ]; then env_set COMPOSE_FILE "$CF"; env_set COMPOSE_PATH_SEPARATOR ":"
+else
+  grep -v '^COMPOSE_FILE=' .env | grep -v '^COMPOSE_PATH_SEPARATOR=:$' > .env.tmp || true; mv .env.tmp .env
+fi
+echo "  ✔ .env: SOKKAN_MEMORY_PROFILE=$CHOSEN SOKKAN_EMBED_ACCEL=$ACCEL${CP:+ COMPOSE_PROFILES=$CP}${CF:+ COMPOSE_FILE=$CF}"
 
 # 4. licence decision + model download (in the one-shot fetch container)
 if ! command -v docker >/dev/null 2>&1; then

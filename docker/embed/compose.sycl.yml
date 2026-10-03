@@ -1,4 +1,9 @@
-# Intel GPU (Arc / Arc Pro / Data Center) — llama.cpp SYCL build.
+# Intel GPU (Arc / Arc Pro / Data Center) — llama.cpp SYCL build. An OVERRIDE of the
+# SOKKAN docker-compose.yml (paths are relative to the sokkan folder):
+#   docker compose -f docker-compose.yml -f docker/embed/compose.sycl.yml up -d
+# scripts/memory-setup.sh writes it to .env for the GPU profile, so that a plain
+# `docker compose` picks it up:
+#   COMPOSE_FILE=docker-compose.yml:docker/embed/compose.sycl.yml
 # Adds corthexis-embed-gpu in front of the CPU server (the client tries the GPU
 # first, the CPU one if the card is busy or gone: same model, same vectors) and
 # moves the reranker to the GPU. Measured on an Arc Pro B60: embedding +0.5 GB
@@ -12,7 +17,7 @@ x-sycl: &sycl
 
 services:
   corthexis-embed-gpu:
-    extends: { file: compose.yml, service: corthexis-embed }
+    extends: { file: docker-compose.yml, service: corthexis-embed }
     <<: *sycl
     environment:
       CORTHEXIS_MEMORY_PROFILE: gpu

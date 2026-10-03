@@ -170,3 +170,31 @@ def test_legacy_query_refuses_another_model_than_memory_db(monkeypatch, tmp_path
     con.commit()
     con.close()
     assert sb.legacy_embed_query("q", db) == [1.0]
+
+
+def test_compose_dsn_from_the_db_password(monkeypatch):
+    """The compose file passes SOKKAN_DB_PASSWORD, not a URL (a nested default needs
+    Compose 2.20): the bridge builds the URL of the `db` service, URL-encoded."""
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "")    # recorded: restored after the test
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
+    monkeypatch.delenv("SOKKAN_DATABASE_URL", raising=False)
+    monkeypatch.setenv("SOKKAN_DB_PASSWORD", "p@ss/w:rd")
+    sb._compose_dsn()
+    import os
+    assert os.environ["CORTHEXIS_DATABASE_URL"] == \
+        "postgresql://sokkan:p%40ss%2Fw%3Ard@db:5432/sokkan"
+    assert sb.database_configured() and sb.configured() == "auto"
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "postgresql://u:p@elsewhere/x")
+    sb._compose_dsn()                     # an explicit URL wins
+    assert os.environ["CORTHEXIS_DATABASE_URL"] == "postgresql://u:p@elsewhere/x"
+
+
+def test_no_password_no_database(monkeypatch):
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "")    # recorded: restored after the test
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
+    monkeypatch.delenv("SOKKAN_DATABASE_URL", raising=False)
+    monkeypatch.delenv("SOKKAN_DB_PASSWORD", raising=False)
+    sb._compose_dsn()
+    assert not sb.database_configured()

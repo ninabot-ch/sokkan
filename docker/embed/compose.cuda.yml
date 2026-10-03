@@ -1,4 +1,7 @@
-# NVIDIA GPU — llama.cpp CUDA build (needs the NVIDIA Container Toolkit).
+# NVIDIA GPU — llama.cpp CUDA build (needs the NVIDIA Container Toolkit). An OVERRIDE of
+# the SOKKAN docker-compose.yml (paths are relative to the sokkan folder):
+#   docker compose -f docker-compose.yml -f docker/embed/compose.cuda.yml up -d
+# scripts/memory-setup.sh writes it to .env for the GPU profile (COMPOSE_FILE).
 # Same layout as compose.sycl.yml: GPU embedding server in front of the CPU one,
 # reranker on the GPU. Pick the card with CORTHEXIS_GPU_DEVICE (default 0).
 x-cuda: &cuda
@@ -14,7 +17,7 @@ x-cuda: &cuda
 
 services:
   corthexis-embed-gpu:
-    extends: { file: compose.yml, service: corthexis-embed }
+    extends: { file: docker-compose.yml, service: corthexis-embed }
     <<: *cuda
     environment:
       CORTHEXIS_MEMORY_PROFILE: gpu

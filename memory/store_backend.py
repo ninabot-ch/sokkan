@@ -40,6 +40,24 @@ def _env(name: str) -> str:
     return (os.environ.get("CORTHEXIS_" + name) or os.environ.get("SOKKAN_" + name) or "").strip()
 
 
+def _compose_dsn() -> None:
+    """In the SOKKAN container, no CORTHEXIS_DATABASE_URL = the compose `db` service.
+
+    The compose file passes SOKKAN_DB_PASSWORD rather than a URL built with a nested
+    default (``${A:-…${B}…}`` needs Docker Compose 2.20+). The URL is set in the process
+    environment so that every reader (core.store, core.review, core.eval) sees it.
+    """
+    if _env("DATABASE_URL") or not os.environ.get("SOKKAN_DB_PASSWORD"):
+        return
+    from urllib.parse import quote
+    host = os.environ.get("SOKKAN_DB_HOST") or "db"
+    os.environ["CORTHEXIS_DATABASE_URL"] = (
+        f"postgresql://sokkan:{quote(os.environ['SOKKAN_DB_PASSWORD'], safe='')}@{host}:5432/sokkan")
+
+
+_compose_dsn()
+
+
 def database_configured() -> bool:
     return bool(_env("DATABASE_URL"))
 
