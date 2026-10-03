@@ -49,9 +49,10 @@ The full changelog (with hashes) is at
 [`CHANGELOG.md`](../CHANGELOG.md).
 
 > **Note on old data volumes:** installs from v0.1.0 created the `/data` volume
-> owned by `root`. Newer images run as an unprivileged user and will refuse to
-> start on such a volume with a clear message. Fix it once:
-> `docker compose run --rm --user root api chown -R 1000:1000 /data`.
+> owned by `root`. Since 3.0 the api container hands it over to its unprivileged
+> user by itself at start (1.x and 2.x refuse to start on such a volume with a
+> clear message; fix it once for them:
+> `docker compose run --rm --user root api chown -R 1000:1000 /data`).
 
 ---
 
@@ -159,11 +160,12 @@ Options (`.env`):
 ```bash
 cd sokkan
 curl -fsSL https://sokkan.ch/dist/sokkan-<2.3 hash>.tar.gz | tar xz --strip-components=1
-sed -i '/^SOKKAN_VERSION=/d' .env && echo 'SOKKAN_VERSION=<2.3 hash>' >> .env
+sed -i '/^SOKKAN_VERSION=/d; /^COMPOSE_FILE=/d' .env && echo 'SOKKAN_VERSION=<2.3 hash>' >> .env
 docker compose up -d --build --remove-orphans
 ```
 
-2.3 serves `memory.db` as it was. If the repairs renamed notes and you want the
+(`COMPOSE_FILE` is only there on a GPU profile: it names a 3.0 override that 2.x
+does not have.) 2.3 serves `memory.db` as it was. If the repairs renamed notes and you want the
 files exactly as before the update, restore the archive (the newest
 `corpus-2x-*.tar.gz`):
 
