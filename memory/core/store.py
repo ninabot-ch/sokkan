@@ -94,10 +94,10 @@ class SearchConfig:
     exact_max_chunks: int = 20_000
     dense_candidates: int = 100       # chunks taken from HNSW
     lexical_candidates: int = 50      # notes taken from the lexical index
-    ef_search: int = 100              # hnsw.ef_search (>= dense_candidates is sensible)
+    ef_search: int = 200              # hnsw.ef_search; bench 250k: recall@10 0.96 at 100, 1.0 at 200
     # a query word present in more than this share of the notes is not used to PICK
     # lexical candidates (it still counts in their score): it would select half the corpus
-    lexical_filter_df: float = 0.05
+    lexical_filter_df: float = 0.02
     lexical_filter_min_df: int = 50
 
     @classmethod
@@ -718,7 +718,7 @@ class Store:
         params = {"qtok": qtok, "hs": cfg.head_share, "qv": qv,
                   "nd": int(cfg.dense_candidates), "nl": int(cfg.lexical_candidates),
                   "cap_abs": 2**31 - 1 if exact else int(cfg.lexical_filter_min_df),
-                  "cap_rel": cfg.lexical_filter_df}
+                  "cap_rel": cfg.lexical_filter_df, "min_pick": 0 if qv is not None else 1}
         with self.pool.connection() as con:
             if qv is not None:
                 if not exact:
@@ -762,8 +762,10 @@ class Store:
 
     # -- search SQL --------------------------------------------------------------
     # Query words, their IDF (log(1 + N/df), log(1 + N) for an unknown word) and the
-    # words used to PICK lexical candidates: rare enough (df <= max(cap_abs, cap_rel * N)),
-    # or the rarest one when none is. Every word still counts in the exact score.
+    # words used to PICK lexical candidates: rare enough (df <= max(cap_abs, cap_rel * N)).
+    # A word found in most notes cannot single a note out (the dense side covers it) and
+    # would make the GIN probe read the whole table; in lexical-only mode the rarest word
+    # is always picked (min_pick = 1). Every word still counts in the exact score.
     _Q_CTES = """
         st AS (SELECT coalesce((SELECT df FROM lex_df WHERE token = ''), 0) AS n),
         qt AS (SELECT t, coalesce(d.df, 0) AS df
@@ -775,7 +777,7 @@ class Store:
         pick AS (SELECT t, w FROM (
                    SELECT q.t, q.w, q.df, row_number() OVER (ORDER BY q.df, q.t) AS rn
                    FROM q, st WHERE q.df > 0) x, st
-                 WHERE df <= %(cap_abs)s OR df <= %(cap_rel)s * st.n OR rn = 1)"""
+                 WHERE df <= %(cap_abs)s OR df <= %(cap_rel)s * st.n OR rn <= %(min_pick)s)"""
 
     # body part of the lexical score: one GIN probe per query word, summed per note (no
     # per-row scan of the note's keyword array, which would cost ~0.1 ms per note)
@@ -797,26 +799,36 @@ class Store:
              "n.source_path")
 
     def _final(self, g: Generation, best_select: str) -> str:
+        # LATERAL: one index lookup per candidate note instead of a hash join that would
+        # scan the whole notes table
         return (f"best AS ({best_select}) "
-                f"SELECT b.*, {self._META}, "
-                f"((1 - %(hs)s) * coalesce(lb.s, 0) + %(hs)s * {self._HEAD}) "
-                f"/ (SELECT v FROM tot) AS lex "
-                f"FROM best b JOIN notes n ON n.id = b.note_id LEFT JOIN lexb lb ON lb.id = n.id")
+                f"SELECT b.*, n.* FROM best b, LATERAL (SELECT {self._META.replace('n.', 'nn.')}, "
+                f"((1 - %(hs)s) * coalesce((SELECT lb.s FROM lexb lb WHERE lb.id = nn.id), 0)"
+                f" + %(hs)s * {self._HEAD.replace('n.head_tokens', 'nn.head_tokens')}) "
+                f"/ (SELECT v FROM tot) AS lex FROM notes nn WHERE nn.id = b.note_id) n")
 
     def _dense_sql(self, g: Generation, exact: bool) -> str:
-        best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
-                f"-(c.embedding <#> %(qv)s::halfvec) AS cos FROM {g.table} c {{where}} "
-                "ORDER BY c.note_id, c.embedding <#> %(qv)s::halfvec, c.idx")
         if exact:
+            best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
+                    f"-(c.embedding <#> %(qv)s::halfvec) AS cos FROM {g.table} c "
+                    "ORDER BY c.note_id, c.embedding <#> %(qv)s::halfvec, c.idx")
             return (f"WITH {self._Q_CTES}, {self._body_lex_cte('lexb', 'q')}, "
-                    + self._final(g, best.format(where="")))
+                    + self._final(g, best))
+        # A note found by HNSW keeps its best chunk among the HNSW hits (with an exact
+        # kNN that IS its best chunk); only the notes found by the lexical side alone have
+        # all their chunks scored. Saves ~10 heap rows per dense candidate.
+        dist = f"(embedding::halfvec({g.dim})) <#> %(qv)s::halfvec({g.dim})"
         return (f"WITH {self._Q_CTES}, {self._lexc_cte(True)}, "
-                f"dense AS (SELECT note_id FROM {g.table} ORDER BY "
-                f"(embedding::halfvec({g.dim})) <#> %(qv)s::halfvec({g.dim}) LIMIT %(nd)s), "
-                "cand AS (SELECT note_id FROM dense UNION SELECT note_id FROM lexc), "
+                f"dense AS (SELECT note_id, idx, body, -({dist}) AS cos FROM {g.table} "
+                f"ORDER BY {dist} LIMIT %(nd)s), "
+                "lexonly AS (SELECT note_id FROM lexc EXCEPT SELECT note_id FROM dense), "
+                "cand AS (SELECT note_id FROM dense UNION SELECT note_id FROM lexonly), "
+                "rows AS (SELECT * FROM dense UNION ALL "
+                f"SELECT c.note_id, c.idx, c.body, -(c.embedding <#> %(qv)s::halfvec) "
+                f"FROM {g.table} c WHERE c.note_id IN (SELECT note_id FROM lexonly)), "
                 + self._body_lex_cte("lexb", "q", "WHERE n.id IN (SELECT note_id FROM cand)")
-                + ", " + self._final(g, best.format(
-                    where="WHERE c.note_id IN (SELECT note_id FROM cand)")))
+                + ", " + self._final(g, "SELECT DISTINCT ON (note_id) * FROM rows "
+                                        "ORDER BY note_id, cos DESC, idx"))
 
     def _lexical_only_sql(self, g: Generation, exact: bool) -> str:
         """Embedding down: candidates by lexical score only; the snippet is the chunk with

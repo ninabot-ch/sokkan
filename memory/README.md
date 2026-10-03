@@ -72,7 +72,7 @@ background while the active generation keeps serving, the switch is atomic
 dropping it is a DETACH + DROP of its partition.
 
 **Search, in two stages.** (1) one SQL statement: candidates = notes of the 100 nearest
-chunks (HNSW, `ef_search` 100) + the 50 best notes on the lexical score (GIN), each
+chunks (HNSW, `ef_search` 200) + the 50 best notes on the lexical score (GIN), each
 re-scored exactly (best chunk cosine; IDF overlap with the head = name + description and
 with the body); below 20 000 chunks every note is scored exactly. (2) blend
 `(1 - w) · cosine + w · lexical` (`w` = 0.30 for EmbeddingGemma) or RRF, priority boost,
@@ -87,7 +87,7 @@ then the reranker (if given) reorders the top 10. Embedding down: lexical-only, 
 | `SEARCH_FUSION` / `RRF_K` | `linear` / 60 | `rrf` = reciprocal rank fusion |
 | `PRIORITY_BOOST` | 0 (0.08 through `store_backend`) | multiplicative boost of `priority: high` |
 | `RERANK_TOP` | 10 | notes the reranker reorders |
-| `HNSW_EF_SEARCH` | 100 | HNSW search breadth |
+| `HNSW_EF_SEARCH` | 200 | HNSW search breadth |
 | `SEARCH_DENSE_CANDIDATES` / `SEARCH_LEXICAL_CANDIDATES` | 100 / 50 | candidate pool |
 | `SEARCH_EXACT_MAX_CHUNKS` | 20000 | below: exact scan, no HNSW |
 

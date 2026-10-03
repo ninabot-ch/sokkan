@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS notes (
     modified_source text,
     body            text NOT NULL DEFAULT '',
     head_tokens     text[] NOT NULL DEFAULT '{}',
-    lex_tokens      text[] NOT NULL DEFAULT '{}',
+    -- MAIN: compressed inline rather than TOASTed out of line (read for every candidate)
+    lex_tokens      text[] STORAGE MAIN NOT NULL DEFAULT '{}',
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS notes_lex_tokens_gin ON notes USING gin (lex_tokens);
