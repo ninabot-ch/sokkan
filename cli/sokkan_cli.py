@@ -211,6 +211,63 @@ def cmd_note(args) -> None:
     print(d.get("body", ""))
 
 
+def cmd_memory(args) -> None:
+    """sokkan memory index|search|get|status (the 3.0 store, through the cockpit API)."""
+    c = client()
+    if args.action == "search":
+        if not args.arg:
+            die("usage: sokkan memory search <query> [-k N] [--deep]")
+        res = c.call("GET", "/api/memory/search?" + urllib.parse.urlencode(
+            {"q": " ".join(args.arg), "k": args.k, "deep": int(args.deep)}))
+        for r in res:
+            if r.get("empty") or r.get("error") or r.get("info"):
+                print(r.get("info") or r.get("error"))
+                return
+            star = _c("33", "★ ") if r.get("priority") else ""
+            age = r.get("age_days")
+            when = f"{age} d" if isinstance(age, int) else "?"
+            if r.get("date_source") not in (None, "frontmatter", "indexed", "transcript"):
+                when += "~"
+            rr = f" rerank {r['rerank']:.2f}" if r.get("rerank") is not None else ""
+            score = r.get("score") or 0.0
+            print(f"{_c('36', f'{score:.2f}')}"
+                  f" {star}{_c('1', r['note_name'])} ({when}{rr})")
+            print(f"      {r.get('description', '')[:160]}")
+        return
+    if args.action == "get":
+        if not args.arg:
+            die("usage: sokkan memory get <note-name>")
+        d = c.call("GET", f"/api/memory/note/{urllib.parse.quote(args.arg[0])}")
+        print(d.get("body") or f"note not found: {args.arg[0]}")
+        return
+    if args.action == "index":
+        d = c.call("POST", "/api/memory/index")
+        last = d.get("last") or {}
+        print(_c("32", "✔ indexed") + f" — generation {last.get('generation')}, "
+              f"{last.get('notes', 0)} notes, {last.get('reindexed', 0)} re-embedded, "
+              f"{last.get('pruned', 0)} pruned")
+        for w in last.get("warnings", [])[:10]:
+            print(_c("33", f"  ! {w}"))
+        return
+    d = c.call("GET", "/api/memory/status")
+    idx = d.get("index") or {}
+    emb = d.get("embed") or {}
+    print(f"  backend   {d.get('backend')}")
+    print(f"  index     {idx.get('notes', 0)} notes · {idx.get('chunks', 0)} chunks · "
+          f"generation {idx.get('generation')} · {idx.get('model')}")
+    if emb:
+        print(f"  profile   {emb.get('profile')} · {emb.get('label') or emb.get('model')} · "
+              f"reranker {d.get('rerank_policy')}")
+    rec = d.get("recall") or {}
+    if rec:
+        print(f"  recall    {'on' if rec.get('enabled') else 'off'} · top {rec.get('top_k')} · "
+              f"budget {rec.get('budget_s')} s")
+    ix = d.get("indexer") or {}
+    if ix:
+        err = f" · {_c('31', ix['last_error'])}" if ix.get("last_error") else ""
+        print(f"  indexer   {ix.get('runs', 0)} passes · last {ago(ix.get('last_run'))}{err}")
+
+
 def cmd_digest(args) -> None:
     c = client()
     s = c.call("POST", "/api/memory/digest")
@@ -261,6 +318,13 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("note", help="print a memory note")
     s.add_argument("name")
     s.set_defaults(fn=cmd_note)
+
+    s = sub.add_parser("memory", help="memory store: index | search | get | status")
+    s.add_argument("action", choices=["index", "search", "get", "status"])
+    s.add_argument("arg", nargs="*")
+    s.add_argument("-k", type=int, default=8)
+    s.add_argument("--deep", action="store_true", help="rerank even on a CPU profile (slow)")
+    s.set_defaults(fn=cmd_memory)
 
     s = sub.add_parser("digest", help="spawn the memory-digest session")
     s.set_defaults(fn=cmd_digest)

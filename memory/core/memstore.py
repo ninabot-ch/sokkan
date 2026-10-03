@@ -84,11 +84,13 @@ class InMemoryStore:
     def active_generation(self):
         return next((g for g in self.gens if g.status == "active"), None)
 
-    def create_generation(self, embed_identity, dim):
+    def create_generation(self, embed_identity, dim, lexical_weight=None):
+        self.lexical_weights = getattr(self, "lexical_weights", {})
         g = Generation(id=len(self.gens) + 1, embed_identity=embed_identity, dim=dim,
                        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                        status="building")
         self.gens.append(g)
+        self.lexical_weights[g.id] = lexical_weight
         return g
 
     def activate_generation(self, generation):

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import shlex
 import subprocess
 import threading
 import time
@@ -195,6 +196,16 @@ def _delayed_seed(target: str, seed: str, delay: float = 5.0) -> None:
     subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], timeout=5)
 
 
+def _recall_settings_arg() -> str:
+    """`--settings <file>`: the memory recall hooks (3.0), or nothing when they are off."""
+    try:
+        import memrecall
+        path = memrecall.cli_settings_path()
+    except Exception:  # noqa: BLE001 — a session always starts, with or without recall
+        return ""
+    return f" --settings {shlex.quote(path)}" if path else ""
+
+
 def spawn(tag: str, prompt: str = "", title: str = "") -> dict:
     """Crée une fenêtre tmux taguée + lance claude --session-id + seed optionnel."""
     tag = (tag or "session").strip().replace(" ", "-")[:24]
@@ -209,7 +220,8 @@ def spawn(tag: str, prompt: str = "", title: str = "") -> dict:
         subprocess.run(["tmux", "new-window", "-t", f"{TMUX}:", "-c", WD, "-n", wname], timeout=5)
 
     subprocess.run(
-        ["tmux", "send-keys", "-t", target, f"claude --name {wname} --session-id {u}", "Enter"],
+        ["tmux", "send-keys", "-t", target, f"claude --name {wname} --session-id {u}"
+         + _recall_settings_arg(), "Enter"],
         timeout=5,
     )
     if prompt.strip():

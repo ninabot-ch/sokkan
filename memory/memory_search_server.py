@@ -111,8 +111,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
         top_k: nombre de notes à retourner (défaut 8).
     """
     if store_backend.enabled():
-        return store_backend.memory_search(query, top_k, _embed_query,
-                                           f"embedding backend {embeddings.backend()}")
+        return store_backend.memory_search(query, top_k, None, "embedding backend")
     chunks = _load_chunks()
     if not chunks:
         return [{"info": "No project memory yet. Write notes as markdown files in the workspace "
@@ -210,6 +209,8 @@ def memory_links(note_name: str) -> dict:
     """Navigation du graphe memoire : liens sortants ([[wikilinks]] de la note)
     et entrants (notes qui la citent), avec leurs descriptions. Permet a une
     session de suivre le graphe sans relire les fichiers."""
+    if store_backend.enabled():
+        return store_backend.memory_links(note_name)
     if not DB_PATH.exists():
         return {"error": f"memory index not found: {DB_PATH}"}
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)

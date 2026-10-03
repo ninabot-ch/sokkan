@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
 import index_memory  # noqa: E402
 import missions  # noqa: E402
 import memory_search_server as mem  # noqa: E402
+import store_backend  # noqa: E402 — 3.0 store (CortHeXis)
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse,
@@ -82,6 +83,22 @@ ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "acti
 REINDEX_S = float(os.environ.get("SOKKAN_REINDEX_S", "120"))
 
 
+_index_runner = None  # 3.0: core.indexer.IndexRunner (store backend)
+
+
+def _start_store_indexer() -> None:
+    """3.0 : l'indexeur CortHeXis écrit dans le store Postgres — au démarrage, sur
+    changement de fichiers (signature du dossier, toutes les CORTHEXIS_WATCH_S) et
+    périodiquement (CORTHEXIS_REINDEX_S), normalisation des notes comprise."""
+    global _index_runner
+    from core import embed
+    from core.indexer import IndexConfig, IndexRunner
+
+    cfg = IndexConfig.from_env(memory_dir=index_memory.MEMORY_DIR)
+    _index_runner = IndexRunner(store_backend.get_store, embed.get, cfg)
+    _index_runner.start()
+
+
 def _reindex_loop() -> None:
     """Réindexation mémoire in-process (remplace la boucle shell qui respawnait
     un python à chaque tick) : le modèle d'embeddings reste chaud dans le module
@@ -103,7 +120,10 @@ def _reindex_loop() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    if store_backend.enabled():
+        _start_store_indexer()
+    else:
+        threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
     yield
@@ -1205,7 +1225,8 @@ class SpawnBody(BaseModel):
     playbook: str = ""  # id d'un template de session (GET /api/playbooks) — optionnel
 
 
-def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400) -> str:
+def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
+                    session_id: str | None = None) -> str:
     """Recherche mémoire DÉTERMINISTE au spawn : le serveur fait le memory_search
     lui-même et pré-injecte le top-k dans le premier message — le rappel ne
     dépend plus de l'obéissance du modèle au rituel. Best-effort : mémoire vide
@@ -1216,6 +1237,12 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400) -> str:
         return ""
     if not isinstance(hits, list) or not hits or hits and hits[0].get("empty"):
         return ""
+    if session_id and store_backend.enabled():
+        try:  # recall_log : le rappel à chaque tour ne réinjecte pas ces notes
+            store_backend.log_spawn_recall(session_id, [h for h in hits if h.get("note_name")],
+                                           query)
+        except Exception:  # noqa: BLE001
+            pass
     lines = ["=== Project memory (auto-recalled) ==="]
     for h in hits:
         if not h.get("note_name"):
@@ -1250,7 +1277,8 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> d
         except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
             pass
     if prompt.strip():
-        recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt)
+        recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt,
+                                 session_id=sid)
         _bg(session.handle_user(board.seed_text(prompt, recall)))
     return s
 
@@ -1556,8 +1584,68 @@ def memory_notes() -> list[dict]:
 
 
 @app.get("/api/memory/search")
-def memory_search(q: str, k: int = 8) -> list[dict]:
+def memory_search(q: str, k: int = 8, deep: bool = False) -> list[dict]:
+    """`deep=1` : reranker même en profil standard (asynchrone, ~4-5 s sur CPU)."""
+    if store_backend.enabled():
+        return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep)
     return mem.memory_search(q, k)
+
+
+def _store_or_503():
+    if not store_backend.enabled():
+        raise HTTPException(503, "the memory store (3.0) is not enabled on this instance")
+    try:
+        return store_backend.get_store()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, f"memory store unavailable: {e}")
+
+
+@app.get("/api/memory/status")
+def memory_status() -> dict:
+    """Backend, index (génération, notes), indexeur, profil d'embedding, rappel."""
+    out: dict = {"backend": "postgres" if store_backend.enabled() else "sqlite"}
+    if not store_backend.enabled():
+        out["index"] = memorykb.stats()
+        return out
+    try:
+        from core import embed, recall as core_recall
+        out["embed"] = embed.describe()
+        out["rerank_policy"] = store_backend.rerank_policy()
+        out["recall"] = {"enabled": core_recall.enabled(),
+                         **core_recall.RecallConfig.from_env().__dict__}
+    except Exception as e:  # noqa: BLE001
+        out["embed_error"] = str(e)
+    try:
+        st = store_backend.get_store()
+        out["index"] = st.stats()
+        out["generations"] = [g.__dict__ for g in st.list_generations()]
+    except Exception as e:  # noqa: BLE001
+        out["index_error"] = str(e)
+    out["indexer"] = _index_runner.status() if _index_runner else None
+    return out
+
+
+@app.post("/api/memory/index")
+def memory_index(u: dict = Depends(require("dev"))) -> dict:
+    """Réindexation immédiate (la boucle tourne déjà : watch + périodique)."""
+    if not store_backend.enabled() or _index_runner is None:
+        raise HTTPException(503, "the memory store (3.0) indexer is not running")
+    rep = _index_runner.run_once()
+    audit.log(u["email"], "memory.index", "")
+    st = _index_runner.status()
+    if rep is None:
+        raise HTTPException(500, st.get("last_error") or "index failed")
+    return st
+
+
+@app.get("/api/memory/recall-log")
+def memory_recall_log(session: str = "", note: str = "", limit: int = 200) -> dict:
+    """Ce que le rappel automatique a injecté : quelle session / quel sous-agent a reçu
+    quelles notes, avec quels scores, depuis quelle génération d'index."""
+    st = _store_or_503()
+    return {"entries": st.recall_log(session_id=session or None, note=note or None,
+                                     limit=limit),
+            "summary": st.recall_summary()}
 
 
 @app.get("/api/memory/note/{name}")
