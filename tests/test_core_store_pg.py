@@ -213,6 +213,26 @@ def test_hnsw_index_is_used_on_large_generation(store):
     assert f"{g.table}_hnsw" in plan
 
 
+def test_lexical_weight_comes_from_the_generation(store):
+    notes, queries = _corpus(seed=11)
+    g = _load(store, notes, identity="llamacpp:multilingual-e5-base-q8@32")
+    assert g.lexical_weight is None and g.effective_lexical_weight == 0.10
+    for qv, text in queries[:6]:
+        ref = reference_search(notes, qv, text, 6, lexical_weight=0.10)
+        assert [h.note_name for h in store.search(qv, text, 6)] == [r[0] for r in ref]
+    store.set_lexical_weight(g.id, 0.5)
+    assert store.get_generation(g.id).effective_lexical_weight == 0.5
+    qv, text = queries[0]
+    ref = reference_search(notes, qv, text, 6, lexical_weight=0.5)
+    assert [h.note_name for h in store.search(qv, text, 6)] == [r[0] for r in ref]
+    # an explicit weight wins over the generation's
+    ref = reference_search(notes, qv, text, 6, lexical_weight=0.0)
+    assert [h.note_name for h in store.search(qv, text, 6, lexical_weight=0.0)] == \
+        [r[0] for r in ref]
+    g2 = store.create_generation("other@32", 32, lexical_weight=0.2)
+    assert g2.lexical_weight == 0.2
+
+
 def test_rerank_and_rrf(store):
     notes, queries = _corpus()
     _load(store, notes)

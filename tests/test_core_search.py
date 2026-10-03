@@ -125,3 +125,11 @@ def test_hit_as_dict_shape():
     assert d["score"] == 0.1235 and d["path"] == "n.md" and d["generation"] == 2
     assert len(d["snippet"]) == rk.SNIPPET_MAX - 2 and d["snippet"].endswith("…") and "rerank" not in d
     assert d["age_days"] == 3 and d["date_source"] == "indexed"
+
+
+def test_default_lexical_weight_follows_the_model_family():
+    assert rk.default_lexical_weight("llamacpp:embeddinggemma-300m-q8@768") == 0.30
+    assert rk.default_lexical_weight("llamacpp:multilingual-e5-base-q8@768") == 0.10
+    assert rk.default_lexical_weight("fastembed:paraphrase-multilingual-MiniLM-L12-v2@384") == 0.5
+    assert rk.default_lexical_weight("something:else@64") == rk.DEFAULT_LEXICAL_WEIGHT
+    assert rk.default_lexical_weight(None) == rk.DEFAULT_LEXICAL_WEIGHT

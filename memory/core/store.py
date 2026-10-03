@@ -64,6 +64,12 @@ class Generation:
     hnsw_m: int = 16
     hnsw_ef_construction: int = 64
     index_built: bool = False
+    lexical_weight: float | None = None   # dense/lexical blend suited to this model
+
+    @property
+    def effective_lexical_weight(self) -> float:
+        return self.lexical_weight if self.lexical_weight is not None \
+            else rk.default_lexical_weight(self.embed_identity)
 
     @property
     def table(self) -> str:
@@ -72,8 +78,12 @@ class Generation:
 
 @dataclass
 class SearchConfig:
-    """Knobs of the search. Defaults = EmbeddingGemma, as tuned on the 300-question bench."""
-    lexical_weight: float = rk.DEFAULT_LEXICAL_WEIGHT
+    """Knobs of the search (defaults tuned on the 300-question bench).
+
+    ``lexical_weight`` None = the weight of the searched generation: the one stored at its
+    creation (``create_generation(..., lexical_weight=embed.lexical_weight())``), else the
+    one of its model family (``search.default_lexical_weight``). A number forces it."""
+    lexical_weight: float | None = None
     head_share: float = rk.DEFAULT_HEAD_SHARE
     fusion: str = "linear"            # linear | rrf
     rrf_k: int = rk.DEFAULT_RRF_K
@@ -101,7 +111,7 @@ class SearchConfig:
                 return default
         d = cls()
         cfg = cls(
-            lexical_weight=f("LEXICAL_WEIGHT", d.lexical_weight),
+            lexical_weight=f("LEXICAL_WEIGHT", None),
             head_share=f("HEAD_SHARE", d.head_share),
             fusion=(env("SEARCH_FUSION") or d.fusion).lower(),
             rrf_k=env_int("RRF_K", d.rrf_k),
@@ -165,7 +175,7 @@ def _to_dt(v) -> datetime.datetime | None:
 
 
 _GEN_COLS = ("id, embed_identity, dim, created_at, status, activated_at, retired_at, "
-             "chunk_count, hnsw_m, hnsw_ef_construction, index_built")
+             "chunk_count, hnsw_m, hnsw_ef_construction, index_built, lexical_weight")
 
 
 def _gen(row) -> Generation | None:
@@ -260,7 +270,8 @@ class Store:
 
     # ------------------------------------------------------------------ generations
     def create_generation(self, embed_identity: str, dim: int, *, hnsw_m: int = 16,
-                          hnsw_ef_construction: int = 64, build_index: bool = False) -> Generation:
+                          hnsw_ef_construction: int = 64, build_index: bool = False,
+                          lexical_weight: float | None = None) -> Generation:
         """New generation in status ``building`` with its own chunk partition.
 
         For a bulk (re)index, leave ``build_index=False``: the HNSW index is built once at
@@ -271,9 +282,10 @@ class Store:
             raise StoreError(f"dimension {dim} out of range (1..4000 for halfvec HNSW)")
         with self.pool.connection() as con, con.transaction():
             g = _gen(con.execute(
-                "INSERT INTO index_generations(embed_identity, dim, hnsw_m, hnsw_ef_construction)"
-                f" VALUES (%s, %s, %s, %s) RETURNING {_GEN_COLS}",
-                (embed_identity, int(dim), int(hnsw_m), int(hnsw_ef_construction))).fetchone())
+                "INSERT INTO index_generations(embed_identity, dim, hnsw_m, hnsw_ef_construction,"
+                f" lexical_weight) VALUES (%s, %s, %s, %s, %s) RETURNING {_GEN_COLS}",
+                (embed_identity, int(dim), int(hnsw_m), int(hnsw_ef_construction),
+                 lexical_weight)).fetchone())
             con.execute(f"CREATE TABLE {g.table} PARTITION OF chunks FOR VALUES IN ({g.id})")
             con.execute(f"ALTER TABLE {g.table} ADD CONSTRAINT {g.table}_dim "
                         f"CHECK (vector_dims(embedding) = {g.dim})")
@@ -314,6 +326,14 @@ class Store:
             con.execute("UPDATE index_generations SET status = 'active', activated_at = now(), "
                         "retired_at = NULL WHERE id = %s", (g.id,))
         return self.get_generation(g.id)
+
+    def set_lexical_weight(self, generation: int | Generation, weight: float | None) -> None:
+        """Re-tune the blend of a generation (None = back to its model family's default)."""
+        g = self._require_gen(generation)
+        self._active = None
+        with self.pool.connection() as con, con.transaction():
+            con.execute("UPDATE index_generations SET lexical_weight = %s WHERE id = %s",
+                        (weight, g.id))
 
     def retire_generation(self, generation: int | Generation) -> None:
         g = self._require_gen(generation)
@@ -716,8 +736,10 @@ class Store:
                 source_path=r["source_path"], chunk_idx=r["idx"]))
         degraded = None if qv is not None else (
             "embedding unavailable: lexical-only scoring, degraded recall (no cross-lingual)")
+        lw = cfg.lexical_weight if cfg.lexical_weight is not None \
+            else g.effective_lexical_weight
         return rk.rank(
-            query_text, cands, weights={}, k=k, lexical_weight=cfg.lexical_weight,
+            query_text, cands, weights={}, k=k, lexical_weight=lw,
             head_share=cfg.head_share, fusion=cfg.fusion, rrf_k=cfg.rrf_k,
             priority_boost=cfg.priority_boost, rerank=rerank, rerank_top=cfg.rerank_top,
             generation=g.id, degraded=degraded, lexical=lex)

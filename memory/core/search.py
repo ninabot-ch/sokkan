@@ -27,6 +27,23 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable, Sequence
 
 DEFAULT_LEXICAL_WEIGHT = 0.30   # EmbeddingGemma (bench 03.10.2026)
+# The right dense/lexical blend depends on the embedding MODEL (300-question bench,
+# 03.10.2026): a generation that does not carry its own weight gets the one of its model
+# family, matched on the embed identity (e.g. "llamacpp:embeddinggemma-300m-q8@768").
+MODEL_LEXICAL_WEIGHTS = (
+    ("embeddinggemma", 0.30),
+    ("e5", 0.10),
+    ("minilm", 0.50),
+    ("ninjob-ml", 0.50),   # 2.x remote MiniLM service
+)
+
+
+def default_lexical_weight(embed_identity: str | None) -> float:
+    ident = (embed_identity or "").lower()
+    for key, w in MODEL_LEXICAL_WEIGHTS:
+        if key in ident:
+            return w
+    return DEFAULT_LEXICAL_WEIGHT
 DEFAULT_HEAD_SHARE = 0.5        # half head, half body
 DEFAULT_RERANK_TOP = 10
 DEFAULT_RRF_K = 60

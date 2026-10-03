@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS index_generations (
     chunk_count     bigint NOT NULL DEFAULT 0,
     hnsw_m          integer NOT NULL DEFAULT 16,
     hnsw_ef_construction integer NOT NULL DEFAULT 64,
-    index_built     boolean NOT NULL DEFAULT false
+    index_built     boolean NOT NULL DEFAULT false,
+    -- dense/lexical blend suited to this model (NULL = default of its model family)
+    lexical_weight  double precision CHECK (lexical_weight BETWEEN 0 AND 1)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS index_generations_one_active
     ON index_generations ((true)) WHERE status = 'active';

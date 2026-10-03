@@ -59,11 +59,12 @@ class Corpus:
         self.spread = spread
         self.vocab = np.array([f"w{i:05d}" for i in range(vocab)])
         p = 1.0 / np.arange(1, vocab + 1) ** 1.05  # Zipf-like word frequencies
-        self.p = p / p.sum()
+        self.cdf = np.cumsum(p / p.sum())
         self.wpc = words_per_chunk
 
     def words(self, n: int) -> list[str]:
-        return list(self.rng.choice(self.vocab, size=n, p=self.p))
+        idx = np.searchsorted(self.cdf, self.rng.random(n) * self.cdf[-1])
+        return list(self.vocab[np.minimum(idx, len(self.vocab) - 1)])
 
     def vectors(self, n: int, centre: np.ndarray) -> np.ndarray:
         noise = self.rng.normal(size=(n, self.dim)).astype(np.float32)
@@ -161,6 +162,12 @@ def main() -> int:
     ap.add_argument("--maintenance-work-mem", default="512MB")
     ap.add_argument("--noise", type=float, default=0.9,
                     help="query noise (norm ratio); 0.9 ≈ cosine 0.74 to the source chunk")
+    ap.add_argument("--topics", type=int, default=2000, help="topic clusters of the corpus")
+    ap.add_argument("--spread", type=float, default=1.0,
+                    help="chunk noise around its topic centre (1.0 -> cosine ~0.7 to it; "
+                    "larger = less separable topics, harder for HNSW)")
+    ap.add_argument("--hnsw-only", action="store_true",
+                    help="measure only the HNSW recall/latency (skip search/upsert timings)")
     ap.add_argument("--batch-notes", type=int, default=200)
     ap.add_argument("--keep", action="store_true", help="keep the bench database")
     ap.add_argument("--json", help="write the results to this file")
@@ -173,11 +180,12 @@ def main() -> int:
         con.execute("CREATE DATABASE sokkan_bench")
     dsn = a.dsn.rsplit("/", 1)[0] + "/sokkan_bench"
     store = Store(dsn, max_size=2)
-    corpus = Corpus(a.dim)
+    corpus = Corpus(a.dim, topics=a.topics, spread=a.spread)
     rng = np.random.default_rng(7)
     gen = store.create_generation(f"bench:random@{a.dim}", a.dim, hnsw_m=a.m,
                                   hnsw_ef_construction=a.ef_construction)
     report = {"dim": a.dim, "m": a.m, "ef_construction": a.ef_construction,
+              "topics": a.topics, "spread": a.spread, "query_noise": a.noise,
               "chunks_per_note": a.chunks_per_note, "steps": []}
     print(f"idle RAM: {container_mem(a.container)}", flush=True)
     loaded = 0
@@ -219,6 +227,9 @@ def main() -> int:
             queries = sample_queries(store, gen, a.queries, rng, a.noise)
             step["chunk_recall"] = chunk_recall(store, gen, queries[: a.recall_queries], efs)
             print(json.dumps(step["chunk_recall"]), flush=True)
+            if a.hnsw_only:
+                report["steps"].append(step)
+                continue
 
             cfg = SearchConfig(exact_max_chunks=0)
             search_latency(store, queries[:20], cfg)  # warm-up
