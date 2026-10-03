@@ -163,6 +163,10 @@ def index_tick() -> dict | None:
             _indexer = indexer.Indexer(get_store(), embed.get(), cfg,
                                        log=lambda m: print(f"[sokkan] memory index: {m}",
                                                            file=sys.stderr))
+        # only the FIRST generation activates itself (fresh install, or the migration's
+        # generation 1); a later one (model or profile changed) stays `building` until the
+        # bench lets it through (core/switch.py, eval chantier)
+        _indexer.cfg.auto_activate = _indexer.store.active_generation() is None
         t0 = time.monotonic()
         rep = _indexer.run()
         if rep.reindexed or rep.pruned:
