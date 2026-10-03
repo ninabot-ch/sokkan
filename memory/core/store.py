@@ -99,6 +99,7 @@ class SearchConfig:
     # lexical candidates (it still counts in their score): it would select half the corpus
     lexical_filter_df: float = 0.02
     lexical_filter_min_df: int = 50
+    lexical_fallback_max_df: int = 2000
 
     @classmethod
     def from_env(cls, **overrides) -> "SearchConfig":
@@ -718,7 +719,8 @@ class Store:
         params = {"qtok": qtok, "hs": cfg.head_share, "qv": qv,
                   "nd": int(cfg.dense_candidates), "nl": int(cfg.lexical_candidates),
                   "cap_abs": 2**31 - 1 if exact else int(cfg.lexical_filter_min_df),
-                  "cap_rel": cfg.lexical_filter_df, "min_pick": 0 if qv is not None else 1}
+                  "cap_rel": cfg.lexical_filter_df,
+                  "cap_fallback": cfg.lexical_fallback_max_df if qv is not None else 2**31 - 1}
         with self.pool.connection() as con:
             if qv is not None:
                 if not exact:
@@ -762,10 +764,10 @@ class Store:
 
     # -- search SQL --------------------------------------------------------------
     # Query words, their IDF (log(1 + N/df), log(1 + N) for an unknown word) and the
-    # words used to PICK lexical candidates: rare enough (df <= max(cap_abs, cap_rel * N)).
-    # A word found in most notes cannot single a note out (the dense side covers it) and
-    # would make the GIN probe read the whole table; in lexical-only mode the rarest word
-    # is always picked (min_pick = 1). Every word still counts in the exact score.
+    # words used to PICK lexical candidates: rare enough (df <= max(cap_abs, cap_rel * N)),
+    # else the rarest one if it is in at most cap_fallback notes (bounded probe; always in
+    # lexical-only mode). A word found nearly everywhere cannot single a note out and would
+    # make the GIN probe read the whole table. Every word still counts in the exact score.
     _Q_CTES = """
         st AS (SELECT coalesce((SELECT df FROM lex_df WHERE token = ''), 0) AS n),
         qt AS (SELECT t, coalesce(d.df, 0) AS df
@@ -777,7 +779,8 @@ class Store:
         pick AS (SELECT t, w FROM (
                    SELECT q.t, q.w, q.df, row_number() OVER (ORDER BY q.df, q.t) AS rn
                    FROM q, st WHERE q.df > 0) x, st
-                 WHERE df <= %(cap_abs)s OR df <= %(cap_rel)s * st.n OR rn <= %(min_pick)s)"""
+                 WHERE df <= %(cap_abs)s OR df <= %(cap_rel)s * st.n
+                    OR (rn = 1 AND df <= %(cap_fallback)s))"""
 
     # body part of the lexical score: one GIN probe per query word, summed per note (no
     # per-row scan of the note's keyword array, which would cost ~0.1 ms per note)

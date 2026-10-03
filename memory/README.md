@@ -100,3 +100,30 @@ SOKKAN_TEST_PG_DSN=postgresql://sokkan:test@127.0.0.1:55432/postgres pytest
 cd memory && python -m core.bench_store --dsn postgresql://sokkan:test@127.0.0.1:55432/postgres \
   --container sokkan-pg-test
 ```
+
+### Load test (03.10.2026, `core/bench_store.py`)
+
+Postgres in a container capped at **1 GB RAM** (`shared_buffers` 256 MB,
+`maintenance_work_mem` 512 MB, 2 parallel maintenance workers) on an 8-core host shared
+with other workloads; 768-d unit vectors clustered in 2 000 topics, 10 chunks of ~90
+words per note; queries = a stored chunk + noise. HNSW `m` 16, `ef_construction` 64,
+`ef_search` 200, 100 dense + 50 lexical candidates, no reranker.
+
+| chunks | bulk insert | HNSW build | DB / HNSW size | RAM (container) | search p50 / p95 | top-1 = exact | top-8 overlap with exact | `upsert_note` (10 chunks) p50 |
+|---|---|---|---|---|---|---|---|---|
+| 25 000 | 1 600 chunks/s | 23 s | 155 / 49 MB | 330 MB | 16-33 / 84-96 ms | 100 % | 0.85 | 80 ms |
+| 100 000 | 1 600 chunks/s | 87 s | 557 / 195 MB | 320 MB | 14-23 / 27-49 ms | 100 % | 0.94 | 65 ms |
+| 250 000 | 1 470 chunks/s | 224 s | 1 365 / 488 MB | 350-590 MB | 19-69 / 52-115 ms | 100 % | 0.98-0.99 | 96-124 ms |
+
+Ranges = repeated runs (the host load varied). Below 20 000 chunks the search is exact.
+
+HNSW recall@10 against an exact scan, 250 000 chunks (`m` 16, `ef_construction` 64):
+
+| corpus | `ef_search` 40 | 100 | 200 | 400 |
+|---|---|---|---|---|
+| topics well separated (spread 1.0) | 0.84-0.90 | 0.96-0.98 | **1.00** | 1.00 |
+| topics closer (spread 1.5) | 0.81 | 0.93 | **0.99** | 0.99 |
+| near-uniform noise (spread 3.0, pathological) | 0.09 | 0.16 | 0.23 | 0.29 |
+
+The last line is the worst case of random vectors, where the 10 "true" neighbours are
+barely closer than the rest of the corpus; real embeddings are clustered.
