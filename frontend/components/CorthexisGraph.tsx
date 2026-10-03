@@ -45,6 +45,7 @@ export default function CorthexisGraph({
     nodes: [] as N[], links: [] as L[], byId: new Map<string, N>(), sim: null as Simulation<N, L> | null,
     t: { x: 0, y: 0, k: 1 }, W: 800, H: 600, hover: null as N | null, particles: [] as { l: L; t: number; v: number }[],
     props: { mode, labels, hidden, highlight, selected, flashes },
+    userMoved: false,
     drag: null as null | { node: N | null; x0: number; y0: number; tx: number; ty: number; moved: boolean },
   });
   S.current.props = { mode, labels, hidden, highlight, selected, flashes };
@@ -59,6 +60,18 @@ export default function CorthexisGraph({
     if (m === "health") return n.level === "crit" ? RED : n.level === "warn" ? ORANGE : n.level === "info" ? "#8a94a6" : "#2b3140";
     return TYPE_COLORS[n.type] || TYPE_COLORS.unknown;
   };
+
+  function fitView() {
+    const s = S.current;
+    const pts = s.nodes.filter((n) => n.x != null && !n.ghost);
+    if (pts.length < 2) return;
+    // 5th–95th percentile box: one isolated note far away must not shrink the whole view
+    const q = (a: number[], p: number) => a.sort((x, y) => x - y)[Math.min(a.length - 1, Math.max(0, Math.round(p * (a.length - 1))))];
+    const xs = pts.map((n) => n.x!), ys = pts.map((n) => n.y!);
+    const [x0, x1, y0, y1] = [q(xs, 0.05), q([...xs], 0.95), q(ys, 0.05), q([...ys], 0.95)];
+    const k = Math.max(0.4, Math.min(2.6, Math.min(s.W / (x1 - x0 + 240), (s.H - 160) / (y1 - y0 + 240))));
+    s.t = { x: s.W / 2 - ((x0 + x1) / 2) * k, y: (s.H + 30) / 2 - ((y0 + y1) / 2) * k, k };
+  }
 
   function applyMode() {
     const s = S.current, sim = s.sim;
@@ -100,21 +113,18 @@ export default function CorthexisGraph({
     s.particles = links.filter((l) => !l.broken && Math.random() < 0.55).map((l) => ({ l, t: Math.random(), v: 0.002 + Math.random() * 0.004 }));
     applyMode();
     if (first) {
-      // frame the whole memory once the layout has settled a bit
-      const fit = () => {
-        const pts = s.nodes.filter((n) => n.x != null);
-        if (!pts.length) return;
-        const xs = pts.map((n) => n.x!), ys = pts.map((n) => n.y!);
-        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-        const k = Math.max(0.3, Math.min(3, Math.min(s.W / (x1 - x0 + 160), (s.H - 120) / (y1 - y0 + 160))));
-        s.t = { x: s.W / 2 - ((x0 + x1) / 2) * k, y: (s.H + 40) / 2 - ((y0 + y1) / 2) * k, k };
-      };
-      setTimeout(fit, 1600);
+      // frame the memory while the layout settles, until the user takes over
+      s.userMoved = false;
+      for (const ms of [900, 2000, 3500, 6000]) setTimeout(() => { if (!s.userMoved) fitView(); }, ms);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  useEffect(() => { applyMode(); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    applyMode();
+    S.current.userMoved = false;
+    for (const ms of [800, 2200]) setTimeout(() => { if (!S.current.userMoved) fitView(); }, ms);
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // focus the selected note
   useEffect(() => {
@@ -122,6 +132,7 @@ export default function CorthexisGraph({
     if (!n || n.x == null) return;
     const k = Math.max(1.4, s.t.k);
     s.t = { x: s.W / 2 - n.x * k - 180, y: s.H / 2 - n.y! * k, k };
+    s.userMoved = true;
   }, [selected]);
 
   // canvas size + render loop + input
@@ -219,6 +230,7 @@ export default function CorthexisGraph({
     const pos = (e: PointerEvent | WheelEvent | MouseEvent) => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      s.userMoved = true;
       const [px, py] = pos(e);
       const k = Math.max(0.25, Math.min(8, s.t.k * Math.exp(-e.deltaY * 0.0015)));
       s.t = { x: px - (px - s.t.x) * (k / s.t.k), y: py - (py - s.t.y) * (k / s.t.k), k };
@@ -233,7 +245,7 @@ export default function CorthexisGraph({
     const onMove = (e: PointerEvent) => {
       const [px, py] = pos(e), d = s.drag;
       if (d) {
-        if (Math.hypot(px - d.x0, py - d.y0) > 3) d.moved = true;
+        if (Math.hypot(px - d.x0, py - d.y0) > 3) { d.moved = true; s.userMoved = true; }
         if (d.node) { const [x, y] = toWorld(px, py); d.node.fx = x; d.node.fy = y; }
         else s.t = { ...s.t, x: d.tx + px - d.x0, y: d.ty + py - d.y0 };
         return;
@@ -268,6 +280,7 @@ export default function CorthexisGraph({
     const onDbl = (e: MouseEvent) => {
       const [px, py] = pos(e), n = pick(px, py);
       if (n && n.x != null) s.t = { x: s.W / 2 - n.x * 2.2, y: s.H / 2 - n.y! * 2.2, k: 2.2 };
+      else fitView();   // double-click on the background = frame everything
     };
     const onLeave = () => { s.hover = null; if (tip.current) tip.current.hidden = true; };
     c.addEventListener("wheel", onWheel, { passive: false });
