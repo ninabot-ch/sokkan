@@ -89,10 +89,32 @@ SECRET_PATTERNS: dict[str, re.Pattern] = {
     "Stripe secret key": re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}"),
     "Telegram bot token": re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_-]{30,}"),
     "JSON Web Token": re.compile(r"\beyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"),
+    # the EXO… identifier alone is the PUBLIC half of an Exoscale API key (shown in the
+    # console, written in configs and runbooks): flagged only with its secret (PAIRED)
     "Exoscale key": re.compile(r"\bEXO[0-9a-f]{24}\b"),
     "Cloudflare token": re.compile(r"\bcfk_[A-Za-z0-9]{20,}"),
     "private key block": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
 }
+
+
+# public identifiers that are a leak only next to their secret: label -> the secret's shape.
+# Exoscale API secret: 43 base64url characters.
+PAIRED: dict[str, re.Pattern] = {
+    "Exoscale key": re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{40,64}(?![A-Za-z0-9_-])"),
+}
+
+
+def _paired_secret(label: str, text: str) -> bool:
+    """For a public identifier: is a value shaped like its secret in the same note?"""
+    rx = PAIRED.get(label)
+    if rx is None:
+        return True
+    for m in rx.finditer(text):
+        v = m.group(0)
+        if (re.search(r"[A-Z]", v) and re.search(r"[a-z]", v) and _looks_random(v)
+                and not re.fullmatch(r"EXO[0-9a-f]+", v)):
+            return True
+    return False
 
 
 _OPEN_Q, _CLOSE_Q = "«“\"'‘", "»”\"'’"
@@ -1005,7 +1027,7 @@ def run_review(cfg: ReviewConfig, source: ReviewSource | None = None, *,
         text = n.parsed.description + "\n" + n.body
         for label, rx in SECRET_PATTERNS.items():
             for m in rx.finditer(text):
-                if _looks_random(m.group(0)):
+                if _looks_random(m.group(0)) and _paired_secret(label, text):
                     line = text.count("\n", 0, m.start())   # 0 = the description
                     leaks.append({"note": n.name, "kind": label, "line": line})
                     break

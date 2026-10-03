@@ -476,3 +476,19 @@ def test_real_corpus_false_positive_patterns(tmp_path):
     body = ("Config: `/srv/x/.docs/docs/a.json`. Decisions `docs/decisions/0001…0011`. "
             "`docs/old` + `docs/older` retirés (supprimé, commit abc). Missing: docs/gone.md.")
     assert find_dead_paths(body, [repo], ("docs",)) == ["docs/gone.md"]
+
+
+def test_exoscale_key_id_alone_is_not_a_secret(tmp_path):
+    """EXO + 24 hex is the PUBLIC identifier of an Exoscale key: flagged only with its secret."""
+    key_id = "EXO" + "3f9a1c07b2e4d5a6c8b9e0f1"
+    secret = "Zq3vK8sP1dLx_Fh7Ty2Wm9Nc4Rb6Ge0Ja5Ui-Oe8Hk2"      # 43 base64url characters, fake
+    head = "---\nname: {n}\ndescription: Exoscale access\nmetadata:\n  type: reference\n---\n"
+    (tmp_path / "ids.md").write_text(head.format(n="ids") + f"The deploy key is {key_id}.\n"
+                                     "Commit 3f9a1c07b2e4d5a6c8b9e0f13f9a1c07b2e4d5a6 rotated it.\n")
+    rep = run_review(ReviewConfig(memory_dir=tmp_path), None, now=rf.NOW)
+    assert "secrets" not in {f["id"] for f in rep["findings"]}
+    (tmp_path / "pair.md").write_text(head.format(n="pair") + f"key {key_id}\nsecret {secret}\n")
+    rep = run_review(ReviewConfig(memory_dir=tmp_path), None, now=rf.NOW)
+    sec = next(f for f in rep["findings"] if f["id"] == "secrets")
+    assert sec["notes"] == ["pair"] and sec["items"][0]["kind"] == "Exoscale key"
+    assert secret not in json.dumps(rep) and key_id not in json.dumps(rep)
