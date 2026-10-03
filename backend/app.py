@@ -63,6 +63,7 @@ import fleetterm
 import instance
 import llm
 import magnitude
+import memeval
 import panestate
 import preview
 import previewenv
@@ -106,6 +107,7 @@ async def _lifespan(_app: FastAPI):
     threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     yield
 
 
@@ -1139,6 +1141,10 @@ def _transcripts() -> list[Path]:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
+
+
+# banc de recall (CortHeXis → Banc) + carte « Mémoire » de Magnitude (profil, licence)
+app.include_router(memeval.router(require, feature_magnitude, _transcripts))
 
 
 @app.get("/api/health")

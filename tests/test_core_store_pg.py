@@ -153,7 +153,7 @@ def _load(store, notes, dim=DIM, identity="test:model@32"):
 # --------------------------------------------------------------------------- tests
 
 def test_migrate_is_idempotent(store):
-    assert store.schema_version() == 1
+    assert store.schema_version() == max(v for v, _, _ in Store.migrations())
     assert store.migrate() == []
 
 

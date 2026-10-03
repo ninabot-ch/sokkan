@@ -74,7 +74,8 @@ services:
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
-      - corthexis-models:/models:ro
+      # read-write: the Gemma Terms decision taken in the UI is recorded in licence.json
+      - corthexis-models:/models
     depends_on:
       db:
         condition: service_healthy

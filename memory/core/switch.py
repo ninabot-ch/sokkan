@@ -426,8 +426,9 @@ class Switcher:
                    "reason": "no question to compare on"}
         else:
             cmp = _eval.compare(store, base_run, cand_run, max_drop_=self.max_drop)
-            if cmp["common"] < self.min_questions:
-                cmp["enough"] = False
+            cmp["enough"] = cmp["common"] >= self.min_questions
+            d = cmp["delta"]["mrr"]
+            cmp["regressed"] = bool(cmp["enough"] and d is not None and d < -self.max_drop)
         if cmp["enough"] and not cmp["regressed"]:
             self._activate(cand, target)
             self._update(job_id, status="switched", progress=1.0, comparison=cmp,
