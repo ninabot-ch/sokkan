@@ -21,6 +21,13 @@ services:
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
       # optional remote embedding service; empty = local ONNX (fastembed)
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # memory engine (CortHeXis) 3.0: Postgres + pgvector store of the `db` service.
+      # CORTHEXIS_MEMORY_BACKEND=postgres makes memory_search read the store instead of
+      # the SQLite memory.db (off until the 3.0 indexer fills it).
+      CORTHEXIS_DATABASE_URL: ${CORTHEXIS_DATABASE_URL:-postgresql://sokkan:${SOKKAN_DB_PASSWORD:-sokkan}@db:5432/sokkan}
+      CORTHEXIS_MEMORY_BACKEND: ${CORTHEXIS_MEMORY_BACKEND:-sqlite}
+      CORTHEXIS_LEXICAL_WEIGHT: ${CORTHEXIS_LEXICAL_WEIGHT:-}
+      CORTHEXIS_HNSW_EF_SEARCH: ${CORTHEXIS_HNSW_EF_SEARCH:-}
       # optional model override for spawned sessions (default: CLI default)
       SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
       # included-inference mode (seeded at provisioning): route sessions through
@@ -49,6 +56,9 @@ services:
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     extra_hosts:
       # reach services on the Docker host (Magnitude shim :8790, local proxies)
       - "host.docker.internal:host-gateway"
@@ -61,6 +71,39 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  # Memory store (CortHeXis 3.0): Postgres 16 + pgvector. Internal network only (no
+  # published port). The .md notes stay the source of truth; this volume holds the index
+  # and the HISTORY of the notes (note_versions, recall_log): back it up.
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sokkan
+      POSTGRES_DB: sokkan
+      # set SOKKAN_DB_PASSWORD in .env (the default is only reachable from the api container)
+      POSTGRES_PASSWORD: ${SOKKAN_DB_PASSWORD:-sokkan}
+      # memory budget, sized for the Light profile (4 GB VM); raise on bigger hosts
+      SOKKAN_DB_SHARED_BUFFERS: ${SOKKAN_DB_SHARED_BUFFERS:-256MB}
+      SOKKAN_DB_MAINTENANCE_WORK_MEM: ${SOKKAN_DB_MAINTENANCE_WORK_MEM:-512MB}
+    command: >-
+      sh -c 'exec docker-entrypoint.sh postgres
+      -c shared_buffers=$${SOKKAN_DB_SHARED_BUFFERS}
+      -c maintenance_work_mem=$${SOKKAN_DB_MAINTENANCE_WORK_MEM}
+      -c max_parallel_maintenance_workers=2
+      -c work_mem=16MB'
+    # parallel HNSW builds use dynamic shared memory (Docker's default /dev/shm is 64 MB)
+    shm_size: 640mb
+    volumes:
+      - sokkan-pg:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sokkan -d sokkan"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # Fleet edge (managed / opt-in): terminates the client's CUSTOM domains on
   # 80/443 with on-demand Let's Encrypt TLS. Serves only hostnames approved by
@@ -99,5 +142,6 @@ services:
 
 volumes:
   sokkan-data:
+  sokkan-pg:
   caddy-data:
   caddy-config:
