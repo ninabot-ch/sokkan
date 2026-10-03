@@ -13,9 +13,9 @@ each step measures:
   scan, for several ``hnsw.ef_search``, and note-level agreement of the final top 8 with
   the exact search (``exact_max_chunks`` set above the corpus size).
 
-Random 768-d vectors are close to the worst case for HNSW (no cluster structure); queries
-are stored vectors plus noise (cosine ~0.7 to their source), so that a true neighbour
-exists, as with a real question.
+Vectors are clustered by topic (2 000 topic centres, chunks = centre + noise) as real
+embeddings are; queries are stored chunks plus noise, so that true neighbours exist, as
+with a real question.
 
     python -m core.bench_store --dsn postgresql://u:p@127.0.0.1:55432/postgres \\
         --container sokkan-v3-store-pg --sizes 25000,100000,250000
@@ -47,9 +47,16 @@ def container_mem(name: str | None) -> str | None:
 
 
 class Corpus:
-    def __init__(self, dim: int, vocab: int = 20_000, seed: int = 42, words_per_chunk: int = 90):
+    def __init__(self, dim: int, vocab: int = 20_000, seed: int = 42, words_per_chunk: int = 90,
+                 topics: int = 2_000, spread: float = 1.0):
         self.dim = dim
         self.rng = np.random.default_rng(seed)
+        # real embeddings are clustered by topic: each note draws a topic centre, its chunks
+        # are that centre plus noise (spread 1.0 -> cosine ~0.7 to the centre, ~0.5 between
+        # chunks of the same topic, ~0 across topics)
+        c = self.rng.normal(size=(topics, dim)).astype(np.float32)
+        self.centres = c / np.linalg.norm(c, axis=1, keepdims=True)
+        self.spread = spread
         self.vocab = np.array([f"w{i:05d}" for i in range(vocab)])
         p = 1.0 / np.arange(1, vocab + 1) ** 1.05  # Zipf-like word frequencies
         self.p = p / p.sum()
@@ -58,12 +65,14 @@ class Corpus:
     def words(self, n: int) -> list[str]:
         return list(self.rng.choice(self.vocab, size=n, p=self.p))
 
-    def vectors(self, n: int) -> np.ndarray:
-        v = self.rng.normal(size=(n, self.dim)).astype(np.float32)
+    def vectors(self, n: int, centre: np.ndarray) -> np.ndarray:
+        noise = self.rng.normal(size=(n, self.dim)).astype(np.float32)
+        v = centre + noise * (self.spread / np.sqrt(self.dim))
         return v / np.linalg.norm(v, axis=1, keepdims=True)
 
     def notes(self, start: int, count: int, chunks_per_note: int):
-        vecs = self.vectors(count * chunks_per_note)
+        topics = self.rng.integers(0, len(self.centres), size=count)
+        vecs = np.concatenate([self.vectors(chunks_per_note, self.centres[t]) for t in topics])
         out = []
         for i in range(count):
             nid = start + i

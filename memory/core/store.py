@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -87,6 +88,7 @@ class SearchConfig:
     # a query word present in more than this share of the notes is not used to PICK
     # lexical candidates (it still counts in their score): it would select half the corpus
     lexical_filter_df: float = 0.05
+    lexical_filter_min_df: int = 50
 
     @classmethod
     def from_env(cls, **overrides) -> "SearchConfig":
@@ -134,8 +136,9 @@ def _unit(vec: Sequence[float], dim: int) -> HalfVector:
     return HalfVector(a)
 
 
-def _tsv_tokens(text: str) -> list[str]:
-    return sorted(rk.tokens(text))
+def tsvector_words(tsv: str) -> list[str]:
+    """Words of a tsvector's text form ('w1' 'w2' …, no positions: array_to_tsvector)."""
+    return [w.strip("'") for w in tsv.split()]
 
 
 def _iso(v) -> str | None:
@@ -189,6 +192,8 @@ def _seen(row) -> SeenRecord | None:
 # --------------------------------------------------------------------------- store
 
 class Store:
+    ACTIVE_TTL = 2.0  # seconds the active generation is cached by search()
+
     def __init__(self, dsn: str | None = None, *, min_size: int = 1, max_size: int = 4,
                  migrate: bool = True, config: SearchConfig | None = None,
                  connect_timeout: float = 10.0):
@@ -196,12 +201,16 @@ class Store:
         if not self.dsn:
             raise StoreError("no database: pass a DSN or set CORTHEXIS_DATABASE_URL")
         self.config = config or SearchConfig.from_env()
+        self._active: tuple[float, Generation] | None = None
+        self._ef: dict[int, tuple] = {}
         if migrate:
             self.migrate()
         self.pool = ConnectionPool(
             self.dsn, min_size=min_size, max_size=max_size, open=True,
             configure=register_vector, timeout=connect_timeout,
-            kwargs={"row_factory": dict_row},
+            # autocommit: a search is one statement, no BEGIN/COMMIT round trips; every
+            # write runs in an explicit con.transaction()
+            kwargs={"row_factory": dict_row, "autocommit": True},
         )
 
     def close(self) -> None:
@@ -289,12 +298,12 @@ class Store:
             con.execute("UPDATE index_generations SET index_built = true WHERE id = %s", (g.id,))
         with self.pool.connection() as con:
             con.execute(f"ANALYZE {g.table}")
-            con.commit()
 
     def activate_generation(self, generation: int | Generation) -> Generation:
         """Atomic switch: this generation becomes the one served by default, the previous
         active one is retired (still searchable with ``generation=`` until purged)."""
         g = self._require_gen(generation)
+        self._active = None
         if g.status == "active":
             return g
         self.build_index(g.id)
@@ -308,6 +317,7 @@ class Store:
 
     def retire_generation(self, generation: int | Generation) -> None:
         g = self._require_gen(generation)
+        self._active = None
         with self.pool.connection() as con, con.transaction():
             con.execute("UPDATE index_generations SET status = 'retired', retired_at = now() "
                         "WHERE id = %s", (g.id,))
@@ -315,6 +325,7 @@ class Store:
     def drop_generation(self, generation: int | Generation) -> None:
         """Remove a non-active generation and its chunks (DETACH + DROP: instant)."""
         g = self._require_gen(generation)
+        self._active = None
         if g.status == "active":
             raise StoreError("refusing to drop the active generation; activate another first")
         with self.pool.connection() as con, con.transaction():
@@ -383,7 +394,7 @@ class Store:
         prepared = []
         for note, chunks in items:
             vecs = [_unit(c.embedding, g.dim) for c in chunks]  # validate before writing
-            prepared.append((note, chunks, vecs, [c.body for c in chunks]))
+            prepared.append((note, chunks, vecs, [sorted(rk.tokens(c.body)) for c in chunks]))
         written = 0
         with self.pool.connection() as con, con.transaction():
             ids = self._write_notes(con, [(p[0], p[3]) for p in prepared])
@@ -395,10 +406,10 @@ class Store:
                     "COPY _chunk_load (note_id, idx, body, embedding, toks) FROM STDIN "
                     "WITH (FORMAT BINARY)") as cp:
                 cp.set_types(["int8", "int4", "text", "halfvec", "text[]"])
-                for note, chunks, vecs, _bodies in prepared:
+                for note, chunks, vecs, toks in prepared:
                     nid = ids[note.name]
-                    for c, v in zip(chunks, vecs):
-                        cp.write_row((nid, int(c.idx), c.body, v, _tsv_tokens(c.body)))
+                    for c, v, tk in zip(chunks, vecs, toks):
+                        cp.write_row((nid, int(c.idx), c.body, v, tk))
                         written += 1
             con.execute(
                 f"INSERT INTO {g.table} (generation_id, note_id, idx, body, embedding, tsv) "
@@ -411,24 +422,31 @@ class Store:
     def _upsert_meta(self, note: NoteRecord, generation: int | Generation) -> None:
         g = self._require_gen(generation)
         with self.pool.connection() as con, con.transaction():
-            bodies = [r["body"] for r in con.execute(
-                f"SELECT c.body FROM {g.table} c JOIN notes n ON n.id = c.note_id "
-                "WHERE n.name = %s ORDER BY c.idx", (note.name,)).fetchall()]
-            self._write_notes(con, [(note, bodies)])
+            toks = [tsvector_words(r["tsv"]) for r in con.execute(
+                f"SELECT c.tsv::text AS tsv FROM {g.table} c JOIN notes n ON n.id = c.note_id "
+                "WHERE n.name = %s", (note.name,)).fetchall()]
+            self._write_notes(con, [(note, toks)])
 
-    def _write_notes(self, con, items: list[tuple[NoteRecord, list[str]]]) -> dict[str, int]:
+    def _write_notes(self, con, items: list[tuple[NoteRecord, list[list[str]]]]
+                     ) -> dict[str, int]:
         """Upsert the notes rows and keep the IDF statistics (lex_df) in step.
-        ``items`` = (note, chunk bodies) ; the lexical body = name + description + chunks
-        (the note body when there is no chunk)."""
+        ``items`` = (note, keywords of each chunk); the lexical body = name + description +
+        chunks (the note body when there is no chunk)."""
         names = sorted({n.name for n, _ in items})
         old = {r["name"]: set(r["lex_tokens"]) for r in con.execute(
             "SELECT name, lex_tokens FROM notes WHERE name = ANY(%s) ORDER BY name FOR UPDATE",
             (names,)).fetchall()}
         delta: dict[str, int] = {}
-        ids: dict[str, int] = {}
-        for note, bodies in items:
+        rows = {}
+        for note, chunk_toks in items:
             head = sorted(rk.head_tokens(note.name, note.description))
-            lex = sorted(rk.body_tokens(note.name, note.description, bodies or [note.body or ""]))
+            lex = set(rk.tokens(f"{note.name} {note.description or ''}"))
+            if chunk_toks:
+                for tk in chunk_toks:
+                    lex.update(tk)
+            else:
+                lex |= rk.tokens(note.body or "")
+            lex = sorted(lex)
             prev = old.get(note.name)
             new = set(lex)
             for t in new - (prev or set()):
@@ -438,19 +456,25 @@ class Store:
             if prev is None:
                 delta[""] = delta.get("", 0) + 1
             old[note.name] = new
-            ids[note.name] = con.execute(
-                "INSERT INTO notes(name, description, type, priority, source_path, modified,"
-                " modified_source, body, head_tokens, lex_tokens, updated_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())"
-                " ON CONFLICT (name) DO UPDATE SET description = excluded.description,"
-                " type = excluded.type, priority = excluded.priority,"
-                " source_path = excluded.source_path, modified = excluded.modified,"
-                " modified_source = excluded.modified_source, body = excluded.body,"
-                " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
-                " updated_at = now() RETURNING id",
-                (note.name, note.description or "", note.type, int(note.priority or 0),
-                 note.source_path, _iso(note.modified), note.modified_source,
-                 note.body or "", head, lex)).fetchone()["id"]
+            # tokens are alphanumeric: a space-joined string is a safe ragged-array carrier
+            rows[note.name] = (note.name, note.description or "", note.type,
+                               int(note.priority or 0), note.source_path, _iso(note.modified),
+                               note.modified_source, note.body or "", " ".join(head),
+                               " ".join(lex))
+        cols = list(zip(*[rows[n] for n in sorted(rows)]))
+        ids = {r["name"]: r["id"] for r in con.execute(
+            "INSERT INTO notes(name, description, type, priority, source_path, modified,"
+            " modified_source, body, head_tokens, lex_tokens, updated_at)"
+            " SELECT n, d, ty, p, sp, m, ms, b, string_to_array(h, ' '), string_to_array(l, ' '),"
+            " now() FROM unnest(%s::text[], %s::text[], %s::text[], %s::int[], %s::text[],"
+            " %s::text[], %s::text[], %s::text[], %s::text[], %s::text[])"
+            " AS x(n, d, ty, p, sp, m, ms, b, h, l)"
+            " ON CONFLICT (name) DO UPDATE SET description = excluded.description,"
+            " type = excluded.type, priority = excluded.priority,"
+            " source_path = excluded.source_path, modified = excluded.modified,"
+            " modified_source = excluded.modified_source, body = excluded.body,"
+            " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
+            " updated_at = now() RETURNING id, name", [list(c) for c in cols]).fetchall()}
         self._apply_df(con, delta)
         return ids
 
@@ -649,12 +673,19 @@ class Store:
                config: SearchConfig | None = None, **overrides) -> list[Hit]:
         """Two-stage search. ``query_vec`` None = lexical-only (embedding backend down):
         results then carry ``degraded``. Keyword overrides patch ``config`` for this call
-        (e.g. ``fusion="rrf"``, ``lexical_weight=0.5``)."""
+        (e.g. ``fusion="rrf"``, ``lexical_weight=0.5``).
+
+        Stage 1 (one SQL statement): candidates = notes of the ``dense_candidates`` nearest
+        chunks (HNSW) + the ``lexical_candidates`` best notes by the lexical score (GIN), or
+        every note when the generation is small (``exact_max_chunks``); each candidate is
+        re-scored EXACTLY (best chunk cosine, IDF head/body lexical score).
+        Stage 2 (Python): blend or RRF, priority boost, reranker on the top ``rerank_top``.
+        """
         cfg = config or self.config
         if overrides:
             cfg = SearchConfig(**{**cfg.__dict__, **overrides})
         try:
-            g = self._require_gen(generation)
+            g = self._require_gen(generation) if generation is not None else self._active_cached()
         except StoreError:
             if generation is not None:
                 raise
@@ -664,114 +695,116 @@ class Store:
         if qv is None and not qtok:
             raise StoreError("lexical-only search needs at least one keyword")
         exact = g.chunk_count <= cfg.exact_max_chunks
-        with self.pool.connection() as con, con.transaction():
-            weights, n_notes, df = self._weights(con, qtok)
-            toks, ws = list(weights), [weights[t] for t in weights]
-            tot = sum(ws) or 1.0
+        params = {"qtok": qtok, "hs": cfg.head_share, "qv": qv,
+                  "nd": int(cfg.dense_candidates), "nl": int(cfg.lexical_candidates),
+                  "cap_abs": 2**31 - 1 if exact else int(cfg.lexical_filter_min_df),
+                  "cap_rel": cfg.lexical_filter_df}
+        with self.pool.connection() as con:
             if qv is not None:
-                if exact:
-                    ids = None  # every note of the generation
-                else:
-                    con.execute("SELECT set_config('hnsw.ef_search', %s, true)",
-                                (str(int(max(cfg.ef_search, cfg.dense_candidates))),))
-                    ids = {r["note_id"] for r in con.execute(
-                        f"SELECT note_id FROM {g.table} ORDER BY "
-                        f"(embedding::halfvec({g.dim})) <#> %s::halfvec({g.dim}) LIMIT %s",
-                        (qv, int(cfg.dense_candidates))).fetchall()}
-                    if toks:
-                        ids |= self._lexical_candidates(con, g, toks, ws, tot, df, n_notes, cfg)
-                best = self._best_chunks_dense(con, g, qv, ids)
+                if not exact:
+                    self._set_ef_search(con, max(cfg.ef_search, cfg.dense_candidates))
+                rows = con.execute(self._dense_sql(g, exact), params).fetchall()
             else:
-                ids = self._lexical_candidates(con, g, toks, ws, tot, df, n_notes, cfg,
-                                               limit=None if exact else cfg.lexical_candidates)
-                best = self._best_chunks_lexical(con, g, qtok, ids)
-            meta = self._note_meta(con, list(best), toks, ws, tot, cfg.head_share)
+                rows = con.execute(self._lexical_only_sql(g, exact), params).fetchall()
         cands, lex = [], {}
-        for nid, b in best.items():
-            m = meta[nid]
-            lex[m["name"]] = m["lex"]
+        for r in rows:
+            lex[r["name"]] = r["lex"]
             cands.append(Candidate(
-                note_name=m["name"], description=m["description"], best_chunk=b["body"],
-                cosine=b.get("cos"), chunk_overlap=b.get("ov", 0.0), priority=m["priority"],
-                modified=m["modified"], modified_source=m["modified_source"],
-                source_path=m["source_path"], chunk_idx=b["idx"]))
+                note_name=r["name"], description=r["description"], best_chunk=r["body"],
+                cosine=r.get("cos"), chunk_overlap=r.get("ov") or 0.0, priority=r["priority"],
+                modified=r["modified"], modified_source=r["modified_source"],
+                source_path=r["source_path"], chunk_idx=r["idx"]))
         degraded = None if qv is not None else (
             "embedding unavailable: lexical-only scoring, degraded recall (no cross-lingual)")
         return rk.rank(
-            query_text, cands, weights=weights, k=k, lexical_weight=cfg.lexical_weight,
+            query_text, cands, weights={}, k=k, lexical_weight=cfg.lexical_weight,
             head_share=cfg.head_share, fusion=cfg.fusion, rrf_k=cfg.rrf_k,
             priority_boost=cfg.priority_boost, rerank=rerank, rerank_top=cfg.rerank_top,
             generation=g.id, degraded=degraded, lexical=lex)
 
-    # -- search stages ---------------------------------------------------------
+    def _active_cached(self) -> Generation:
+        """Active generation, cached ``ACTIVE_TTL`` seconds (one round trip less per search;
+        an activation from another process is seen within the TTL)."""
+        now = time.monotonic()
+        hit = self._active
+        if hit is not None and now - hit[0] < self.ACTIVE_TTL:
+            return hit[1]
+        g = self._require_gen(None)
+        self._active = (now, g)
+        return g
+
+    def _set_ef_search(self, con, ef: int) -> None:
+        if self._ef.get(id(con)) != (con, ef):
+            con.execute(f"SET hnsw.ef_search = {int(ef)}")  # session level, once per value
+            self._ef[id(con)] = (con, ef)
+
+    # -- search SQL --------------------------------------------------------------
+    # Query words, their IDF (log(1 + N/df), log(1 + N) for an unknown word) and the
+    # words used to PICK lexical candidates: rare enough (df <= max(cap_abs, cap_rel * N)),
+    # or the rarest one when none is. Every word still counts in the exact score.
+    _Q_CTES = """
+        st AS (SELECT coalesce((SELECT df FROM lex_df WHERE token = ''), 0) AS n),
+        qt AS (SELECT t, coalesce(d.df, 0) AS df
+               FROM unnest(%(qtok)s::text[]) AS t LEFT JOIN lex_df d ON d.token = t),
+        q AS (SELECT qt.t, qt.df,
+                     ln(1 + greatest(st.n, 1)::float8 / greatest(qt.df, 1)) AS w
+              FROM qt, st),
+        tot AS (SELECT coalesce(nullif(sum(w), 0), 1.0) AS v FROM q),
+        pick AS (SELECT t, w FROM (
+                   SELECT q.t, q.w, q.df, row_number() OVER (ORDER BY q.df, q.t) AS rn
+                   FROM q, st WHERE q.df > 0) x, st
+                 WHERE df <= %(cap_abs)s OR df <= %(cap_rel)s * st.n OR rn = 1)"""
+
+    # body part of the lexical score: one GIN probe per query word, summed per note (no
+    # per-row scan of the note's keyword array, which would cost ~0.1 ms per note)
     @staticmethod
-    def _weights(con, qtok: list[str]) -> tuple[dict[str, float], int, dict[str, int]]:
-        rows = con.execute("SELECT token, df FROM lex_df WHERE token = ANY(%s)",
-                           (qtok + [""],)).fetchall()
-        df = {r["token"]: r["df"] for r in rows}
-        n_notes = df.pop("", 0)
-        return rk.idf_weights(qtok, df, n_notes), n_notes, df
+    def _body_lex_cte(name: str, words: str, restrict: str = "") -> str:
+        return (f"{name} AS (SELECT n.id, sum(x.w) AS s FROM {words} x "
+                f"JOIN notes n ON n.lex_tokens && ARRAY[x.t] {restrict} GROUP BY n.id)")
 
-    @staticmethod
-    def _lex_expr(alias: str = "n") -> str:
-        return (f"((1 - %(hs)s) * coalesce((SELECT sum(q.w) FROM q WHERE q.t = ANY({alias}.lex_tokens)), 0)"
-                f" + %(hs)s * coalesce((SELECT sum(q.w) FROM q WHERE q.t = ANY({alias}.head_tokens)), 0)"
-                ") / %(tot)s")
+    _HEAD = "coalesce((SELECT sum(q.w) FROM q WHERE q.t = ANY(n.head_tokens)), 0)"
 
-    def _lexical_candidates(self, con, g: Generation, toks, ws, tot, df, n_notes,
-                            cfg: SearchConfig, limit: int | None = -1) -> set[int]:
-        """Notes ranked by the lexical score, picked through the GIN index on lex_tokens.
-        ``limit=-1``: cfg.lexical_candidates ; None: no limit."""
-        if limit == -1:
-            limit = cfg.lexical_candidates
-        present = [t for t in toks if df.get(t, 0) > 0]
-        if not present:
-            return set()
-        cap = max(1000, int(cfg.lexical_filter_df * n_notes))
-        pick = [t for t in present if df[t] <= cap] if limit is not None else present
-        if not pick:
-            pick = sorted(present, key=lambda t: df[t])[:2]
-        sql = (f"WITH q AS (SELECT * FROM unnest(%(toks)s::text[], %(ws)s::float8[]) AS q(t, w)) "
-               f"SELECT n.id FROM notes n WHERE n.lex_tokens && %(pick)s::text[] "
-               f"AND EXISTS (SELECT 1 FROM {g.table} c WHERE c.note_id = n.id) "
-               f"ORDER BY {self._lex_expr()} DESC, n.name")
-        if limit is not None:
-            sql += f" LIMIT {int(limit)}"
-        rows = con.execute(sql, {"toks": toks, "ws": ws, "pick": pick,
-                                 "hs": cfg.head_share, "tot": tot}).fetchall()
-        return {r["id"] for r in rows}
+    def _lexc_cte(self, limit: bool) -> str:
+        """Lexical candidates: best notes on the picked words (body + head)."""
+        return (self._body_lex_cte("lexp", "pick") + ", "
+                f"lexc AS (SELECT n.id AS note_id FROM lexp JOIN notes n ON n.id = lexp.id "
+                f"ORDER BY (1 - %(hs)s) * lexp.s + %(hs)s * {self._HEAD} DESC, n.name"
+                + (" LIMIT %(nl)s)" if limit else ")"))
 
-    @staticmethod
-    def _best_chunks_dense(con, g: Generation, qv: HalfVector, ids: set[int] | None) -> dict:
-        """Exact best chunk per note (cosine = inner product of unit vectors)."""
-        where = "" if ids is None else "WHERE note_id = ANY(%(ids)s)"
-        rows = con.execute(
-            f"SELECT DISTINCT ON (note_id) note_id, idx, body, "
-            f"-(embedding <#> %(q)s::halfvec) AS cos FROM {g.table} {where} "
-            f"ORDER BY note_id, embedding <#> %(q)s::halfvec, idx",
-            {"q": qv, "ids": list(ids or [])}).fetchall()
-        return {r["note_id"]: r for r in rows}
+    _META = ("n.name, n.description, n.priority, n.modified, n.modified_source, "
+             "n.source_path")
 
-    @staticmethod
-    def _best_chunks_lexical(con, g: Generation, qtok: list[str], ids: set[int]) -> dict:
-        if not ids:
-            return {}
-        rows = con.execute(
-            f"SELECT DISTINCT ON (note_id) note_id, idx, body, "
-            f"(SELECT count(*) FROM unnest(tsvector_to_array(tsv)) l WHERE l = ANY(%(t)s))"
-            f"::float8 / %(n)s AS ov FROM {g.table} WHERE note_id = ANY(%(ids)s) "
-            f"ORDER BY note_id, ov DESC, idx",
-            {"t": qtok, "n": len(qtok), "ids": list(ids)}).fetchall()
-        return {r["note_id"]: r for r in rows}
+    def _final(self, g: Generation, best_select: str) -> str:
+        return (f"best AS ({best_select}) "
+                f"SELECT b.*, {self._META}, "
+                f"((1 - %(hs)s) * coalesce(lb.s, 0) + %(hs)s * {self._HEAD}) "
+                f"/ (SELECT v FROM tot) AS lex "
+                f"FROM best b JOIN notes n ON n.id = b.note_id LEFT JOIN lexb lb ON lb.id = n.id")
 
-    def _note_meta(self, con, ids: list[int], toks, ws, tot, head_share) -> dict:
-        if not ids:
-            return {}
-        lex = self._lex_expr() if toks else "0.0::float8"
-        rows = con.execute(
-            "WITH q AS (SELECT * FROM unnest(%(toks)s::text[], %(ws)s::float8[]) AS q(t, w)) "
-            "SELECT n.id, n.name, n.description, n.priority, n.modified, n.modified_source, "
-            f"n.source_path, {lex} AS lex FROM notes n WHERE n.id = ANY(%(ids)s)",
-            {"toks": toks, "ws": ws, "hs": head_share, "tot": tot, "ids": ids}).fetchall()
-        return {r["id"]: r for r in rows}
+    def _dense_sql(self, g: Generation, exact: bool) -> str:
+        best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
+                f"-(c.embedding <#> %(qv)s::halfvec) AS cos FROM {g.table} c {{where}} "
+                "ORDER BY c.note_id, c.embedding <#> %(qv)s::halfvec, c.idx")
+        if exact:
+            return (f"WITH {self._Q_CTES}, {self._body_lex_cte('lexb', 'q')}, "
+                    + self._final(g, best.format(where="")))
+        return (f"WITH {self._Q_CTES}, {self._lexc_cte(True)}, "
+                f"dense AS (SELECT note_id FROM {g.table} ORDER BY "
+                f"(embedding::halfvec({g.dim})) <#> %(qv)s::halfvec({g.dim}) LIMIT %(nd)s), "
+                "cand AS (SELECT note_id FROM dense UNION SELECT note_id FROM lexc), "
+                + self._body_lex_cte("lexb", "q", "WHERE n.id IN (SELECT note_id FROM cand)")
+                + ", " + self._final(g, best.format(
+                    where="WHERE c.note_id IN (SELECT note_id FROM cand)")))
 
+    def _lexical_only_sql(self, g: Generation, exact: bool) -> str:
+        """Embedding down: candidates by lexical score only; the snippet is the chunk with
+        the largest share of the query words (``ov``)."""
+        best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
+                "(SELECT count(*) FROM unnest(tsvector_to_array(c.tsv)) l "
+                " WHERE l = ANY(%(qtok)s::text[]))::float8"
+                " / greatest(cardinality(%(qtok)s::text[]), 1) AS ov "
+                f"FROM {g.table} c WHERE c.note_id IN (SELECT note_id FROM lexc) "
+                "ORDER BY c.note_id, ov DESC, c.idx")
+        return (f"WITH {self._Q_CTES}, {self._lexc_cte(not exact)}, "
+                + self._body_lex_cte("lexb", "q", "WHERE n.id IN (SELECT note_id FROM lexc)")
+                + ", " + self._final(g, best))

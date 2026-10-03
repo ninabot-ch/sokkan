@@ -19,7 +19,9 @@ implementation that the 300-question bench validated (MRR 0.82 with EmbeddingGem
 from __future__ import annotations
 
 import datetime
+import functools
 import math
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Sequence
@@ -40,6 +42,7 @@ Reranker = Callable[[str, list[str]], "list[float] | None"]
 
 # --------------------------------------------------------------------------- tokens
 
+@functools.lru_cache(maxsize=262_144)
 def fold(word: str) -> str:
     """« parallèles » = « paralleles » = « parallele » : accents and plural -s removed."""
     w = unicodedata.normalize("NFKD", word)
@@ -47,24 +50,12 @@ def fold(word: str) -> str:
     return w[:-1] if len(w) > 4 and w.endswith("s") else w
 
 
+_WORD = re.compile(r"[^\W_]+")  # runs of str.isalnum() characters
+
+
 def raw_tokens(text: str) -> set[str]:
     """Lower-cased alphanumeric words of 3+ characters, stopwords removed."""
-    out: set[str] = set()
-    cur: list[str] = []
-    for ch in (text or "").lower():
-        if ch.isalnum():
-            cur.append(ch)
-            continue
-        if len(cur) >= 3:
-            w = "".join(cur)
-            if w not in STOPWORDS:
-                out.add(w)
-        cur = []
-    if len(cur) >= 3:
-        w = "".join(cur)
-        if w not in STOPWORDS:
-            out.add(w)
-    return out
+    return {w for w in _WORD.findall((text or "").lower()) if len(w) >= 3 and w not in STOPWORDS}
 
 
 def tokens(text: str) -> set[str]:
