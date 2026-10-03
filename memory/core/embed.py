@@ -103,6 +103,7 @@ class LlamaCppEmbedder:
         self.max_doc_tokens = max_doc_tokens
         self.batch = batch
         self._down: dict[str, float] = {}
+        self._clients: dict = {}
         self._lock = threading.Lock()
 
     # -- identity --------------------------------------------------------------
@@ -135,15 +136,12 @@ class LlamaCppEmbedder:
     def _call(self, fn, timeout: float):
         """fn(client, url) on the first server that answers. Short timeout for
         every server but the last."""
-        import httpx
-
         chain = self._chain()
         err: Exception | None = None
         for i, url in enumerate(chain):
             t = timeout if i == len(chain) - 1 else min(timeout, FIRST_TIMEOUT)
             try:
-                with httpx.Client(base_url=url, timeout=t) as c:
-                    out = fn(c)
+                out = fn(_Bound(self._client(url), t))
                 self._mark(url, True)
                 return out
             except DimensionMismatch:
@@ -152,6 +150,17 @@ class LlamaCppEmbedder:
                 err = e
                 self._mark(url, False)
         raise RuntimeError(f"no embedding server answers ({', '.join(chain)}): {err!r}")
+
+    def _client(self, url: str):
+        """One pooled client per server: building an httpx.Client (SSL context)
+        per call cost ~0.4 s under load, 20× the request itself."""
+        import httpx
+
+        with self._lock:
+            c = self._clients.get(url)
+            if c is None:
+                c = self._clients[url] = httpx.Client(base_url=url)
+            return c
 
     def _embed(self, c, inputs: list[str]) -> list[list[float]]:
         r = c.post("/v1/embeddings", json={"input": inputs, "model": self.model_key})
@@ -185,6 +194,16 @@ class LlamaCppEmbedder:
         r.raise_for_status()
         return r.json()["content"]
 
+    def _truncate_all(self, c, texts: list[str]) -> list[str]:
+        """Truncate a batch; the /tokenize round trips run in parallel (one HTTP
+        call per long document, serially it cost two thirds of GPU indexing time)."""
+        if sum(len(t.encode()) + 8 > self.max_doc_tokens for t in texts) < 2:
+            return [self._truncate(c, t) for t in texts]
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(8, len(texts))) as pool:
+            return list(pool.map(lambda t: self._truncate(c, t), texts))
+
     # -- contract ----------------------------------------------------------------
     def embed_query(self, text: str, timeout: float = 30.0) -> list[float]:
         q = self.spec["query_prefix"] + (text or "")[:MAX_QUERY_CHARS]
@@ -196,17 +215,15 @@ class LlamaCppEmbedder:
         for i in range(0, len(texts), self.batch):
             part = [pre + t for t in texts[i:i + self.batch]]
             out.extend(self._call(
-                lambda c, part=part: self._embed(c, [self._truncate(c, t) for t in part]),
+                lambda c, part=part: self._embed(c, self._truncate_all(c, part)),
                 timeout))
         return out
 
     def rerank(self, query: str, docs: list[str], timeout: float = 3.0) -> list[float] | None:
         if not self.rerank_url or not docs:
             return None
-        import httpx
-
         try:
-            r = httpx.post(f"{self.rerank_url}/v1/rerank", timeout=timeout, json={
+            r = self._client(self.rerank_url).post("/v1/rerank", timeout=timeout, json={
                 "query": (query or "")[:RERANK_QUERY_CHARS],
                 "documents": [d[:RERANK_MAX_CHARS] for d in docs], "model": "rerank"})
             r.raise_for_status()
@@ -232,6 +249,16 @@ class LlamaCppEmbedder:
         return {"embed": [{"url": u, "ok": ping(u)} for u in self.urls],
                 "rerank": ({"url": self.rerank_url, "ok": ping(self.rerank_url)}
                            if self.rerank_url else None)}
+
+
+class _Bound:
+    """A pooled client with the per-call timeout of the chain applied."""
+
+    def __init__(self, client, timeout: float):
+        self.client, self.timeout = client, timeout
+
+    def post(self, path: str, **kw):
+        return self.client.post(path, timeout=self.timeout, **kw)
 
 
 class DimensionMismatch(RuntimeError):
