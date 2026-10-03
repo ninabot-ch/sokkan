@@ -426,8 +426,8 @@ def rerank_policy() -> str:
 
 
 def lexical_weight() -> float:
-    """Dense/lexical blend that suits the active model (bench: 0.3 Gemma, 0.2
-    harrier, 0.1 e5, 0.5 MiniLM) — re-tune whenever the model changes."""
+    """Dense/lexical blend that suits the active model (bench: 0.3 Gemma, 0.1
+    e5-base, 0.5 MiniLM) — re-tune whenever the model changes."""
     return get().lexical_weight
 
 

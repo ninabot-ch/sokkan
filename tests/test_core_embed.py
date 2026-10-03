@@ -117,8 +117,10 @@ def test_identity_default_model():
 def test_identity_follows_active_model(tmp_path):
     d = tmp_path / "models"
     d.mkdir()
-    (d / "active.json").write_text(json.dumps({"embed": "harrier-oss-v1-270m-q8"}))
-    assert embed.build("standard").identity() == "llamacpp:harrier-oss-v1-270m-q8@640"
+    (d / "active.json").write_text(json.dumps({"embed": "multilingual-e5-base-q8"}))
+    e = embed.build("standard")
+    assert e.identity() == "llamacpp:multilingual-e5-base-q8@768"
+    assert e.lexical_weight == 0.1
 
 
 def test_profiles_defaults(monkeypatch):
@@ -177,6 +179,16 @@ def test_task_prefixes_and_normalisation(servers, monkeypatch):
     assert len(out) == 3 and all(len(x) == 768 for x in out)
     assert s.posts("/v1/embeddings")[-1]["input"] == [
         "title: none | text: a", "title: none | text: bb", "title: none | text: ccc"]
+
+
+def test_e5_prefixes(servers, monkeypatch):
+    s = servers()
+    monkeypatch.setenv("CORTHEXIS_EMBED_URLS", s.url)
+    monkeypatch.setenv("CORTHEXIS_EMBED_MODEL_ID", "multilingual-e5-base-q8")
+    embed.embed_query("où ?")
+    assert s.posts("/v1/embeddings")[-1]["input"] == ["query: où ?"]
+    embed.embed_docs(["doc"])
+    assert s.posts("/v1/embeddings")[-1]["input"] == ["passage: doc"]
 
 
 def test_harrier_prefixes(servers, monkeypatch, tmp_path):

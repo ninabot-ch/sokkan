@@ -112,13 +112,16 @@ MODELS: dict[str, dict] = {
         "doc_prefix": "title: none | text: ",
         "lexical_weight": 0.3, "mrr": 0.82,
     },
-    # MIT on its model card. NB: same architecture and vocabulary as Gemma 3
-    # 270m (likely a fine-tune of it) — see the README, "Licences", before
-    # relying on it as a way out of the Gemma terms; multilingual-e5-base
-    # (XLM-R lineage) is the fallback without that question.
+    # SUBJECT TO THE GEMMA TERMS OF USE despite the MIT tag of its model card:
+    # same architecture, sizes and vocabulary as Gemma 3 270m, very likely a
+    # fine-tune of it, i.e. a Gemma "Model Derivative". Never a fallback for
+    # someone who declined the Gemma terms (fallback_key() refuses it); only
+    # selectable explicitly (CORTHEXIS_EMBED_MODEL_ID) by whoever accepted them.
     "harrier-oss-v1-270m-q8": {
-        "kind": "embed", "label": "harrier-oss-v1-270m (Q8_0)", "publisher": "Microsoft",
-        "licence": "mit", "licence_url": f"{HF}/microsoft/harrier-oss-v1-270m",
+        "kind": "embed", "label": "harrier-oss-v1-270m (Q8_0) — subject to the Gemma Terms",
+        "publisher": "Microsoft",
+        "licence": "gemma", "licence_note": "model card says MIT; Gemma 3 270m derivative",
+        "licence_url": GEMMA_TERMS_URL,
         "repo": "mykor/harrier-oss-v1-270m-GGUF",
         "rev": "fe07a2a15994730f1b8f13943927bc8198bd7fa7",
         "file": "harrier-oss-v1-270M-Q8_0.gguf",
@@ -130,6 +133,8 @@ MODELS: dict[str, dict] = {
         "doc_prefix": "",
         "lexical_weight": 0.2, "mrr": 0.77,
     },
+    # Default fallback (decision 03.10.2026): MIT, XLM-RoBERTa lineage. Trained
+    # context 512 tokens — the client truncates documents to 500.
     "multilingual-e5-base-q8": {
         "kind": "embed", "label": "multilingual-e5-base (Q8_0)", "publisher": "Microsoft",
         "licence": "mit", "licence_url": f"{HF}/intfloat/multilingual-e5-base",
@@ -163,7 +168,7 @@ MODELS: dict[str, dict] = {
 }
 
 DEFAULT_EMBED = "embeddinggemma-300m-q8"
-DEFAULT_FALLBACK = "harrier-oss-v1-270m-q8"
+DEFAULT_FALLBACK = "multilingual-e5-base-q8"
 # Reranker per memory profile (None = no reranker). Standard: CPU, called only
 # from background work (4-5 s for a top 10); GPU: interactive top 10.
 PROFILE_RERANKER = {"leger": None, "standard": "bge-reranker-v2-m3-q8",

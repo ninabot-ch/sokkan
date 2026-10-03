@@ -63,17 +63,23 @@ copied by hand into `gguf/` (offline machine) is used if its hash matches.
 | Model | Licence | Role |
 |---|---|---|
 | EmbeddingGemma-300m | Gemma Terms of Use (not open source; use policy, notice on redistribution) | default |
-| harrier-oss-v1-270m | MIT (model card) | fallback when the terms are declined or Gemma cannot be fetched |
-| multilingual-e5-base | MIT | alternative fallback (`CORTHEXIS_EMBED_FALLBACK=multilingual-e5-base-q8`) |
+| multilingual-e5-base | MIT (XLM-RoBERTa lineage) | **fallback** when the terms are declined, undecided or Gemma cannot be fetched |
+| harrier-oss-v1-270m | **subject to the Gemma Terms** (see below) | registry only, never a fallback; selectable explicitly with `CORTHEXIS_EMBED_MODEL_ID` |
 | Qwen3-Reranker-0.6B, bge-reranker-v2-m3 | Apache-2.0 | rerankers |
 
-**Open question on harrier-oss-v1-270m.** Its configuration is the one of
-Gemma 3 270m (Gemma3TextModel, 18 layers, hidden size 640, 262 144-token
-vocabulary). If it was fine-tuned from Gemma 3 weights, the Gemma Terms define
-it as a *Model Derivative* and their use restrictions would follow it despite
-the MIT tag. Until that is settled, an operator who declines the Gemma terms on
-principle should pick `multilingual-e5-base-q8` (XLM-RoBERTa lineage, MIT;
-MRR 0.74 against 0.77 for harrier).
+The fallback, multilingual-e5-base (`dinab/multilingual-e5-base-Q8_0-GGUF`,
+pinned commit + SHA-256), runs in llama.cpp with mean pooling, prefixes
+`query: ` / `passage: `, 768 dimensions, trained context 512 tokens (documents
+are cut at 500). Bench: MRR 0.74 with a lexical weight of 0.1 (0.62 with the
+0.3 that suits Gemma — `embed.lexical_weight()` gives the right one), against
+0.82 for EmbeddingGemma and 0.55 for the 2.x MiniLM.
+
+**Why not harrier-oss-v1-270m.** Its model card says MIT, but its configuration
+is the one of Gemma 3 270m (Gemma3TextModel, 18 layers, hidden size 640,
+262 144-token vocabulary): it is very likely fine-tuned from Gemma 3 weights,
+which the Gemma Terms define as a *Model Derivative* bound by the same use
+restrictions. Offering it to someone who declined those terms would defeat the
+point of the choice; `fallback_key()` refuses any model labelled `gemma`.
 
 ## Configuration
 
@@ -87,5 +93,5 @@ MRR 0.74 against 0.77 for harrier).
 | `EMBED_MODEL_ID` | from `active.json` | force a registry model |
 | `EMBED_MAX_TOKENS` | 500 | document truncation |
 | `ACCEPT_GEMMA_TERMS` | — | unattended licence answer |
-| `EMBED_FALLBACK` | `harrier-oss-v1-270m-q8` | non-Gemma fallback |
+| `EMBED_FALLBACK` | `multilingual-e5-base-q8` | non-Gemma fallback |
 | `MODEL_BASE_URL` | `https://huggingface.co` | mirror for the downloads |

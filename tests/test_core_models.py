@@ -40,7 +40,12 @@ def test_registry_is_consistent():
         if m["kind"] == "embed":
             assert m["dim"] > 0 and m["pooling"] in ("mean", "last")
     assert models.MODELS[models.DEFAULT_EMBED]["licence"] == "gemma"
-    assert models.MODELS[models.DEFAULT_FALLBACK]["licence"] == "mit"
+    fb = models.MODELS[models.DEFAULT_FALLBACK]
+    assert models.DEFAULT_FALLBACK == "multilingual-e5-base-q8" and fb["licence"] == "mit"
+    assert (fb["query_prefix"], fb["doc_prefix"]) == ("query: ", "passage: ")
+    assert fb["dim"] == 768 and fb["pooling"] == "mean" and fb["lexical_weight"] == 0.1
+    # harrier-270m: Gemma 3 derivative → labelled as subject to the Gemma terms
+    assert models.MODELS["harrier-oss-v1-270m-q8"]["licence"] == "gemma"
     g = models.MODELS["embeddinggemma-300m-q8"]
     assert g["query_prefix"] == "task: search result | query: "
     assert g["doc_prefix"] == "title: none | text: "
@@ -80,9 +85,9 @@ def test_decline_uses_mit_fallback_and_keeps_history(tmp_path):
     models.record_decision("accepted", "a", "cli", tmp_path)
     f = fake_fetch()
     doc = models.setup("leger", forced="declined", root=tmp_path, log=lambda m: None, fetch=f)
-    assert f.calls == ["harrier-oss-v1-270m-q8"]
-    assert doc["embed"] == "harrier-oss-v1-270m-q8" and doc["reason"] == "gemma-terms-declined"
-    assert "CORTHEXIS_MODEL_POOLING=last" in (tmp_path / "embed.env").read_text()
+    assert f.calls == ["multilingual-e5-base-q8"]
+    assert doc["embed"] == "multilingual-e5-base-q8" and doc["reason"] == "gemma-terms-declined"
+    assert "CORTHEXIS_MODEL_POOLING=mean" in (tmp_path / "embed.env").read_text()
     st = models.licence_state(tmp_path)
     assert st["decision"] == "declined"
     assert [h["decision"] for h in st["history"]] == ["accepted", "declined"]
@@ -91,7 +96,7 @@ def test_decline_uses_mit_fallback_and_keeps_history(tmp_path):
 def test_undecided_unattended_runs_fallback(tmp_path):
     doc = models.setup("leger", root=tmp_path, log=lambda m: None, fetch=fake_fetch())
     assert doc["decision"] == "undecided"
-    assert doc["embed"] == "harrier-oss-v1-270m-q8" and doc["reason"] == "gemma-terms-undecided"
+    assert doc["embed"] == "multilingual-e5-base-q8" and doc["reason"] == "gemma-terms-undecided"
     assert not (tmp_path / "licence.json").exists()  # nothing recorded on the user's behalf
 
 
@@ -105,8 +110,8 @@ def test_env_acceptance_is_recorded_with_its_source(tmp_path, monkeypatch):
 def test_offline_gemma_falls_back(tmp_path):
     f = fake_fetch(fail=("embeddinggemma-300m-q8",))
     doc = models.setup("leger", forced="accepted", root=tmp_path, log=lambda m: None, fetch=f)
-    assert f.calls == ["embeddinggemma-300m-q8", "harrier-oss-v1-270m-q8"]
-    assert doc["embed"] == "harrier-oss-v1-270m-q8" and doc["reason"] == "gemma-unavailable"
+    assert f.calls == ["embeddinggemma-300m-q8", "multilingual-e5-base-q8"]
+    assert doc["embed"] == "multilingual-e5-base-q8" and doc["reason"] == "gemma-unavailable"
 
 
 def test_nothing_available(tmp_path):
@@ -154,10 +159,11 @@ def test_outdated_terms_are_asked_again(tmp_path, monkeypatch):
 
 
 def test_fallback_must_not_be_gemma(monkeypatch):
-    monkeypatch.setenv("CORTHEXIS_EMBED_FALLBACK", "embeddinggemma-300m-q8")
-    with pytest.raises(ValueError):
-        models.fallback_key()
-    monkeypatch.setenv("CORTHEXIS_EMBED_FALLBACK", "multilingual-e5-base-q8")
+    for key in ("embeddinggemma-300m-q8", "harrier-oss-v1-270m-q8"):
+        monkeypatch.setenv("CORTHEXIS_EMBED_FALLBACK", key)
+        with pytest.raises(ValueError):
+            models.fallback_key()
+    monkeypatch.delenv("CORTHEXIS_EMBED_FALLBACK")
     assert models.fallback_key() == "multilingual-e5-base-q8"
 
 

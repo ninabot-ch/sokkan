@@ -44,7 +44,7 @@ PROFILES: dict[str, dict] = {
         "costs": {"ram_gb": 1.2, "vram_gb": 0, "download_mb": 334,
                   "query_ms_p50": 53, "rerank_ms_top10": None,
                   "index_chunks_per_s": 1.8, "reindex_250k_h": 39,
-                  "mrr": 0.82, "mrr_fallback": 0.77},
+                  "mrr": 0.82, "mrr_fallback": 0.74},
     },
     "standard": {
         "label": "Standard", "embed": "embeddinggemma-300m-q8", "embed_device": "cpu",
@@ -53,7 +53,7 @@ PROFILES: dict[str, dict] = {
         "costs": {"ram_gb": 3.5, "vram_gb": 0, "download_mb": 970,
                   "query_ms_p50": 35, "rerank_ms_top10": 4500,
                   "index_chunks_per_s": 3.0, "reindex_250k_h": 23,
-                  "mrr": 0.82, "mrr_reranked": 0.84, "mrr_fallback": 0.77},
+                  "mrr": 0.82, "mrr_reranked": 0.84, "mrr_fallback": 0.74},
     },
     "gpu": {
         "label": "GPU", "embed": "embeddinggemma-300m-q8", "embed_device": "gpu",
@@ -62,7 +62,7 @@ PROFILES: dict[str, dict] = {
         "costs": {"ram_gb": 1.2, "vram_gb": 3.5, "download_mb": 973,
                   "query_ms_p50": 13, "rerank_ms_top10": 1300,
                   "index_chunks_per_s": 49.9, "reindex_250k_h": 1.4,
-                  "mrr": 0.88, "mrr_fallback": 0.77},
+                  "mrr": 0.88, "mrr_fallback": 0.74},
     },
 }
 ORDER = ("leger", "standard", "gpu")
