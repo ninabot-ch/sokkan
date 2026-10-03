@@ -687,6 +687,14 @@ def magnitude_state(_u: dict = Depends(require("viewer")),
     return magnitude.view()
 
 
+@app.get("/api/magnitude/memory")
+def magnitude_memory(_u: dict = Depends(require("viewer")),
+                     _f: None = Depends(feature_magnitude)) -> dict:
+    """Profil mémoire (CortHeXis) : courant, recommandé (cockpit + nodes), coûts
+    par profil, modèle actif et décision sur la licence Gemma."""
+    return magnitude.memory_view()
+
+
 @app.post("/api/magnitude/pair")
 def magnitude_pair(u: dict = Depends(require("admin")),
                    _f: None = Depends(feature_magnitude)) -> dict:

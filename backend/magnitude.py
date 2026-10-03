@@ -322,3 +322,71 @@ def view() -> dict:
             "catalog": catalog_view(node.get("profile")),
         })
     return {"paired": bool(nodes), "shim_default": SHIM_URL, "nodes": nodes}
+
+
+# --- mémoire (CortHeXis) : profil courant / recommandé et coûts -------------
+def _node_memory(profile: dict) -> dict | None:
+    """Recommandation mémoire d'un node : celle que l'agent calcule lui-même
+    (agents récents), sinon déduite du profil hardware remonté."""
+    from core import profiles
+
+    if profile.get("memory"):
+        return profile["memory"]
+    gpu = profile.get("gpu") or {}
+    acc = None
+    if gpu.get("vendor") == "nvidia" and gpu.get("backend") == "cuda":
+        acc = {"kind": "cuda", "name": gpu.get("name"), "vram_gb": gpu.get("vram_total_gb")}
+    elif gpu.get("vendor") == "apple":
+        acc = {"kind": "metal", "name": gpu.get("name"), "vram_gb": gpu.get("vram_total_gb")}
+    elif gpu.get("backend") == "vulkan" and gpu.get("vram_total_gb"):
+        acc = {"kind": "vulkan", "name": gpu.get("name"), "vram_gb": gpu.get("vram_total_gb")}
+    if not profile.get("cores"):
+        return None
+    rec = profiles.recommend(profile.get("cores"), profile.get("ram_gb"), acc)
+    return {k: rec[k] for k in ("recommended", "reason", "warnings", "accel", "hardware")}
+
+
+def memory_view() -> dict:
+    """État pour GET /api/magnitude/memory — l'UI (vague 2) n'a qu'à l'afficher.
+
+    current     profil configuré (CORTHEXIS_MEMORY_PROFILE / SOKKAN_MEMORY_PROFILE)
+    recommended le meilleur profil servable : cockpit, ou un node Magnitude en
+                ligne qui peut porter le profil GPU
+    local       recommandation pour la machine du cockpit (vue du conteneur : RAM et
+                cœurs de l'hôte, GPU repéré par ses identifiants PCI)
+    nodes       recommandation par node Magnitude
+    profiles    tableau des profils et de leurs coûts (Go, ms/requête, réindexation)
+    engine      moteur actif : identité, modèle, licence, serveurs (sans réseau)
+    models      décision sur les Gemma Terms, modèles installés"""
+    from core import embed, models as mmodels, profiles
+
+    local = profiles.detect()
+    nodes = []
+    for nid, node in sorted(load()["nodes"].items(),
+                            key=lambda kv: kv[1].get("paired_at") or 0):
+        mem = _node_memory(node.get("profile") or {})
+        if mem:
+            nodes.append({"id": nid, "name": node_name(nid, node), "online": online(node),
+                          **mem})
+    candidates = [local["recommended"]] + [n["recommended"] for n in nodes if n["online"]]
+    best = max(candidates, key=profiles.ORDER.index)
+    try:
+        current = embed.current_profile()
+        engine = embed.describe()
+    except Exception as e:  # noqa: BLE001 — config invalide : on l'affiche
+        current, engine = None, {"error": str(e)}
+    st = mmodels.status()
+    return {
+        "current": current,
+        "recommended": best,
+        "local": {k: local[k] for k in ("recommended", "reason", "warnings", "accel",
+                                        "hardware")},
+        "nodes": nodes,
+        "profiles": local["profiles"],
+        "engine": engine,
+        "models": {"active": st["active"], "installed": st["installed"],
+                   "licence": {k: v for k, v in st["licence"].items() if k != "history"},
+                   "terms_version": st["terms_version"],
+                   "terms_url": mmodels.GEMMA_TERMS_URL,
+                   "policy_url": mmodels.GEMMA_POLICY_URL},
+    }
