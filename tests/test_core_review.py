@@ -444,3 +444,16 @@ def test_cli_entrypoint_runs(tmp_path, monkeypatch, capsys):
     assert review.main([]) == 1          # secrets + no description = critical
     out = json.loads(capsys.readouterr().out)
     assert out["notes_total"] == len(list(Path(mem).glob("*.md")))
+
+
+def test_external_findings_from_the_bench():
+    from core.review import external_findings, health_score
+    rows = [{"check": "recall-regression", "severity": "critical", "title": "Memory recall dropped",
+             "detail": "MRR 0.82 → 0.70", "remedy": "roll back", "notes": ["b", "a"]},
+            {"check": "recall-bench-small", "severity": "info", "title": "few questions",
+             "detail": "3", "remedy": "add some", "notes": []}]
+    out = external_findings(rows)
+    assert [(f.id, f.severity, f.category) for f in out] == [
+        ("recall_regression", "crit", "recall"), ("recall_bench_small", "info", "recall")]
+    assert out[0].notes == ["a", "b"] and out[0].judgement and not out[1].judgement
+    assert health_score(out) < 80

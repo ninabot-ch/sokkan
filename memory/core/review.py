@@ -53,7 +53,7 @@ from .notes import INDEX_FILENAME, LINK_RE, ParsedNote, filename_for, is_kebab, 
 
 SEVERITIES = ("crit", "warn", "info")
 SEVERITY_WEIGHT = {"crit": 18, "warn": 5, "info": 1}
-CATEGORIES = ("chain", "structure", "drift", "security", "graph", "dates")
+CATEGORIES = ("chain", "structure", "drift", "security", "graph", "dates", "recall")
 
 CODE_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.S)
 OPEN_MARKERS = re.compile(
@@ -674,6 +674,23 @@ def _age_days(modified: str | None, now: datetime.datetime) -> int | None:
 
 def _norm_ws(s: str | None) -> str:
     return " ".join((s or "").split())
+
+
+def external_findings(rows: list[dict], category: str = "recall") -> list[Finding]:
+    """Findings produced elsewhere (``core.eval.findings``: ``check``, ``severity`` critical |
+    warning | info, ``title``, ``detail``, ``remedy``, ``notes``) in the review's format, so
+    they count in the score and the alerts like the others."""
+    sev = {"critical": "crit", "crit": "crit", "warning": "warn", "warn": "warn"}
+    out = []
+    for r in rows or []:
+        notes = sorted(set(r.get("notes") or []))
+        out.append(Finding(
+            str(r.get("check") or r.get("id") or "external").replace("-", "_"),
+            sev.get(str(r.get("severity")), "info"), category, str(r.get("title", "")),
+            str(r.get("detail", "")), notes=notes, remedy=str(r.get("remedy", "")),
+            count=max(1, len(notes)), items=[{"note": n} for n in notes],
+            judgement=bool(notes)))
+    return out
 
 
 def _drift_is_correction(d) -> bool:

@@ -10,6 +10,8 @@ configured with `CORTHEXIS_*` variables — the `SOKKAN_*` names and
 | `embed.py` | embedding client: `identity()`, `embed_docs()`, `embed_query()`, `rerank()` | httpx (fastembed for the legacy profile) |
 | `models.py` | model registry, Gemma licence gate, first-run download + SHA-256 | stdlib |
 | `profiles.py` | profiles `leger / standard / gpu`, costs, hardware detection and recommendation | stdlib |
+| `eval.py` | recall bench on the client's own notes: questions (transcripts, written, generated), runs, comparison, regression findings, nightly | psycopg (store) |
+| `switch.py` | profile / model change gated by the bench: background build, atomic switch, approve / cancel, 7-day rollback | store, embed, indexer |
 
 ## Profiles
 
@@ -28,7 +30,33 @@ recommends a profile from cores, RAM and GPU. Figures: memory bench of 03.10.202
 re-encoded. `embed.rerank_policy()` tells a caller whether it may rerank inline
 (`interactive`), only in background work (`async`) or not at all (`off`).
 
-## Servers and chain
+## Recall bench and profile changes
+
+`eval.py` answers "does the memory find the right note, here?" with the questions of the
+instance itself (tables of `migrations/0006_eval.sql`):
+
+- **harvested** from the session transcripts — a person's prompt followed, in the same
+  session, by `memory_get(note)` is a question and its expected note (weight 1);
+- **written** by a person with the expected note (weight 1);
+- **generated** from a note's description by the instance's LLM (weight 0.4,
+  `CORTHEXIS_EVAL_GENERATED_WEIGHT`: the LLM just read the note, it flatters the engine).
+
+Metrics as in the reference bench: hit@1, hit@5, MRR, nDCG@10, weighted, per source and per
+index generation; every run and per-question rank is stored. `check_regression` compares a
+run with the previous one of the same generation and profile on their shared questions (MRR
+drop > `CORTHEXIS_EVAL_MAX_DROP`, default 0.02, on ≥ 5 questions) and `findings()` turns it
+into a review finding. `python -m core.eval run | harvest | add | list | report | compare`.
+
+`switch.py` changes profile, model or servers as a job: a target that embeds with another
+model builds a new generation in the background (the indexer, `auto_activate=False`) while
+the current one serves; the same model elsewhere (CPU → GPU, reranker added) reuses the
+active generation. The bench then runs the same questions on both setups; the switch is
+atomic and only happens when recall does not drop, otherwise it waits for a person
+(`approve` / `cancel`). A preflight refuses servers that serve another model file than the
+one claimed (two 768-d models would otherwise mix silently). The previous setup can be
+restored for 7 days (`rollback`); `Store.purge_retired` drops it afterwards. Query side:
+`switch.serving_embedder(store)` gives the embedder matching the active generation.
+
 
 `docker/embed/compose.yml` runs llama.cpp (`ghcr.io/ggml-org/llama.cpp`, pinned
 build): `corthexis-embed` (`--embedding`), `corthexis-rerank` (`--reranking`,

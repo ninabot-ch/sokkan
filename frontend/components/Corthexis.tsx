@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CorthexisGraph, { type Mode, TYPE_COLORS } from "@/components/CorthexisGraph";
+import MemoryBench from "@/components/MemoryBench";
 import { memoryDigest, memorySearch, spawnSession } from "@/lib/api";
 import { useCan } from "@/lib/me";
 import {
@@ -24,7 +25,7 @@ const SEV: Record<Severity, { label: string; dot: string; ring: string; text: st
 };
 const CATEGORY: Record<string, string> = {
   chain: "Memory reachable by the agents", security: "Safety", structure: "Note format",
-  drift: "Out of date", graph: "Links between notes", dates: "Dates",
+  drift: "Out of date", graph: "Links between notes", dates: "Dates", recall: "Recall quality (bench)",
 };
 const MODES: { id: Mode; label: string; title: string }[] = [
   { id: "synapse", label: "Synapses", title: "Layout by links between notes" },
@@ -44,7 +45,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
   const [mode, setMode] = useState<Mode>("synapse");
   const [labels, setLabels] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [panel, setPanel] = useState<"note" | "health" | "repairs" | null>(null);
+  const [panel, setPanel] = useState<"note" | "health" | "repairs" | "bench" | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [note, setNote] = useState<CxNote | null>(null);
   const [ghost, setGhost] = useState<{ label: string; citedBy: string[] } | null>(null);
@@ -93,6 +94,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
     const q = new URLSearchParams(window.location.search);
     if (q.get("note")) openNote(q.get("note")!);
     else if (q.get("proposal")) setPanel("repairs");
+    else if (q.get("panel") === "bench") setPanel("bench");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -273,10 +275,10 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
       {panel && (
         <aside className="absolute bottom-0 right-0 top-0 z-30 flex w-full max-w-[460px] flex-col border-l border-line bg-panel/95 backdrop-blur">
           <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
-            {(["note", "health", "repairs"] as const).map((t) => (
+            {(["note", "health", "repairs", "bench"] as const).map((t) => (
               <button key={t} onClick={() => setPanel(t)}
                 className={`rounded-md px-3 py-1 text-[12.5px] ${panel === t ? "bg-panel2 text-slate-100 ring-1 ring-line" : "text-mut hover:text-slate-200"}`}>
-                {t === "note" ? "Note" : t === "health" ? "Health" : "Repairs"}
+                {t === "note" ? "Note" : t === "health" ? "Health" : t === "repairs" ? "Repairs" : "Bench"}
                 {t === "health" && ov && ov.report.counts.crit > 0 && <span className="ml-1.5 rounded-full bg-[#ff5c6c] px-1.5 text-[10px] text-white">{ov.report.counts.crit}</span>}
                 {t === "repairs" && pending.length > 0 && <span className="ml-1.5 rounded-full bg-brass px-1.5 text-[10px] text-ink">{pending.length}</span>}
               </button>
@@ -289,6 +291,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
             {panel === "health" && <HealthPanel ov={ov} canAct={canAct} busy={busy} rerun={rerun}
               openNote={openNote} light={lightNotes} propose={propose} curate={curate} />}
             {panel === "repairs" && <RepairsPanel props={props} open={setModal} />}
+            {panel === "bench" && <MemoryBench noteNames={(graph?.nodes || []).map((n) => n.id)} onPickNote={openNote} />}
           </div>
         </aside>
       )}

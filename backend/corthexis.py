@@ -139,6 +139,7 @@ def run(*, chain: bool | None = None, alert: bool = True) -> dict:
         _state["running"] = True
     try:
         findings = rv.chain_checks(chain_config()) if chain else []
+        findings += bench_findings()
         report = rv.run_review(review_config(), source(), chain=findings)
         try:
             history().record(report)
@@ -153,6 +154,18 @@ def run(*, chain: bool | None = None, alert: bool = True) -> dict:
     finally:
         with _lock:
             _state["running"] = False
+
+
+def bench_findings() -> list:
+    """Regressions of the recall bench (core.eval, store 3.0 only) as review findings."""
+    if not _pg():
+        return []
+    try:
+        from core import eval as ev
+        return rv.external_findings(ev.findings(_store()))
+    except Exception as e:  # noqa: BLE001 — no bench yet, or its tables are missing
+        print(f"[corthexis] bench findings unavailable: {e}", file=sys.stderr)
+        return []
 
 
 def current() -> dict:
