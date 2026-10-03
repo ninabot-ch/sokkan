@@ -74,26 +74,82 @@ def reset() -> None:
         _store, _qemb = None, None
 
 
+class NoServingEmbedder:
+    """Stand-in when no embedder matches the active generation (model change pending):
+    queries fail → lexical-only search, flagged — never vectors of another model."""
+    backend = "none"
+    rerank_policy = "off"
+    rerank_url = None
+    lexical_weight = None
+
+    def __init__(self, identity: str):
+        self._identity = identity
+
+    def identity(self) -> str:
+        return f"none (index built with {self._identity})"
+
+    def embed_query(self, text: str, timeout: float = 30.0):
+        raise RuntimeError(f"no embedding server serves the active index ({self._identity})")
+
+    def rerank(self, query, docs, timeout: float = 3.0):
+        return None
+
+
+def serving_embedder(store=None):
+    """Embedder whose identity matches the active generation, as the memory profile switch
+    recorded it (``core.switch.serving_embedder``: the profile chosen in the UI, not a
+    frozen configuration). Without the switch module: the configured embedder, or the 2.x
+    one while a 2.x generation is active. None = no generation yet."""
+    from core import embed
+
+    store = store or get_store()
+    g = store.active_generation()
+    if g is None:
+        return None
+    try:
+        from core import switch
+    except ImportError:
+        switch = None
+    if switch is not None:
+        e = switch.serving_embedder(store)
+        if e is not None:
+            return e
+    else:
+        e = embed.get()
+        if e.identity() == g.embed_identity:
+            return e
+    leg = embed.legacy()
+    if g.embed_identity in (leg.identity(), leg.identity_2x()):
+        return leg
+    return NoServingEmbedder(g.embed_identity)
+
+
+def index_embedder(store=None):
+    """What the indexer writes with: the serving embedder of the active generation, or the
+    configured one for the very first generation (new install)."""
+    from core import embed
+
+    e = serving_embedder(store)
+    return embed.get() if e is None else (None if isinstance(e, NoServingEmbedder) else e)
+
+
 def embedder():
-    """The configured embedder (core.embed), or the 2.x one while the active generation
-    was built by it. Re-checked every 10 s (an activation happens in another process)."""
+    """Query embedder (see ``serving_embedder``), re-checked every 10 s: a switch or an
+    activation happens in another thread or process."""
     global _qemb
     from core import embed
 
     now = time.monotonic()
     if _qemb is not None and now - _qemb[0] < 10:
         return _qemb[2]
-    e = embed.get()
     gen = None
     try:
-        g = get_store().active_generation()
+        st = get_store()
+        g = st.active_generation()
         gen = g.id if g else None
-        if g is not None and g.embed_identity != e.identity():
-            leg = embed.legacy()
-            if g.embed_identity in (leg.identity(), leg.identity_2x()):
-                e = leg
+        e = serving_embedder(st) or embed.get()
     except Exception:  # noqa: BLE001 — store down: the search reports it
-        pass
+        e = embed.get()
     _qemb = (now, gen, e)
     return e
 

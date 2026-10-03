@@ -230,3 +230,14 @@ def test_config_from_env(monkeypatch):
     monkeypatch.setenv("CORTHEXIS_RECALL_BUDGET_S", "0.9")
     c = R.RecallConfig.from_env()
     assert (c.top_k, c.threshold, c.budget_s) == (2, 0.4, 0.9)
+
+
+def test_rerank_gate():
+    """Reranked: a note the reranker likes is kept a bit under the threshold, the plain
+    threshold rises a little (calibration of the GPU profile)."""
+    st = FakeStore([H("liked", 0.30, rerank=0.9), H("disliked", 0.37, rerank=0.01),
+                    H("strong", 0.46, rerank=0.02), H("too-low", 0.2, rerank=0.99)])
+    st.search = lambda qv, text, k, rerank=None, **o: list(st.hits)
+    res = recaller(st, FakeEmbedder("interactive"), threshold=0.35).recall(
+        "question about the deploy pipeline")
+    assert set(res.notes) == {"liked", "strong"}

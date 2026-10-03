@@ -128,3 +128,79 @@ HNSW recall@10 against an exact scan, 250 000 chunks (`m` 16, `ef_construction` 
 
 The last line is the worst case of random vectors, where the 10 "true" neighbours are
 barely closer than the rest of the corpus; real embeddings are clustered.
+
+## Running the 3.0 engine in SOKKAN (store wiring, recall at every turn)
+
+**Backend.** With a database configured (`CORTHEXIS_DATABASE_URL`, set by the compose
+file) the store is the backend: `memory_search`, `memory_get` (prefixed with the note's
+age and the provenance of its date), `memory_links`, the CortHeXis tab and the recall
+hooks read Postgres. `CORTHEXIS_MEMORY_BACKEND=sqlite` keeps the 2.x `memory.db`.
+Queries are embedded by the embedder that serves the **active generation**
+(`core.switch.serving_embedder` when present, i.e. the profile chosen by the operator);
+if none matches the active index (a model change in progress), the search runs
+lexical-only and says so — never with vectors of another model. Reranker per
+`embed.rerank_policy()`: `interactive` (GPU) = top 10 of every `memory_search`;
+`async` (standard CPU, ~4.5 s) = only for a deep search (`/api/memory/search?deep=1`,
+`sokkan memory search --deep`); `off` (light) = never.
+
+**Indexer.** The backend runs `core.indexer.IndexRunner` in a thread: one pass at start,
+then a pass when the notes folder changes (signature polled every `CORTHEXIS_WATCH_S`,
+3 s, debounced 1 s: a new note is searchable ~6 s after it is written) and every
+`CORTHEXIS_REINDEX_S` (900 s: dates, normalisation grace). Every pass normalises the
+corpus (`core.normalize`) and rewrites `MEMORY.md`. It writes with the serving embedder
+and only ever activates the **first** generation; a model change goes through the gated
+switch (`core.switch`, bench before switch). By hand: `python -m core.indexer [--watch]
+[--rebuild] [--no-normalize]` (from `memory/`), or `sokkan memory index|search|get|status`
+through the cockpit API.
+
+**Recall at every turn** (`core/recall.py`). SOKKAN installs two hooks in every session it
+starts: in-process callbacks for chat sessions (`backend/memrecall.py`, Agent SDK
+`hooks=`), command hooks through `claude --settings` for terminal sessions
+(`memory/recall_hook.py`, which posts to the warm backend, `POST /api/memory/hook`,
+token file `data/claude-hooks/recall-token`, and falls back to an in-process recall).
+
+- `UserPromptSubmit`: top 4 notes above the model's threshold, or whose name is quoted in
+  the message; notes already injected in the session (spawn pre-recall included) are not
+  injected again; the block is framed as data, not instructions.
+- `PreToolUse` on `Task|Agent`: the recall of the sub-agent's task (with an excerpt of each
+  note) is appended to its prompt through `updatedInput` — verified end to end on the CLI
+  bundled with claude-agent-sdk 0.2.163 (Claude Code 2.1.286) and 2.1.259
+  (`tests/test_recall_e2e_cli.py`, against a scripted API: no credit spent). No
+  `permissionDecision` is needed, and `can_use_tool` still sees the call.
+- Reranker on the top 3 only where it is interactive (GPU); budget ~1.5 s; any failure =
+  nothing injected. `CORTHEXIS_RECALL=0` turns it off; `CORTHEXIS_RECALL_TOPK`,
+  `_THRESHOLD`, `_BUDGET_S`, `_DEBUG`.
+- Every recall is recorded: injected notes in `recall_log` (session, sub-agent, rank,
+  score, rerank, version of the note, generation), every attempt in `recall_turns`
+  (migration 0010: injected or not, why skipped, latency, profile).
+  `GET /api/memory/recall-log?session=&note=` returns both (entries + summary).
+
+**Threshold, measured (03.10.2026).** EmbeddingGemma, real 415-note corpus, 300 memory
+questions against 36 generic coding prompts, top 4:
+
+| threshold | expected note injected | generic prompts with a recall |
+|---|---|---|
+| 0.50 (2.x value) | 22 % | 0 % |
+| 0.40 | 63 % | 6 % |
+| **0.35 (default)** | **77 %** | 19 % |
+| 0.30 | 87 % | 39 % |
+| GPU: 0.40, or ≥ 0.25 with rerank ≥ 0.5 (default) | **87 %** | 17 % |
+
+Several "generic" prompts that get a recall are in fact related to the corpus (a release
+note prompt recalls the release procedure). e5 (fallback model): 0.80, estimated, not
+measured — run `core.bench_recall` before relying on it.
+
+**"Ignored facts" bench** (`python -m core.bench_recall --dsn … --load`): 12 fictional
+scenarios whose answer is only in a note, among 16 look-alike notes, posed at turn 1, at
+turn 5 (after 4 coding messages) and as a sub-agent prompt; the bench reads what is
+injected, no model answers.
+
+| profile | turn 1 / turn 5 / sub-agent | coding messages with a recall | latency p50 / p95 (in process) |
+|---|---|---|---|
+| light (CPU embedding, no reranker) | 9/12 each | 0/48 | 48 / 63 ms |
+| GPU (embedding + reranker top 3) | 10/12 each | 0/48 | 158 / 178 ms |
+
+On the 415-note corpus the GPU recall takes 650 ms p50 / 0.9-1 s p95 (reranking longer
+notes). Terminal-session hook, end to end (process start included): 190-310 ms through
+the backend, 1.0-1.4 s when it has to open its own store connection (psycopg + numpy
+imports ~0.75 s). Measured from a host to model servers on another machine of the LAN.

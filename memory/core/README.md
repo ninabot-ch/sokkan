@@ -9,6 +9,8 @@ configured with `CORTHEXIS_*` variables — the `SOKKAN_*` names and
 |---|---|---|
 | `embed.py` | embedding client: `identity()`, `embed_docs()`, `embed_query()`, `rerank()` | httpx (fastembed for the legacy profile) |
 | `models.py` | model registry, Gemma licence gate, first-run download + SHA-256 | stdlib |
+| `recall.py` | recall at every message (`UserPromptSubmit`) and for sub-agents (`PreToolUse` Task/Agent): selection, dedup, logging, command-hook entry `python -m core.recall` | store, embed |
+| `bench_recall.py` | "ignored facts" bench of the recall (fictional corpus, no model call) | store, embed, indexer |
 | `profiles.py` | profiles `leger / standard / gpu`, costs, hardware detection and recommendation | stdlib |
 
 ## Profiles

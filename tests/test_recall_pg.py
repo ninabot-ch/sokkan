@@ -222,3 +222,66 @@ def test_corpus_signature_ignores_the_index_file(corpus):
     s1 = corpus_signature(corpus)
     (corpus / "MEMORY.md").write_text("x")
     assert corpus_signature(corpus)[1:] == s1[1:]
+
+
+class OtherEmbedder(BowEmbedder):
+    def identity(self):
+        return "test:other@64"
+
+
+def test_runner_activates_only_the_first_generation(dsn, corpus):
+    store = Store(dsn)
+    try:
+        factory = [BowEmbedder()]
+        runner = IndexRunner(lambda: store, lambda: factory[0], IndexConfig(memory_dir=corpus),
+                             log=lambda m: None, activate_first_only=True)
+        assert runner.run_once() is not None
+        g = store.active_generation()
+        assert g.embed_identity == "test:bow@64"
+        factory[0] = OtherEmbedder()             # the configuration changed: no silent switch
+        assert runner.run_once() is None and "switch" in runner.last_error
+        assert [x.id for x in store.list_generations()] == [g.id]
+        factory[0] = None                       # nothing serves the active generation
+        assert runner.run_once() is None and "no embedder" in runner.last_error
+        factory[0] = BowEmbedder()
+        assert runner.run_once() is not None and store.active_generation().id == g.id
+    finally:
+        store.close()
+
+
+def test_query_embedder_follows_the_switch(indexed, monkeypatch):
+    """store_backend asks core.switch (eval chantier) for the embedder of the active
+    generation; without it, the configured one only if it matches, else lexical-only."""
+    import sys
+    import types
+
+    import store_backend as sb
+    from core import embed
+
+    store, _r, _c = indexed
+    monkeypatch.setattr(sb, "_store", store)
+    monkeypatch.setattr(embed, "get", lambda: OtherEmbedder())
+    monkeypatch.delitem(sys.modules, "core.switch", raising=False)
+    import builtins
+    real_import = builtins.__import__
+
+    def no_switch(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "core" and fromlist and "switch" in fromlist:
+            raise ImportError("no core.switch in this branch")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", no_switch)
+    e = sb.serving_embedder(store)
+    assert isinstance(e, sb.NoServingEmbedder)          # configured model ≠ index model
+    assert sb.index_embedder(store) is None
+    monkeypatch.setattr(builtins, "__import__", real_import)
+
+    fake = types.ModuleType("core.switch")
+    fake.serving_embedder = lambda st: BowEmbedder()
+    monkeypatch.setitem(sys.modules, "core.switch", fake)
+    import core
+    monkeypatch.setattr(core, "switch", fake, raising=False)
+    assert sb.serving_embedder(store).identity() == "test:bow@64"
+    monkeypatch.setattr(sb, "_qemb", None)
+    res = sb.memory_search("Kartonage Weiss cardboard", 2)
+    assert res[0]["note_name"] == "packaging-supplier" and "degraded" not in res[0]

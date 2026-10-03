@@ -43,16 +43,25 @@ SUBAGENT_TOOLS = ("Task", "Agent")
 
 # Blended score (1-w)·cosine + w·lexical above which a note is worth a place in the
 # context, per embedding model family (matched on the generation's embed identity).
-# Calibrated on the 300-question bench corpus (see memory/README.md, "Recall at every
-# turn"): the threshold keeps the expected note for most memory questions while the
-# top hit of generic coding prompts ("run the tests again") stays below it.
+# EmbeddingGemma: measured on a real 415-note corpus (300 memory questions vs 36 generic
+# coding prompts, see memory/README.md "Recall at every turn"): 0.35 injects the expected
+# note for 77 % of the questions, 0.50 (the 2.x value) for 22 % only. e5: NOT measured,
+# estimated from its packed cosines (0.7-0.9) and lexical weight 0.1 — re-tune with
+# core.bench_recall before relying on it.
 MODEL_THRESHOLDS = (
-    ("embeddinggemma", 0.50),
-    ("e5", 0.80),          # cosines packed in 0.7-0.9, lexical weight 0.1
-    ("minilm", 0.50),      # SOKKAN 2.x value (lexical weight 0.25-0.5)
+    ("embeddinggemma", 0.35),
+    ("e5", 0.80),
+    ("minilm", 0.50),      # SOKKAN 2.x value
     ("ninjob-ml", 0.50),
 )
-DEFAULT_THRESHOLD = 0.50
+# With an interactive reranker (GPU), a note the reranker finds relevant (>= RERANK_MIN)
+# is kept down to threshold - RERANK_FLOOR_GAP, and the plain threshold rises by
+# RERANKED_BONUS: Gemma + Qwen3-Reranker, same bench: 87 % injected (77 % without), and
+# fewer generic prompts recalled (17 % instead of 19 %).
+RERANK_MIN = 0.5
+RERANK_FLOOR_GAP = 0.10
+RERANKED_BONUS = 0.05
+DEFAULT_THRESHOLD = 0.40
 
 
 def default_threshold(embed_identity: str | None) -> float:
@@ -283,9 +292,16 @@ class Recaller:
             segs = set(n.split("-"))
             return n in qnames or any(t in segs or (len(t) >= 5 and t in n) for t in qtok)
 
+        def relevant(h: Hit) -> bool:
+            if not res.reranked:
+                return h.score >= thr
+            return h.score >= thr + RERANKED_BONUS or (
+                h.rerank is not None and h.rerank >= RERANK_MIN
+                and h.score >= thr - RERANK_FLOOR_GAP)
+
         kept: list[Hit] = []
         for h in cands:
-            ok = h.score >= thr or named(h)
+            ok = relevant(h) or named(h)
             if not ok:
                 continue
             if h.note_name in exclude:
@@ -421,7 +437,35 @@ def default_recaller(*, profile: str | None = None) -> Recaller:
         prof = profile or embed.current_profile()
     except ValueError:
         prof = None
-    return Recaller(store, embed.get(), RecallConfig.from_env(), profile=prof)
+    return Recaller(store, query_embedder(store), RecallConfig.from_env(), profile=prof)
+
+
+def query_embedder(store):
+    """The embedder serving the active generation (``core.switch`` when present: the
+    profile chosen by the operator), else the configured one."""
+    from . import embed
+
+    try:
+        from . import switch
+    except ImportError:
+        return embed.get()
+    try:
+        e = switch.serving_embedder(store)
+        if e is None and store.active_generation() is not None:
+            return _LexicalOnly()           # model change pending: never another model
+        return e or embed.get()
+    except Exception:  # noqa: BLE001
+        return embed.get()
+
+
+class _LexicalOnly:
+    rerank_policy = "off"
+
+    def embed_query(self, text, timeout=30.0):
+        raise RuntimeError("no embedding server serves the active index")
+
+    def rerank(self, query, docs, timeout=3.0):
+        return None
 
 
 def main(stdin=None, stdout=None) -> int:

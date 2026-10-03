@@ -717,7 +717,7 @@ class Store:
                         reranked: bool = False, latency_ms: int | None = None,
                         threshold: float | None = None, profile: str | None = None,
                         generation: int | None = None) -> None:
-        """One recall attempt (migration 0002), whether it injected something or not."""
+        """One recall attempt (migration 0010), whether it injected something or not."""
         with self.pool.connection() as con:
             con.execute(
                 "INSERT INTO recall_turns(channel, session_id, agent_id, query, candidates,"

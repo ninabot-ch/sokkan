@@ -39,11 +39,13 @@ services:
       # node, then the local container) and reranker URL ("off" disables it)
       CORTHEXIS_EMBED_URLS: ${SOKKAN_EMBED_URLS:-}
       CORTHEXIS_RERANK_URL: ${SOKKAN_RERANK_URL:-}
-      # memory engine (CortHeXis) 3.0: Postgres + pgvector store of the `db` service.
-      # CORTHEXIS_MEMORY_BACKEND=postgres makes memory_search read the store instead of
-      # the SQLite memory.db (off until the 3.0 indexer fills it).
+      # memory engine (CortHeXis) 3.0: Postgres + pgvector store of the `db` service,
+      # filled by the 3.0 indexer (start, file changes, every CORTHEXIS_REINDEX_S).
+      # CORTHEXIS_MEMORY_BACKEND=sqlite keeps the 2.x memory.db (migration window).
       CORTHEXIS_DATABASE_URL: ${CORTHEXIS_DATABASE_URL:-postgresql://sokkan:${SOKKAN_DB_PASSWORD:-sokkan}@db:5432/sokkan}
-      CORTHEXIS_MEMORY_BACKEND: ${CORTHEXIS_MEMORY_BACKEND:-sqlite}
+      CORTHEXIS_MEMORY_BACKEND: ${CORTHEXIS_MEMORY_BACKEND:-postgres}
+      # memory recall injected at every message and into every sub-agent (0 = off)
+      CORTHEXIS_RECALL: ${CORTHEXIS_RECALL:-1}
       CORTHEXIS_LEXICAL_WEIGHT: ${CORTHEXIS_LEXICAL_WEIGHT:-}
       CORTHEXIS_HNSW_EF_SEARCH: ${CORTHEXIS_HNSW_EF_SEARCH:-}
       # optional model override for spawned sessions (default: CLI default)

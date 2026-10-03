@@ -529,7 +529,8 @@ class IndexRunner:
 
     def __init__(self, store_factory, embedder_factory, config: IndexConfig | None = None, *,
                  watch_s: float | None = None, periodic_s: float | None = None,
-                 debounce_s: float = 1.0, log=None, on_report=None):
+                 debounce_s: float = 1.0, log=None, on_report=None,
+                 activate_first_only: bool = False):
         self.store_factory, self.embedder_factory = store_factory, embedder_factory
         self.cfg = config
         self.watch_s = watch_s if watch_s is not None else float(env("WATCH_S", "3") or 3)
@@ -538,6 +539,11 @@ class IndexRunner:
         self.debounce_s = debounce_s
         self.log = log or (lambda msg: print(f"[corthexis] {msg}", file=sys.stderr))
         self.on_report = on_report
+        # True: the runner only ever activates the FIRST generation (new install); any
+        # later model change goes through a gated switch (core.switch), never through here.
+        # ``embedder_factory`` is then called at every pass and may return None (no
+        # embedder serves the active generation: the pass is skipped).
+        self.activate_first_only = activate_first_only
         self.last_report: IndexReport | None = None
         self.last_error: str | None = None
         self.last_run: float | None = None
@@ -552,9 +558,22 @@ class IndexRunner:
     def _get_indexer(self) -> Indexer:
         if self._indexer is None:
             cfg = self.cfg or IndexConfig.from_env()
-            self._indexer = Indexer(self.store_factory(), self.embedder_factory(), cfg,
-                                    log=self.log)
-        return self._indexer
+            self._indexer = Indexer(self.store_factory(), None, cfg, log=self.log)
+            if not self.activate_first_only:
+                self._indexer.embedder = self.embedder_factory()
+        idx = self._indexer
+        if self.activate_first_only:
+            idx.embedder = self.embedder_factory()
+            if idx.embedder is None:
+                raise RuntimeError("no embedder serves the active index generation "
+                                   "(model change pending: switch the memory profile)")
+            idx.cfg.auto_activate = idx.store.active_generation() is None
+            active = idx.store.active_generation()
+            if active is not None and active.embed_identity != idx.embedder.identity():
+                raise RuntimeError(f"the embedder ({idx.embedder.identity()}) does not serve "
+                                   f"the active generation ({active.embed_identity}); a model "
+                                   "change goes through a memory profile switch")
+        return idx
 
     def run_once(self, *, rebuild: bool = False) -> IndexReport | None:
         """One pass now (serialised with the loop). Errors are kept in ``last_error``."""

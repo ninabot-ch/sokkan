@@ -54,6 +54,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import memrecall
 import playbooks
 import edge
 import notify
@@ -91,11 +92,14 @@ def _start_store_indexer() -> None:
     changement de fichiers (signature du dossier, toutes les CORTHEXIS_WATCH_S) et
     périodiquement (CORTHEXIS_REINDEX_S), normalisation des notes comprise."""
     global _index_runner
-    from core import embed
     from core.indexer import IndexConfig, IndexRunner
 
+    # Écrit avec l'embedder qui sert la génération active (profil choisi dans l'UI) ;
+    # n'active QUE la première génération (instance neuve) : un changement de modèle passe
+    # par la bascule mesurée (core.switch, banc avant bascule), jamais par cette boucle.
     cfg = IndexConfig.from_env(memory_dir=index_memory.MEMORY_DIR)
-    _index_runner = IndexRunner(store_backend.get_store, embed.get, cfg)
+    _index_runner = IndexRunner(store_backend.get_store, store_backend.index_embedder, cfg,
+                                activate_first_only=True)
     _index_runner.start()
 
 
@@ -1137,7 +1141,8 @@ def auth_oidc_logout():
 # NB : /api/magnitude/agent/sync a sa propre auth (header x-magnitude-token),
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
-              "/api/magnitude/agent/sync", "/api/magnitude/install.sh")
+              "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
+              "/api/memory/hook")  # jeton x-sokkan-hook-token (hooks des sessions terminal)
 
 
 @app.middleware("http")
@@ -1636,6 +1641,30 @@ def memory_index(u: dict = Depends(require("dev"))) -> dict:
     if rep is None:
         raise HTTPException(500, st.get("last_error") or "index failed")
     return st
+
+
+@app.post("/api/memory/hook")
+async def memory_hook(request: Request) -> dict:
+    """Hooks UserPromptSubmit / PreToolUse(Task|Agent) des sessions terminal : le rappel
+    tourne ici, à chaud (pool Postgres + client d'embedding ouverts). Auth : jeton du
+    fichier data/claude-hooks/recall-token (0600), pas de cookie."""
+    if not memrecall.check_token(request.headers.get("x-sokkan-hook-token")):
+        raise HTTPException(401, "bad hook token")
+    if not memrecall.active():
+        return {}
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "invalid payload")
+    sid = os.environ.get("CORTHEXIS_RECALL_SESSION_ID") or payload.get("session_id") or ""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(memrecall.hook_output, payload, sid), timeout=4)
+    except Exception as e:  # noqa: BLE001 — un rappel ne casse jamais un tour
+        print(f"[sokkan] recall hook failed: {e!r}", file=sys.stderr)
+        return {}
 
 
 @app.get("/api/memory/recall-log")

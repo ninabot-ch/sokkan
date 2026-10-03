@@ -115,10 +115,49 @@ def sdk_hooks(session_id: str) -> dict:
 
 # --------------------------------------------------------------------------- CLI sessions
 
+def _data_dir() -> Path:
+    return Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))
+
+
+def token_path() -> Path:
+    return _data_dir() / "claude-hooks" / "recall-token"
+
+
+def hook_token() -> str:
+    """Shared secret between the backend and the command hooks of terminal sessions
+    (file 0600 in the data dir; the hook reads it, it never appears in a command line)."""
+    p = token_path()
+    try:
+        tok = p.read_text(encoding="utf-8").strip()
+        if tok:
+            return tok
+    except OSError:
+        pass
+    import secrets
+
+    tok = secrets.token_urlsafe(32)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok)
+    return tok
+
+
+def api_url() -> str:
+    """Where the command hook reaches the backend (loopback, same container)."""
+    return os.environ.get("SOKKAN_RECALL_API_URL") or \
+        f"http://127.0.0.1:{os.environ.get('SOKKAN_API_PORT', '8097')}"
+
+
 def cli_settings(session_id: str | None = None) -> dict:
-    """Claude Code settings fragment with the two command hooks."""
+    """Claude Code settings fragment with the two command hooks. The hook asks the warm
+    backend (``POST /api/memory/hook``, ~50 ms of process start) and only falls back to
+    an in-process recall (~1 s: psycopg + numpy imports) when the API does not answer."""
     py = os.environ.get("SOKKAN_PYTHON", sys.executable)
-    cmd = f"{shlex.quote(py)} {shlex.quote(str(_MEMORY / 'recall_hook.py'))}"
+    hook_token()
+    env = (f"CORTHEXIS_RECALL_API_URL={shlex.quote(api_url())} "
+           f"CORTHEXIS_RECALL_TOKEN_FILE={shlex.quote(str(token_path()))} ")
+    cmd = f"{env}{shlex.quote(py)} {shlex.quote(str(_MEMORY / 'recall_hook.py'))}"
     if session_id:
         cmd = f"CORTHEXIS_RECALL_SESSION_ID={shlex.quote(session_id)} {cmd}"
     hook = {"type": "command", "command": cmd, "timeout": HOOK_TIMEOUT_S}
@@ -133,8 +172,7 @@ def cli_settings_path() -> str | None:
     comes from the hook payload: SOKKAN starts terminal sessions with ``--session-id``."""
     if not active():
         return None
-    d = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))
-    path = d / "claude-hooks" / "memory-recall.json"
+    path = _data_dir() / "claude-hooks" / "memory-recall.json"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(cli_settings(), indent=1)
@@ -146,3 +184,12 @@ def cli_settings_path() -> str | None:
         print(f"[sokkan] cannot write the recall hook settings: {e}", file=sys.stderr)
         return None
     return str(path)
+
+
+def check_token(given: str | None) -> bool:
+    import hmac
+
+    try:
+        return bool(given) and hmac.compare_digest(given, hook_token())
+    except OSError:
+        return False
