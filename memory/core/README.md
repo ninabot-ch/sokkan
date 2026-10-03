@@ -115,7 +115,7 @@ False positives, measured: fictional corpus of `tests/fixtures/review_corpus` (1
 labelled problems among traps: links in code, link variants, closed projects, placeholder
 keys, quoted attacks, globs, reworded descriptions): 0 false positive, 0 miss. Real corpus
 of 415 notes: 0 false positive on secrets, injection, dormant projects, duplicates and
-orphans after the fixes of 03.10.2026 (5 of 13 before); cited files gone stays noisy
+orphans after the fixes of 03.10.2026 (5 of 16 before); cited files gone stays noisy
 (~ 3 in 4 are paths of repositories that are not checked) — it only runs when the roots
 are configured, at the "to watch" level.
 
