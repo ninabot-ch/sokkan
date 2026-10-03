@@ -1130,7 +1130,7 @@ class SqliteHistory(_HistoryBase):
 
 
 class PgHistory(_HistoryBase):
-    """Same thing in the memory store (tables of migration 0005_review)."""
+    """Same thing in the memory store (tables of migration 0007_review)."""
 
     def __init__(self, store, retention_days: int = 90):
         self.store = store

@@ -6,7 +6,7 @@ import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 
-const TABS = ["Board", "Sessions", "Preview", "Memory/KB", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
+const TABS = ["Board", "Sessions", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -70,7 +70,7 @@ function DemoBanner({ onChange }: { onChange: (t: Tab) => void }) {
       <i> Vous êtes dans la démo publique, en lecture seule.</i>{" "}
       Try the tour: <a href="#" onClick={go("Sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (the memory recall sits at the top of each one) →{" "}
       <a href="#" onClick={go("Board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (cards spawn sessions) →{" "}
-      <a href="#" onClick={go("Memory/KB")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> →{" "}
+      <a href="#" onClick={go("CortHeXis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> →{" "}
       <a href="#" onClick={go("Costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a>.{" "}
       Want yours? <a href="https://app.sokkan.ch" target="_blank" rel="noopener" className="font-semibold underline decoration-amber-400 hover:text-white">14-day trial</a> ·{" "}
       <a href="https://sokkan.ch/install.sh" className="underline decoration-amber-400/60 hover:text-white">self-host free</a>
