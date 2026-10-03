@@ -28,6 +28,7 @@ One fact per file. `notes.name` must be unique — two files with the same
 | `index_memory.py` | incremental indexer + `MEMORY.md` generation (24 KB budget, priority-first) |
 | `memory_search_server.py` | MCP stdio server `sokkan-memory` — tools `memory_search`, `memory_get` |
 | `embeddings.py` | local fastembed/ONNX by default (multilingual MiniLM, ~120 MB cached); set `ML_SERVICE_URL` for an explicit remote embedding service |
+| `core/` | **3.0 engine (CortHeXis memory-core)**: profiles `leger/standard/gpu`, llama.cpp servers, model licence and download — see [`core/README.md`](core/README.md) |
 
 The backend runs the indexer **in-process**: a daemon thread re-checks the
 corpus signature every `SOKKAN_REINDEX_S` seconds (default 120) and reindexes
