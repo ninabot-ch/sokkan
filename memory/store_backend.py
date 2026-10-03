@@ -349,6 +349,21 @@ def log_spawn_recall(session_id: str, hits: list[dict], query: str) -> None:
 _legacy = None
 
 
+def same_2x_model(built_with: str, inner) -> bool:
+    """Is ``memory.db`` (meta.model = ``built_with``) made of the vectors ``inner`` makes?
+
+    2.x writes the backend it really used (``local:<model>`` | ``remote:<url>``). 0.x-1.x
+    wrote the bare SOKKAN_EMBED_MODEL value (default ``paraphrase-multilingual-MiniLM-L12-v2``,
+    the fastembed model ``sentence-transformers/…``), even with ML_SERVICE_URL set."""
+    if built_with == inner.identity_2x():
+        return True
+    if built_with.startswith(("local:", "remote:")):
+        return False
+    if getattr(inner, "ml_url", None):
+        return True         # 1.x with a remote service: the name says nothing, trust the config
+    return built_with.split("/")[-1].lower() == str(inner.model).split("/")[-1].lower()
+
+
 def _legacy_model(db) -> str | None:
     if not db or not os.path.exists(db):
         return None
@@ -386,7 +401,7 @@ class LegacyQueryEmbedder:
 
     def embed_query(self, text: str, timeout: float = 30.0) -> list[float]:
         built_with = _legacy_model(self.db)
-        if built_with and built_with != self.inner.identity_2x():
+        if built_with and not same_2x_model(built_with, self.inner):
             raise RuntimeError(f"memory.db was built with {built_with}, the 2.x embedder is "
                                f"{self.inner.identity_2x()}")
         return self.inner.embed_query(text, timeout)

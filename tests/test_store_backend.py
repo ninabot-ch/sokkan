@@ -198,3 +198,20 @@ def test_no_password_no_database(monkeypatch):
     monkeypatch.delenv("SOKKAN_DB_PASSWORD", raising=False)
     sb._compose_dsn()
     assert not sb.database_configured()
+
+
+def test_memory_db_of_sokkan_1x_is_served_during_the_migration():
+    """0.x-1.x wrote meta.model = the bare model name: same MiniLM vectors as 2.x."""
+    import store_backend as sb
+    from core.embed import LegacyEmbedder
+    local = LegacyEmbedder()
+    assert sb.same_2x_model("local:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                            local)
+    assert sb.same_2x_model("paraphrase-multilingual-MiniLM-L12-v2", local)       # 0.1-1.x
+    assert not sb.same_2x_model("intfloat/multilingual-e5-small", local)
+    assert not sb.same_2x_model("remote:http://ml:8001", local)
+    remote = LegacyEmbedder(ml_url="http://ml:8001")
+    assert sb.same_2x_model("remote:http://ml:8001", remote)
+    assert sb.same_2x_model("paraphrase-multilingual-MiniLM-L12-v2", remote)      # 1.x, remote
+    assert not sb.same_2x_model("local:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                                remote)
