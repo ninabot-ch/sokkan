@@ -1,0 +1,2 @@
+# CPU only: nothing to override (kept so `compose.${CORTHEXIS_EMBED_ACCEL}.yml` always resolves).
+services: {}

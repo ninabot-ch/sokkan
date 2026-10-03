@@ -1,7 +1,8 @@
 #!/bin/sh
 # sokkan doctor — sanity-check an install (prereqs, config, running stack).
 # Run from the sokkan directory:  ./scripts/doctor.sh
-# Safe to run anytime; read-only.
+# Safe to run anytime. Read-only, with one exception: an install without a
+# memory profile (upgrade from 2.x) gets the recommended one written to .env.
 
 OK=0; WARN=0; FAIL=0
 ok()   { printf '  ✔ %s\n' "$*"; OK=$((OK+1)); }
@@ -27,8 +28,16 @@ if command -v docker >/dev/null 2>&1; then
   else
     fail "docker present but the daemon is unreachable (permissions? service down?)"
   fi
-  $DC compose version >/dev/null 2>&1 && ok "Compose v2 plugin" \
-    || fail "no Compose v2 plugin — distro/snap docker? use get.docker.com"
+  if CV="$($DC compose version --short 2>/dev/null)"; then
+    CV="${CV#v}"; CMAJ="${CV%%.*}"; CMIN="${CV#*.}"; CMIN="${CMIN%%.*}"
+    if [ "$CMAJ" -gt 2 ] 2>/dev/null || { [ "$CMAJ" -eq 2 ] && [ "$CMIN" -ge 20 ]; } 2>/dev/null; then
+      ok "Compose $CV"
+    else
+      fail "Compose $CV — 2.20+ required (include:) — update: get.docker.com"
+    fi
+  else
+    fail "no Compose v2 plugin — distro/snap docker? use get.docker.com"
+  fi
 else
   fail "docker not installed — the installer can do it: curl -fsSL https://sokkan.ch/install.sh | sh"
   DC=""
@@ -60,6 +69,35 @@ else
   fail ".env missing — cp .env.example .env"
 fi
 
+# --- memory profile (CortHeXis engine) ------------------------------------
+if [ -f .env ]; then
+  REC=""
+  if command -v python3 >/dev/null 2>&1; then
+    REC="$(python3 -m magnitude --memory-profile --env 2>/dev/null | sed -n 's/^SOKKAN_MEMORY_PROFILE=//p')"
+  fi
+  MP="${SOKKAN_MEMORY_PROFILE:-}"
+  if [ -z "$MP" ] && [ -n "$ML_SERVICE_URL" ]; then
+    warn "memory profile unset, ML_SERVICE_URL set → 2.x remote embeddings (./scripts/memory-setup.sh to move to 3.0)"
+  elif [ -z "$MP" ]; then
+    MP="${REC:-leger}"
+    printf 'SOKKAN_MEMORY_PROFILE=%s\n' "$MP" >> .env
+    warn "memory profile was unset — wrote SOKKAN_MEMORY_PROFILE=$MP to .env (./scripts/memory-setup.sh to review)"
+  else
+    case "$MP" in
+      leger|standard|gpu|legacy|remote) ok "memory profile $MP${REC:+ (recommended: $REC)}" ;;
+      *) fail "SOKKAN_MEMORY_PROFILE=$MP — expected leger, standard or gpu" ;;
+    esac
+    [ -n "$REC" ] && [ "$REC" != "$MP" ] && case "$MP" in leger|standard|gpu)
+      warn "this machine suits the $REC profile — ./scripts/memory-setup.sh --profile $REC" ;; esac
+  fi
+  if [ -n "${MEM_GB:-}" ]; then
+    case "$MP" in
+      standard) [ "$MEM_GB" -ge 15 ] || warn "profile standard on ${MEM_GB} GB RAM — 16 GB recommended" ;;
+      leger) [ "$MEM_GB" -ge 4 ] || warn "profile leger on ${MEM_GB} GB RAM — 4 GB minimum" ;;
+    esac
+  fi
+fi
+
 # --- running stack ------------------------------------------------------
 PORT="${SOKKAN_PORT:-3009}"
 if [ -n "$DC" ]; then
@@ -73,6 +111,24 @@ if [ -n "$DC" ]; then
         fail "API not answering on http://localhost:$PORT/api/health — docker compose logs api"
       fi
     fi
+    case " $UP " in
+      *" corthexis-embed "*)
+        if $DC compose exec -T corthexis-embed curl -sf -m 5 http://localhost:8080/health >/dev/null 2>&1; then
+          ok "memory model server healthy"
+        else
+          warn "memory model server not ready — docker compose logs corthexis-embed"
+        fi
+        ACT="$($DC compose exec -T api cat /models/active.json 2>/dev/null | tr -d '\n ')"
+        case "$ACT" in
+          *'"embed":"embeddinggemma'*) ok "memory model: EmbeddingGemma (Gemma Terms of Use accepted)" ;;
+          *'"embed":null'*|"") warn "no memory model installed — ./scripts/memory-setup.sh" ;;
+          *) M="$(printf '%s' "$ACT" | sed -n 's/.*"embed":"\([^"]*\)".*/\1/p')"
+             R="$(printf '%s' "$ACT" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')"
+             warn "memory model: $M ($R) — ./scripts/memory-setup.sh --accept for EmbeddingGemma (better recall)" ;;
+        esac ;;
+      *) case "${SOKKAN_MEMORY_PROFILE:-}" in leger|standard|gpu)
+           warn "memory model server not running — docker compose up -d" ;; esac ;;
+    esac
   else
     warn "stack not running — docker compose up -d --build"
   fi
