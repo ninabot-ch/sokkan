@@ -4,6 +4,8 @@
     probe.py bench  < questions.json   -> hit@1 / MRR@8 through memory_search (MCP tool)
     probe.py search "<query>"          -> top 3 with the fields that tell who served it
     probe.py notes                     -> {name: {modified, source}} of the index that serves
+    probe.py recall "<prompt>"         -> what the UserPromptSubmit hook injects (through the
+                                          backend, like a session's command hook)
     probe.py watch <seconds> "<query>" -> one JSON line per second: who serves, the
                                           migration step, the top hit (service continuity)
 """
@@ -95,8 +97,33 @@ def watch(seconds: float, q: str) -> None:
         time.sleep(max(0.0, 1.0 - (time.monotonic() - t0)))
 
 
+def recall(prompt: str) -> dict:
+    import urllib.request
+    data = os.environ.get("SOKKAN_DATA_DIR", "/data")
+    path = os.path.join(data, "claude-hooks", "recall-token")
+    if not os.path.exists(path):        # the backend creates it at the first hook call
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                "http://127.0.0.1:8097/api/memory/hook", data=b"{}",
+                headers={"x-sokkan-hook-token": "x"}), timeout=10)
+        except Exception:  # noqa: BLE001 — 401/403 expected
+            pass
+    tok = open(path).read().strip()
+    body = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt,
+                       "session_id": f"e2e-{time.time():.0f}"}).encode()
+    req = urllib.request.Request("http://127.0.0.1:8097/api/memory/hook", data=body,
+                                 headers={"content-type": "application/json",
+                                          "x-sokkan-hook-token": tok})
+    out = json.loads(urllib.request.urlopen(req, timeout=10).read() or b"{}")
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    return {"injected": bool(ctx), "context": ctx[:400]}
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
+    if cmd == "recall":
+        print(json.dumps(recall(sys.argv[2]), ensure_ascii=False))
+        raise SystemExit(0)
     if cmd == "watch":
         watch(float(sys.argv[2]), sys.argv[3])
         raise SystemExit(0)

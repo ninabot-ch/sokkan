@@ -91,6 +91,8 @@ wait_for 120 "migration waiting for the model" \
 sleep 15
 probe "$P-api30" search "who delivers our flour and when?" > "$WORK/search-during.json"
 echo "search while the model is missing: $(cat "$WORK/search-during.json")"
+probe "$P-api30" recall "who delivers our flour and when?" > "$WORK/recall-during.json"
+echo "recall hook while the model is missing: $(cut -c1-200 "$WORK/recall-during.json")"
 
 say "4. model setup (Gemma terms: ACCEPT=$ACCEPT), import, checks, switch"
 docker run --rm --network bridge -v "$P-models:/models" \
@@ -108,6 +110,18 @@ docker exec "$P-api30" ls -la /data/memory-migration > "$WORK/migration-dir.txt"
 for f in manifest.json normalize-applied.json normalize-plan.txt; do
   docker exec "$P-api30" cat "/data/memory-migration/$f" > "$WORK/$f"
 done
+probe "$P-api30" recall "who delivers our flour and when?" > "$WORK/recall-after.json"
+echo "recall hook after the switch: $(cut -c1-200 "$WORK/recall-after.json")"
+# the store indexer (IndexRunner) took over: a note written now is searchable in seconds
+docker exec -u sokkan "$P-api30" sh -c "printf -- '---\nname: e2e-after-switch\ndescription: Kombucha fermentation tank cleaned every Thursday\nmetadata:\n  type: project\n---\n\nThe kombucha tank is cleaned every Thursday.\n' > $MEMDIR/e2e_after_switch.md"
+if wait_for 90 "new note indexed by the IndexRunner" \
+  "docker exec -u sokkan $P-api30 python /tmp/probe.py search 'when is the kombucha tank cleaned?' | grep -q '\"e2e-after-switch\"'"; then
+  echo '{"indexed": true}' > "$WORK/indexrunner.json"
+else
+  echo '{"indexed": false}' > "$WORK/indexrunner.json"
+fi
+echo "IndexRunner after the switch: $(cat "$WORK/indexrunner.json")"
+docker exec -u sokkan "$P-api30" rm -f "$MEMDIR/e2e_after_switch.md"
 probe "$P-api30" notes > "$WORK/notes-3x.json"
 probe "$P-api30" bench < "$WORK/questions.json" > "$WORK/bench-3x.json"
 cat "$WORK/bench-3x.json"

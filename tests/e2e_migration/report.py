@@ -13,7 +13,8 @@ st, man, appl = j("state.json"), j("manifest.json"), j("normalize-applied.json")
 files = man["files"]
 renamed, merged = appl.get("renamed", {}), appl.get("merged", {})
 final = lambda f: renamed.get(merged.get(f, f), merged.get(f, f))  # noqa: E731
-by_file3 = {v["file"]: (k, v) for k, v in n3["notes"].items()}
+by_file3 = {v["file"]: (k, v) for k, v in n3["notes"].items()
+            if k != "e2e-after-switch"}       # written after the switch by the test
 sources: dict[str, list[str]] = {}
 for f in files:
     sources.setdefault(final(f), []).append(f)
@@ -59,6 +60,11 @@ for (srv, step), n in served.items():
 ok &= not bad and any(x["serving"] == "memory.db" and x["step"] == "index" for x in w) \
     and w[-1]["serving"] == "store"
 
+rd, ra, ir = j("recall-during.json"), j("recall-after.json"), j("indexrunner.json")
+print(f"recall hook: during the migration injected={rd['injected']}, after the switch "
+      f"injected={ra['injected']}; IndexRunner indexed a new note after the switch: "
+      f"{ir['indexed']}")
+ok &= rd["injected"] and ra["injected"] and ir["indexed"]
 b2, b3, br = j("bench-2x.json"), j("bench-3x.json"), j("bench-rollback.json")
 for label, b in (("2.3 (memory.db, MiniLM)", b2), ("3.0 (store)", b3), ("rollback 2.3", br)):
     print(f"bench {label:24}: hit@1 {b['hit@1']}/{b['questions']}, MRR@8 {b['mrr@8']}, "
