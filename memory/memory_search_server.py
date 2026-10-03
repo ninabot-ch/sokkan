@@ -33,6 +33,7 @@ from mcp.server.fastmcp import FastMCP
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import embeddings
+import store_backend  # 3.0 store, behind CORTHEXIS_MEMORY_BACKEND=postgres
 
 DB_PATH = Path(os.environ.get("SOKKAN_MEMORY_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "memory.db")))
 # même défaut que memory/index_memory.py — les notes sont la source, la DB est dérivée
@@ -109,6 +110,9 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
         query: la question / le sujet de travail (n'importe quelle langue).
         top_k: nombre de notes à retourner (défaut 8).
     """
+    if store_backend.enabled():
+        return store_backend.memory_search(query, top_k, _embed_query,
+                                           f"embedding backend {embeddings.backend()}")
     chunks = _load_chunks()
     if not chunks:
         return [{"info": "No project memory yet. Write notes as markdown files in the workspace "
@@ -176,6 +180,9 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
 @mcp.tool()
 def memory_get(note_name: str) -> str:
     """Retourne le corps complet d'une note mémoire par son nom (sans .md)."""
+    if store_backend.enabled():
+        body = store_backend.memory_get(note_name)
+        return body if body is not None else f"note not found: {note_name}"
     if not DB_PATH.exists():
         return f"memory index not found: {DB_PATH}"
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)

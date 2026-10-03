@@ -3,3 +3,9 @@ httpx>=0.27
 pyyaml>=6.0
 # embeddings locaux (ONNX) quand ML_SERVICE_URL n'est pas défini
 fastembed>=0.4
+# 3.0 memory store (memory/core/store.py, Postgres + pgvector); imported only when
+# CORTHEXIS_MEMORY_BACKEND=postgres
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
+pgvector>=0.3
+numpy>=1.26
