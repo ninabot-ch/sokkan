@@ -19,8 +19,11 @@ once complete (``auto_activate``).
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import sys
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -368,7 +371,13 @@ class Indexer:
         if building and not rebuild:
             return building[-1], True
         probe = self.embedder.embed_docs(["dimension probe"])
-        gen = self.store.create_generation(ident, len(probe[0]))
+        # the dense/lexical blend that suits this model is stored with the generation
+        lw = getattr(self.embedder, "lexical_weight", None)
+        lw = lw() if callable(lw) else lw
+        if lw is not None:
+            gen = self.store.create_generation(ident, len(probe[0]), lexical_weight=float(lw))
+        else:
+            gen = self.store.create_generation(ident, len(probe[0]))
         if active is not None:
             self.log(f"embedding model changed ({active.embed_identity} -> {ident})"
                      if active.embed_identity != ident else "rebuild requested")
@@ -487,3 +496,231 @@ class Indexer:
                 index_path.write_text(content, encoding="utf-8")
                 rep.index_written = True
         return rep
+
+
+# ---------------------------------------------------------------- runner (watch + periodic)
+
+def corpus_signature(mem_dir: Path, index_filename: str = INDEX_FILENAME) -> tuple:
+    """Cheap fingerprint of the corpus: directory mtime (create / rename / delete), number
+    of notes, latest file mtime and total size. One ``stat`` per note."""
+    mem_dir = Path(mem_dir)
+    st = mem_dir.stat()
+    n = size = latest = 0
+    with os.scandir(mem_dir) as it:
+        for e in it:
+            if not e.name.endswith(".md") or e.name == index_filename:
+                continue
+            try:
+                s = e.stat()
+            except OSError:
+                continue
+            n += 1
+            size += s.st_size
+            latest = max(latest, s.st_mtime_ns)
+    return (st.st_mtime_ns, n, latest, size)
+
+
+class IndexRunner:
+    """Runs the indexer like the 2.x one did: at start, when the files change (polled
+    signature, debounced) and periodically (dates, normalisation grace, model change).
+
+    ``store_factory`` / ``embedder_factory`` are called lazily so that a database or an
+    embedding server that is not up yet only delays the first pass."""
+
+    def __init__(self, store_factory, embedder_factory, config: IndexConfig | None = None, *,
+                 watch_s: float | None = None, periodic_s: float | None = None,
+                 debounce_s: float = 1.0, log=None, on_report=None,
+                 activate_first_only: bool = False):
+        self.store_factory, self.embedder_factory = store_factory, embedder_factory
+        self.cfg = config
+        self.watch_s = watch_s if watch_s is not None else float(env("WATCH_S", "3") or 3)
+        self.periodic_s = periodic_s if periodic_s is not None else float(
+            env("REINDEX_S", "900") or 900)
+        self.debounce_s = debounce_s
+        self.log = log or (lambda msg: print(f"[corthexis] {msg}", file=sys.stderr))
+        self.on_report = on_report
+        # True: the runner only ever activates the FIRST generation (new install); any
+        # later model change goes through a gated switch (core.switch), never through here.
+        # ``embedder_factory`` is then called at every pass and may return None (no
+        # embedder serves the active generation: the pass is skipped).
+        self.activate_first_only = activate_first_only
+        self.last_report: IndexReport | None = None
+        self.last_error: str | None = None
+        self.last_run: float | None = None
+        self.runs = 0
+        self._sig = None
+        self._retry_at = 0.0
+        self._indexer: Indexer | None = None
+        self._stop = threading.Event()
+        self._kick = threading.Event()
+        self._lock = threading.Lock()
+
+    def _get_indexer(self) -> Indexer:
+        if self._indexer is None:
+            cfg = self.cfg or IndexConfig.from_env()
+            self._indexer = Indexer(self.store_factory(), None, cfg, log=self.log)
+            if not self.activate_first_only:
+                self._indexer.embedder = self.embedder_factory()
+        idx = self._indexer
+        if self.activate_first_only:
+            idx.embedder = self.embedder_factory()
+            if idx.embedder is None:
+                raise RuntimeError("no embedder serves the active index generation "
+                                   "(model change pending: switch the memory profile)")
+            idx.cfg.auto_activate = idx.store.active_generation() is None
+            active = idx.store.active_generation()
+            if active is not None and active.embed_identity != idx.embedder.identity():
+                raise RuntimeError(f"the embedder ({idx.embedder.identity()}) does not serve "
+                                   f"the active generation ({active.embed_identity}); a model "
+                                   "change goes through a memory profile switch")
+        return idx
+
+    def run_once(self, *, rebuild: bool = False) -> IndexReport | None:
+        """One pass now (serialised with the loop). Errors are kept in ``last_error``."""
+        with self._lock:
+            try:
+                idx = self._get_indexer()
+                self._sig = corpus_signature(idx.cfg.memory_dir, idx.cfg.index_filename)
+                rep = idx.run(rebuild=rebuild)
+                # a pass may rename files (normalisation) or rewrite MEMORY.md: the
+                # signature after the pass is the reference, not the one before
+                self._sig = corpus_signature(idx.cfg.memory_dir, idx.cfg.index_filename)
+                self.last_report, self.last_error = rep, None
+                self.last_run = time.time()
+                self.runs += 1
+                if rep.reindexed or rep.pruned or rep.activated:
+                    self.log(f"indexed: {rep.reindexed} notes re-embedded, {rep.pruned} pruned, "
+                             f"{rep.notes} notes, generation {rep.generation}")
+                if self.on_report:
+                    self.on_report(rep)
+                return rep
+            except FileNotFoundError as e:
+                self.last_error = str(e)        # no note written yet
+            except Exception as e:  # noqa: BLE001 — retried at the next tick
+                self.last_error = repr(e)
+                self.log(f"memory index failed: {e!r}")
+            return None
+
+    def changed(self) -> bool:
+        cfg = self.cfg or (self._indexer.cfg if self._indexer else IndexConfig.from_env())
+        try:
+            return corpus_signature(cfg.memory_dir, cfg.index_filename) != self._sig
+        except FileNotFoundError:
+            return False
+
+    def kick(self) -> None:
+        """Ask the loop for a pass now (API "reindex")."""
+        self._kick.set()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._kick.set()
+
+    def loop(self) -> None:
+        self.run_once()
+        self._retry_at = time.monotonic() + 30.0
+        next_full = time.monotonic() + self.periodic_s
+        while not self._stop.is_set():
+            kicked = self._kick.wait(self.watch_s)
+            if self._stop.is_set():
+                break
+            self._kick.clear()
+            due = time.monotonic() >= next_full
+            if self.last_error and not kicked and time.monotonic() < self._retry_at:
+                continue                        # failed pass: retry at most every 30 s
+            if kicked or due or self.changed():
+                if not kicked and not due:
+                    # debounce: a session writing several notes = one pass
+                    while True:
+                        time.sleep(self.debounce_s)
+                        before = self._sig
+                        try:
+                            cfg = self.cfg or self._get_indexer().cfg
+                            now_sig = corpus_signature(cfg.memory_dir, cfg.index_filename)
+                        except Exception:  # noqa: BLE001
+                            break
+                        self._sig = now_sig
+                        if now_sig == before or self._stop.is_set():
+                            break
+                self.run_once()
+                next_full = time.monotonic() + self.periodic_s
+                self._retry_at = time.monotonic() + 30.0
+
+    def start(self) -> threading.Thread:
+        t = threading.Thread(target=self.loop, daemon=True, name="corthexis-index")
+        t.start()
+        return t
+
+    def status(self) -> dict:
+        rep = self.last_report
+        return {
+            "runs": self.runs, "last_run": self.last_run, "last_error": self.last_error,
+            "watch_s": self.watch_s, "periodic_s": self.periodic_s,
+            "last": None if rep is None else {
+                "generation": rep.generation, "notes": rep.notes, "reindexed": rep.reindexed,
+                "metadata_only": rep.metadata_only, "unchanged": rep.unchanged,
+                "pruned": rep.pruned, "activated": rep.activated,
+                "normalized": len(rep.normalize.changes) if rep.normalize else 0,
+                "warnings": rep.warnings[:50], "drift": len(rep.drift),
+                "date_sources": dict(rep.date_sources)},
+        }
+
+
+def _report_text(rep: IndexReport) -> str:
+    lines = [f"generation {rep.generation}{' (new, activated)' if rep.activated else ''}: "
+             f"{rep.notes} notes — {rep.reindexed} re-embedded ({rep.chunks_written} chunks), "
+             f"{rep.metadata_only} dates refreshed, {rep.unchanged} unchanged, "
+             f"{rep.pruned} pruned"]
+    if rep.normalize and rep.normalize.changes:
+        lines.append(f"normalised: {len(rep.normalize.changes)} change(s)")
+    if rep.date_sources:
+        lines.append("dates: " + ", ".join(f"{k} {v}" for k, v in sorted(rep.date_sources.items())))
+    for w in rep.warnings[:20]:
+        lines.append(f"warning: {w}")
+    if rep.drift:
+        lines.append(f"description != body: {len(rep.drift)} note(s)")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m core.indexer [--watch] [--rebuild] [--memory-dir DIR] [--json]``"""
+    import argparse
+    import json
+
+    ap = argparse.ArgumentParser(prog="python -m core.indexer",
+                                 description="Index the memory notes into the store.")
+    ap.add_argument("--memory-dir", help="notes directory (CORTHEXIS_MEMORY_DIR)")
+    ap.add_argument("--watch", action="store_true",
+                    help="keep running: reindex on file changes and periodically")
+    ap.add_argument("--rebuild", action="store_true", help="build a new generation")
+    ap.add_argument("--no-normalize", action="store_true",
+                    help="do not repair the naming convention (read-only on the files)")
+    ap.add_argument("--no-index-file", action="store_true", help="do not write MEMORY.md")
+    ap.add_argument("--json", action="store_true", help="print the report as JSON")
+    a = ap.parse_args(argv)
+
+    from . import embed
+    from .store import Store
+
+    over = {}
+    if a.memory_dir:
+        over["memory_dir"] = Path(a.memory_dir).expanduser()
+    if a.no_normalize:
+        over["normalize"] = False
+    if a.no_index_file:
+        over["write_index"] = False
+    cfg = IndexConfig.from_env(**over)
+    runner = IndexRunner(lambda: Store(), embed.get, cfg)
+    if a.watch:
+        runner.loop()
+        return 0
+    rep = runner.run_once(rebuild=a.rebuild)
+    if rep is None:
+        print(f"error: {runner.last_error}", file=sys.stderr)
+        return 1
+    print(json.dumps(runner.status()["last"], indent=1) if a.json else _report_text(rep))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
