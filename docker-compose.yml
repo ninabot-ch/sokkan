@@ -1,4 +1,14 @@
 # SOKKAN — self-hosted, single-user by default. See .env.example.
+
+# Memory engine (CortHeXis): llama.cpp model servers + first-run model setup
+# (Gemma Terms of Use accepted → EmbeddingGemma, else an MIT model). The
+# accelerator file is chosen by scripts/memory-setup.sh (SOKKAN_EMBED_ACCEL =
+# cpu | sycl | cuda); the reranker runs with COMPOSE_PROFILES=rerank.
+include:
+  - path:
+      - docker/embed/compose.yml
+      - docker/embed/compose.${SOKKAN_EMBED_ACCEL:-cpu}.yml
+
 services:
   api:
     build: { context: ., dockerfile: docker/api.Dockerfile }
@@ -21,6 +31,14 @@ services:
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
       # optional remote embedding service; empty = local ONNX (fastembed)
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # memory profile (leger | standard | gpu; written by scripts/memory-setup.sh).
+      # Empty = 2.x behaviour: `remote` when ML_SERVICE_URL is set, else leger.
+      CORTHEXIS_MEMORY_PROFILE: ${SOKKAN_MEMORY_PROFILE:-}
+      CORTHEXIS_MODELS_DIR: /models
+      # optional overrides: embedding servers tried in order (e.g. a Magnitude GPU
+      # node, then the local container) and reranker URL ("off" disables it)
+      CORTHEXIS_EMBED_URLS: ${SOKKAN_EMBED_URLS:-}
+      CORTHEXIS_RERANK_URL: ${SOKKAN_RERANK_URL:-}
       # optional model override for spawned sessions (default: CLI default)
       SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
       # included-inference mode (seeded at provisioning): route sessions through
@@ -49,6 +67,7 @@ services:
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
+      - corthexis-models:/models:ro
     extra_hosts:
       # reach services on the Docker host (Magnitude shim :8790, local proxies)
       - "host.docker.internal:host-gateway"

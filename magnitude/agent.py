@@ -57,6 +57,13 @@ class Agent:
         signal.signal(signal.SIGTERM, self._on_signal)
         _log(f"agent v{__version__} → {self.cockpit}")
         self.profile = hw.build_profile()
+        try:  # profil mémoire recommandé (CortHeXis), remonté avec le profil hardware
+            from . import memprofile
+            mem = memprofile.detect()
+            self.profile["memory"] = {k: mem[k] for k in
+                                      ("recommended", "reason", "warnings", "accel", "hardware")}
+        except Exception as e:  # noqa: BLE001 — jamais bloquant pour l'agent LLM
+            _log(f"memory profile unavailable: {e}")
         _log(f"profile: class {self.profile['class']}, "
              f"gpu {(self.profile.get('gpu') or {}).get('name') or 'none'}")
         with self._lock:
