@@ -55,6 +55,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import corthexis
 import memrecall
 import playbooks
 import edge
@@ -136,6 +137,7 @@ async def _lifespan(_app: FastAPI):
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     yield
 
@@ -1715,6 +1717,13 @@ def memory_migration_approve(body: MigrationApproval,
         raise HTTPException(400, str(e)) from e
     audit.log(u["email"], "memory.migration.approve", body.what)
     return {"approved": doc}
+
+
+# onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
+app.include_router(corthexis.router)
+corthexis.spawn_hook = _spawn_sdk
+# 3.0 : après une réparation, l'IndexRunner (store) réindexe ; repli 2.x sinon
+corthexis.reindex_hook = lambda: _index_runner.kick() if _index_runner else index_memory.run_index()
 
 
 @app.post("/api/memory/digest")

@@ -14,6 +14,8 @@ configured with `CORTHEXIS_*` variables — the `SOKKAN_*` names and
 | `profiles.py` | profiles `leger / standard / gpu`, costs, hardware detection and recommendation | stdlib |
 | `eval.py` | recall bench on the client's own notes: questions (transcripts, written, generated), runs, comparison, regression findings, nightly | psycopg (store) |
 | `switch.py` | profile / model change gated by the bench: background build, atomic switch, approve / cancel, 7-day rollback | store, embed, indexer |
+| `review.py` | the memory reads itself back: health score and history, findings with their remedy, chain checks, alert policy (`python -m core.review`) | store (optional), numpy |
+| `repair.py` | one-click repairs as proposals with a diff (relink, merge, rename, close), applied all-or-nothing | stdlib |
 
 ## Profiles
 
@@ -78,6 +80,56 @@ Mandatory server settings: `--cache-ram 0` (the prompt cache defaults to 8 GiB
 and grows until the OOM killer), `-ub` ≤ 2048, documents truncated to 500 tokens
 by the client (`/tokenize`), task prefixes from the registry (EmbeddingGemma:
 query `task: search result | query: `, document `title: none | text: `).
+
+## Review and repairs
+
+`review.run_review(config, source, chain=chain_checks(...))` reads the notes (the files
+are the truth) and an index (`PgSource` for the 3.0 store, `SqliteSource` for a 2.x
+`memory.db`, `MemorySource` for the reference store) and returns a report: score 0-100
+(100 − Σ weight(severity) × (1 + ln(1 + count) / 3), weights 18 / 5 / 1), findings
+grouped by theme, each with the notes concerned, one row per problem and the remedy.
+
+| Theme | Checks |
+|---|---|
+| chain | memory server declared, answers a real MCP handshake (started as a session starts it), recall hook installed, embedding / reranking servers up, index readable, in sync, not lagging |
+| structure | header unreadable, no description, no type, name / file outside the convention, very long notes |
+| graph | `[[links]]` to missing notes (code ignored; a replacement is suggested from renames and close names), isolated notes |
+| dates | notes without a date, reconstructed dates, whole corpus rewritten at once |
+| drift | dormant projects still open, description corrected but not the body (`drift.py`), cited repository files gone (only with `DEAD_PATH_ROOTS`), near duplicates |
+| security | key-shaped strings (the value is never echoed — kind and line only), text that gives orders to the agent |
+| recall | findings of the bench (`eval.findings`), through `external_findings()` |
+
+Near duplicates: below 3 000 notes the exact all-pairs product of the notes' mean
+vectors; above, the k nearest chunks of each centroid through the generation's HNSW index
+then the exact cosine of those pairs only (10 000 notes / 40 000 chunks: 21 s, constant
+memory, same pairs as the exact product — which needs 400 MB there and n² beyond).
+
+History (`PgHistory`, migration `0007_review`; `SqliteHistory` otherwise): every run,
+every (check, note) problem with its first and last sighting and when it went away —
+hence "open for more than 7 days" and the mean time to fix. `alert_decision()`: one
+digest a day when the findings changed, at once on a new critical (cooldown 6 h).
+
+`repair.py` computes the complete change (before → after, unified diff) of a relink, a
+merge, a rename or the closing of a dormant project; `apply()` writes it only if no file
+changed in between, keeps a copy of what it overwrites, writes before it deletes.
+
+False positives, measured: fictional corpus of `tests/fixtures/review_corpus` (15
+labelled problems among traps: links in code, link variants, closed projects, placeholder
+keys, quoted attacks, globs, reworded descriptions): 0 false positive, 0 miss. Real corpus
+of 415 notes: 0 false positive on secrets, injection, dormant projects, duplicates and
+orphans after the fixes of 03.10.2026 (5 of 16 before); cited files gone stays noisy
+(~ 3 in 4 are paths of repositories that are not checked) — it only runs when the roots
+are configured, at the "to watch" level.
+
+| Variable (`CORTHEXIS_…`) | Default | Purpose |
+|---|---|---|
+| `REVIEW_EVERY_S` | 3600 | period of the review (SOKKAN backend), 0 = off |
+| `REVIEW_DIGEST_AT` / `REVIEW_TZ` | 08:20 / `TZ` | daily digest time |
+| `REVIEW_CRIT_COOLDOWN_H` | 6 | minimum gap between two critical alerts |
+| `REVIEW_STALE_DAYS` / `_GIANT_WORDS` / `_DUP_COSINE` / `_UNDATED_TOLERATED` | 60 / 3500 / 0.86 / 7 | thresholds |
+| `DEAD_PATH_ROOTS` / `DEAD_PATH_PREFIXES` | — | folders (`:`) and prefixes (`,`) of the cited-files check |
+| `REVIEW_EXPECT_HOOK` / `REVIEW_HOOK_PATTERN` | off / — | check the recall hook in the sessions' settings |
+| `REVIEW_MCP_CONFIGS` | — | session configuration files that must declare the server |
 
 ## Licences
 

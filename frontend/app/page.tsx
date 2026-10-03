@@ -1,12 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Tabs, { type Tab } from "@/components/Tabs";
 import SessionRail from "@/components/SessionRail";
 import ChatPane from "@/components/ChatPane";
 import AgentChatPane from "@/components/AgentChatPane";
 import Board from "@/components/Board";
 import Preview from "@/components/Preview";
-import MemoryKB from "@/components/MemoryKB";
+import Corthexis from "@/components/Corthexis";
 import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
 import Journal from "@/components/Journal";
@@ -30,6 +30,10 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("Sessions");
   const [open, setOpen] = useState<OpenPane[]>([]);
   const [cols, setCols] = useState(2);
+  // lien profond des notifications : /?tab=corthexis[&note=…|&proposal=…]
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "corthexis") setTab("CortHeXis");
+  }, []);
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
 
@@ -67,8 +71,8 @@ export default function Home() {
         <Board onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Preview" ? (
         <Preview />
-      ) : tab === "Memory/KB" ? (
-        <MemoryKB onOpenSession={(sid) => openSession({ session_id: sid })} />
+      ) : tab === "CortHeXis" ? (
+        <Corthexis onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Infra" ? (
         <Infra />
       ) : tab === "Operate" ? (

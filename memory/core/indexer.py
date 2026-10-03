@@ -126,19 +126,51 @@ def find_dead_paths(body: str, roots: list[Path], prefixes: tuple[str, ...]) -> 
     """
     if not roots or not prefixes:
         return []
-    rx = re.compile(r"(?<![\w/])((?:" + "|".join(map(re.escape, prefixes)) + r")/[\w\-./]+)")
-    acked = re.compile(r"^[`'\"»\s]*\((removed|deleted|supprimé|n'existe pas|décommissionné)",
-                       re.I)
+    # not preceded by a word, a path separator or a dot: "/x/.openclaw/openclaw.json" is not
+    # the repository path "openclaw/openclaw.json"
+    rx = re.compile(r"(?<![\w/.~-])((?:" + "|".join(map(re.escape, prefixes)) + r")/[\w\-./]+)")
+    gone = r"(removed|deleted|supprimés?|retirés?|n'existe plus|n'existe pas|décommissionnée?s?)"
+    acked = re.compile(r"^[`'\"»\s]*\(" + gone, re.I)
+    acked_line = re.compile(gone, re.I)
     found: set[str] = set()
-    for m in rx.finditer(body):
+    matches = list(rx.finditer(body))
+    tails = []
+    for i, m in enumerate(matches):
+        # what the note says right after this path (up to the next path, same line)
+        stop = min([x for x in (body.find("\n", m.end()), m.end() + 50,
+                                matches[i + 1].start() if i + 1 < len(matches) else -1)
+                    if x >= 0])
+        tails.append(body[m.end():stop])
+    connector = re.compile(r"^[`'\"\s,+&/]*(?:\b(?:et|and|ou|or)\b)?[`'\"\s,+&]*$", re.I)
+
+    def gone_after(i: int) -> bool:
+        """« `a` + `b` retirés » marks both; « a, b (removed) » marks only b."""
+        while True:
+            w = acked_line.search(tails[i])
+            if w and "(" not in tails[i][:w.start()]:
+                return True
+            if i + 1 < len(matches) and connector.match(tails[i]):
+                i += 1
+                continue
+            return False
+
+    for i, m in enumerate(matches):
         nxt = body[m.end():m.end() + 60]
-        if nxt[:1] in "{*" or acked.match(nxt):
-            continue                    # a glob, or already marked as gone in the note
+        if (nxt[:1] and nxt[:1] in "{*…") or acked.match(nxt) or gone_after(i):
+            continue        # a glob, a range ("0001…0011"), or marked as gone in the note
         p = m.group(1).rstrip(".,;:)»'\"`")
-        if any(ch in p for ch in "*{<>$…") or p.endswith("/"):
+        if any(ch in p for ch in "*{<>$…") or p.endswith("/") or p.endswith("-"):
             continue
+        if p.count("/") == 1 and "." not in p.split("/")[-1]:
+            continue        # "infra/TF", "docs/maic": a folder named in prose, not a file
         found.add(p)
-    return sorted(p for p in found if not any((r / p).exists() for r in roots))
+    # A path is reported only when its folder still exists somewhere: the file moved or was
+    # deleted next to its siblings. A path whose folder exists nowhere is, far more often, a
+    # fragment of prose ("infra/TF"), a path of a repository that is not checked here, or
+    # a truncated quote — 9 of the 12 remaining reports on a 415-note corpus (03.10.2026).
+    return sorted(p for p in found
+                  if not any((r / p).exists() for r in roots)
+                  and any((r / p).parent.is_dir() for r in roots))
 
 
 # ---------------------------------------------------------------- MEMORY.md

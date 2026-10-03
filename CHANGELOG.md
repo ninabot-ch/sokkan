@@ -44,8 +44,19 @@ Notable changes, newest first. Versions: semver + release hash (see
 - **New API**: `GET /api/memory/migration` (steps, repair plan, progress, checks,
   log, which index serves) and `POST /api/memory/migration/approve` (admin).
 - **The installer** sets up the memory profile and asks about the model licence;
-  unattended: `SOKKAN_ACCEPT_GEMMA_TERMS=1|0`. Docker Compose 2.20 or newer is
-  required (`include:`).
+  unattended: `SOKKAN_ACCEPT_GEMMA_TERMS=1|0`.
+- **The memory tab is now CortHeXis: the memory, visible and repairable.** A live graph
+  of the notes (links, missing notes, meaning, age, health), the note with its problems,
+  the memory's health score and its history, and the recall bench. The review runs every
+  hour in the backend — where the sessions start — so "the memory server does not answer"
+  is checked the way a session would see it.
+- **Repairs in one click, never without approval.** Re-point a broken link, merge two
+  notes, rename a note to the convention, close a dormant project: each one shows the
+  exact diff first and writes only after someone approves it (journaled, with a copy of
+  what it replaced). Cases that need judgement open a « Memory curation » session loaded
+  with the findings.
+- **Alerts.** One digest a day when something changed, at once on a critical problem,
+  through the notification channels already configured.
 
 ## 2.3.0 — 2026-09-14 — "Memory writes back"
 - **Sessions can write to memory.** Recall was solid — `memory_search`,
