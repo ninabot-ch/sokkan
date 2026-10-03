@@ -1,0 +1,25 @@
+# Pushing a tag vX.Y.Z here publishes the release through the Ninabot release pipeline: it dispatches `release.yml` in the
+# sokkan-cloud repository (dist tarball → sokkan.ch, GitHub release). The fleet rollout stays a separate, guarded step.
+# Requires the forge secret FORGE_DISPATCH_TOKEN (write:repository on ninabot/sokkan-cloud).
+name: release-tag
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  dispatch:
+    runs-on: python
+    steps:
+      - name: Dispatch the release pipeline
+        env:
+          TOKEN: ${{ secrets.FORGE_DISPATCH_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          V="${TAG#v}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG"; exit 0; }
+          [ -n "$TOKEN" ] || { echo "FORGE_DISPATCH_TOKEN missing: run scripts/release.sh $V from sokkan-cloud"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            "http://100.124.110.23:3003/api/v1/repos/ninabot/sokkan-cloud/actions/workflows/release.yml/dispatches" \
+            --data "{\"ref\":\"main\",\"inputs\":{\"version\":\"$V\",\"dry_run\":\"false\"}}")
+          echo "dispatch release.yml version=$V → $code"
+          [ "$code" = 204 ]
