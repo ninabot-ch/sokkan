@@ -1,8 +1,9 @@
 """Bridge between the SOKKAN 2.x MCP server and the 3.0 memory store (CortHeXis core).
 
-``memory_search_server.py`` calls this module when ``CORTHEXIS_MEMORY_BACKEND=postgres``
-(or ``SOKKAN_MEMORY_BACKEND``); otherwise nothing here is imported and the SQLite path
-is unchanged. Wave 2 only has to fill the store and flip the flag.
+``memory_search_server.py`` asks ``enabled()`` which index serves: the store when
+``CORTHEXIS_MEMORY_BACKEND=postgres``; with ``auto`` (the 3.0 default) the 2.x
+``memory.db`` keeps serving, read-only, until the migration (``memory_migration.py``,
+``core/migrate.py``) has built and checked generation 1, then the store; ``sqlite`` = 2.x.
 
 Results keep the 2.x shape (note_name, description, score, cosine, snippet, path,
 priority, degraded) and gain the 3.0 fields: age_days, date_source, modified,
@@ -10,6 +11,7 @@ generation, lexical, rerank.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 from typing import Callable
@@ -18,9 +20,89 @@ _lock = threading.Lock()
 _store = None
 
 
+def configured() -> str:
+    """sqlite (2.x), postgres (3.0 store only) or auto (3.0: the 2.x index serves until
+    the migration to the store is complete, then the store — no gap in between)."""
+    v = (os.environ.get("CORTHEXIS_MEMORY_BACKEND") or os.environ.get("SOKKAN_MEMORY_BACKEND")
+         or "").strip().lower()
+    if v in ("postgres", "postgresql", "pg"):
+        return "postgres"
+    return "auto" if v == "auto" else "sqlite"
+
+
+def migration_dir() -> str:
+    return os.environ.get("CORTHEXIS_MIGRATION_DIR") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "memory-migration")
+
+
+_state_cache: dict = {}
+_legacy = None
+
+
+def migration_status() -> str | None:
+    """Status in the migration state file (core.migrate), cached on its mtime."""
+    path = os.path.join(migration_dir(), "state.json")
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        return None
+    if _state_cache.get("mtime") != mtime:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                _state_cache.update(mtime=mtime, status=json.load(fh).get("status"))
+        except (OSError, ValueError):
+            return None
+    return _state_cache.get("status")
+
+
 def enabled() -> bool:
-    v = os.environ.get("CORTHEXIS_MEMORY_BACKEND") or os.environ.get("SOKKAN_MEMORY_BACKEND")
-    return (v or "").strip().lower() in ("postgres", "postgresql", "pg")
+    """True = searches read the 3.0 store; False = the SQLite memory.db (2.x path)."""
+    mode = configured()
+    if mode == "auto":
+        return migration_status() in ("done", "not-needed")
+    return mode == "postgres"
+
+
+def embed_query(text: str, legacy_db: str | os.PathLike | None = None) -> list[float]:
+    """Query vector for the index that serves: the 3.0 engine for the store, the 2.x
+    embedder (core.embed.legacy) for memory.db. A model that is not the one the index was
+    built with raises, and the caller degrades to lexical-only instead of comparing
+    vectors from two different spaces."""
+    from core import embed
+
+    if enabled():
+        e = embed.get()
+        active = get_store().active_generation()
+        if active is not None and active.embed_identity != e.identity():
+            raise RuntimeError(f"the index was built with {active.embed_identity}, the "
+                               f"configured model is {e.identity()} (re-index pending)")
+        return e.embed_query(text)
+    global _legacy
+    if _legacy is None:
+        _legacy = embed.legacy()     # fastembed keeps its model loaded: build it once
+    e = _legacy
+    built_with = _legacy_model(legacy_db)
+    if built_with and built_with != e.identity_2x():
+        raise RuntimeError(f"memory.db was built with {built_with}, the 2.x embedder is "
+                           f"{e.identity_2x()}")
+    return e.embed_query(text)
+
+
+def _legacy_model(db) -> str | None:
+    if not db or not os.path.exists(db):
+        return None
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = con.execute("SELECT value FROM meta WHERE key = 'model'").fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return row[0] if row else None
 
 
 def get_store():

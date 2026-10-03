@@ -44,7 +44,8 @@ mcp = FastMCP("sokkan-memory")
 
 
 def _embed_query(text: str) -> list[float]:
-    return embeddings.embed_query(text)
+    # the embedder of the index that serves (3.0 store, or the 2.x memory.db)
+    return store_backend.embed_query(text, DB_PATH)
 
 
 def _load_chunks() -> list[tuple[str, str, str, str, list[float], int]]:

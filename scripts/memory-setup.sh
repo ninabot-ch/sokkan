@@ -9,6 +9,10 @@
 #   ./scripts/memory-setup.sh --non-interactive  # .env only; the model is set up by `docker compose up`
 #   ./scripts/memory-setup.sh --force            # re-apply the recommendation over an existing profile
 #
+# Update from 2.x: with no profile yet, ML_SERVICE_URL maps to `remote` and a custom
+# SOKKAN_EMBED_MODEL to `legacy` (the 2.x embeddings, kept); --force or --profile picks
+# the 3.0 model. The memory itself is migrated by the api container at its first start.
+#
 # Writes to .env: SOKKAN_MEMORY_PROFILE, SOKKAN_EMBED_ACCEL (cpu | sycl | cuda) and
 # the `rerank` entry of COMPOSE_PROFILES (Standard, GPU). Everything else is kept.
 set -eu
@@ -25,12 +29,12 @@ while [ $# -gt 0 ]; do
     --decline) ANSWER="--decline" ;;
     --non-interactive) INTERACTIVE=0 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "memory-setup: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
-case "$PROFILE" in ""|leger|standard|gpu) ;; *) echo "memory-setup: profile must be leger, standard or gpu" >&2; exit 2 ;; esac
+case "$PROFILE" in ""|leger|standard|gpu|remote|legacy) ;; *) echo "memory-setup: profile must be leger, standard or gpu (remote, legacy: 2.x embeddings)" >&2; exit 2 ;; esac
 
 env_get() { sed -n "s/^$1=//p" .env | tail -n 1; }
 env_set() {  # env_set KEY VALUE — replace or append, keep the rest of .env
@@ -51,8 +55,26 @@ fi
 CURRENT="$(env_get SOKKAN_MEMORY_PROFILE)"
 echo "memory profile — recommended: $REC ($REASON); configured: ${CURRENT:-none}"
 
+# 2.x configuration (update from SOKKAN 2.x): an explicit embedding setting is kept —
+# ML_SERVICE_URL -> remote (same vectors as the 2.x index), a custom SOKKAN_EMBED_MODEL ->
+# legacy (in-process fastembed). --force or --profile moves to the 3.0 model instead.
+LEGACY_2X=""
+if [ -z "$CURRENT" ] && [ -z "$PROFILE" ] && [ "$FORCE" = 0 ]; then
+  if [ -n "$(env_get ML_SERVICE_URL)" ]; then LEGACY_2X="remote"
+  else
+    M="$(env_get SOKKAN_EMBED_MODEL)"
+    if [ -n "$M" ] && [ "$M" != "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" ]; then
+      LEGACY_2X="legacy"
+    fi
+  fi
+fi
+
 if [ -n "$PROFILE" ]; then CHOSEN="$PROFILE"
 elif [ -n "$CURRENT" ] && [ "$FORCE" = 0 ]; then CHOSEN="$CURRENT"
+elif [ -n "$LEGACY_2X" ]; then
+  CHOSEN="$LEGACY_2X"
+  echo "  2.x embedding setting kept: profile $CHOSEN (the 3.0 model, $REC, ranks better:"
+  echo "  ./scripts/memory-setup.sh --profile $REC — the notes are then re-indexed)"
 else CHOSEN="$REC"; fi
 
 # 2. accelerator: only for the GPU profile, and only what Docker can drive
@@ -70,7 +92,7 @@ fi
 env_set SOKKAN_MEMORY_PROFILE "$CHOSEN"
 env_set SOKKAN_EMBED_ACCEL "$ACCEL"
 CP="$(env_get COMPOSE_PROFILES | tr ',' '\n' | grep -v '^rerank$' | grep -v '^$' | paste -sd, - || true)"
-if [ "$CHOSEN" != "leger" ]; then CP="${CP:+$CP,}rerank"; fi
+case "$CHOSEN" in standard|gpu) CP="${CP:+$CP,}rerank" ;; esac
 if [ -n "$CP" ]; then env_set COMPOSE_PROFILES "$CP"
 else grep -v '^COMPOSE_PROFILES=' .env > .env.tmp || true; mv .env.tmp .env; fi
 echo "  ✔ .env: SOKKAN_MEMORY_PROFILE=$CHOSEN SOKKAN_EMBED_ACCEL=$ACCEL${CP:+ COMPOSE_PROFILES=$CP}"
@@ -80,6 +102,9 @@ if ! command -v docker >/dev/null 2>&1; then
   echo "  docker not found — the model is set up at the first \`docker compose up\`"; exit 0
 fi
 DC="docker"; docker info >/dev/null 2>&1 || DC="sudo docker"
+case "$CHOSEN" in remote|legacy)
+  echo "  profile $CHOSEN: 2.x embeddings, no model to install"; exit 0 ;;
+esac
 if [ -n "$ANSWER" ]; then
   $DC compose run --rm -T corthexis-embed-fetch python /opt/corthexis/models.py setup $ANSWER --profile "$CHOSEN"
 elif [ "$INTERACTIVE" = 1 ] && [ -t 0 ]; then

@@ -57,6 +57,26 @@ DATE_TOLERANCE_S = 1.0     # mtimes are compared to the second (tar, filesystems
 LOG_KEEP = 200
 
 
+@contextlib.contextmanager
+def _lock(path: Path):
+    """Non-blocking exclusive lock: one migration run at a time across processes."""
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover — not POSIX
+        yield True
+        return
+    with open(path, "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 class Waiting(Exception):
     """A step cannot go on yet (approval, embedding server): retry later."""
 
@@ -121,7 +141,7 @@ class Migration:
     def __init__(self, memory_dir: Path | str, work_dir: Path | str, store, embedder, *,
                  legacy_db: Path | str | None = None, policy: str | None = None,
                  grace: int | None = None, clock=_now, log=None,
-                 index_overrides: dict | None = None) -> None:
+                 index_overrides: dict | None = None, context: dict | None = None) -> None:
         self.memory_dir = Path(memory_dir)
         self.work_dir = Path(work_dir)
         self.store = store
@@ -135,6 +155,7 @@ class Migration:
         self._log = log or (lambda m: print(f"[memory-migration] {m}", file=sys.stderr))
         self.index_overrides = index_overrides or {}
         self._mapping_override: dict | None = None
+        self.context = context      # recorded once in the state, e.g. the config translation
         self._cache: dict = {}
         self.state_path = self.work_dir / "state.json"
         self.state = self._load()
@@ -148,7 +169,7 @@ class Migration:
         except (OSError, ValueError):
             pass
         return {"version": STATE_VERSION, "status": "pending", "step": None, "steps": {},
-                "log": [], "approved": {}}
+                "log": []}
 
     def _save(self) -> None:
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -173,15 +194,25 @@ class Migration:
         e = self._embedder
         return e() if callable(e) and not hasattr(e, "embed_docs") else e
 
-    def approve(self, what: str) -> None:
+    def approved(self) -> dict:
+        """Approvals, kept in their own file so another process (the API) can write one
+        while a run holds the state."""
+        try:
+            return json.loads((self.work_dir / "approved.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def approve(self, what: str, who: str = "") -> dict:
         """Explicit go: ``normalize`` (policy ask) or ``override`` (switch in spite of a
         failed check, after reading it)."""
         what = "override" if what == "switch" else what
         if what not in ("normalize", "override"):
             raise ValueError("approve: normalize or override")
-        self.state.setdefault("approved", {})[what] = _iso(self.clock())
-        self.log(f"approved: {what}")
-        self._save()
+        doc = self.approved()
+        doc[what] = {"at": _iso(self.clock()), "by": who}
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        _write_json(self.work_dir / "approved.json", doc)
+        return doc
 
     # -------------------------------------------------------------- decision
     def needed(self) -> bool:
@@ -207,8 +238,22 @@ class Migration:
                                          "store already serves an index")
                 self._save()
             return self.state
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        with _lock(self.work_dir / "lock") as got:
+            if not got:
+                return self.state     # another process runs it
+            self.state = self._load()
+            if self.state.get("status") in ("done", "not-needed"):
+                return self.state
+            return self._run_locked()
+
+    def _run_locked(self) -> dict:
         st = self.state
-        st.setdefault("started_at", _iso(self.clock()))
+        if "started_at" not in st:
+            st["started_at"] = _iso(self.clock())
+            if self.context:
+                st["context"] = self.context
+            self.log("migration started" + (f": {self.context}" if self.context else ""))
         st["status"] = "running"
         try:
             for step in STEPS:
@@ -382,7 +427,7 @@ class Migration:
                         {"renamed": {}, "merged": {}, "touched": []})
             self._done("normalize", applied=False, reason=why)
             return
-        if self.policy == "ask" and "normalize" not in self.state.get("approved", {}):
+        if self.policy == "ask" and "normalize" not in self.approved():
             raise Waiting(f"{planned['changes']} repairs of the notes are waiting for "
                           "approval (see the plan)")
         files = self._manifest()["files"]
@@ -445,7 +490,7 @@ class Migration:
                 declared_changed.append(final)
         info = {"checked": len(self._expected()), "younger": younger,
                 "declared_changed": declared_changed, "edited_meanwhile": edited}
-        if (younger or declared_changed) and "override" not in self.state.get("approved", {}):
+        if (younger or declared_changed) and "override" not in self.approved():
             self.state["steps"]["dates-files-failed"] = info
             raise Blocked(f"date test failed on the files: {len(younger)} newer than in the "
                           f"archive, {len(declared_changed)} declared dates changed "
@@ -586,7 +631,7 @@ class Migration:
         if wrong or info["younger"]:
             problems.append(f"date test failed: {len(wrong)} different, "
                             f"{len(info['younger'])} younger")
-        if problems and "override" not in self.state.get("approved", {}):
+        if problems and "override" not in self.approved():
             self.state["steps"]["verify-failed"] = info
             raise Blocked("; ".join(problems) + " — the 2.x index keeps serving")
         self._done("verify", **info, overridden=bool(problems))
@@ -650,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
         mig = Migration(args.memory_dir, args.work_dir, store, embed.get,
                         legacy_db=args.legacy_db, policy=args.policy, grace=args.grace)
         if args.command == "approve":
-            mig.approve(args.what or "")
+            mig.approve(args.what or "", who="cli")
             return 0
         st = mig.run()
     print(json.dumps({k: st.get(k) for k in ("status", "step", "message")}, indent=1))

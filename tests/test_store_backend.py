@@ -94,3 +94,57 @@ def test_memory_get_via_store(mem):
     assert out.startswith("[note deploy-note — updated 2026-01-01") and "migrated-mtime" in out
     assert out.endswith("the body")
     assert m.memory_get("nope") == "note not found: nope"
+
+
+# ------------------------------------------------------------- auto: 2.x serves until migrated
+def _state(tmp_path, status):
+    import json
+    d = tmp_path / "memory-migration"
+    d.mkdir(exist_ok=True)
+    (d / "state.json").write_text(json.dumps({"status": status}))
+    import os
+    t = os.stat(d / "state.json").st_mtime + len(status)   # a new mtime for the cache
+    os.utime(d / "state.json", (t, t))
+
+
+def test_auto_serves_memory_db_until_the_migration_is_done(monkeypatch, tmp_path):
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "auto")
+    monkeypatch.setenv("CORTHEXIS_MIGRATION_DIR", str(tmp_path / "memory-migration"))
+    assert sb.configured() == "auto" and not sb.enabled()       # no state yet
+    for status, served in (("running", False), ("waiting", False), ("blocked", False),
+                           ("done", True), ("not-needed", True)):
+        _state(tmp_path, status)
+        assert sb.enabled() is served, status
+
+
+def test_legacy_query_refuses_another_model_than_memory_db(monkeypatch, tmp_path):
+    import sqlite3
+
+    import store_backend as sb
+    from core import embed
+
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "auto")
+    monkeypatch.setenv("CORTHEXIS_MIGRATION_DIR", str(tmp_path / "none"))
+    db = tmp_path / "memory.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    con.execute("INSERT INTO meta VALUES ('model', 'remote:http://old-ml:8001')")
+    con.commit()
+    con.close()
+
+    class Legacy:
+        def identity_2x(self):
+            return "local:" + embed.LEGACY_MODEL
+
+        def embed_query(self, text, timeout=30):
+            return [1.0]
+
+    monkeypatch.setattr(sb, "_legacy", Legacy())
+    with pytest.raises(RuntimeError, match="memory.db was built with remote:http://old-ml"):
+        sb.embed_query("q", db)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE meta SET value = ?", ("local:" + embed.LEGACY_MODEL,))
+    con.commit()
+    con.close()
+    assert sb.embed_query("q", db) == [1.0]
