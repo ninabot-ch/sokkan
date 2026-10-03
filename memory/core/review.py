@@ -853,7 +853,9 @@ def run_review(cfg: ReviewConfig, source: ReviewSource | None = None, *,
 
     # --- dates
     if source is not None and indexed:
-        undated = sorted(k for k, v in indexed.items() if k in by_name and not v.modified)
+        # the 2.x SQLite index keeps no date: the header's own date counts then
+        undated = sorted(k for k, v in indexed.items() if k in by_name
+                         and not (v.modified or by_name[k].parsed.modified))
         if len(undated) > cfg.undated_tolerated:
             add(Finding(
                 "undated", "warn", "dates", "Notes without a date",

@@ -53,6 +53,7 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import corthexis
 import playbooks
 import edge
 import notify
@@ -106,6 +107,7 @@ async def _lifespan(_app: FastAPI):
     threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     yield
 
 
@@ -1565,6 +1567,12 @@ def memory_note(name: str) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
     return {"name": name, "body": mem.memory_get(name)}
+
+
+# onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
+app.include_router(corthexis.router)
+corthexis.spawn_hook = _spawn_sdk
+corthexis.reindex_hook = index_memory.run_index
 
 
 @app.post("/api/memory/digest")
