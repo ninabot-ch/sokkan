@@ -178,7 +178,7 @@ def recall_api_check() -> list:
         req = urllib.request.Request(
             memrecall.api_url().rstrip("/") + "/api/memory/hook", method="POST",
             data=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id":
-                             "corthexis-review-probe", "prompt": "memory health probe"}).encode(),
+                             "corthexis-review-probe", "prompt": ""}).encode(),  # no search, no log
             headers={"content-type": "application/json",
                      "x-sokkan-hook-token": memrecall.hook_token()})
         with urllib.request.urlopen(req, timeout=8) as r:
