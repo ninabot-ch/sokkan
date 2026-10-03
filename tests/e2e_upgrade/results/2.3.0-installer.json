@@ -1,0 +1,68 @@
+{
+ "case": {
+  "case": "2.3.0-installer",
+  "src": "2.3.0",
+  "mode": "installer",
+  "engine": "29",
+  "compose": "bundled",
+  "mem": "4g",
+  "swap": "6g",
+  "inner_rc": "0"
+ },
+ "ok": true,
+ "criteria": {
+  "starts": {
+   "ok": true,
+   "evidence": "health 200, upgrade in 137 s"
+  },
+  "no_note_lost": {
+   "ok": true,
+   "evidence": "2.x index 52 notes -> store 51 (1 orphan merged into its note, 2 renamed); lost: none"
+  },
+  "dates_identical": {
+   "ok": true,
+   "evidence": "51/51 dates identical; migration done, verify dates_wrong=[] younger=[]"
+  },
+  "search_during_migration": {
+   "ok": true,
+   "evidence": "22 searches 1/s inside the api during the migration, 0 wrong/failed ({'memory.db/index': 15, 'store/-': 7}); through the web: 184 searches over the whole update, unanswered 10 (longest gap 10 s = the rebuild/restart), after 3.0 answered: 0 failed"
+  },
+  "recall_injected": {
+   "ok": true,
+   "evidence": "during the migration True, after True"
+  },
+  "corthexis_and_api": {
+   "ok": true,
+   "evidence": "graph 200 (51 nodes), CortHeXis tab in the web bundle True, /api/memory/migration 200 done, session kept True, board cards kept True, new note indexed after the switch True"
+  },
+  "bench_not_worse": {
+   "ok": true,
+   "evidence": "before hit@1 33/34 MRR 0.9706 -> after 34/34 MRR 1.0"
+  },
+  "rollback": {
+   "ok": true,
+   "evidence": "2.3.0 back up 200, bench hit@1 33/34 MRR 0.9706, session True, cards True, memory.db untouched by 3.0 True"
+  },
+  "no_oom": {
+   "ok": true,
+   "evidence": "OOM kills in the machine: 0; peak working set 2379 MB; migration phase 2260 MB"
+  }
+ },
+ "ram": {
+  "peak_mb_by_phase": {
+   "install 2.3.0": 82,
+   "build+start 2.3.0": 247,
+   "seed data": 1520,
+   "upgrade (installer)": 1681,
+   "migration": 2260,
+   "checks after": 2335,
+   "rollback to 2.3.0": 2379,
+   "done": 1406
+  },
+  "oom_kills": 0,
+  "peak_mb": 2379
+ },
+ "compose": "Docker Compose version v5.5.1",
+ "engine": "29.8.2",
+ "tree": "3.0 tree: HEAD (00ce913)"
+}

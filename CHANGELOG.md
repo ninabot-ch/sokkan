@@ -45,6 +45,21 @@ Notable changes, newest first. Versions: semver + release hash (see
   log, which index serves) and `POST /api/memory/migration/approve` (admin).
 - **The installer** sets up the memory profile and asks about the model licence;
   unattended: `SOKKAN_ACCEPT_GEMMA_TERMS=1|0`.
+- **Updating a self-hosted install is tested end to end** (`tests/e2e_upgrade/`, results
+  in its `RESULTS.md`): real installs of 0.1.0, 2.0.1, 2.2.0 and 2.3.0 with a fictional
+  memory, a session and board cards, updated by the installer and by the manual steps,
+  then rolled back. What it changed:
+  - any Docker Compose v2 from 2.12 runs the compose file (no `include:`, no nested
+    default — both needed 2.20); GPU overrides go through `COMPOSE_FILE` in `.env`;
+  - `./scripts/rollback.sh <hash>` replaces the code instead of extracting an older
+    tarball over a newer folder (the older build tripped on the newer files);
+  - the web font ships with the code (no Google Fonts download during the build);
+  - a data volume of 0.1.0 (owned by root) is handed over at start, and a `memory.db`
+    of 0.x-1.x keeps serving searches during the migration.
+- **Note repairs keep links**: a note renamed from its file name (`Team Calendar` in
+  `TeamCalendar.md` → `teamcalendar`) brings `[[team-calendar]]` and every other
+  variant of its old name along. The review no longer reports an Exoscale key
+  identifier alone (its public half) as a secret.
 - **The memory tab is now CortHeXis: the memory, visible and repairable.** A live graph
   of the notes (links, missing notes, meaning, age, health), the note with its problems,
   the memory's health score and its history, and the recall bench. The review runs every
