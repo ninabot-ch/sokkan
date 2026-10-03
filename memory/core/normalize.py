@@ -13,8 +13,10 @@ Repairs, all lossless:
    containing ": ") is rewritten, description as a ``>-`` block; text written
    above the frontmatter is moved below it;
 3. **name / file**: a ``name:`` that is not kebab-case is derived from the file; a
-   file that does not follow its name is renamed; ``[[old]]`` links and mentions of
-   ``old_file.md`` are rewritten in the whole corpus;
+   file that does not follow its name is renamed; ``[[old]]`` links (the old name or
+   any slug variant of it: ``[[Team Calendar]]``, ``[[team-calendar]]``,
+   ``[[team_calendar]]``) and mentions of ``old_file.md`` are rewritten in the whole
+   corpus;
 4. **type**: a note without ``metadata.type`` gets ``feedback`` when its name starts
    with "feedback", ``project`` otherwise;
 5. **links**: a ``[[link]]`` that targets nothing is re-attached when it designates a
@@ -264,11 +266,13 @@ def run(
             cache[key] = parse_note(t, n)
         return cache[key]
 
-    names: dict[str, str] = {}
+    names: dict[str, str] = {}         # name, or alias of a name (slug, old name) -> name
+    real: set[str] = set()              # the names notes actually carry after the pass
     for n, t in text.items():
         note = parsed_now(n, t)
         nm = note.name if note.fm is not None else slugify(n[:-3])
         names[nm] = nm
+        real.add(nm)
         names.setdefault(slugify(n[:-3]), nm)
         names.setdefault(slugify(nm), nm)
     for old, new in renames_name.items():
@@ -280,10 +284,13 @@ def run(
 
         def fix(m: re.Match, fixed=fixed) -> str:
             target = m.group(1).strip()
-            if target in names:
+            if target in real:
                 return m.group(0)
-            hit = names.get(slugify(target.removesuffix(".md")))
-            if not hit:
+            # an alias (slug variant of a name, the old name of a renamed note — e.g.
+            # [[team-calendar]] once "Team Calendar" became teamcalendar) is not a target:
+            # it is re-attached to the note it designates
+            hit = names.get(target) or names.get(slugify(target.removesuffix(".md")))
+            if not hit or hit == target:
                 return m.group(0)
             fixed.append(f"[[{target}]] -> [[{hit}]]")
             return f"[[{hit}{m.group(2)}]]"

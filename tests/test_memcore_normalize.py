@@ -142,3 +142,41 @@ def test_cli_dry_run(tmp_path, capsys):
     assert normalize.main([str(tmp_path), "--dry-run"]) == 0
     assert "plan (dry run)" in capsys.readouterr().out
     assert (tmp_path / "tides.md").exists()
+
+
+def _note(name: str, desc: str, body: str) -> str:
+    return f"---\nname: {name}\ndescription: {desc}\nmetadata:\n  type: project\n---\n\n{body}\n"
+
+
+def test_rename_from_the_file_rewrites_links_to_the_old_name_and_its_slug_variants(tmp_path):
+    # "Team Calendar" is not kebab-case: the name is derived from the file (teamcalendar).
+    # Every link that designated the note — by its old name or a slug variant of it —
+    # must follow, or the rename breaks them.
+    write(tmp_path, "TeamCalendar.md", _note("Team Calendar", "Shared team calendar",
+                                             "Holidays go in the shared calendar."))
+    write(tmp_path, "rota.md", _note("rota", "Staff rota", "See [[team-calendar]], "
+                                     "[[Team Calendar|the calendar]], [[team_calendar#June]] "
+                                     "and [[TeamCalendar]]."))
+    dry = normalize.run(tmp_path, dry_run=True, now=NOW)
+    plan = normalize.run(tmp_path, now=NOW)
+    assert [a.render() for a in dry.actions] == [a.render() for a in plan.actions]
+    assert plan.renamed == {"TeamCalendar.md": "teamcalendar.md"}
+    rota = (tmp_path / "rota.md").read_text()
+    assert "[[teamcalendar]]" in rota
+    assert "[[teamcalendar|the calendar]]" in rota
+    assert "[[teamcalendar#June]]" in rota
+    assert "team-calendar" not in rota and "Team Calendar" not in rota
+    # nothing left to repair, every link resolves
+    names = {parse_note(p.read_text(), p.name).name for p in tmp_path.glob("*.md")}
+    assert names == {"teamcalendar", "rota"}
+    assert normalize.run(tmp_path, now=NOW).actions == []
+
+
+def test_slug_variant_link_is_not_stolen_from_a_real_note(tmp_path):
+    # a link that names an EXISTING note stays on it, even when it is also a slug
+    # variant of a renamed note's old name
+    write(tmp_path, "TeamCalendar.md", _note("Team Calendar", "Team calendar", "Calendar."))
+    write(tmp_path, "team_calendar.md", _note("team-calendar", "Another note", "Other."))
+    write(tmp_path, "rota.md", _note("rota", "Staff rota", "See [[team-calendar]]."))
+    normalize.run(tmp_path, now=NOW)
+    assert "[[team-calendar]]" in (tmp_path / "rota.md").read_text()
