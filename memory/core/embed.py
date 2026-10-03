@@ -75,15 +75,19 @@ def _norm(v: list[float]) -> list[float]:
 
 
 def current_profile() -> str:
-    """CORTHEXIS_MEMORY_PROFILE (or SOKKAN_…), else `remote` when a 2.x ML_SERVICE_URL
-    is set, else leger."""
+    """CORTHEXIS_MEMORY_PROFILE (or SOKKAN_…), else the translation of a 2.x config:
+    `remote` when ML_SERVICE_URL is set, `legacy` when SOKKAN_EMBED_MODEL names another
+    fastembed model than the 2.x default (the operator chose it), else leger."""
     p = (_env("MEMORY_PROFILE") or "").lower()
     if p in PROFILES:
         return p
     if p:
         raise ValueError(f"CORTHEXIS_MEMORY_PROFILE={p!r}: expected one of "
                          f"{', '.join(PROFILES)}")
-    return "remote" if _ml_url() else "leger"
+    if _ml_url():
+        return "remote"
+    custom = _env("LEGACY_MODEL", None, "SOKKAN_EMBED_MODEL")
+    return "legacy" if custom and custom != LEGACY_MODEL else "leger"
 
 
 class LlamaCppEmbedder:

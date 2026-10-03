@@ -4,6 +4,19 @@ Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
 ## 3.0.0 — unreleased — "One memory"
+- **A new memory engine, CortHeXis.** The SQLite index (`memory.db`, vectors as
+  JSON scanned in Python at every search) is replaced by a Postgres + pgvector
+  store (`db` service): hybrid search (dense HNSW + lexical on name/description
+  and body), index generations (a new model is indexed in the background while
+  the current one serves, then switched atomically), dates with their provenance
+  in every result. The `.md` notes stay the source of truth. Load test: p95
+  52-115 ms at 250 000 chunks in a 1 GB container.
+- **Local embedding models, three profiles.** `corthexis-embed` (llama.cpp) serves
+  EmbeddingGemma-300m by default — downloaded at first run only after its licence,
+  the Gemma Terms of Use, is accepted; declined or undecided = multilingual-e5-base
+  (MIT). `leger`, `standard`, `gpu`, recommended by Magnitude from cores, RAM and
+  GPU (`./scripts/memory-setup.sh`). Bench (300 questions): MRR 0.82 on CPU, 0.88
+  on GPU with the reranker, against 0.55 for the 2.x model.
 - **Recall at every message, and in every sub-agent.** SOKKAN installs two hooks in
   every session it starts (chat and terminal): each message brings the related notes
   into the context (top 4, a threshold calibrated per embedding model, a note named in
@@ -13,7 +26,26 @@ Notable changes, newest first. Versions: semver + release hash (see
   which session or sub-agent received which notes, with which score, from which index.
 - **The 3.0 memory store is the default**: notes are indexed into Postgres + pgvector
   at start, when a file changes (~6 s) and periodically; `sokkan memory
-  index|search|get|status`. `CORTHEXIS_MEMORY_BACKEND=sqlite` keeps the 2.x index.
+  index|search|get|status`. `CORTHEXIS_MEMORY_BACKEND=auto` (default) migrates a 2.x memory first (below),
+  `sqlite` keeps the 2.x index, `postgres` = the store only.
+- **Automatic migration from 2.x, without loss** (`docs/UPGRADE.md`). At the first
+  start the notes are archived in the data volume, then repaired (one naming
+  convention, orphan updates merged, broken frontmatter rewritten — the plan is
+  logged and shown before it is applied), their dates imported (frontmatter first,
+  else the 2.x file date, labelled as reconstructed) and re-encoded into the
+  store. Two date tests (on the files, then in the store) and a check that every
+  2.x note is in the store gate the switch; until then the 2.x `memory.db` keeps
+  serving, read-only, so search never stops. Interrupted at any step, it resumes.
+  Rollback: the 2.3 image with the untouched `memory.db`.
+- **2.x settings are kept.** `ML_SERVICE_URL` becomes the `remote` profile and a
+  custom `SOKKAN_EMBED_MODEL` the `legacy` profile (same vectors as before);
+  `SOKKAN_EMBED_MODEL` is now declared in the compose file, so a value in `.env`
+  actually reaches the container.
+- **New API**: `GET /api/memory/migration` (steps, repair plan, progress, checks,
+  log, which index serves) and `POST /api/memory/migration/approve` (admin).
+- **The installer** sets up the memory profile and asks about the model licence;
+  unattended: `SOKKAN_ACCEPT_GEMMA_TERMS=1|0`. Docker Compose 2.20 or newer is
+  required (`include:`).
 
 ## 2.3.0 — 2026-09-14 — "Memory writes back"
 - **Sessions can write to memory.** Recall was solid — `memory_search`,

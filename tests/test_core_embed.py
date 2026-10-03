@@ -153,6 +153,16 @@ def test_2x_config_maps_to_remote(monkeypatch):
     assert e.rerank("q", ["d"]) is None
 
 
+def test_2x_custom_fastembed_model_maps_to_legacy(monkeypatch):
+    monkeypatch.setenv("SOKKAN_EMBED_MODEL", embed.LEGACY_MODEL)   # the 2.x default
+    assert embed.current_profile() == "leger"
+    monkeypatch.setenv("SOKKAN_EMBED_MODEL", "intfloat/multilingual-e5-small")
+    assert embed.current_profile() == "legacy"
+    assert embed.build().identity() == "fastembed:multilingual-e5-small"
+    monkeypatch.setenv("SOKKAN_MEMORY_PROFILE", "leger")          # an explicit profile wins
+    assert embed.current_profile() == "leger"
+
+
 def test_legacy_fastembed_identity(monkeypatch):
     e = embed.legacy()
     assert e.identity() == "fastembed:paraphrase-multilingual-minilm-l12-v2@384"

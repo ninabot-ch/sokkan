@@ -33,6 +33,7 @@ import jwt
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
 import index_memory  # noqa: E402
+import memory_migration  # noqa: E402 — 2.x -> 3.0 memory migration (store_backend auto)
 import missions  # noqa: E402
 import memory_search_server as mem  # noqa: E402
 import store_backend  # noqa: E402 — 3.0 store (CortHeXis)
@@ -127,6 +128,10 @@ def _reindex_loop() -> None:
 async def _lifespan(_app: FastAPI):
     if store_backend.enabled():
         _start_store_indexer()
+    elif memory_migration.active():
+        # 2.x -> 3.0: memory.db (read-only) serves while the memory is migrated in the
+        # background; the store indexer takes over once generation 1 is switched on
+        memory_migration.start(on_done=_start_store_indexer)
     else:
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
@@ -1688,6 +1693,28 @@ def memory_note(name: str) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
     return {"name": name, "body": mem.memory_get(name)}
+
+
+@app.get("/api/memory/migration")
+def memory_migration_state(_u: dict = Depends(require("viewer"))) -> dict:
+    """Migration 2.x -> 3.0 (CortHeXis tab): steps, normalize plan, progress, date test,
+    verification, log, and which index serves searches meanwhile."""
+    return memory_migration.status()
+
+
+class MigrationApproval(BaseModel):
+    what: str  # normalize (policy ask) | override (go on in spite of a failed check)
+
+
+@app.post("/api/memory/migration/approve")
+def memory_migration_approve(body: MigrationApproval,
+                             u: dict = Depends(require("admin"))) -> dict:
+    try:
+        doc = memory_migration.approve(body.what, u["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    audit.log(u["email"], "memory.migration.approve", body.what)
+    return {"approved": doc}
 
 
 @app.post("/api/memory/digest")

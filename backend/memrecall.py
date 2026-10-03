@@ -46,12 +46,26 @@ def active() -> bool:
         from core import recall
     except ImportError:  # pragma: no cover — memory/core missing
         return False
-    return recall.enabled() and store_backend.enabled()
+    # during the 2.x -> 3.0 migration the recall reads memory.db (LegacyIndex)
+    return recall.enabled() and (store_backend.enabled() or store_backend.migrating())
+
+
+_legacy_recaller = None
 
 
 def recaller():
-    """Process-wide Recaller on the backend's store and query embedder."""
-    global _recaller
+    """Process-wide Recaller on the backend's store and query embedder — or, while the
+    migration has not switched yet, on the 2.x memory.db with the 2.x model."""
+    global _recaller, _legacy_recaller
+    if not store_backend.enabled():
+        if _legacy_recaller is None:
+            from core.recall import Recaller, RecallConfig
+
+            _legacy_recaller = Recaller(store_backend.LegacyIndex(),
+                                        store_backend.LegacyQueryEmbedder(),
+                                        RecallConfig.from_env(), profile="legacy",
+                                        log=lambda m: print(f"[sokkan] {m}", file=sys.stderr))
+        return _legacy_recaller
     if _recaller is None:
         with _lock:
             if _recaller is None:
@@ -71,9 +85,9 @@ def recaller():
 
 
 def reset() -> None:
-    global _recaller
+    global _recaller, _legacy_recaller
     with _lock:
-        _recaller = None
+        _recaller = _legacy_recaller = None
 
 
 def hook_output(payload: dict, session_id: str) -> dict:

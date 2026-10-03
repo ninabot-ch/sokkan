@@ -1,10 +1,14 @@
 """Bridge between SOKKAN and the 3.0 memory store (CortHeXis core).
 
-The 3.0 default: when a database is configured (``CORTHEXIS_DATABASE_URL``, set by the
-compose file), ``memory_search`` / ``memory_get`` / ``memory_links``, the CortHeXis tab
-and the recall hooks read the Postgres store, filled by ``core.indexer``.
-``CORTHEXIS_MEMORY_BACKEND=sqlite`` keeps the 2.x ``memory.db`` (read for the migration);
-``=postgres`` forces the store.
+``CORTHEXIS_MEMORY_BACKEND`` picks the index that serves ``memory_search`` /
+``memory_get`` / ``memory_links``, the CortHeXis tab and the recall hooks:
+
+* ``auto`` (the 3.0 default, also when unset and a database is configured): a 2.x
+  install is migrated at the first start (``memory_migration.py``, ``core/migrate.py``)
+  and its ``memory.db`` keeps serving, read-only, with the 2.x model until generation 1
+  is built and checked; then the store, filled by ``core.indexer.IndexRunner``. A new
+  install (no ``memory.db``) goes straight to the store.
+* ``postgres``: the store only (no migration). ``sqlite``: the 2.x index.
 
 Queries are embedded by ``core.embed`` (the configured profile); while the active index
 generation is still the 2.x one (migration in progress) they are embedded by the 2.x
@@ -20,9 +24,11 @@ generation, lexical, rerank.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 _lock = threading.Lock()
@@ -38,14 +44,65 @@ def database_configured() -> bool:
     return bool(_env("DATABASE_URL"))
 
 
-def enabled() -> bool:
-    """Store backend on: explicit ``MEMORY_BACKEND``, else whenever a database is set."""
+def configured() -> str:
+    """postgres | sqlite | auto (see the module docstring)."""
     v = _env("MEMORY_BACKEND").lower()
     if v in ("postgres", "postgresql", "pg"):
-        return True
+        return "postgres"
     if v in ("sqlite", "legacy", "2.x"):
+        return "sqlite"
+    return "auto" if v == "auto" or database_configured() else "sqlite"
+
+
+def legacy_db() -> Path:
+    """The 2.x index (SOKKAN_MEMORY_DB, else $SOKKAN_DATA_DIR/memory.db)."""
+    return Path(os.environ.get("SOKKAN_MEMORY_DB") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "memory.db"))
+
+
+def migration_dir() -> str:
+    return os.environ.get("CORTHEXIS_MIGRATION_DIR") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "memory-migration")
+
+
+_state_cache: dict = {}
+
+
+def migration_status() -> str | None:
+    """Status in the migration state file (core.migrate), cached on its mtime."""
+    path = os.path.join(migration_dir(), "state.json")
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        return None
+    if _state_cache.get("mtime") != mtime:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                _state_cache.update(mtime=mtime, status=json.load(fh).get("status"))
+        except (OSError, ValueError):
+            return None
+    return _state_cache.get("status")
+
+
+def migrating() -> bool:
+    """auto mode, a 2.x memory.db, and the migration has not switched yet."""
+    if configured() != "auto":
         return False
-    return database_configured()
+    status = migration_status()
+    if status in ("done", "not-needed"):
+        return False
+    return status is not None or legacy_db().is_file()
+
+
+def enabled() -> bool:
+    """True = the 3.0 store serves; False = the 2.x memory.db (sqlite mode, or auto mode
+    during the migration)."""
+    mode = configured()
+    if mode == "auto":
+        return not migrating()
+    return mode == "postgres"
 
 
 def get_store():
@@ -267,3 +324,92 @@ def log_spawn_recall(session_id: str, hits: list[dict], query: str) -> None:
             for h in hits if h.get("note_name")]
     if rows:
         get_store().log_recall("spawn", rows, session_id=session_id, query=query[:2000])
+
+
+# --------------------------------------------------------------------------- 2.x memory.db
+# Serves searches and the per-turn recall while the migration re-encodes the corpus.
+_legacy = None
+
+
+def _legacy_model(db) -> str | None:
+    if not db or not os.path.exists(db):
+        return None
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = con.execute("SELECT value FROM meta WHERE key = 'model'").fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return row[0] if row else None
+
+
+class LegacyQueryEmbedder:
+    """The 2.x embedder (core.embed.legacy, built once: fastembed keeps its model loaded),
+    refused when it is not the model memory.db was built with — the caller then degrades
+    to lexical-only instead of comparing vectors of two different spaces."""
+    rerank_policy = "off"
+    rerank_url = None
+
+    def __init__(self, db=None):
+        global _legacy
+        from core import embed
+
+        if _legacy is None:
+            _legacy = embed.legacy()
+        self.inner, self.db = _legacy, db or legacy_db()
+        self.lexical_weight = getattr(_legacy, "lexical_weight", None)
+
+    def identity(self) -> str:
+        return self.inner.identity()
+
+    def embed_query(self, text: str, timeout: float = 30.0) -> list[float]:
+        built_with = _legacy_model(self.db)
+        if built_with and built_with != self.inner.identity_2x():
+            raise RuntimeError(f"memory.db was built with {built_with}, the 2.x embedder is "
+                               f"{self.inner.identity_2x()}")
+        return self.inner.embed_query(text, timeout)
+
+    def rerank(self, query, docs, timeout: float = 3.0):
+        return None
+
+
+def legacy_embed_query(text: str, db=None) -> list[float]:
+    return LegacyQueryEmbedder(db).embed_query(text)
+
+
+class LegacyIndex:
+    """memory.db seen through the few store methods core.recall uses (active_generation,
+    search): the per-turn recall keeps working during the migration window. Ranking =
+    the 2.x one (memory_search_server); generation id 0 = "the 2.x index"."""
+
+    def __init__(self, db=None):
+        self.db = db or legacy_db()
+
+    def active_generation(self):
+        from core.contract import Generation
+
+        if not Path(self.db).is_file():
+            return None
+        return Generation(id=0, embed_identity=LegacyQueryEmbedder(self.db).identity(),
+                          dim=0, created_at="", status="active")
+
+    def search(self, query_vec, query_text, k=8, *, rerank=None, **_kw):
+        from core.search import Hit
+
+        import memory_search_server as mss  # lazy: it imports this module
+
+        out = []
+        for r in mss.rank_2x(query_text, query_vec, k):
+            if "note_name" not in r:
+                continue
+            out.append(Hit(note_name=r["note_name"], score=r["score"], cosine=r.get("cosine"),
+                           lexical=0.0, rerank=None, snippet=r.get("snippet") or "",
+                           age_days=None, date_source="inconnue",
+                           description=r.get("description") or "",
+                           source_path=r.get("path"), priority=int(bool(r.get("priority"))),
+                           generation=0, degraded=r.get("degraded")))
+        return out

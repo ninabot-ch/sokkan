@@ -44,7 +44,8 @@ mcp = FastMCP("sokkan-memory")
 
 
 def _embed_query(text: str) -> list[float]:
-    return embeddings.embed_query(text)
+    # 2.x path: the 2.x model, checked against the one memory.db was built with
+    return store_backend.legacy_embed_query(text, DB_PATH)
 
 
 def _load_chunks() -> list[tuple[str, str, str, str, list[float], int]]:
@@ -112,8 +113,7 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
     """
     if store_backend.enabled():
         return store_backend.memory_search(query, top_k, None, "embedding backend")
-    chunks = _load_chunks()
-    if not chunks:
+    if not _load_chunks():
         return [{"info": "No project memory yet. Write notes as markdown files in the workspace "
                  "memory directory (one fact per file, with a description: frontmatter) and they "
                  "become searchable within ~2 minutes.", "empty": True}]
@@ -126,6 +126,16 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
             return [{"error": f"embedding backend unavailable ({embeddings.backend()}): {e}"}]
         q = None
         degraded = f"embedding backend unavailable ({embeddings.backend()}) — lexical-only scoring, degraded recall"
+    return rank_2x(query, q, top_k, degraded)
+
+
+def rank_2x(query: str, q: list[float] | None, top_k: int = 8,
+            degraded: str | None = None) -> list[dict]:
+    """The 2.x ranking over memory.db (also used by the recall during the migration)."""
+    chunks = _load_chunks()
+    qtok = _tokens(query)
+    if q is None and not qtok:
+        return []
     # aggregate per note: best chunk (for snippet) + full-note lexical haystack;
     # chunk relevance = cosine, or keyword overlap in degraded lexical-only mode
     agg: dict[str, dict] = {}
