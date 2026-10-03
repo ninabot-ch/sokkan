@@ -1,0 +1,6 @@
+# memory core (CortHeXis engine) — runtime dependencies of store.py / search.py
+# search.py alone needs only the standard library.
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
+pgvector>=0.3
+numpy>=1.26

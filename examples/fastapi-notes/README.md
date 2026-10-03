@@ -26,7 +26,7 @@ The session will search the memory, recall that the service runs on port **8734*
 (not 8000), that errors must use the envelope, that tests are integration-style —
 then propose a plan and wait for your go.
 
-Check **Memory/KB** to browse the notes and play with the semantic search — the
+Check **CortHeXis** to browse the notes and play with the semantic search — the
 playground shows exactly what a session would recall for any query.
 
 ## What's in here

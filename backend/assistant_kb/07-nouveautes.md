@@ -11,7 +11,7 @@ incluse, le modèle est géré par l'opérateur — pas de bascule depuis le coc
 - `priority: high` dans le frontmatter d'une note = boost au recall, ★ dans le
   cockpit, en tête du MEMORY.md généré. À réserver aux faits durables
   (conventions, contraintes dures).
-- Bouton **✎ digest** (onglet Memory/KB) : spawne une session qui condense la
+- Bouton **✎ digest** (onglet CortHeXis) : spawne une session qui condense la
   mémoire + l'historique git récent dans une note `project-status`.
 - Bouton **⬡ graph** : le graphe des `[[wikilinks]]` entre notes, cliquable.
 

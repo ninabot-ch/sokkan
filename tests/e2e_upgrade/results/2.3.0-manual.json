@@ -1,0 +1,67 @@
+{
+ "case": {
+  "case": "2.3.0-manual",
+  "src": "2.3.0",
+  "mode": "manual",
+  "engine": "29",
+  "compose": "bundled",
+  "mem": "4g",
+  "swap": "6g",
+  "inner_rc": "0"
+ },
+ "ok": true,
+ "criteria": {
+  "starts": {
+   "ok": true,
+   "evidence": "health 200, upgrade in 73 s"
+  },
+  "no_note_lost": {
+   "ok": true,
+   "evidence": "2.x index 52 notes -> store 51 (1 orphan merged into its note, 2 renamed); lost: none"
+  },
+  "dates_identical": {
+   "ok": true,
+   "evidence": "51/51 dates identical; migration done, verify dates_wrong=[] younger=[]"
+  },
+  "search_during_migration": {
+   "ok": true,
+   "evidence": "98 searches 1/s inside the api during the migration, 0 wrong/failed ({'memory.db/index': 92, 'store/-': 6}); through the web: 203 searches over the whole update, unanswered 12 (longest gap 12 s = the rebuild/restart), after 3.0 answered: 0 failed"
+  },
+  "recall_injected": {
+   "ok": true,
+   "evidence": "during the migration True, after True"
+  },
+  "corthexis_and_api": {
+   "ok": true,
+   "evidence": "graph 200 (51 nodes), CortHeXis tab in the web bundle True, /api/memory/migration 200 done, session kept True, board cards kept True, new note indexed after the switch True"
+  },
+  "bench_not_worse": {
+   "ok": true,
+   "evidence": "before hit@1 33/34 MRR 0.9706 -> after 34/34 MRR 1.0"
+  },
+  "rollback": {
+   "ok": true,
+   "evidence": "2.3.0 back up 200, bench hit@1 33/34 MRR 0.9706, session True, cards True, memory.db untouched by 3.0 True"
+  },
+  "no_oom": {
+   "ok": true,
+   "evidence": "OOM kills in the machine: 0; peak working set 2128 MB; migration phase 2059 MB"
+  }
+ },
+ "ram": {
+  "peak_mb_by_phase": {
+   "build+start 2.3.0": 199,
+   "seed data": 1448,
+   "upgrade (manual)": 1390,
+   "migration": 2059,
+   "checks after": 1872,
+   "rollback to 2.3.0": 2128,
+   "done": 1091
+  },
+  "oom_kills": 0,
+  "peak_mb": 2128
+ },
+ "compose": "Docker Compose version v5.5.1",
+ "engine": "29.8.2",
+ "tree": "3.0 tree: HEAD (00ce913)"
+}

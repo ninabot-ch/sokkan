@@ -1,0 +1,34 @@
+{
+  "_doc": "True problems of the fixture corpus, as (check, note). Everything else the review flags is a false positive. late-note is added by the test after indexing (index out of sync); office-wifi and parking-rules get a new description between two index passes (only office-wifi leaves a stale paragraph). FAKE_SECRET and LONG_TEXT are filled in by the test.",
+  "expected": [
+    ["stale_open", "print-partner"],
+    ["secrets", "api-credentials"],
+    ["injection", "meeting-notes-sept"],
+    ["broken_links", "pricing-2026"],
+    ["naming", "Team Calendar"],
+    ["no_description", "holiday-policy"],
+    ["frontmatter", "broken-header"],
+    ["no_type", "untyped-note"],
+    ["orphans", "lonely-fact"],
+    ["near_duplicates", "printer-setup"],
+    ["near_duplicates", "printer-configuration"],
+    ["giant_notes", "research-dump"],
+    ["dead_paths", "deploy-runbook"],
+    ["description_drift", "office-wifi"],
+    ["index_desync", "late-note"]
+  ],
+  "traps": {
+    "client-onboarding": "[[links]] inside inline code and a code block are examples",
+    "color-palette": "[[brand_guide]] and [[brand-guide|guide]] resolve to brand-guide",
+    "studio-overview": "[[Brand Guide]] resolves to brand-guide",
+    "invoice-process": "docs/invoicing.md exists; infra/billing/export.sh is marked (removed)",
+    "website-redesign": "old project with TODO, but closed on a date",
+    "supplier-list": "old note with TODO, but a reference, not a project",
+    "security-policy": "placeholder keys and a quoted attack in a code block",
+    "feedback-short-emails": "no links, but a rule (feedback) is not an orphan",
+    "user-profile-owner": "no links, but a user profile is not an orphan",
+    "deploy-runbook": "scripts/deploy.sh exists, scripts/*.sh is a glob",
+    "parking-rules": "description reworded, no fact changed",
+    "brand-guide": "same topic as color-palette, not a duplicate"
+  }
+}

@@ -3,6 +3,76 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.0.0 — unreleased — "One memory"
+- **A new memory engine, CortHeXis.** The SQLite index (`memory.db`, vectors as
+  JSON scanned in Python at every search) is replaced by a Postgres + pgvector
+  store (`db` service): hybrid search (dense HNSW + lexical on name/description
+  and body), index generations (a new model is indexed in the background while
+  the current one serves, then switched atomically), dates with their provenance
+  in every result. The `.md` notes stay the source of truth. Load test: p95
+  52-115 ms at 250 000 chunks in a 1 GB container.
+- **Local embedding models, three profiles.** `corthexis-embed` (llama.cpp) serves
+  EmbeddingGemma-300m by default — downloaded at first run only after its licence,
+  the Gemma Terms of Use, is accepted; declined or undecided = multilingual-e5-base
+  (MIT). `leger`, `standard`, `gpu`, recommended by Magnitude from cores, RAM and
+  GPU (`./scripts/memory-setup.sh`). Bench (300 questions): MRR 0.82 on CPU, 0.88
+  on GPU with the reranker, against 0.55 for the 2.x model.
+- **Recall at every message, and in every sub-agent.** SOKKAN installs two hooks in
+  every session it starts (chat and terminal): each message brings the related notes
+  into the context (top 4, a threshold calibrated per embedding model, a note named in
+  the message always comes, no note twice in a session), and a sub-agent started with
+  the Task / Agent tool receives the recall of its own task in its prompt — until now
+  it started with nothing. Every recall is recorded (`GET /api/memory/recall-log`):
+  which session or sub-agent received which notes, with which score, from which index.
+- **The 3.0 memory store is the default**: notes are indexed into Postgres + pgvector
+  at start, when a file changes (~6 s) and periodically; `sokkan memory
+  index|search|get|status`. `CORTHEXIS_MEMORY_BACKEND=auto` (default) migrates a 2.x memory first (below),
+  `sqlite` keeps the 2.x index, `postgres` = the store only.
+- **Automatic migration from 2.x, without loss** (`docs/UPGRADE.md`). At the first
+  start the notes are archived in the data volume, then repaired (one naming
+  convention, orphan updates merged, broken frontmatter rewritten — the plan is
+  logged and shown before it is applied), their dates imported (frontmatter first,
+  else the 2.x file date, labelled as reconstructed) and re-encoded into the
+  store. Two date tests (on the files, then in the store) and a check that every
+  2.x note is in the store gate the switch; until then the 2.x `memory.db` keeps
+  serving, read-only, so search never stops. Interrupted at any step, it resumes.
+  Rollback: the 2.3 image with the untouched `memory.db`.
+- **2.x settings are kept.** `ML_SERVICE_URL` becomes the `remote` profile and a
+  custom `SOKKAN_EMBED_MODEL` the `legacy` profile (same vectors as before);
+  `SOKKAN_EMBED_MODEL` is now declared in the compose file, so a value in `.env`
+  actually reaches the container.
+- **New API**: `GET /api/memory/migration` (steps, repair plan, progress, checks,
+  log, which index serves) and `POST /api/memory/migration/approve` (admin).
+- **The installer** sets up the memory profile and asks about the model licence;
+  unattended: `SOKKAN_ACCEPT_GEMMA_TERMS=1|0`.
+- **Updating a self-hosted install is tested end to end** (`tests/e2e_upgrade/`, results
+  in its `RESULTS.md`): real installs of 0.1.0, 2.0.1, 2.2.0 and 2.3.0 with a fictional
+  memory, a session and board cards, updated by the installer and by the manual steps,
+  then rolled back. What it changed:
+  - any Docker Compose v2 from 2.12 runs the compose file (no `include:`, no nested
+    default — both needed 2.20); GPU overrides go through `COMPOSE_FILE` in `.env`;
+  - `./scripts/rollback.sh <hash>` replaces the code instead of extracting an older
+    tarball over a newer folder (the older build tripped on the newer files);
+  - the web font ships with the code (no Google Fonts download during the build);
+  - a data volume of 0.1.0 (owned by root) is handed over at start, and a `memory.db`
+    of 0.x-1.x keeps serving searches during the migration.
+- **Note repairs keep links**: a note renamed from its file name (`Team Calendar` in
+  `TeamCalendar.md` → `teamcalendar`) brings `[[team-calendar]]` and every other
+  variant of its old name along. The review no longer reports an Exoscale key
+  identifier alone (its public half) as a secret.
+- **The memory tab is now CortHeXis: the memory, visible and repairable.** A live graph
+  of the notes (links, missing notes, meaning, age, health), the note with its problems,
+  the memory's health score and its history, and the recall bench. The review runs every
+  hour in the backend — where the sessions start — so "the memory server does not answer"
+  is checked the way a session would see it.
+- **Repairs in one click, never without approval.** Re-point a broken link, merge two
+  notes, rename a note to the convention, close a dormant project: each one shows the
+  exact diff first and writes only after someone approves it (journaled, with a copy of
+  what it replaced). Cases that need judgement open a « Memory curation » session loaded
+  with the findings.
+- **Alerts.** One digest a day when something changed, at once on a critical problem,
+  through the notification channels already configured.
+
 ## 2.3.0 — 2026-09-14 — "Memory writes back"
 - **Sessions can write to memory.** Recall was solid — `memory_search`,
   `memory_get`, `memory_links`, plus a deterministic pre-seed at spawn — but the

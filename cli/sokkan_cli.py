@@ -211,10 +211,117 @@ def cmd_note(args) -> None:
     print(d.get("body", ""))
 
 
+def cmd_memory(args) -> None:
+    """sokkan memory index|search|get|status (the 3.0 store, through the cockpit API)."""
+    c = client()
+    if args.action == "search":
+        if not args.arg:
+            die("usage: sokkan memory search <query> [-k N] [--deep]")
+        res = c.call("GET", "/api/memory/search?" + urllib.parse.urlencode(
+            {"q": " ".join(args.arg), "k": args.k, "deep": int(args.deep)}))
+        for r in res:
+            if r.get("empty") or r.get("error") or r.get("info"):
+                print(r.get("info") or r.get("error"))
+                return
+            star = _c("33", "★ ") if r.get("priority") else ""
+            age = r.get("age_days")
+            when = f"{age} d" if isinstance(age, int) else "?"
+            if r.get("date_source") not in (None, "frontmatter", "indexed", "transcript"):
+                when += "~"
+            rr = f" rerank {r['rerank']:.2f}" if r.get("rerank") is not None else ""
+            score = r.get("score") or 0.0
+            print(f"{_c('36', f'{score:.2f}')}"
+                  f" {star}{_c('1', r['note_name'])} ({when}{rr})")
+            print(f"      {r.get('description', '')[:160]}")
+        return
+    if args.action == "get":
+        if not args.arg:
+            die("usage: sokkan memory get <note-name>")
+        d = c.call("GET", f"/api/memory/note/{urllib.parse.quote(args.arg[0])}")
+        print(d.get("body") or f"note not found: {args.arg[0]}")
+        return
+    if args.action == "index":
+        d = c.call("POST", "/api/memory/index")
+        last = d.get("last") or {}
+        print(_c("32", "✔ indexed") + f" — generation {last.get('generation')}, "
+              f"{last.get('notes', 0)} notes, {last.get('reindexed', 0)} re-embedded, "
+              f"{last.get('pruned', 0)} pruned")
+        for w in last.get("warnings", [])[:10]:
+            print(_c("33", f"  ! {w}"))
+        return
+    d = c.call("GET", "/api/memory/status")
+    idx = d.get("index") or {}
+    emb = d.get("embed") or {}
+    print(f"  backend   {d.get('backend')}")
+    print(f"  index     {idx.get('notes', 0)} notes · {idx.get('chunks', 0)} chunks · "
+          f"generation {idx.get('generation')} · {idx.get('model')}")
+    if emb:
+        print(f"  profile   {emb.get('profile')} · {emb.get('label') or emb.get('model')} · "
+              f"reranker {d.get('rerank_policy')}")
+    rec = d.get("recall") or {}
+    if rec:
+        print(f"  recall    {'on' if rec.get('enabled') else 'off'} · top {rec.get('top_k')} · "
+              f"budget {rec.get('budget_s')} s")
+    ix = d.get("indexer") or {}
+    if ix:
+        err = f" · {_c('31', ix['last_error'])}" if ix.get("last_error") else ""
+        print(f"  indexer   {ix.get('runs', 0)} passes · last {ago(ix.get('last_run'))}{err}")
+
+
 def cmd_digest(args) -> None:
     c = client()
     s = c.call("POST", "/api/memory/digest")
     print(_c("32", f"✔ digest session {s['session_id']} spawned") + " — it will condense the memory into `project-status`")
+
+
+def _bench_line(m: dict | None) -> str:
+    if not m or not m.get("n"):
+        return "no question"
+    return (f"hit@1 {m['h1']:.2f}  hit@5 {m['h5']:.2f}  MRR {m['mrr']:.3f}  "
+            f"nDCG@10 {m['ndcg10']:.3f}  ({m['n']} questions)")
+
+
+def cmd_memory_eval(args) -> None:
+    """Recall bench on your own notes (CortHeXis → Bench)."""
+    c = client()
+    if args.add:
+        q = c.call("POST", "/api/memory/eval/questions",
+                   {"question": args.add[0], "notes": args.add[1:]})
+        print(_c("32", f"✔ question {q['id']} added") + f" → {', '.join(q['expected'])}")
+        return
+    if args.harvest:
+        r = c.call("POST", "/api/memory/eval/harvest")
+        print(_c("32", f"✔ {r['new']} new question(s)") + f" from {r['files']} session(s)")
+    if args.run:
+        before = (c.call("GET", "/api/memory/eval").get("last") or {}).get("id")
+        c.call("POST", "/api/memory/eval/run")
+        print("bench running…", end="", flush=True)
+        for _ in range(600):
+            time.sleep(1)
+            d = c.call("GET", "/api/memory/eval")
+            if (d.get("last") or {}).get("id") != before and "run" not in d.get("busy", []):
+                break
+            print(".", end="", flush=True)
+        print()
+    d = c.call("GET", "/api/memory/eval")
+    if not d.get("available"):
+        print(d.get("reason") or "recall bench unavailable")
+        return
+    qc = d["questions"]
+    print(f"questions  {qc['total_active']} active — from sessions {qc['transcript']['active']}, "
+          f"written {qc['client']['active']}, generated {qc['generated']['active']}")
+    last = d.get("last")
+    if last:
+        print(f"last run   #{last['id']} {last['started_at'][:16]} (generation "
+              f"{last['generation_id']}, {last.get('profile') or '-'})")
+        print("  all        " + _bench_line(last["metrics"].get("overall")))
+        for src, m in (last["metrics"].get("by_source") or {}).items():
+            print(f"  {src:10} " + _bench_line(m))
+    else:
+        print("no run yet — `sokkan memory eval --run`")
+    for f in d.get("findings", []):
+        col = "31" if f["severity"] == "critical" else "33"
+        print(_c(col, f"! {f['title']}") + f" — {f['detail']}")
 
 
 def cmd_health(args) -> None:
@@ -262,8 +369,24 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("name")
     s.set_defaults(fn=cmd_note)
 
+    s = sub.add_parser("memory", help="memory store: index | search | get | status")
+    s.add_argument("action", choices=["index", "search", "get", "status"])
+    s.add_argument("arg", nargs="*")
+    s.add_argument("-k", type=int, default=8)
+    s.add_argument("--deep", action="store_true", help="rerank even on a CPU profile (slow)")
+    s.set_defaults(fn=cmd_memory)
+
     s = sub.add_parser("digest", help="spawn the memory-digest session")
     s.set_defaults(fn=cmd_digest)
+
+    s = sub.add_parser("memory", help="memory tools (eval: recall bench on your notes)")
+    msub = s.add_subparsers(dest="memcmd", required=True)
+    e = msub.add_parser("eval", help="recall bench: questions, last results, run it")
+    e.add_argument("--run", action="store_true", help="run the bench now and wait")
+    e.add_argument("--harvest", action="store_true", help="collect questions from sessions")
+    e.add_argument("--add", nargs="+", metavar=("QUESTION", "NOTE"),
+                   help="add a question and the note(s) that answer it")
+    e.set_defaults(fn=cmd_memory_eval)
 
     s = sub.add_parser("health", help="ping /api/health")
     s.set_defaults(fn=cmd_health)

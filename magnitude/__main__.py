@@ -3,6 +3,7 @@
 
   python3 -m magnitude --cockpit URL --token TOK   # agent (boucle de sync)
   python3 -m magnitude --profile                   # one-shot : profil JSON stdout
+  python3 -m magnitude --memory-profile [--env]    # profil mémoire recommandé (leger|standard|gpu)
 """
 import argparse
 import json
@@ -21,10 +22,24 @@ def main() -> int:
                     help="pairing token from the cockpit's Magnitude tab")
     ap.add_argument("--profile", action="store_true",
                     help="print the hardware profile as JSON and exit")
+    ap.add_argument("--memory-profile", action="store_true",
+                    help="recommend the SOKKAN memory profile (leger|standard|gpu) "
+                         "for this machine, as JSON, and exit")
+    ap.add_argument("--env", action="store_true",
+                    help="with --memory-profile: print KEY=VALUE lines for .env")
     ap.add_argument("--version", action="version",
                     version=f"magnitude {__version__}")
     args = ap.parse_args()
 
+    if args.memory_profile:
+        # vendored copy of the CortHeXis memory-core `profiles.py` (stdlib only)
+        from . import memprofile
+        rec = memprofile.detect()
+        if args.env:
+            print(memprofile.env_lines(rec, "SOKKAN"), end="")
+        else:
+            print(json.dumps(rec, indent=2, ensure_ascii=False))
+        return 0
     if args.profile:
         print(json.dumps(hw.build_profile(), indent=2))
         return 0

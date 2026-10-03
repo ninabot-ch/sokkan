@@ -13,6 +13,14 @@ if [ "$(id -u)" = "0" ]; then
   if [ -d /workspace ] && [ "$(stat -c %u /workspace 2>/dev/null)" = "0" ]; then
     chown sokkan:sokkan /workspace 2>/dev/null || true
   fi
+  # /data created by SOKKAN <= 0.1.0 (it ran as root): handed over to uid 1000 once, so
+  # that an update from 0.1.0 starts without a manual chown. Only SOKKAN's own volume.
+  D="${SOKKAN_DATA_DIR:-/data}"
+  if [ -d "$D" ] && { [ "$(stat -c %u "$D" 2>/dev/null)" = "0" ] \
+       || [ -n "$(find "$D" -maxdepth 3 -xdev -uid 0 -print -quit 2>/dev/null)" ]; }; then
+    echo "[sokkan] $D has files owned by root (volume of SOKKAN <= 0.1.0): chown to uid 1000" >&2
+    chown -R sokkan:sokkan "$D" 2>/dev/null || true
+  fi
   exec setpriv --reuid=sokkan --regid=sokkan --init-groups "$0" "$@"
 fi
 

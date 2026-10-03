@@ -1,0 +1,82 @@
+# CortHeXis memory engine — model servers (llama.cpp) and first-run model setup.
+#
+# Self-contained copy for CortHeXis alone (`docker compose -f docker/embed/compose.yml up -d`).
+# SOKKAN does not include it: the same services are written in docker-compose.yml (no
+# `include:`, which needs Docker Compose 2.20+); tests/test_compose.py keeps both in sync.
+# Variables: CORTHEXIS_* (SOKKAN_* read as a fallback). Nothing is published on
+# the host: clients reach the servers on the compose network.
+#
+#   corthexis-embed-fetch  one-shot: licence decision (Gemma Terms of Use), download
+#                          + SHA-256 check, selection → volume corthexis-models
+#   corthexis-embed        llama.cpp --embedding (EmbeddingGemma-300m Q8, or the
+#                          MIT fallback when the terms are declined)
+#   corthexis-rerank       llama.cpp --reranking (compose profile `rerank`:
+#                          Standard = background only, GPU = interactive top 10)
+#
+# GPU (SOKKAN): docker/embed/compose.sycl.yml (Intel Arc, llama.cpp SYCL) or
+# compose.cuda.yml (NVIDIA), overrides of the SOKKAN docker-compose.yml. Apple GPU:
+# Docker has no Metal — run docker/embed/run.sh natively with LLAMA_SERVER=llama-server.
+#
+# First run, interactive (shows the terms, asks):
+#   docker compose run --rm corthexis-embed-fetch python /opt/corthexis/models.py setup --interactive
+x-llamacpp: &llamacpp
+  image: ghcr.io/ggml-org/llama.cpp:${CORTHEXIS_LLAMACPP_TAG:-server-b11347}
+  restart: unless-stopped
+  entrypoint: ["/bin/sh", "/opt/corthexis/run.sh"]
+  volumes:
+    - corthexis-models:/models:ro
+    - ./run.sh:/opt/corthexis/run.sh:ro
+  depends_on:
+    corthexis-embed-fetch:
+      condition: service_completed_successfully
+  security_opt:
+    - no-new-privileges:true
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
+
+services:
+  corthexis-embed-fetch:
+    image: python:3.12-slim
+    restart: "no"
+    command: ["python", "/opt/corthexis/models.py", "setup"]
+    environment:
+      CORTHEXIS_MODELS_DIR: /models
+      # empty profile + ML_SERVICE_URL = SOKKAN 2.x remote embeddings: nothing to install
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-}}
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # explicit unattended answer to the Gemma Terms of Use: 1 = accept, 0 = decline;
+      # empty = undecided → the MIT fallback runs until someone accepts
+      CORTHEXIS_ACCEPT_GEMMA_TERMS: ${CORTHEXIS_ACCEPT_GEMMA_TERMS:-${SOKKAN_ACCEPT_GEMMA_TERMS:-}}
+      CORTHEXIS_EMBED_FALLBACK: ${CORTHEXIS_EMBED_FALLBACK:-}
+      CORTHEXIS_OWNER: ${CORTHEXIS_OWNER:-${SOKKAN_OWNER_EMAIL:-}}
+      CORTHEXIS_MODEL_BASE_URL: ${CORTHEXIS_MODEL_BASE_URL:-}
+      CORTHEXIS_RERANK: ${CORTHEXIS_RERANK:-}
+    volumes:
+      - corthexis-models:/models
+      - ../../memory/core/models.py:/opt/corthexis/models.py:ro
+    security_opt:
+      - no-new-privileges:true
+
+  corthexis-embed:
+    <<: *llamacpp
+    command: ["embed"]
+    environment:
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-leger}}
+      CORTHEXIS_EMBED_DEVICE: cpu
+    mem_limit: ${CORTHEXIS_EMBED_MEM:-2g}
+
+  corthexis-rerank:
+    <<: *llamacpp
+    profiles: ["rerank"]
+    command: ["rerank"]
+    environment:
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-leger}}
+      CORTHEXIS_EMBED_DEVICE: cpu
+    mem_limit: ${CORTHEXIS_RERANK_MEM:-3g}
+
+volumes:
+  corthexis-models:

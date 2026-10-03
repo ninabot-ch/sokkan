@@ -1,0 +1,217 @@
+"""memory_search_server → 3.0 store bridge (memory/store_backend.py), with a fake store."""
+import pytest
+
+pytest.importorskip("psycopg")
+
+from core.search import Hit  # noqa: E402
+from core.store import DimensionMismatch  # noqa: E402
+
+
+class FakeStore:
+    def __init__(self, hits=None, dim_error=False):
+        self.hits = hits if hits is not None else [
+            Hit("deploy-note", 0.9, 0.95, 0.5, None, "deploy with the tunnel", 12, "indexed",
+                description="how we deploy", source_path="/m/deploy-note.md", generation=3)]
+        self.dim_error = dim_error
+        self.calls = []
+
+    def search(self, qv, text, k, rerank=None):
+        self.calls.append((qv, text, k))
+        if self.dim_error and qv is not None:
+            raise DimensionMismatch("vector of dimension 2, generation expects 768")
+        return self.hits
+
+    def get_note(self, name):
+        from core.contract import NoteRecord
+        if name != "deploy-note":
+            return None
+        return NoteRecord("deploy-note", "d", "project", 0, "/m/deploy_note.md",
+                          "2026-01-01T00:00:00+00:00", "migrated-mtime", "the body")
+
+    def find_note_by_path(self, stem):
+        return "deploy-note" if stem == "deploy_note" else None
+
+
+@pytest.fixture(autouse=True)
+def no_2x_install(monkeypatch, tmp_path):
+    """Never look at a real ~/.local/share/sokkan/memory.db of the test machine."""
+    monkeypatch.setenv("SOKKAN_MEMORY_DB", str(tmp_path / "absent-memory.db"))
+    monkeypatch.setenv("CORTHEXIS_MIGRATION_DIR", str(tmp_path / "absent-migration"))
+
+
+@pytest.fixture()
+def mem(monkeypatch):
+    import memory_search_server as m
+    import store_backend as sb
+
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "postgres")
+    fake = FakeStore()
+    monkeypatch.setattr(sb, "_store", fake)
+    monkeypatch.setattr(sb, "embed_query", lambda q: [1.0, 0.0])
+    monkeypatch.setattr(sb, "_reranker", lambda deep=False: None)
+    return m, fake
+
+
+def test_backend_follows_the_database(monkeypatch):
+    import store_backend as sb
+    for v in ("CORTHEXIS_MEMORY_BACKEND", "SOKKAN_MEMORY_BACKEND", "CORTHEXIS_DATABASE_URL",
+              "SOKKAN_DATABASE_URL"):
+        monkeypatch.delenv(v, raising=False)
+    assert not sb.enabled()                       # no database: the 2.x memory.db
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "postgresql://u:p@db/x")
+    assert sb.enabled()                           # 3.0 default: the store
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "sqlite")
+    assert not sb.enabled()                       # explicit opt-out (migration)
+    monkeypatch.delenv("CORTHEXIS_MEMORY_BACKEND")
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
+    monkeypatch.setenv("SOKKAN_MEMORY_BACKEND", "postgres")
+    assert sb.enabled()
+
+
+def test_search_goes_through_the_store(mem):
+    m, fake = mem
+    res = m.memory_search("deploy tunnel", top_k=3)
+    assert fake.calls == [([1.0, 0.0], "deploy tunnel", 3)]
+    r = res[0]
+    assert r["note_name"] == "deploy-note" and r["path"] == "deploy-note.md"
+    assert r["age_days"] == 12 and r["date_source"] == "indexed" and r["generation"] == 3
+    assert "degraded" not in r
+
+
+def test_embedding_down_degrades_to_lexical(mem, monkeypatch):
+    m, fake = mem
+
+    def boom(_q):
+        raise RuntimeError("down")
+
+    import store_backend as sb
+    monkeypatch.setattr(sb, "embed_query", boom)
+    res = m.memory_search("deploy tunnel", top_k=2)
+    assert fake.calls[-1][0] is None and "lexical-only" in res[0]["degraded"]
+    assert "error" in m.memory_search("de la et", top_k=2)[0]
+
+
+def test_dimension_mismatch_degrades(mem, monkeypatch):
+    m, fake = mem
+    fake.dim_error = True
+    res = m.memory_search("deploy tunnel", top_k=2)
+    assert "does not match the index" in res[0]["degraded"]
+
+
+def test_empty_store_says_so(mem):
+    m, fake = mem
+    fake.hits = []
+    assert m.memory_search("x y z", top_k=2)[0]["empty"] is True
+
+
+def test_memory_get_via_store(mem):
+    m, _ = mem
+    out = m.memory_get("deploy_note")
+    assert out.startswith("[note deploy-note — updated 2026-01-01") and "migrated-mtime" in out
+    assert out.endswith("the body")
+    assert m.memory_get("nope") == "note not found: nope"
+
+
+# ------------------------------------------------------------- auto: 2.x serves until migrated
+def _state(tmp_path, status):
+    import json
+    d = tmp_path / "memory-migration"
+    d.mkdir(exist_ok=True)
+    (d / "state.json").write_text(json.dumps({"status": status}))
+    import os
+    t = os.stat(d / "state.json").st_mtime + len(status)   # a new mtime for the cache
+    os.utime(d / "state.json", (t, t))
+
+
+def test_auto_serves_memory_db_until_the_migration_is_done(monkeypatch, tmp_path):
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "auto")
+    monkeypatch.setenv("CORTHEXIS_MIGRATION_DIR", str(tmp_path / "memory-migration"))
+    assert sb.configured() == "auto" and sb.enabled()   # new install: straight to the store
+    (tmp_path / "memory.db").write_bytes(b"")
+    monkeypatch.setenv("SOKKAN_MEMORY_DB", str(tmp_path / "memory.db"))
+    assert not sb.enabled()                             # 2.x install, migration not started
+    for status, served in (("running", False), ("waiting", False), ("blocked", False),
+                           ("done", True), ("not-needed", True)):
+        _state(tmp_path, status)
+        assert sb.enabled() is served, status
+
+
+def test_legacy_query_refuses_another_model_than_memory_db(monkeypatch, tmp_path):
+    import sqlite3
+
+    import store_backend as sb
+    from core import embed
+
+    monkeypatch.setenv("CORTHEXIS_MEMORY_BACKEND", "auto")
+    monkeypatch.setenv("CORTHEXIS_MIGRATION_DIR", str(tmp_path / "none"))
+    db = tmp_path / "memory.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    con.execute("INSERT INTO meta VALUES ('model', 'remote:http://old-ml:8001')")
+    con.commit()
+    con.close()
+
+    class Legacy:
+        def identity(self):
+            return "fastembed:minilm@384"
+
+        def identity_2x(self):
+            return "local:" + embed.LEGACY_MODEL
+
+        def embed_query(self, text, timeout=30):
+            return [1.0]
+
+    monkeypatch.setattr(sb, "_legacy", Legacy())
+    with pytest.raises(RuntimeError, match="memory.db was built with remote:http://old-ml"):
+        sb.legacy_embed_query("q", db)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE meta SET value = ?", ("local:" + embed.LEGACY_MODEL,))
+    con.commit()
+    con.close()
+    assert sb.legacy_embed_query("q", db) == [1.0]
+
+
+def test_compose_dsn_from_the_db_password(monkeypatch):
+    """The compose file passes SOKKAN_DB_PASSWORD, not a URL (a nested default needs
+    Compose 2.20): the bridge builds the URL of the `db` service, URL-encoded."""
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "")    # recorded: restored after the test
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
+    monkeypatch.delenv("SOKKAN_DATABASE_URL", raising=False)
+    monkeypatch.setenv("SOKKAN_DB_PASSWORD", "p@ss/w:rd")
+    sb._compose_dsn()
+    import os
+    assert os.environ["CORTHEXIS_DATABASE_URL"] == \
+        "postgresql://sokkan:p%40ss%2Fw%3Ard@db:5432/sokkan"
+    assert sb.database_configured() and sb.configured() == "auto"
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "postgresql://u:p@elsewhere/x")
+    sb._compose_dsn()                     # an explicit URL wins
+    assert os.environ["CORTHEXIS_DATABASE_URL"] == "postgresql://u:p@elsewhere/x"
+
+
+def test_no_password_no_database(monkeypatch):
+    import store_backend as sb
+    monkeypatch.setenv("CORTHEXIS_DATABASE_URL", "")    # recorded: restored after the test
+    monkeypatch.delenv("CORTHEXIS_DATABASE_URL")
+    monkeypatch.delenv("SOKKAN_DATABASE_URL", raising=False)
+    monkeypatch.delenv("SOKKAN_DB_PASSWORD", raising=False)
+    sb._compose_dsn()
+    assert not sb.database_configured()
+
+
+def test_memory_db_of_sokkan_1x_is_served_during_the_migration():
+    """0.x-1.x wrote meta.model = the bare model name: same MiniLM vectors as 2.x."""
+    import store_backend as sb
+    from core.embed import LegacyEmbedder
+    local = LegacyEmbedder()
+    assert sb.same_2x_model("local:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                            local)
+    assert sb.same_2x_model("paraphrase-multilingual-MiniLM-L12-v2", local)       # 0.1-1.x
+    assert not sb.same_2x_model("intfloat/multilingual-e5-small", local)
+    assert not sb.same_2x_model("remote:http://ml:8001", local)
+    remote = LegacyEmbedder(ml_url="http://ml:8001")
+    assert sb.same_2x_model("remote:http://ml:8001", remote)
+    assert sb.same_2x_model("paraphrase-multilingual-MiniLM-L12-v2", remote)      # 1.x, remote
+    assert not sb.same_2x_model("local:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                                remote)

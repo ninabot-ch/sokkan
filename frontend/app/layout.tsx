@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
-import { Baloo_2 } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const baloo = Baloo_2({
-  subsets: ["latin"],
-  weight: ["600", "800"],
+// Baloo 2 (SIL OFL 1.1, fonts/Baloo2-OFL.txt), latin subset, variable weight: shipped in
+// the repository rather than fetched from Google Fonts at build time, so that a
+// self-hosted `docker compose up --build` does not depend on fonts.googleapis.com
+// (a flaky answer failed an update build; an offline machine could not build at all).
+const baloo = localFont({
+  src: [{ path: "./fonts/baloo2-latin.woff2", weight: "400 800", style: "normal" }],
   variable: "--font-baloo",
   display: "swap",
 });

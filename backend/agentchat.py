@@ -46,6 +46,7 @@ except ImportError:  # pragma: no cover
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import instance  # budgets de coût (hard stop HITL par session)
+import memrecall  # rappel mémoire à chaque tour + sous-agents (3.0)
 import llm  # config LLM par instance (BYOK / inférence incluse)
 import notify  # HITL push : ping si une permission traîne sans réponse
 import vault  # coffre de secrets par instance → env des sessions (jamais au LLM)
@@ -175,6 +176,10 @@ class AgentSession:
                 setting_sources=["user", "project", "local"],
                 mcp_servers=MCP_SERVERS,
             )
+            # memory recall at every turn + for every sub-agent (3.0, P0-3)
+            hooks = memrecall.sdk_hooks(self.sid)
+            if hooks:
+                opts_kwargs["hooks"] = hooks
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session

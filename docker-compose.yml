@@ -1,4 +1,30 @@
 # SOKKAN — self-hosted, single-user by default. See .env.example.
+
+# Memory engine (CortHeXis): llama.cpp model servers and the first-run model setup
+# (Gemma Terms of Use accepted → EmbeddingGemma, else an MIT model) are services of
+# this file (no `include:` — any Docker Compose v2 runs it). GPU: the accelerator file
+# docker/embed/compose.sycl.yml (Intel Arc) or compose.cuda.yml (NVIDIA) is added by
+# scripts/memory-setup.sh through COMPOSE_FILE in .env; the reranker runs with
+# COMPOSE_PROFILES=rerank. Standalone copy for CortHeXis alone: docker/embed/compose.yml.
+x-llamacpp: &llamacpp
+  image: ghcr.io/ggml-org/llama.cpp:${CORTHEXIS_LLAMACPP_TAG:-server-b11347}
+  restart: unless-stopped
+  entrypoint: ["/bin/sh", "/opt/corthexis/run.sh"]
+  volumes:
+    - corthexis-models:/models:ro
+    - ./docker/embed/run.sh:/opt/corthexis/run.sh:ro
+  depends_on:
+    corthexis-embed-fetch:
+      condition: service_completed_successfully
+  security_opt:
+    - no-new-privileges:true
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
+
 services:
   api:
     build: { context: ., dockerfile: docker/api.Dockerfile }
@@ -21,6 +47,35 @@ services:
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
       # optional remote embedding service; empty = local ONNX (fastembed)
       ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # 2.x custom fastembed model: serves the 2.x index during the migration and, with
+      # no SOKKAN_MEMORY_PROFILE, maps to the `legacy` profile (declared here: a variable
+      # only in .env never reaches the container — the 2.0.1 trap)
+      SOKKAN_EMBED_MODEL: ${SOKKAN_EMBED_MODEL:-}
+      # memory profile (leger | standard | gpu; written by scripts/memory-setup.sh).
+      # Empty = 2.x behaviour: `remote` when ML_SERVICE_URL is set, else leger.
+      CORTHEXIS_MEMORY_PROFILE: ${SOKKAN_MEMORY_PROFILE:-}
+      CORTHEXIS_MODELS_DIR: /models
+      # optional overrides: embedding servers tried in order (e.g. a Magnitude GPU
+      # node, then the local container) and reranker URL ("off" disables it)
+      CORTHEXIS_EMBED_URLS: ${SOKKAN_EMBED_URLS:-}
+      CORTHEXIS_RERANK_URL: ${SOKKAN_RERANK_URL:-}
+      # memory engine (CortHeXis) 3.0: Postgres + pgvector store of the `db` service,
+      # filled by the 3.0 indexer (start, file changes, every CORTHEXIS_REINDEX_S).
+      # auto = an existing 2.x memory is migrated at the first start (archive, normalize,
+      # dates, generation 1 — see docs/UPGRADE.md) while memory.db keeps serving, then the
+      # store serves (a new install goes straight to the store); sqlite = stay on the 2.x
+      # index; postgres = the store only, no migration.
+      # empty = the `db` service below (memory/store_backend.py builds the URL from
+      # SOKKAN_DB_PASSWORD: a nested default here needs Docker Compose 2.20+)
+      CORTHEXIS_DATABASE_URL: ${CORTHEXIS_DATABASE_URL:-}
+      SOKKAN_DB_PASSWORD: ${SOKKAN_DB_PASSWORD:-sokkan}
+      CORTHEXIS_MEMORY_BACKEND: ${CORTHEXIS_MEMORY_BACKEND:-auto}
+      # repairs of the notes during the migration: auto | ask (wait for the go in the UI) | off
+      CORTHEXIS_MIGRATION_NORMALIZE: ${SOKKAN_MIGRATION_NORMALIZE:-auto}
+      # memory recall injected at every message and into every sub-agent (0 = off)
+      CORTHEXIS_RECALL: ${CORTHEXIS_RECALL:-1}
+      CORTHEXIS_LEXICAL_WEIGHT: ${CORTHEXIS_LEXICAL_WEIGHT:-}
+      CORTHEXIS_HNSW_EF_SEARCH: ${CORTHEXIS_HNSW_EF_SEARCH:-}
       # optional model override for spawned sessions (default: CLI default)
       SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
       # included-inference mode (seeded at provisioning): route sessions through
@@ -49,6 +104,11 @@ services:
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
+      # read-write: the Gemma Terms decision taken in the UI is recorded in licence.json
+      - corthexis-models:/models
+    depends_on:
+      db:
+        condition: service_healthy
     extra_hosts:
       # reach services on the Docker host (Magnitude shim :8790, local proxies)
       - "host.docker.internal:host-gateway"
@@ -61,6 +121,85 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  # Memory store (CortHeXis 3.0): Postgres 16 + pgvector. Internal network only (no
+  # published port). The .md notes stay the source of truth; this volume holds the index
+  # and the HISTORY of the notes (note_versions, recall_log): back it up.
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sokkan
+      POSTGRES_DB: sokkan
+      # set SOKKAN_DB_PASSWORD in .env (the default is only reachable from the api container)
+      POSTGRES_PASSWORD: ${SOKKAN_DB_PASSWORD:-sokkan}
+      # memory budget, sized for the Light profile (4 GB VM); raise on bigger hosts
+      SOKKAN_DB_SHARED_BUFFERS: ${SOKKAN_DB_SHARED_BUFFERS:-256MB}
+      SOKKAN_DB_MAINTENANCE_WORK_MEM: ${SOKKAN_DB_MAINTENANCE_WORK_MEM:-512MB}
+    command: >-
+      sh -c 'exec docker-entrypoint.sh postgres
+      -c shared_buffers=$${SOKKAN_DB_SHARED_BUFFERS}
+      -c maintenance_work_mem=$${SOKKAN_DB_MAINTENANCE_WORK_MEM}
+      -c max_parallel_maintenance_workers=2
+      -c work_mem=16MB'
+    # parallel HNSW builds use dynamic shared memory (Docker's default /dev/shm is 64 MB)
+    shm_size: 640mb
+    volumes:
+      - sokkan-pg:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sokkan -d sokkan"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # one-shot: licence decision (Gemma Terms of Use), download + SHA-256 check, model
+  # selection → volume corthexis-models. Interactive first run (shows the terms, asks):
+  #   docker compose run --rm corthexis-embed-fetch python /opt/corthexis/models.py setup --interactive
+  corthexis-embed-fetch:
+    image: python:3.12-slim
+    restart: "no"
+    command: ["python", "/opt/corthexis/models.py", "setup"]
+    environment:
+      CORTHEXIS_MODELS_DIR: /models
+      # empty profile + ML_SERVICE_URL = SOKKAN 2.x remote embeddings: nothing to install
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-}}
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-}
+      # explicit unattended answer to the Gemma Terms of Use: 1 = accept, 0 = decline;
+      # empty = undecided → the MIT fallback runs until someone accepts
+      CORTHEXIS_ACCEPT_GEMMA_TERMS: ${CORTHEXIS_ACCEPT_GEMMA_TERMS:-${SOKKAN_ACCEPT_GEMMA_TERMS:-}}
+      CORTHEXIS_EMBED_FALLBACK: ${CORTHEXIS_EMBED_FALLBACK:-}
+      CORTHEXIS_OWNER: ${CORTHEXIS_OWNER:-${SOKKAN_OWNER_EMAIL:-}}
+      CORTHEXIS_MODEL_BASE_URL: ${CORTHEXIS_MODEL_BASE_URL:-}
+      CORTHEXIS_RERANK: ${CORTHEXIS_RERANK:-}
+    volumes:
+      - corthexis-models:/models
+      - ./memory/core/models.py:/opt/corthexis/models.py:ro
+    security_opt:
+      - no-new-privileges:true
+
+  # llama.cpp --embedding (EmbeddingGemma-300m Q8, or the MIT fallback when the terms
+  # are declined). Not published on the host: the api reaches it on the compose network.
+  corthexis-embed:
+    <<: *llamacpp
+    command: ["embed"]
+    environment:
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-leger}}
+      CORTHEXIS_EMBED_DEVICE: cpu
+    mem_limit: ${CORTHEXIS_EMBED_MEM:-2g}
+
+  # llama.cpp --reranking (compose profile `rerank`: Standard = background only,
+  # GPU = interactive top 10)
+  corthexis-rerank:
+    <<: *llamacpp
+    profiles: ["rerank"]
+    command: ["rerank"]
+    environment:
+      CORTHEXIS_MEMORY_PROFILE: ${CORTHEXIS_MEMORY_PROFILE:-${SOKKAN_MEMORY_PROFILE:-leger}}
+      CORTHEXIS_EMBED_DEVICE: cpu
+    mem_limit: ${CORTHEXIS_RERANK_MEM:-3g}
 
   # Fleet edge (managed / opt-in): terminates the client's CUSTOM domains on
   # 80/443 with on-demand Let's Encrypt TLS. Serves only hostnames approved by
@@ -99,5 +238,7 @@ services:
 
 volumes:
   sokkan-data:
+  sokkan-pg:
+  corthexis-models:
   caddy-data:
   caddy-config:

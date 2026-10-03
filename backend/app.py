@@ -33,8 +33,10 @@ import jwt
 # logique de recherche RAG partagée avec le serveur MCP (une seule source de ranking)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
 import index_memory  # noqa: E402
+import memory_migration  # noqa: E402 — 2.x -> 3.0 memory migration (store_backend auto)
 import missions  # noqa: E402
 import memory_search_server as mem  # noqa: E402
+import store_backend  # noqa: E402 — 3.0 store (CortHeXis)
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse,
@@ -53,6 +55,8 @@ import agentchat
 import session as sess
 import termproxy
 import memorykb
+import corthexis
+import memrecall
 import playbooks
 import edge
 import notify
@@ -63,6 +67,7 @@ import fleetterm
 import instance
 import llm
 import magnitude
+import memeval
 import panestate
 import preview
 import previewenv
@@ -80,6 +85,25 @@ PROJECT_DIR = Path(
 ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "active"
 
 REINDEX_S = float(os.environ.get("SOKKAN_REINDEX_S", "120"))
+
+
+_index_runner = None  # 3.0: core.indexer.IndexRunner (store backend)
+
+
+def _start_store_indexer() -> None:
+    """3.0 : l'indexeur CortHeXis écrit dans le store Postgres — au démarrage, sur
+    changement de fichiers (signature du dossier, toutes les CORTHEXIS_WATCH_S) et
+    périodiquement (CORTHEXIS_REINDEX_S), normalisation des notes comprise."""
+    global _index_runner
+    from core.indexer import IndexConfig, IndexRunner
+
+    # Écrit avec l'embedder qui sert la génération active (profil choisi dans l'UI) ;
+    # n'active QUE la première génération (instance neuve) : un changement de modèle passe
+    # par la bascule mesurée (core.switch, banc avant bascule), jamais par cette boucle.
+    cfg = IndexConfig.from_env(memory_dir=index_memory.MEMORY_DIR)
+    _index_runner = IndexRunner(store_backend.get_store, store_backend.index_embedder, cfg,
+                                activate_first_only=True)
+    _index_runner.start()
 
 
 def _reindex_loop() -> None:
@@ -103,9 +127,18 @@ def _reindex_loop() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    if store_backend.enabled():
+        _start_store_indexer()
+    elif memory_migration.active():
+        # 2.x -> 3.0: memory.db (read-only) serves while the memory is migrated in the
+        # background; the store indexer takes over once generation 1 is switched on
+        memory_migration.start(on_done=_start_store_indexer)
+    else:
+        threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
+    memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     yield
 
 
@@ -687,6 +720,14 @@ def magnitude_state(_u: dict = Depends(require("viewer")),
     return magnitude.view()
 
 
+@app.get("/api/magnitude/memory")
+def magnitude_memory(_u: dict = Depends(require("viewer")),
+                     _f: None = Depends(feature_magnitude)) -> dict:
+    """Profil mémoire (CortHeXis) : courant, recommandé (cockpit + nodes), coûts
+    par profil, modèle actif et décision sur la licence Gemma."""
+    return magnitude.memory_view()
+
+
 @app.post("/api/magnitude/pair")
 def magnitude_pair(u: dict = Depends(require("admin")),
                    _f: None = Depends(feature_magnitude)) -> dict:
@@ -1109,7 +1150,8 @@ def auth_oidc_logout():
 # NB : /api/magnitude/agent/sync a sa propre auth (header x-magnitude-token),
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
-              "/api/magnitude/agent/sync", "/api/magnitude/install.sh")
+              "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
+              "/api/memory/hook")  # jeton x-sokkan-hook-token (hooks des sessions terminal)
 
 
 @app.middleware("http")
@@ -1131,6 +1173,10 @@ def _transcripts() -> list[Path]:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
+
+
+# banc de recall (CortHeXis → Banc) + carte « Mémoire » de Magnitude (profil, licence)
+app.include_router(memeval.router(require, feature_magnitude, _transcripts))
 
 
 @app.get("/api/health")
@@ -1197,7 +1243,8 @@ class SpawnBody(BaseModel):
     playbook: str = ""  # id d'un template de session (GET /api/playbooks) — optionnel
 
 
-def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400) -> str:
+def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
+                    session_id: str | None = None) -> str:
     """Recherche mémoire DÉTERMINISTE au spawn : le serveur fait le memory_search
     lui-même et pré-injecte le top-k dans le premier message — le rappel ne
     dépend plus de l'obéissance du modèle au rituel. Best-effort : mémoire vide
@@ -1208,6 +1255,12 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400) -> str:
         return ""
     if not isinstance(hits, list) or not hits or hits and hits[0].get("empty"):
         return ""
+    if session_id and store_backend.enabled():
+        try:  # recall_log : le rappel à chaque tour ne réinjecte pas ces notes
+            store_backend.log_spawn_recall(session_id, [h for h in hits if h.get("note_name")],
+                                           query)
+        except Exception:  # noqa: BLE001
+            pass
     lines = ["=== Project memory (auto-recalled) ==="]
     for h in hits:
         if not h.get("note_name"):
@@ -1242,7 +1295,8 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> d
         except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
             pass
     if prompt.strip():
-        recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt)
+        recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt,
+                                 session_id=sid)
         _bg(session.handle_user(board.seed_text(prompt, recall)))
     return s
 
@@ -1548,8 +1602,92 @@ def memory_notes() -> list[dict]:
 
 
 @app.get("/api/memory/search")
-def memory_search(q: str, k: int = 8) -> list[dict]:
+def memory_search(q: str, k: int = 8, deep: bool = False) -> list[dict]:
+    """`deep=1` : reranker même en profil standard (asynchrone, ~4-5 s sur CPU)."""
+    if store_backend.enabled():
+        return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep)
     return mem.memory_search(q, k)
+
+
+def _store_or_503():
+    if not store_backend.enabled():
+        raise HTTPException(503, "the memory store (3.0) is not enabled on this instance")
+    try:
+        return store_backend.get_store()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, f"memory store unavailable: {e}")
+
+
+@app.get("/api/memory/status")
+def memory_status() -> dict:
+    """Backend, index (génération, notes), indexeur, profil d'embedding, rappel."""
+    out: dict = {"backend": "postgres" if store_backend.enabled() else "sqlite"}
+    if not store_backend.enabled():
+        out["index"] = memorykb.stats()
+        return out
+    try:
+        from core import embed, recall as core_recall
+        out["embed"] = embed.describe()
+        out["rerank_policy"] = store_backend.rerank_policy()
+        out["recall"] = {"enabled": core_recall.enabled(),
+                         **core_recall.RecallConfig.from_env().__dict__}
+    except Exception as e:  # noqa: BLE001
+        out["embed_error"] = str(e)
+    try:
+        st = store_backend.get_store()
+        out["index"] = st.stats()
+        out["generations"] = [g.__dict__ for g in st.list_generations()]
+    except Exception as e:  # noqa: BLE001
+        out["index_error"] = str(e)
+    out["indexer"] = _index_runner.status() if _index_runner else None
+    return out
+
+
+@app.post("/api/memory/index")
+def memory_index(u: dict = Depends(require("dev"))) -> dict:
+    """Réindexation immédiate (la boucle tourne déjà : watch + périodique)."""
+    if not store_backend.enabled() or _index_runner is None:
+        raise HTTPException(503, "the memory store (3.0) indexer is not running")
+    rep = _index_runner.run_once()
+    audit.log(u["email"], "memory.index", "")
+    st = _index_runner.status()
+    if rep is None:
+        raise HTTPException(500, st.get("last_error") or "index failed")
+    return st
+
+
+@app.post("/api/memory/hook")
+async def memory_hook(request: Request) -> dict:
+    """Hooks UserPromptSubmit / PreToolUse(Task|Agent) des sessions terminal : le rappel
+    tourne ici, à chaud (pool Postgres + client d'embedding ouverts). Auth : jeton du
+    fichier data/claude-hooks/recall-token (0600), pas de cookie."""
+    if not memrecall.check_token(request.headers.get("x-sokkan-hook-token")):
+        raise HTTPException(401, "bad hook token")
+    if not memrecall.active():
+        return {}
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "invalid payload")
+    sid = os.environ.get("CORTHEXIS_RECALL_SESSION_ID") or payload.get("session_id") or ""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(memrecall.hook_output, payload, sid), timeout=4)
+    except Exception as e:  # noqa: BLE001 — un rappel ne casse jamais un tour
+        print(f"[sokkan] recall hook failed: {e!r}", file=sys.stderr)
+        return {}
+
+
+@app.get("/api/memory/recall-log")
+def memory_recall_log(session: str = "", note: str = "", limit: int = 200) -> dict:
+    """Ce que le rappel automatique a injecté : quelle session / quel sous-agent a reçu
+    quelles notes, avec quels scores, depuis quelle génération d'index."""
+    st = _store_or_503()
+    return {"entries": st.recall_log(session_id=session or None, note=note or None,
+                                     limit=limit),
+            "summary": st.recall_summary()}
 
 
 @app.get("/api/memory/note/{name}")
@@ -1557,6 +1695,35 @@ def memory_note(name: str) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
     return {"name": name, "body": mem.memory_get(name)}
+
+
+@app.get("/api/memory/migration")
+def memory_migration_state(_u: dict = Depends(require("viewer"))) -> dict:
+    """Migration 2.x -> 3.0 (CortHeXis tab): steps, normalize plan, progress, date test,
+    verification, log, and which index serves searches meanwhile."""
+    return memory_migration.status()
+
+
+class MigrationApproval(BaseModel):
+    what: str  # normalize (policy ask) | override (go on in spite of a failed check)
+
+
+@app.post("/api/memory/migration/approve")
+def memory_migration_approve(body: MigrationApproval,
+                             u: dict = Depends(require("admin"))) -> dict:
+    try:
+        doc = memory_migration.approve(body.what, u["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    audit.log(u["email"], "memory.migration.approve", body.what)
+    return {"approved": doc}
+
+
+# onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
+app.include_router(corthexis.router)
+corthexis.spawn_hook = _spawn_sdk
+# 3.0 : après une réparation, l'IndexRunner (store) réindexe ; repli 2.x sinon
+corthexis.reindex_hook = lambda: _index_runner.kick() if _index_runner else index_memory.run_index()
 
 
 @app.post("/api/memory/digest")
