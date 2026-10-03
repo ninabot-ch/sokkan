@@ -140,7 +140,7 @@ class FlakyEmbedder(FakeEmbedder):
 
     def embed_docs(self, texts):
         if self.calls >= self.ok:
-            raise ConnectionError("embedding server unreachable")
+            raise RuntimeError("all embedding servers failed: unreachable")
         return super().embed_docs(texts)
 
 

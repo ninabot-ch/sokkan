@@ -538,14 +538,9 @@ class Migration:
                                   log=self.log)
         try:
             rep = ind.run()
-        except (OSError, ConnectionError) as e:
-            raise Waiting(f"embedding server unavailable ({e}); indexing resumes "
-                          "where it stopped") from e
-        except Exception as e:  # noqa: BLE001 — httpx errors are not OSError
-            if type(e).__module__.startswith(("httpx", "httpcore")):
-                raise Waiting(f"embedding server unavailable ({e}); indexing resumes "
-                              "where it stopped") from e
-            raise
+        except _EmbedderDown as e:
+            raise Waiting(f"embedding server unavailable ({e.__cause__}); indexing "
+                          "resumes where it stopped") from e
         self.log(f"generation {rep.generation} built ({ident}): {rep.reindexed} notes "
                  f"embedded, {rep.unchanged} already done, {rep.chunks_written} chunks, "
                  f"{time.monotonic() - t0:.1f} s")
@@ -645,6 +640,10 @@ class Migration:
         self._done("switch", generation=gen)
 
 
+class _EmbedderDown(Exception):
+    """The embedder failed (server down, model loading, timeout): the step waits."""
+
+
 class _Progress:
     """Embedder wrapper that records the indexing progress in the state (every 5 s)."""
 
@@ -655,7 +654,10 @@ class _Progress:
         return self.inner.identity()
 
     def embed_docs(self, texts):
-        out = self.inner.embed_docs(texts)
+        try:
+            out = self.inner.embed_docs(texts)
+        except Exception as e:  # noqa: BLE001 — any embedder failure = retry later
+            raise _EmbedderDown() from e
         self.texts += len(texts)
         if time.monotonic() - self._last > 5:
             self._last = time.monotonic()
