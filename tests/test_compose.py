@@ -144,3 +144,49 @@ def test_memory_setup_cpu_writes_no_compose_file(tmp_path):
     _run(d, env)
     e = _env(d)
     assert e["SOKKAN_MEMORY_PROFILE"] == "leger" and "COMPOSE_FILE" not in e
+
+
+# ---------------------------------------------------------------- rollback.sh
+
+def test_rollback_replaces_the_code_and_keeps_env_workspace_and_user_files(tmp_path):
+    import tarfile
+    d = tmp_path / "sokkan"
+    (d / "scripts").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts" / "rollback.sh", d / "scripts" / "rollback.sh")
+    (d / ".env").write_text("SOKKAN_LOCAL_TOKEN=t\nSOKKAN_VERSION=3.0.0\n"
+                            "COMPOSE_FILE=docker-compose.yml:docker/embed/compose.sycl.yml\n")
+    (d / "docker-compose.yml").write_text("services: {}  # 3.0\n")
+    (d / "frontend" / "components").mkdir(parents=True)
+    (d / "frontend" / "components" / "CortHeXisGraph.tsx").write_text("3.0 only")
+    (d / "memory" / "core").mkdir(parents=True)
+    (d / "memory" / "core" / "store.py").write_text("3.0 only")
+    (d / "workspace").mkdir()
+    (d / "workspace" / "project.txt").write_text("mine")
+    (d / "my-notes.txt").write_text("mine too")
+    old = tmp_path / "old"
+    for f, t in {"docker-compose.yml": "services: {}  # 2.3\n",
+                 "frontend/app/page.tsx": "2.3", "memory/index_memory.py": "2.3",
+                 "scripts/doctor.sh": "2.3", "VERSION": "2.3.0\n"}.items():
+        (old / "sokkan" / f).parent.mkdir(parents=True, exist_ok=True)
+        (old / "sokkan" / f).write_text(t)
+    tgz = tmp_path / "sokkan-2.3.0.tar.gz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(old / "sokkan", arcname="sokkan")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "docker").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/docker.log\n')
+    (bin_ / "docker").chmod(0o755)
+    r = subprocess.run(["sh", "scripts/rollback.sh", str(tgz)], cwd=d, capture_output=True,
+                       text=True, env={**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"})
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert not (d / "frontend" / "components").exists()        # the 3.0 leftovers are gone
+    assert not (d / "memory" / "core").exists()
+    assert (d / "frontend" / "app" / "page.tsx").read_text() == "2.3"
+    assert "# 2.3" in (d / "docker-compose.yml").read_text()
+    assert (d / "workspace" / "project.txt").read_text() == "mine"
+    assert (d / "my-notes.txt").exists()
+    env = (d / ".env").read_text()
+    assert "SOKKAN_LOCAL_TOKEN=t" in env and "SOKKAN_VERSION=2.3.0" in env
+    assert "COMPOSE_FILE" not in env
+    assert "compose up -d --build --remove-orphans" in (tmp_path / "docker.log").read_text()
+    assert not list(d.glob(".sokkan-rollback.*"))

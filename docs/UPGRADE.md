@@ -39,11 +39,14 @@ an earlier hash, and pull that tarball instead of `-latest`:
 
 ```bash
 cd sokkan
-curl -fsSL https://sokkan.ch/dist/sokkan-<hash>.tar.gz | tar xz --strip-components=1
-# pin the version string so the update banner reflects reality
-sed -i '/^SOKKAN_VERSION=/d' .env && echo 'SOKKAN_VERSION=<hash>' >> .env
-docker compose up -d --build
+./scripts/rollback.sh <hash>
 ```
+
+The script (3.0+) replaces the code with that release — **do not extract an older
+tarball over a newer folder**: the newer files stay behind and the older build trips
+on them (a 2.3 web build compiles the 3.0 CortHeXis components and fails). It keeps
+`.env`, your workspace and the data volumes, pins `SOKKAN_VERSION` in `.env` (so the
+update banner reflects reality) and runs `docker compose up -d --build --remove-orphans`.
 
 The full changelog (with hashes) is at
 [`CHANGELOG.md`](../CHANGELOG.md).
@@ -159,13 +162,11 @@ Options (`.env`):
 
 ```bash
 cd sokkan
-curl -fsSL https://sokkan.ch/dist/sokkan-<2.3 hash>.tar.gz | tar xz --strip-components=1
-sed -i '/^SOKKAN_VERSION=/d; /^COMPOSE_FILE=/d' .env && echo 'SOKKAN_VERSION=<2.3 hash>' >> .env
-docker compose up -d --build --remove-orphans
+./scripts/rollback.sh <2.3 hash>
 ```
 
-(`COMPOSE_FILE` is only there on a GPU profile: it names a 3.0 override that 2.x
-does not have.) 2.3 serves `memory.db` as it was. If the repairs renamed notes and you want the
+(It also drops `COMPOSE_FILE`, only there on a GPU profile: it names a 3.0 override
+that 2.x does not have.) 2.3 serves `memory.db` as it was. If the repairs renamed notes and you want the
 files exactly as before the update, restore the archive (the newest
 `corpus-2x-*.tar.gz`):
 
