@@ -19,6 +19,10 @@ jobs:
           python3 -m pip install -q --disable-pip-version-check -r backend/requirements.txt -r memory/requirements.txt -r requirements-dev.txt >/dev/null
           ruff check backend memory cli tests
           python3 -m pytest -q
+      - name: memory/core is the CortHeXis engine
+        run: |
+          git clone -q --depth 1 --branch "$(cat memory/core/CORTHEXIS_VERSION)" https://github.com/ninabot-ch/corthexis /tmp/corthexis
+          bash scripts/check-corthexis-sync.sh /tmp/corthexis
   frontend:
     runs-on: docker   # node 22
     steps:

@@ -239,6 +239,23 @@ def test_questions_are_validated_and_merged(store, corpus):
 
 
 @needs_pg
+def test_import_a_written_bank(store, corpus, tmp_path):
+    f = tmp_path / "bank.jsonl"
+    f.write_text('# a comment\n'
+                 '{"id": "b1", "q": "where is the till backup kept", "expected": ["till-backup"],'
+                 ' "lang": "en"}\n\n'
+                 '{"q": "quand imprime-t-on les marées", "expected": ["tide-tables"]}\n')
+    qs = ev.import_questions(store, f)
+    assert [q.expected for q in qs] == [["till-backup"], ["tide-tables"]]
+    assert qs[0].origin == {"id": "b1", "lang": "en"} and qs[0].author == "import:bank.jsonl"
+    again = ev.import_questions(store, f)                  # re-import replaces, never doubles
+    assert [q.id for q in again] == [q.id for q in qs]
+    f.write_text('{"q": "a question with no answer", "expected": []}\n')
+    with pytest.raises(ValueError, match="bank.jsonl:1"):
+        ev.import_questions(store, f)
+
+
+@needs_pg
 def test_run_measures_and_stores_results(store, corpus):
     ev.add_question(store, "who prints tide tables", ["tide-tables"], source="generated")
     q = ev.add_question(store, "a question about a note that will vanish", ["staff-rota"])

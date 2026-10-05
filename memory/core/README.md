@@ -179,3 +179,11 @@ point of the choice; `fallback_key()` refuses any model labelled `gemma`.
 | `ACCEPT_GEMMA_TERMS` | — | unattended licence answer |
 | `EMBED_FALLBACK` | `multilingual-e5-base-q8` | non-Gemma fallback |
 | `MODEL_BASE_URL` | `https://huggingface.co` | mirror for the downloads |
+
+## Same engine as CortHeXis
+
+This package is the engine of [CortHeXis](https://github.com/ninabot-ch/corthexis) (package
+`corthexis`), embedded here under the module name `core`. `CORTHEXIS_VERSION` names the
+CortHeXis release it matches; the CI checks it with `scripts/check-corthexis-sync.sh`
+(code compared without docstrings, module paths and command names). A fix lands in both,
+or the CI says which file drifted.

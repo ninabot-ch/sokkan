@@ -209,6 +209,25 @@ def add_question(store, question: str, expected: Iterable[str], *, source: str =
         return _q(row)
 
 
+def import_questions(store, path: Path | str, *, author: str | None = None) -> list[Question]:
+    """Load a bank of written questions, one JSON object per line:
+    ``{"q": "...", "expected": ["note-name", ...]}`` (other keys — ``id``, ``lang``, ``kind`` —
+    are kept in the question's origin). Re-importing the same file replaces, never doubles."""
+    p = Path(path)
+    out = []
+    for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        rec = json.loads(line)
+        q = rec.get("q") or rec.get("question")
+        if not q or not rec.get("expected"):
+            raise ValueError(f"{p.name}:{n}: \"q\" and \"expected\" are required")
+        origin = {k: v for k, v in rec.items() if k not in ("q", "question", "expected")}
+        out.append(add_question(store, q, rec["expected"], source="client",
+                                author=author or f"import:{p.name}", origin=origin))
+    return out
+
+
 def list_questions(store, *, source: str | None = None, status: str | None = "active",
                    ids: Iterable[int] | None = None, limit: int | None = None) -> list[Question]:
     where, params = [], []
@@ -822,6 +841,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("add", help="add a question and its expected note(s)")
     s.add_argument("question")
     s.add_argument("notes", nargs="+")
+    s = sub.add_parser("import", help="add the questions of a JSONL file")
+    s.add_argument("file")
     s = sub.add_parser("list", help="list the questions")
     s.add_argument("--source", choices=SOURCES)
     s = sub.add_parser("report", help="last runs")
@@ -861,6 +882,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a.cmd == "add":
             q = add_question(store, a.question, a.notes, source="client", author="cli")
             print(f"question {q.id} added ({', '.join(q.expected)})")
+        elif a.cmd == "import":
+            qs = import_questions(store, a.file)
+            print(f"{len(qs)} question(s) imported from {a.file}")
         elif a.cmd == "list":
             for q in list_questions(store, source=a.source):
                 print(f"{q.id:5} {q.source:10} {q.weight:.2f} {q.question[:70]!r} → "

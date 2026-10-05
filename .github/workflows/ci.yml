@@ -34,6 +34,10 @@ jobs:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt -r memory/requirements.txt -r requirements-dev.txt
       - run: pytest -q
+      - name: memory/core is the CortHeXis engine
+        run: |
+          git clone -q --depth 1 --branch "$(cat memory/core/CORTHEXIS_VERSION)" https://github.com/ninabot-ch/corthexis /tmp/corthexis
+          bash scripts/check-corthexis-sync.sh /tmp/corthexis
 
   smoke:
     runs-on: ubuntu-latest
