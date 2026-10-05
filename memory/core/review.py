@@ -935,10 +935,14 @@ def run_review(cfg: ReviewConfig, source: ReviewSource | None = None, *,
                 "of magnitude, the exact day is not guaranteed).",
                 notes=approx, count=len(approx), items=[{"note": n} for n in approx],
                 remedy="Stamp `metadata.modified` for real the next time the note is reviewed."))
-    if len(notes) > 20 and len({round(n.mtime) for n in notes}) <= 2:
+    # only the notes whose age comes from the file: a clone, a backup restore or a copy
+    # gives every file the same mtime, harmless when the dates live in the headers
+    undeclared = [n for n in notes if not n.parsed.modified]
+    if len(undeclared) > 20 and len({round(n.mtime) for n in undeclared}) <= 2:
         add(Finding(
             "mass_rewrite", "warn", "dates", "The whole memory was rewritten at once",
-            "Every note has the same modification time: a script went over the folder.",
+            f"{len(undeclared)} notes without a declared date share the same modification "
+            "time: a script went over the folder, and their age now reads as today.",
             remedy="Check that the notes' dates (`metadata.modified`) were not overwritten.",
             count=1, judgement=True))
 

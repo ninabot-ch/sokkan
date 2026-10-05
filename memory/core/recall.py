@@ -288,9 +288,12 @@ class Recaller:
         qtok = {t for t in qnames if "-" not in t}
 
         def named(h: Hit) -> bool:
+            # the full name, or two segments of it (4 letters or more) as whole words: one
+            # word contained in the name ("mission", "deploy") was a source of off-topic recalls
             n = h.note_name.lower()
-            segs = set(n.split("-"))
-            return n in qnames or any(t in segs or (len(t) >= 5 and t in n) for t in qtok)
+            if n in qnames:
+                return True
+            return len({s for s in n.split("-") if len(s) >= 4} & qtok) >= 2
 
         def relevant(h: Hit) -> bool:
             if not res.reranked:

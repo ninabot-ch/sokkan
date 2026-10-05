@@ -241,3 +241,9 @@ def test_rerank_gate():
     res = recaller(st, FakeEmbedder("interactive"), threshold=0.35).recall(
         "question about the deploy pipeline")
     assert set(res.notes) == {"liked", "strong"}
+
+
+def test_one_word_of_a_name_does_not_force_recall():
+    st = FakeStore([H("weak-hit", 0.1), H("mission-blanche-report", 0.2)])
+    res = recaller(st, threshold=0.5).recall("what is our mission for the next quarter?")
+    assert res.notes == [] and res.forced == []
