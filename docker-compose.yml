@@ -109,6 +109,12 @@ services:
       SOKKAN_AGENTS_APPROVAL: ${SOKKAN_AGENTS_APPROVAL:-owner}
       # secrets des sessions humaines : all (défaut 3.1) | named (défaut prévu en 3.2)
       SOKKAN_SESSION_SECRETS: ${SOKKAN_SESSION_SECRETS:-all}
+      # 3.1.1 : un run d'agent en échec / timeout / budget ouvre son incident dans Operate
+      SOKKAN_AGENTS_INCIDENTS: ${SOKKAN_AGENTS_INCIDENTS:-0}
+      # 3.1.1 : Crew visible en LECTURE SEULE pour un viewer (démo publique)
+      SOKKAN_CREW_VIEWER_READONLY: ${SOKKAN_CREW_VIEWER_READONLY:-0}
+      # 3.1.1 : runs SIMULÉS de la démo publique (exige SOKKAN_DEMO_BANNER=1, aucune inférence)
+      SOKKAN_DEMO_CREW: ${SOKKAN_DEMO_CREW:-0}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

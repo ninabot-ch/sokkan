@@ -1,6 +1,6 @@
 # Agents ("Crew") — spec
 
-Status: **3.1 "Crew up"**. This page is the contract
+Status: **3.1 "Crew up"** (3.1.1: read-only viewers, demo crew, agent incidents). This page is the contract
 the code implements; when they disagree, fix one of them.
 
 ## Why
@@ -175,10 +175,52 @@ Sessions spawned by the server (Operate alerts, runbooks) get none in `named` mo
 ## Access control (IAM, before full RBAC)
 
 * Every agent has an `owner`. A session/Nina proposal is owned by the human behind it.
-* **viewer**: sees nothing of Crew yet (runs carry deliverables). **dev**: creates and
-  manages their own agents, sees their own runs. **admin/owner**: sees and manages all.
+* **viewer**: sees nothing of Crew by default (runs carry deliverables). With
+  `SOKKAN_CREW_VIEWER_READONLY=1` (3.1.1, off by default) a viewer reads everything —
+  deck, settings, runs, deliverables, secret **names** — and changes nothing: every write
+  route answers 403 and the UI greys the actions out ("read-only"). Quarantined memory
+  notes and secret values stay out of reach (dev / admin routes). With the flag on, a
+  **dev** also reads other owners' agents, and still manages only their own.
+  **dev**: creates and manages their own agents, sees their own runs. **admin/owner**:
+  sees and manages all. (A viewer could already read any session's pane, agent runs
+  included — the flag adds the Crew view, not a new transcript access.)
 * Approve / reject a proposal: per `SOKKAN_AGENTS_APPROVAL` (above).
 * Runs execute with the owner's identity for metering (`AgentSession.user`).
+
+## Incidents — `SOKKAN_AGENTS_INCIDENTS` (3.1.1, off by default)
+
+* A run that ends `failed`, `timeout` or `budget` opens the agent's incident in Operate
+  (`incidents.agent_id`, `agent_name`, `runs`, `occurrences`), linked to the agent and the
+  run (`run.outputs.incident`). `incomplete` and `interrupted` do not.
+* **One open incident per agent**: later failures join it (run added, ×N, latest
+  error as summary) — no storm from an agent failing every 15 minutes.
+* The next `succeeded` run resolves it; a human can also mark it resolved in Operate.
+* Notification: the incident's creation is notified once through Operate's channel
+  (kind `alert`, link `/?tab=operate&incident=<id>`), instead of the agent's own failure
+  ping for that run; later failures follow the agent's `notify_on` as before.
+* Links: an incident lists the agent runs its alert started (`run.context.incident`)
+  and, for an agent incident, its failed runs — both open Crew on the run
+  (`/?tab=crew&agent=<id>&run=<id>`). Crew → History shows the incident that triggered
+  a run, the incident a failure opened, and the board card a run filed.
+
+## Public demo — `SOKKAN_DEMO_CREW` (3.1.1)
+
+The public read-only demo shows a living Crew without spending inference:
+
+* `SOKKAN_DEMO_CREW=1` is honoured **only** with `SOKKAN_DEMO_BANNER=1` (the demo
+  instance); anywhere else it is ignored with a warning and the real scheduler runs.
+* The scheduler is then `demo_crew.DemoRuntime`: it **never** opens an SDK session nor
+  calls a model. A due cron occurrence becomes a *simulated* run that replays a recorded
+  script (`run.context.simulated`, `steps`, `duration_s`) and ends with the agent's last
+  deliverable; an agent seeded with `loop` runs back to back, so one card always
+  breathes. Alerts start nothing; a real run queued by hand is cancelled. The Live tab
+  labels the run *simulated*. Simulated history is pruned to the last 40 runs per agent.
+* The crew is written by `python3 backend/demo_crew.py seed <crew.json>` (refused unless
+  `SOKKAN_DEMO_CREW=1` or `--force`): agents matched by name and rewritten, their demo
+  runs (`runner` = `demo-seed` / `demo-sim`) replaced, nothing else touched. Each agent
+  goes through the API validation, secrets are names only, and a purpose, deliverable
+  or done criteria copied from another agent is refused. `check <crew.json>` validates
+  without writing.
 
 ## The Crew tab (UI)
 
@@ -226,7 +268,7 @@ lives. Archived agents are hidden behind a toggle.
 
 | Method | Path | Role |
 |---|---|---|
-| GET | `/api/agents` | dev+ (own) / admin (all) |
+| GET | `/api/agents` | dev+ (own) / admin (all); viewer+ read-only with `SOKKAN_CREW_VIEWER_READONLY=1` (also `meta`, `{id}`, `runs`) |
 | POST | `/api/agents` | dev+ — body = agent fields + `activate: bool` |
 | GET/PATCH | `/api/agents/{id}` | owner or admin |
 | POST | `/api/agents/{id}/approve` · `/reject` · `/pause` · `/resume` · `/archive` · `/run` | owner or admin |

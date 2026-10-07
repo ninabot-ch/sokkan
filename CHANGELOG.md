@@ -3,6 +3,38 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.1.1 — 2026-10-07 — "Crew on show"
+- **Crew in read-only for viewers** — `SOKKAN_CREW_VIEWER_READONLY=1` (off by default).
+  A viewer then sees the deck and opens every agent (Settings, Live, History, the
+  deliverables) but changes nothing: every write route stays `403`, the action buttons
+  are greyed out with a "read-only" tooltip, secrets show by name only, quarantined
+  memory notes are not shown. With the flag on, a dev also *reads* the agents of
+  others, and still only changes their own.
+- **A living Crew on the public demo** — `SOKKAN_DEMO_CREW=1`, honoured only on the
+  demo instance (`SOKKAN_DEMO_BANNER=1`): the scheduler is replaced by a simulator that
+  never opens a session nor calls a model. Agents fire at their hour and one agent
+  runs back to back, replaying a recorded run in the Live tab, labelled *simulated*.
+  `backend/demo_crew.py seed <crew.json>` writes the fictional crew (idempotent,
+  validated like the API, refuses copy-pasted purpose / deliverable / done criteria).
+  The demo banner gets a fifth stop: the agents.
+- **Failed agent runs open an incident in Operate** — `SOKKAN_AGENTS_INCIDENTS=1` (off
+  by default). A run that ends failed, timeout or over budget opens the agent's
+  incident, linked to the agent and the run; ONE open incident per agent, later
+  failures join it (×N), the next successful run resolves it. The first failure is
+  notified once through Operate's channel instead of the agent's own ping.
+- **Links between Operate and Crew** — an incident shows the agent runs its alert
+  started (and, for an agent incident, the failed run) and opens Crew on that run;
+  History shows the incident that triggered a run, the incident a failure opened, and
+  the board card a run filed (opens the card). Deep links:
+  `/?tab=crew&agent=<id>&run=<id>`, `/?tab=operate&incident=<id>`. Read-only viewers
+  follow the links, nothing more.
+- **Fix: the board MCP now knows which SDK session calls it.** `open_preview` from a
+  session spawned by a card (or any cockpit chat / agent run) wrote an empty
+  `session_id` and `tag` — the server only looked at tmux, and could even inherit the
+  API's own tmux pane. It now reads `SOKKAN_SESSION_ID`, set by the API for every
+  embedded MCP server; cards created from such sessions are attributed too.
+- "Done when" is a multi-line field in the agent settings.
+
 ## 3.1.0 — 2026-10-07 — "Crew up"
 - **Agents, in a new Crew tab.** An agent is a named, owned job: model, purpose,
   expected deliverable and when it is done, trigger (manual, one-shot, cron in
