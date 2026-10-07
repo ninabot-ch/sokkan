@@ -2563,3 +2563,9 @@ def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict
     out["sessions"] = [x for x in out.get("sessions") or []
                        if x["session_id"] in mine or keep_unknown]
     return out
+
+
+# --- 3.2 ui features: shared_review, byok_admin, connect_ai (routes in uiroutes.py) ------
+import uiroutes  # noqa: E402
+
+app.include_router(uiroutes.router)
