@@ -1,5 +1,7 @@
 "use client";
 import { agentPropose, type Agent } from "@/lib/api";
+import HelmProposal from "./HelmProposal";
+import type { ProjectProposal } from "@/lib/helm";
 import { useEffect, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
 
@@ -180,7 +182,23 @@ export default function Assistant() {
 // La carte naît « pending » : elle ne tourne qu'après approbation dans Crew.
 const AGENT_BLOCK = /```sokkan-agent\s*([\s\S]*?)```/;
 
+// 3.3 Helm : ```sokkan-project {json}``` = la carte projet + la décomposition proposées
+// par Nina après l'interview ; l'humain les modifie puis valide (HelmProposal).
+const PROJECT_BLOCK = /```sokkan-project\s*([\s\S]*?)```/;
+
 function AssistantText({ text }: { text: string }) {
+  const pm = text.match(PROJECT_BLOCK);
+  if (pm) {
+    let p: ProjectProposal | null = null;
+    try { p = JSON.parse(pm[1]); } catch { p = null; }
+    return (
+      <>
+        {text.slice(0, pm.index).trimEnd()}
+        {p ? <HelmProposal proposal={p} /> : <pre className="mt-2 whitespace-pre-wrap text-[11px] text-mut">{pm[0]}</pre>}
+        {text.slice((pm.index || 0) + pm[0].length).trim()}
+      </>
+    );
+  }
   const m = text.match(AGENT_BLOCK);
   if (!m) return <>{text}</>;
   let spec: Record<string, unknown> | null = null;

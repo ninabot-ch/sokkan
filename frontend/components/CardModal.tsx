@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import CardHierarchy from "./CardHierarchy";
+import { useFeatures } from "@/lib/features";
 import { closeCard, commentCard, deleteCard, fetchCardDetail, patchCard, reopenCard, spawnCard } from "@/lib/api";
 import type { Card, CardDetail, CardLink, ChecklistItem } from "@/lib/types";
 import { PRIORITIES, ago, dueTone, stamp } from "@/lib/fmt";
@@ -44,6 +46,9 @@ export default function CardModal({
   onChanged: () => void;
 }) {
   const [card, setCard] = useState<CardDetail | null>(null);
+  // 3.3 Helm : the dialog can walk the hierarchy (breadcrumb, cards under it)
+  const [cid, setCid] = useState(cardId);
+  const feats = useFeatures();
   const [descEdit, setDescEdit] = useState(false);
   const [desc, setDesc] = useState("");
   const [newItem, setNewItem] = useState("");
@@ -56,11 +61,11 @@ export default function CardModal({
 
   const load = useCallback(async () => {
     try {
-      const d = await fetchCardDetail(cardId);
+      const d = await fetchCardDetail(cid);
       setCard(d);
       setDesc(d.description);
     } catch { onClose(); }
-  }, [cardId, onClose]);
+  }, [cid, onClose]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -113,6 +118,7 @@ export default function CardModal({
           <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`} title={`priority ${p.label}`} />
           <div className="min-w-0 flex-1">
             <input
+              key={card.id}
               ref={titleRef}
               defaultValue={card.title}
               disabled={!canWrite}
@@ -172,6 +178,8 @@ export default function CardModal({
             </label>
           </div>
           {err && <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11.5px] text-red-300">{err}</div>}
+
+          {feats.helm && <CardHierarchy key={card.id} card={card} canWrite={canWrite} patch={patch} onOpenCard={setCid} />}
 
           {/* links: sessions / agents / runs / incidents */}
           {(card.links?.length ?? 0) > 0 && (

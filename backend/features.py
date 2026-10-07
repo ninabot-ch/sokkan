@@ -330,9 +330,14 @@ REGISTRY: tuple[Feature, ...] = (
             status="beta", defaults=_ed(False, True), requires=("preview", "multi_project"),
             vars=_t("shared_review"), doc="docs/enterprise/UI-FEATURES.md"),
     Feature("helm", "Helm",
-            "Hierarchical boards manager → engineer kanban: context flows down, progress up; "
-            "management view; Nina breaks work down; morning brief.", status="planned",
-            kind="planned", target="3.3", requires=("multi_project", "assistant"), vars=_t("helm")),
+            "Hierarchical cards (manager's project card → engineer's cards → sub-tasks): the "
+            "parent's intent, constraints and decisions flow down into the sessions, progress "
+            "flows up (computed, never declared); the Helm view for project managers; Nina "
+            "interviews and breaks a project down, Helm suggests reframes (a manager approves "
+            "or ignores); morning-brief agent template (ICS calendar).", status="beta",
+            defaults=_ed(False, True), requires=("multi_project", "assistant"), vars=_t("helm"),
+            config=("SOKKAN_HELM_TICK_S", "SOKKAN_HELM_DRIFT_MIN", "SOKKAN_HELM_SNOOZE_DAYS",
+                    "SOKKAN_HELM_CALENDAR_ICS"), doc="docs/HELM.md"),
     Feature("classification", "Classification and clearances",
             "Notes carry a classification; Nina acts on the user's behalf within their "
             "clearance; derived content inherits the highest level; audited recall.",

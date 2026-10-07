@@ -185,6 +185,15 @@ services:
       SOKKAN_SANDBOX_NETWORK: ${SOKKAN_SANDBOX_NETWORK:-0}
       SOKKAN_SANDBOX_RO_PATHS: ${SOKKAN_SANDBOX_RO_PATHS:-}
       SOKKAN_SANDBOX_READ_PATHS: ${SOKKAN_SANDBOX_READ_PATHS:-}
+      # helm — 3.3 (docs/HELM.md) : hiérarchie de cartes, avancement calculé, suggestions de
+      # recadrage (job toutes les SOKKAN_HELM_TICK_S), brief du matin (agenda ICS, NOM d'un
+      # secret du coffre). Exige multi_project + assistant ; vide = défaut de l'édition.
+      SOKKAN_FEATURE_HELM: ${SOKKAN_FEATURE_HELM:-}
+      SOKKAN_HELM_TICK_S: ${SOKKAN_HELM_TICK_S:-900}
+      SOKKAN_HELM_DRIFT_MIN: ${SOKKAN_HELM_DRIFT_MIN:-0.25}
+      SOKKAN_HELM_SNOOZE_DAYS: ${SOKKAN_HELM_SNOOZE_DAYS:-7}
+      SOKKAN_HELM_CALENDAR_ICS: ${SOKKAN_HELM_CALENDAR_ICS:-}
+      SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE: ${SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE:-0}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

@@ -47,7 +47,7 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`byok_admin`](#byok_admin) BYOK admin screen | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
 | [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
 | [`shared_review`](#shared_review) Shared session / preview for review | beta | toggle | off | on | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
-| [`helm`](#helm) Helm | planned (3.3) | planned | off | off | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
+| [`helm`](#helm) Helm | beta | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
 | [`classification`](#classification) Classification and clearances | planned (3.4) | planned | off | off | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | planned (3.4) | planned | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
@@ -123,7 +123,7 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class helm,classification,teams planned;
+  class classification,teams planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -457,13 +457,14 @@ Share a session or a preview with a person or a team of its project, read or rea
 
 ### helm
 
-**Helm** — planned for 3.3, planned.
+**Helm** — beta, toggle.
 
-Hierarchical boards manager → engineer kanban: context flows down, progress up; management view; Nina breaks work down; morning brief.
+Hierarchical cards (manager's project card → engineer's cards → sub-tasks): the parent's intent, constraints and decisions flow down into the sessions, progress flows up (computed, never declared); the Helm view for project managers; Nina interviews and breaks a project down, Helm suggests reframes (a manager approves or ignores); morning-brief agent template (ICS calendar).
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `assistant`
 - Switch: `SOKKAN_FEATURE_HELM`
+- Doc: [docs/HELM.md](../../docs/HELM.md)
 
 ### classification
 

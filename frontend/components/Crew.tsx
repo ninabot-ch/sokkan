@@ -7,7 +7,8 @@ import {
   agentRunCancel, spawnSession, fetchTags,
   type Agent, type AgentRun, type AgentsList, type AgentsMeta, type DeckState,
 } from "@/lib/api";
-import { useCan } from "@/lib/me";
+import { useCan, useMe } from "@/lib/me";
+import { agentTemplate, agentTemplates } from "@/lib/helm";
 import { useFeatures } from "@/lib/features";
 import { crewEngines } from "@/lib/uifeatures";
 import AgentChatPane from "./AgentChatPane";
@@ -111,6 +112,19 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
   const [openId, setOpenId] = useState<number | "new" | null>(null);
   const [chatSid, setChatSid] = useState<string | null>(null);
   const [newMenu, setNewMenu] = useState(false);
+  // 3.3 : ready-made agents (Helm's morning brief) — pre-fill the form, nothing is created
+  const [templates, setTemplates] = useState<{ id: string; label: string; description: string }[]>([]);
+  const [draft, setDraft] = useState<Partial<Agent> | null>(null);
+  const me = useMe();
+  useEffect(() => { agentTemplates().then(setTemplates).catch(() => setTemplates([])); }, []);
+  const fromTemplate = async (tid: string) => {
+    setNewMenu(false);
+    try {
+      const t = await agentTemplate(tid, me?.email || "");
+      setDraft(t.fields as Partial<Agent>);
+      setOpenId("new");
+    } catch (e) { setErr(String((e as Error).message)); }
+  };
 
   const reload = useCallback(() => {
     agentsList(archived).then((d) => { setData(d); setErr(""); }).catch((e) => setErr(String(e.message || e)));
@@ -188,10 +202,16 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
                     <div className="text-[12.5px] font-medium text-slate-100">💬 Build it in a chat <span className="ml-1 rounded bg-sea/20 px-1 text-[9.5px] text-sea">recommended</span></div>
                     <div className="text-[11px] text-mut">An agent asks you the right questions one at a time, then builds the card.</div>
                   </button>
-                  <button onClick={() => { setNewMenu(false); setOpenId("new"); }} className="block w-full border-t border-line px-3 py-2.5 text-left hover:bg-panel2">
+                  <button onClick={() => { setNewMenu(false); setDraft(null); setOpenId("new"); }} className="block w-full border-t border-line px-3 py-2.5 text-left hover:bg-panel2">
                     <div className="text-[12.5px] font-medium text-slate-100">📝 Fill a form</div>
                     <div className="text-[11px] text-mut">Every field at once.</div>
                   </button>
+                  {templates.map((t) => (
+                    <button key={t.id} onClick={() => fromTemplate(t.id)} className="block w-full border-t border-line px-3 py-2.5 text-left hover:bg-panel2">
+                      <div className="text-[12.5px] font-medium text-slate-100">🌅 {t.label} <span className="ml-1 rounded bg-panel2 px-1 text-[9.5px] text-mut">template</span></div>
+                      <div className="text-[11px] text-mut">{t.description}</div>
+                    </button>
+                  ))}
                 </div>
               </>
             )}
@@ -249,7 +269,7 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
       )}
 
       {openId !== null && (
-        <AgentPopout id={openId} initialRun={focusRun}
+        <AgentPopout id={openId} initialRun={focusRun} draft={openId === "new" ? draft : null}
           onClose={() => {
             setOpenId(null); setFocusRun(null); reload();
             try {  // the deep link has been followed: closing does not reopen it on reload
@@ -303,7 +323,8 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
 // ---- popout -----------------------------------------------------------------
 type PopTab = "Settings" | "Live" | "History";
 
-function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSession, onOpenIncident }: {
+function AgentPopout({ id, initialRun, draft, onClose, onCreated, onChanged, onOpenSession, onOpenIncident }: {
+  draft?: Partial<Agent> | null;
   id: number | "new"; initialRun?: number | null; onClose: () => void; onCreated: (id: number) => void;
   onChanged: () => void; onOpenSession?: (sid: string) => void; onOpenIncident?: (id: number) => void;
 }) {
@@ -387,7 +408,7 @@ function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSess
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === "Settings" && meta && (
-            <Settings a={id === "new" ? null : a} meta={meta} readOnlyRole={ro}
+            <Settings a={id === "new" ? null : a} draft={draft} meta={meta} readOnlyRole={ro}
               onSaved={(saved) => { setMsg(""); if (id === "new") onCreated(saved.id); else { setA(saved); onChanged(); } }}
               onError={setMsg} />
           )}
@@ -430,6 +451,7 @@ const READ_MCP = new Set([
   "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get", "mcp__sokkan-memory__memory_links",
   "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
   "mcp__sokkan-board__get_card", "mcp__sokkan-board__search_cards",
+  "mcp__sokkan-board__get_card_tree", "mcp__sokkan-board__morning_brief",
   "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs", "mcp__sokkan-observability__list_dashboards",
   "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent", "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
 ]);
@@ -643,10 +665,10 @@ const EMPTY: Partial<Agent> = {
   notify_on: ["failure", "timeout", "budget", "approval"], playbook: "",
 };
 
-function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
-  a: Agent | null; meta: AgentsMeta; readOnlyRole?: boolean; onSaved: (a: Agent) => void; onError: (m: string) => void;
+function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
+  a: Agent | null; draft?: Partial<Agent> | null; meta: AgentsMeta; readOnlyRole?: boolean; onSaved: (a: Agent) => void; onError: (m: string) => void;
 }) {
-  const [f, setF] = useState<Partial<Agent>>(() => (a ? { ...a } : { ...EMPTY, tools: meta.default_tools }));
+  const [f, setF] = useState<Partial<Agent>>(() => (a ? { ...a } : { ...EMPTY, tools: meta.default_tools, ...(draft || {}) }));
   const [activate, setActivate] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);

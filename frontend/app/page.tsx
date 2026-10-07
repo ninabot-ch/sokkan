@@ -10,6 +10,7 @@ import Corthexis from "@/components/Corthexis";
 import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
 import Crew from "@/components/Crew";
+import Helm from "@/components/Helm";
 import Journal from "@/components/Journal";
 import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
@@ -41,6 +42,7 @@ export default function Home() {
     const t = new URLSearchParams(window.location.search).get("tab");
     if (t === "corthexis") setTab("CortHeXis");
     if (t === "crew") setTab("Crew");
+    if (t === "helm") setTab("Helm");
     if (t === "operate") setTab("Operate");
   }, []);
 
@@ -93,6 +95,8 @@ export default function Home() {
         <Corthexis onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Infra" ? (
         <Infra />
+      ) : tab === "Helm" ? (
+        <Helm onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Crew" ? (
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
       ) : tab === "Operate" ? (

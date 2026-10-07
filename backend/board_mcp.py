@@ -132,7 +132,7 @@ def _foreign(card_id: int) -> bool:
 
 @mcp.tool()
 def create_card(title: str, tag: str = "backend", description: str = "",
-                bucket: str = "Backlog", priority: int = 2) -> dict:
+                bucket: str = "Backlog", priority: int = 2, parent_id: int | None = None) -> dict:
     """Crée une carte sur le board SOKKAN (apparaît dans l'onglet Board).
 
     Utiliser pour transformer une stratégie / un plan en tâches actionnables.
@@ -144,6 +144,8 @@ def create_card(title: str, tag: str = "backend", description: str = "",
         description: le détail / prompt de la tâche (servira de seed au spawn).
         bucket: colonne (Backlog par défaut ; Doing/Review/Done possibles).
         priority: 0=urgente, 1=haute, 2=normale (défaut), 3=basse.
+        parent_id: (Helm, 3.3) la carte sous laquelle ranger celle-ci (sous-tâche d'une carte,
+            carte d'un projet) ; son intention, ses contraintes et ses décisions s'appliquent.
     """
     denied = _write_denied()
     if denied:
@@ -151,9 +153,17 @@ def create_card(title: str, tag: str = "backend", description: str = "",
     who, origin = _origin()
     if not _project():
         return {"error": "this session has no project: no board"}
-    card = board.add_card(title=title, description=description, tag=tag,
-                          bucket=bucket, priority=priority, user=who, origin=origin,
-                          project=_project())
+    if parent_id is not None:
+        if not _helm_on():
+            return {"error": "card hierarchy needs the Helm feature (SOKKAN_FEATURE_HELM)"}
+        if _foreign(parent_id):
+            return _missing(parent_id)
+    try:
+        card = board.add_card(title=title, description=description, tag=tag,
+                              bucket=bucket, priority=priority, user=who, origin=origin,
+                              project=_project(), parent_id=parent_id)
+    except ValueError as e:
+        return {"error": str(e)}
     _audit(who, origin, "board.card.create", card["id"], title)
     return card
 
@@ -265,10 +275,64 @@ def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str
 _DUE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def _helm_on() -> bool:
+    try:
+        import features
+        return features.enabled("helm")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@mcp.tool()
+def get_card_tree(card_id: int) -> dict:
+    """(Helm) A card with everything above and below it: the breadcrumb of its parent
+    cards with their intent / constraints / decisions (the context this work must
+    respect), its sub-cards by column, and its computed progress (done / in progress /
+    waiting / blocked, from the sub-cards and their live sessions, runs, incidents).
+
+    Args:
+        card_id: id of the card.
+    """
+    if not _helm_on():
+        return {"error": "Helm is off on this instance (SOKKAN_FEATURE_HELM)"}
+    if _foreign(card_id):
+        return _missing(card_id)
+    import helm
+    d = helm.detail(card_id) or {}
+    keep = ("id", "title", "kind", "bucket", "assignee", "intent", "constraints", "decisions",
+            "parent_id", "due")
+    return {"card": {k: d.get(k) for k in keep},
+            "parents": [{k: a.get(k) for k in keep} for a in board.ancestors(card_id)],
+            "progress": d.get("rollup"),
+            "children": {b: [{"id": c["id"], "title": c["title"], "assignee": c.get("assignee"),
+                              "state": (c.get("rollup") or {}).get("state")} for c in cs]
+                         for b, cs in (d.get("kanban") or {}).get("cards", {}).items()},
+            "context": helm.context_block(card_id)}
+
+
+@mcp.tool()
+def morning_brief(person: str = "", team: str = "") -> dict:
+    """(Helm) The morning brief of this project, gathered by SOKKAN (read-only): cards that
+    moved since the last working day, blocked cards, approvals waiting, Operate incidents,
+    agents in error, recent decisions, today's agenda when a calendar is configured, and a
+    markdown draft (`markdown`). Report only what it returns.
+
+    Args:
+        person: the email of the person the brief is for (their cards), or "".
+        team: or a team id (`sso:<group>`) for its members' cards; both empty = the project.
+    """
+    if not _helm_on():
+        return {"error": "Helm is off on this instance (SOKKAN_FEATURE_HELM)"}
+    if not _project():
+        return {"error": "this session has no project: no board"}
+    import helm
+    return helm.morning_brief(_project(), person=person.strip(), team=team.strip())
+
+
 @mcp.tool()
 def update_card(card_id: int, title: str | None = None, description: str | None = None,
                 tag: str | None = None, priority: int | None = None, due: str | None = None,
-                assignee: str | None = None) -> dict:
+                assignee: str | None = None, parent_id: int | None = None) -> dict:
     """Edit a board card. Only the arguments you pass change; the rest is kept.
     To change the column use move_card, to finish a card use close_card.
 
@@ -280,10 +344,19 @@ def update_card(card_id: int, title: str | None = None, description: str | None 
         priority: 0=urgent, 1=high, 2=normal, 3=low.
         due: due date YYYY-MM-DD, or "" to clear it.
         assignee: an IAM user email, `agent:<name>` of an existing agent, or "" to unassign.
+        parent_id: (Helm) move the card under another card of the board, or 0 for the top
+            level. A card cannot go under itself or under one of its own sub-cards.
     """
     if _foreign(card_id):  # 3.2: a card of another project does not exist here
         return _missing(card_id)
     fields: dict = {}
+    new_parent: int | None = None
+    if parent_id is not None:
+        if not _helm_on():
+            return {"error": "card hierarchy needs the Helm feature (SOKKAN_FEATURE_HELM)"}
+        if parent_id and _foreign(parent_id):
+            return _missing(parent_id)
+        new_parent = int(parent_id)
     if title is not None:
         if not title.strip():
             return {"error": "title cannot be empty"}
@@ -307,12 +380,18 @@ def update_card(card_id: int, title: str | None = None, description: str | None 
             fields["assignee"] = board.validate_assignee(assignee, _project())
         except ValueError as e:
             return {"error": str(e)}
-    if not fields:
+    if not fields and new_parent is None:
         return {"error": "nothing to update: pass at least one field"}
     denied = _write_denied()
     if denied:
         return denied
     who, origin = _origin()
+    if new_parent is not None:
+        try:
+            board.set_parent(card_id, new_parent or None, user=who, origin=origin)
+        except ValueError as e:
+            return {"error": str(e)}
+        fields["parent_id"] = new_parent
     card = board.update_card(card_id, user=who, origin=origin, **fields)
     if not card:
         return _missing(card_id)
@@ -423,8 +502,8 @@ def link_card(card_id: int, kind: str, ref: str, remove: bool = False) -> dict:
 
     Args:
         card_id: id of the card.
-        kind: session | agent | run | incident.
-        ref: session id; agent id or name; agent run id; incident id.
+        kind: session | agent | run | incident | mr.
+        ref: session id; agent id or name; agent run id; incident id; merge request URL.
              Linking to your own session: kind="session", ref="self".
         remove: true to remove the link instead.
     """

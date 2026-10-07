@@ -195,6 +195,36 @@ Notable changes, newest first. Versions: semver + release hash (see
   restricted SCC; bubblewrap is opportunistic). `default` is unchanged; the raw
   terminal stays `default`-only. The API image installs `bubblewrap` (Docker's default
   seccomp profile keeps it in hooks-only mode — docs/enterprise/OPERATIONS.md § 4.1).
+### 3.3 Helm
+- **Hierarchical cards** (feature `helm`, beta; requires `multi_project` + `assistant`; on in
+  enterprise, off in community). A card can sit under another (manager's project card →
+  engineer's cards → sub-tasks; same project, no cycle, 6 levels): safe migration (new
+  columns, every existing card stays a top-level task). Opening a parent shows its own
+  kanban (the Board's component) with a breadcrumb. Merge requests become a link kind (`mr`).
+- **Context flows down**: the intent, constraints, decisions and links of every card above
+  are injected into the seed of a session spawned from a card below (before the memory
+  pre-seed), and kept as a project memory note `helm-card-<id>` marked `card:<id>`.
+- **Progress flows up**: a parent's state (done / in progress / waiting for approval /
+  blocked / to do) is computed from its children and their live signals (sessions working,
+  agent runs, merge requests, Operate incidents), recomputed on every board event, by a
+  periodic job and on read, journaled on the card — never declared by hand.
+- **Helm tab** for project managers (maintainer/admin, and instance admins in their own
+  projects): every project card in a deck with Crew's grammar (state colour + label, the card
+  breathes while work goes on), popout Kanban · Activity · Suggestions · Costs, filters by
+  project / team / person.
+- **Nina steers**: « create a project » — she interviews (goal, scope, constraints, deadline,
+  team) and proposes the project card and its breakdown in an editable `sokkan-project`
+  block that the person validates. **Reframe suggestions** (every 15 min + on demand): drift
+  from the parent's goal (memory embedding), contradiction with a recorded decision, scope
+  growth, cards outside the project, cards without owner, slowing down / racing ahead, linked
+  incident — each one Approve (a `reframe` card for the manager) or Ignore, never applied alone.
+- **Morning brief**: Crew template `morning-brief` (weekdays 07:30) built on a read-only board
+  MCP tool `morning_brief`; delivered as a quarantined memory note + a notification; agenda
+  from an ICS address kept in the vault by name (`helm_calendar`, Graph/Teams later).
+- Board MCP: `create_card` / `update_card` take `parent_id`; new reads `get_card_tree`,
+  `morning_brief`. New variables (compose `# helm` block): `SOKKAN_FEATURE_HELM`,
+  `SOKKAN_HELM_TICK_S`, `SOKKAN_HELM_DRIFT_MIN`, `SOKKAN_HELM_SNOOZE_DAYS`,
+  `SOKKAN_HELM_CALENDAR_ICS`, `SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE`. Spec: `docs/HELM.md`.
 
 ## 3.1.2 — 2026-10-07 — "Crew up"
 Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:

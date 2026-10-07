@@ -7,8 +7,9 @@ import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 import ProjectSelector from "./ProjectSelector";
 import { currentProject } from "@/lib/project";
+import { helmAccess } from "@/lib/helm";
 
-const TABS = ["Board", "Sessions", "Crew", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
+const TABS = ["Board", "Sessions", "Crew", "Helm", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -21,6 +22,12 @@ export default function Tabs({
   const feats = useFeatures();
   const canDev = useCan("dev");
   const me = useMe();
+  // 3.3 Helm : the tab exists for the people who steer at least one project
+  const [steers, setSteers] = useState(false);
+  useEffect(() => {
+    if (!feats.helm) { setSteers(false); return; }
+    helmAccess().then((a) => setSteers(a.steers.length > 0)).catch(() => setSteers(false));
+  }, [feats.helm]);
   const visible = TABS.filter(
     // 3.2 : Preview (dépôts de l'instance) et Infra n'existent que dans le projet par défaut / pour l'ops
     (t) => (t !== "Preview" || (feats.preview && currentProject() === "default"))
@@ -29,6 +36,7 @@ export default function Tabs({
       && (t !== "Operate" || (feats.observe && (!me || me.ops !== false)))
       && (t !== "Magnitude" || feats.magnitude)
       && (t !== "Crew" || (feats.agents && (canDev || !!feats.agents_viewer_readonly)))
+      && (t !== "Helm" || (!!feats.helm && steers))
   );
   return (
     <>

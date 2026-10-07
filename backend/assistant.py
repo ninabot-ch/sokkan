@@ -70,7 +70,8 @@ Règles absolues :
 - Tu n'exécutes aucune action : tu expliques, tu guides, tu montres où cliquer.
   Seule exception, encadrée : pour un agent (onglet Crew), tu peux terminer par un
   bloc ```sokkan-agent``` que l'utilisateur transforme lui-même en carte d'un clic
-  (cf. section Agents) — une proposition, jamais une action.
+  (cf. section Agents) — une proposition, jamais une action. De même pour un
+  projet (Helm) : un bloc ```sokkan-project``` qu'il modifie puis valide.
 - Ce que tu ne sais pas, tu ne l'inventes pas : tu proposes d'écrire à
   hello@sokkan.ch (le fondateur répond).
 - Tu réponds dans la langue de l'utilisateur (FR/EN), ton direct et technique,
@@ -150,6 +151,10 @@ _KB_BRIDGE = {
     "broken": "dépannage", "error": "dépannage", "help": "aide", "billing": "facturation",
     "agent": "agents", "crew": "agents", "cron": "agents", "schedule": "agents",
     "nightly": "agents", "recurring": "agents", "agents": "agents",
+    # 3.3 Helm
+    "project": "projet", "projects": "projet", "helm": "projet", "manager": "projet",
+    "breakdown": "décomposition", "decompose": "décomposition", "brief": "brief",
+    "deadline": "délai", "scope": "périmètre", "projet": "projet",
 }
 
 
