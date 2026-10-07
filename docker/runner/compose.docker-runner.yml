@@ -1,0 +1,55 @@
+# SOKKAN — docker runner: one container per session / agent run on this host.
+# Opt-in, added on top of docker-compose.yml:
+#   COMPOSE_FILE=docker-compose.yml:docker/runner/compose.docker-runner.yml
+#   SOKKAN_WORKSPACE=/absolute/path/to/workspace   (a bind source must be absolute)
+#   docker compose build session && docker compose up -d
+# See docs/enterprise/KUBERNETES.md § "docker runner" — read the trade-off first: the api
+# reaches a Docker API (through the restricted socket proxy below), and whoever controls the
+# api can start containers on this host.
+services:
+  api:
+    environment:
+      SOKKAN_RUNNER: docker
+      SOKKAN_DOCKER_HOST: tcp://docker-proxy:2375
+      SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-sokkan-session:local}
+      SOKKAN_DOCKER_NETWORK: sokkan-sessions
+      SOKKAN_RUNNER_RELAY_ADDR: api:8098
+      SOKKAN_SESSION_HTTPS_PROXY: http://session-egress:3128
+      SOKKAN_RUNNER_MOUNTS: /data=volume:${COMPOSE_PROJECT_NAME:-sokkan}_sokkan-data,/workspace=bind:${SOKKAN_WORKSPACE:?set SOKKAN_WORKSPACE to an absolute path}
+      SOKKAN_SESSION_CPU_LIMIT: ${SOKKAN_SESSION_CPU_LIMIT:-1}
+      SOKKAN_SESSION_MEMORY_LIMIT: ${SOKKAN_SESSION_MEMORY_LIMIT:-2Gi}
+      SOKKAN_SESSION_IDLE_S: ${SOKKAN_SESSION_IDLE_S:-900}
+    networks: [default, sessions]
+    depends_on: [docker-proxy, session-egress]
+
+  # Docker API for the api, restricted to containers (no images, volumes, networks, exec
+  # on the host's daemon config). Never published.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 1
+      DELETE: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt: ["no-new-privileges:true"]
+
+  # the only way out of a session container: HTTPS CONNECT to allowed hosts
+  session-egress:
+    image: ${SOKKAN_SESSION_IMAGE:-sokkan-session:local}
+    build: { context: ., dockerfile: docker/session.Dockerfile }
+    restart: unless-stopped
+    command: ["sokkan-egress-proxy"]
+    environment:
+      SOKKAN_EGRESS_ALLOW: ${SOKKAN_EGRESS_ALLOW:-api.anthropic.com}
+    networks: [default, sessions]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  # internal: no route out — sessions reach the api (relay) and session-egress only
+  sessions:
+    name: sokkan-sessions
+    internal: true

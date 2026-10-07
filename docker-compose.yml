@@ -155,6 +155,12 @@ services:
       SOKKAN_AGENTS_MAX_TOKENS_PER_RUN: ${SOKKAN_AGENTS_MAX_TOKENS_PER_RUN:-5000000}
       SOKKAN_MODEL_PRICES: ${SOKKAN_MODEL_PRICES:-}
       SOKKAN_FX_USD_PER_CHF: ${SOKKAN_FX_USD_PER_CHF:-1.30}
+      # runner — where the CLI of a session / agent run executes (feature kubernetes_runner,
+      # docs/enterprise/KUBERNETES.md). local (default) = inside this container, as before;
+      # docker = one container per session: add docker/runner/compose.docker-runner.yml
+      # to COMPOSE_FILE (it sets the variables below); kubernetes = the Helm chart.
+      SOKKAN_FEATURE_KUBERNETES_RUNNER: ${SOKKAN_FEATURE_KUBERNETES_RUNNER:-}
+      SOKKAN_RUNNER: ${SOKKAN_RUNNER:-local}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
