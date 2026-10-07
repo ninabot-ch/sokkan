@@ -76,7 +76,14 @@ def pod_isolation() -> bool:
     """Sessions and runs execute in their own pod / container (the session runner,
     `SOKKAN_RUNNER=kubernetes`): the reference strong boundary on Kubernetes / OpenShift
     (restricted SCC: no root, arbitrary uid, no user namespaces → no bubblewrap)."""
-    return (os.environ.get("SOKKAN_RUNNER") or "").strip().lower() in ("kubernetes", "k8s")
+    # aligned with the runner (night-runner): the SAME decision as the one that really
+    # spawns the session — SOKKAN_RUNNER=kubernetes|docker AND feature kubernetes_runner on.
+    # A variable set while the runner is off must not relax the sandbox (Bash stays refused).
+    try:
+        import runner
+        return runner.selected() in ("kubernetes", "docker")
+    except Exception:  # noqa: BLE001 — no runner = no pod
+        return False
 
 
 def network_allowed() -> bool:
@@ -112,8 +119,9 @@ def detect(force: bool = False) -> str:
         _mode, _detail = OFF, "feature `sandbox` is off"
         return _mode
     if pod_isolation():
-        _mode, _detail = POD, ("sessions run in their own pod (SOKKAN_RUNNER=kubernetes); the "
-                               "tool hook stays on as a second layer")
+        import runner
+        _mode, _detail = POD, (f"sessions run in their own {runner.selected()} container "
+                               "(session runner); the tool hook stays on as a second layer")
         print(f"[sandbox] mode {_mode}: {_detail}", file=sys.stderr)
         return _mode
     why = _probe(bwrap_path())

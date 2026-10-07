@@ -325,3 +325,23 @@ def test_pod_mode_is_the_reference_isolation(world, monkeypatch):
     body = TestClient(a.app).get("/api/features").json()
     assert body["sandbox"] == "pod"
     assert "pod" in next(i for i in body["registry"]["items"] if i["id"] == "sandbox")["note"]
+
+
+def test_pod_mode_follows_the_runner_not_the_variable_alone(monkeypatch, tmp_path):
+    """night-runner × lot 8: `pod` (Bash allowed, the container is the boundary) only when the
+    session runner REALLY spawns containers — SOKKAN_RUNNER=kubernetes with the feature
+    `kubernetes_runner` resolved on. The variable alone (feature off) keeps hooks-only."""
+    import runner
+    import sandbox
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SOKKAN_FEATURE_MULTI_PROJECT", "1")
+    monkeypatch.setenv("SOKKAN_FEATURE_SANDBOX", "1")
+    monkeypatch.setenv("SOKKAN_SANDBOX_BWRAP", "/nonexistent/bwrap")
+    monkeypatch.setenv("SOKKAN_RUNNER", "kubernetes")
+    monkeypatch.setenv("SOKKAN_FEATURE_KUBERNETES_RUNNER", "0")
+    assert runner.selected() == "local"
+    assert sandbox.detect(force=True) == sandbox.HOOKS
+    monkeypatch.setenv("SOKKAN_FEATURE_KUBERNETES_RUNNER", "1")
+    assert runner.selected() == "kubernetes"
+    assert sandbox.detect(force=True) == sandbox.POD
+    sandbox.reset()
