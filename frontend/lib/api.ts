@@ -406,6 +406,9 @@ export interface Agent {
   stats?: { runs: number; cost_usd: number; live: number; waiting: number };
   last_run?: AgentRunLite | null;
   deck: DeckState; needs_approval: boolean; waiting_for_human: boolean;
+  proposed_by?: string; pending_change_by?: string;
+  approval?: { mode: "owner" | "admin" | "four_eyes"; can_approve: boolean; reason: string } | null;
+  approval_mode?: "owner" | "admin" | "four_eyes";
 }
 export interface AgentRun {
   id: number; agent_id: number; trigger: string; scheduled_for: number | null; status: string;
@@ -417,6 +420,7 @@ export interface AgentRun {
 export interface AgentsMeta {
   secrets: string[]; tools: string[]; default_tools: string[]; mcp: string[]; outputs: string[];
   notify_on: string[]; models: string[]; triggers: string[]; playbooks: Playbook[]; timezone: string;
+  approval_mode: "owner" | "admin" | "four_eyes"; self_activation: boolean;
 }
 export interface AgentsList { agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] } }
 
@@ -447,3 +451,10 @@ export const agentRuns = (id: number, limit = 50) => getJSON<AgentRun[]>(`/api/a
 export const agentRun = (runId: number) => getJSON<AgentRun>(`/api/agents/runs/${runId}`);
 export const agentRunCancel = (runId: number) => mutateDetail<{ ok: boolean }>(`/api/agents/runs/${runId}/cancel`, "POST");
 export const agentPropose = (fields: Partial<Agent>) => mutateDetail<Agent>("/api/agents/proposals", "POST", fields);
+
+// quarantaine mémoire (3.1) : notes écrites par des runs d'agent, jamais rappelées avant relecture
+export interface QuarantinedNote { name: string; description: string; provenance: Record<string, unknown>; exists_in_memory: boolean }
+export const quarantineList = () => getJSON<QuarantinedNote[]>("/api/memory/quarantine");
+export const quarantineGet = (name: string) => getJSON<QuarantinedNote & { text: string }>(`/api/memory/quarantine/${encodeURIComponent(name)}`);
+export const quarantineApprove = (name: string) => mutateDetail<{ ok: boolean }>(`/api/memory/quarantine/${encodeURIComponent(name)}/approve`, "POST");
+export const quarantineReject = (name: string, del = false) => mutateDetail<{ ok: boolean }>(`/api/memory/quarantine/${encodeURIComponent(name)}/reject`, "POST", { delete: del });

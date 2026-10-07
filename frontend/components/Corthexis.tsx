@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CorthexisGraph, { type Mode, TYPE_COLORS } from "@/components/CorthexisGraph";
 import MemoryBench from "@/components/MemoryBench";
+import { QuarantineButton } from "@/components/Quarantine";
 import { memoryDigest, memorySearch, spawnSession } from "@/lib/api";
 import { useCan } from "@/lib/me";
 import {
@@ -226,6 +227,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
         </div>
 
         <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
+          {canAct && <QuarantineButton />}
           <button onClick={() => setPanel(panel === "repairs" ? null : "repairs")}
             className={`rounded-lg border px-2.5 py-1.5 text-[12px] backdrop-blur ${pending.length ? "border-brass/60 bg-brass/15 text-brass" : "border-line bg-panel/80 text-mut hover:text-slate-200"}`}>
             Repairs{pending.length ? ` · ${pending.length} to approve` : ""}

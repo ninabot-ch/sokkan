@@ -8,6 +8,7 @@ import {
   type Agent, type AgentRun, type AgentsList, type AgentsMeta, type DeckState,
 } from "@/lib/api";
 import AgentChatPane from "./AgentChatPane";
+import { QuarantineReview } from "./Quarantine";
 
 // « Crew » (3.1) — un agent = une carte. Le deck est un kanban dont les colonnes
 // sont les états : la carte change de colonne toute seule quand l'agent vit.
@@ -241,7 +242,7 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="trigger">⏱ {triggerWords(a)}</span>
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="model">{a.model || "default model"}</span>
         {a.secrets.length > 0 && <span className="rounded bg-panel px-1.5 py-px text-slate-300" title={`vault: ${a.secrets.join(", ")}`}>🔑 {a.secrets.length}</span>}
-        {a.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">needs approval</span>}
+        {a.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">{a.approval && !a.approval.can_approve ? a.approval.reason : "needs approval"}</span>}
         {a.waiting_for_human && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">waiting for you</span>}
         {a.status === "paused" && <span className="rounded bg-panel px-1.5 py-px text-mut">⏸ paused</span>}
         {a.status === "draft" && <span className="rounded bg-panel px-1.5 py-px text-mut">draft</span>}
@@ -306,7 +307,7 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
             <div className="flex items-center gap-2">
               <span className="truncate text-[16px] font-semibold text-slate-100">{a ? a.name : "New agent"}</span>
               {a && <StatePill state={a.deck} />}
-              {a?.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">needs approval</span>}
+              {a?.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">{a.approval && !a.approval.can_approve ? a.approval.reason : "needs approval"}</span>}
             </div>
             {a && <div className="mt-0.5 truncate text-[11px] text-mut">⏱ {triggerWords(a)} · {a.model || "default model"} · owner {a.owner} · {a.status}{a.created_by.startsWith("session:") ? " · proposed by a session" : a.created_by.startsWith("nina:") ? " · proposed by Nina" : ""}</div>}
           </div>
@@ -377,7 +378,13 @@ function ApprovalBar({ a, onApprove, onReject }: { a: Agent; onApprove: () => vo
         <b>{change ? "A change is waiting for your approval" : "This agent waits for your approval — it does not run before."}</b>
         <span className="text-brass/80">{a.created_by.startsWith("session:") ? "Proposed from a session." : a.created_by.startsWith("nina:") ? "Proposed in Nina's chat." : ""} Review the settings below.</span>
         <span className="ml-auto flex gap-1.5">
-          <button onClick={onApprove} className="rounded-md bg-emerald-600/25 px-3 py-1 font-medium text-emerald-200 ring-1 ring-emerald-500/50 hover:bg-emerald-600/40">✓ Approve</button>
+          {a.approval && !a.approval.can_approve ? (
+            <span className="rounded-md border border-brass/50 px-2.5 py-1 font-medium" title={`approval mode: ${a.approval.mode}`}>
+              {a.approval.reason === "needs a second approver" ? "🔒 needs a second approver — someone other than the proposer and the owner" : `🔒 ${a.approval.reason}`}
+            </span>
+          ) : (
+            <button onClick={onApprove} className="rounded-md bg-emerald-600/25 px-3 py-1 font-medium text-emerald-200 ring-1 ring-emerald-500/50 hover:bg-emerald-600/40">✓ Approve</button>
+          )}
           <button onClick={onReject} className="rounded-md px-3 py-1 text-mut ring-1 ring-line hover:text-red-300">Reject</button>
         </span>
       </div>
@@ -446,9 +453,12 @@ function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (s
             {Object.keys(run.outputs || {}).length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5 text-[10.5px]">
                 {Object.entries(run.outputs).map(([k, v]) => (
-                  <span key={k} className="rounded bg-panel2 px-1.5 py-px text-slate-300">{k === "card" ? `board card #${v}` : k === "memory" ? `memory note ${v}` : k === "file" ? `file ${String(v).split("/").slice(-2).join("/")}` : k === "notify" ? "notified" : `${k}: ${v}`}</span>
+                  <span key={k} className="rounded bg-panel2 px-1.5 py-px text-slate-300">{k === "card" ? `board card #${v}` : k === "memory" ? `memory note ${v}` : k === "memory_quarantined" ? "⚠ quarantined" : k === "file" ? `file ${String(v).split("/").slice(-2).join("/")}` : k === "notify" ? "notified" : `${k}: ${v}`}</span>
                 ))}
               </div>
+            )}
+            {typeof run.outputs?.memory === "string" && run.outputs?.memory_quarantined === true && (
+              <div className="mb-2"><QuarantineReview name={run.outputs.memory as string} /></div>
             )}
             {transcript && run.session_id ? (
               <div className="flex h-[52vh] flex-col"><AgentChatPane sid={run.session_id} title={`run #${run.id}`} tag="agent" /></div>
@@ -497,7 +507,7 @@ function Settings({ a, meta, onSaved, onError }: {
       max_minutes: Number(f.max_minutes) || 30, outputs: f.outputs, notify_on: f.notify_on, playbook: f.playbook,
     };
     try {
-      const saved = a ? await agentPatch(a.id, body) : await agentCreate({ ...body, activate });
+      const saved = a ? await agentPatch(a.id, body) : await agentCreate({ ...body, activate: meta.self_activation ? activate : true });
       setDirty(false);
       onSaved(saved);
     } catch (e) { onError(String((e as Error).message)); }
@@ -595,10 +605,13 @@ function Settings({ a, meta, onSaved, onError }: {
 
       {!readOnly && (
         <div className="flex items-center gap-3 border-t border-line pt-3 md:col-span-2">
-          {!a && <label className="flex items-center gap-1.5 text-[12px] text-mut"><input type="checkbox" checked={activate} onChange={(e) => setActivate(e.target.checked)} /> activate now (you are the human gate)</label>}
+          {!a && (meta.self_activation
+            ? <label className="flex items-center gap-1.5 text-[12px] text-mut"><input type="checkbox" checked={activate} onChange={(e) => setActivate(e.target.checked)} /> activate now (you are the human gate)</label>
+            : <span className="text-[12px] text-brass">🔒 approval mode « {meta.approval_mode} »: the card waits for {meta.approval_mode === "admin" ? "an admin" : "a second approver"} before it runs.</span>)}
+          {a && !meta.self_activation && ["active", "paused"].includes(a.status) && <span className="text-[11.5px] text-brass">changes wait for {meta.approval_mode === "admin" ? "an admin" : "a second approver"}</span>}
           {a && dirty && <span className="text-[11.5px] text-brass">unsaved changes</span>}
           <button onClick={save} disabled={saving || (!!a && !dirty)} className="ml-auto rounded-md bg-brass/90 px-4 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-brass disabled:opacity-40">
-            {a ? "Save" : activate ? "Create & arm" : "Create draft"}
+            {a ? "Save" : !meta.self_activation ? "Submit for approval" : activate ? "Create & arm" : "Create draft"}
           </button>
         </div>
       )}
