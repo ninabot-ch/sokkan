@@ -52,6 +52,7 @@ import iam
 import infra
 import oidc
 import agentchat
+import agentcost
 import agents
 import agents_runtime
 import session as sess
@@ -550,11 +551,12 @@ async def observability_alert(request: Request) -> dict:
         if a.get("status") == "resolved":
             continue  # on ne spawn que sur firing
         rid = observability.record_incident(title, summary, severity)
+        # 3.1.2 : the payload is external input — framed as untrusted data
         prompt = (
-            f"A production alert just fired: **{title}** (severity: {severity}).\n"
-            f"{summary}\n"
-            f"Labels: {labels}\n\n"
-            "You are the on-call engineer. First search the project memory for anything "
+            "A production alert just fired. Its content, as sent by the alert source:\n"
+            + agents.untrusted_block("alert", {"alertname": title, "severity": severity,
+                                               "summary": summary, "labels": labels})
+            + "\n\nYou are the on-call engineer. First search the project memory for anything "
             "related, then use mcp__sokkan-observability__query_metrics and query_logs to "
             "investigate, check the most recent deploy, and identify the likely cause. "
             "Propose a concrete fix and wait for my go-ahead before applying anything. "
@@ -677,7 +679,9 @@ def _agent_full(u: dict, aid: int) -> dict:
     return agents.public(full) | {k: full.get(k) for k in ("deck", "needs_approval",
                                                            "waiting_for_human", "created_at",
                                                            "updated_at")} | {
-        "approval_mode": agents.approval_mode()}
+        "approval_mode": agents.approval_mode(),
+        # 3.1.2 : how its runs are metered (SDK cost, or SOKKAN price table / token cap)
+        "metering": agentcost.metering(full.get("model"))}
 
 
 class AgentBody(BaseModel):
@@ -696,7 +700,9 @@ def agents_meta(_u: dict = Depends(crew_reader), _f: None = Depends(feature_agen
             "timezone": "Europe/Zurich", "approval_mode": agents.approval_mode(),
             "self_activation": (iam.rank(_u["role"]) >= iam.rank("dev")
                                 and agents.self_activation_allowed(_u)),
-            "read_only": iam.rank(_u["role"]) < iam.rank("dev")}
+            "read_only": iam.rank(_u["role"]) < iam.rank("dev"),
+            "is_admin": iam.rank(_u["role"]) >= iam.rank("admin"),
+            "metering": agentcost.metering(None)}
 
 
 @app.get("/api/agents")
@@ -712,9 +718,12 @@ def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
 def agents_create(body: AgentBody, u: dict = Depends(require("dev")),
                   _f: None = Depends(feature_agents)) -> dict:
     fields = body.model_dump(exclude={"activate"})
+    override = bool(fields.pop("override_alert_writes", False))
     a = _agent_http(agents.create, u, fields, created_by=f"user:{u['email']}",
-                    activate=body.activate, known_secrets=vault.names())
+                    activate=body.activate, known_secrets=vault.names(),
+                    override_alert_writes=override)
     audit.log(u["email"], "agent.create", a["name"], a["status"])
+    _audit_alert_override(u, a, override)
     agents_runtime.poke()
     return _agent_full(u, a["id"])
 
@@ -760,17 +769,33 @@ def agents_get(aid: int, u: dict = Depends(crew_reader),
 def agents_patch(aid: int, body: AgentBody, u: dict = Depends(require("dev")),
                  _f: None = Depends(feature_agents)) -> dict:
     fields = body.model_dump(exclude={"activate"}, exclude_unset=True)
-    a = _agent_http(agents.update, u, aid, fields, known_secrets=vault.names())
+    override = bool(fields.pop("override_alert_writes", False))
+    before = agents.get(aid) or {}
+    a = _agent_http(agents.update, u, aid, fields, known_secrets=vault.names(),
+                    override_alert_writes=override)
     audit.log(u["email"], "agent.update", a["name"], ", ".join(sorted(fields)))
+    _audit_alert_override(u, a, override, before)
     agents_runtime.poke()
     return _agent_full(u, aid)
 
 
+def _audit_alert_override(u: dict, a: dict, asked: bool, before: dict | None = None) -> None:
+    """Journal an admin override of the alert write rule (3.1.2) when it was used."""
+    ov = a.get("alert_write_override") or {}
+    old = (before or {}).get("alert_write_override") or {}
+    if asked and ov and ov != old:
+        audit.log(u["email"], "agent.alert_write_override", a["name"],
+                  "auto-approved writes on an alert-triggered agent: "
+                  + ", ".join(ov.get("rules") or []))
+
+
 @app.post("/api/agents/{aid}/{action}")
-def agents_action(aid: int, action: str, u: dict = Depends(require("dev")),
+def agents_action(aid: int, action: str, override_alert_writes: bool = False,
+                  u: dict = Depends(require("dev")),
                   _f: None = Depends(feature_agents)) -> dict:
+    before = agents.get(aid) or {}
     ops = {
-        "approve": lambda: agents.approve(u, aid),
+        "approve": lambda: agents.approve(u, aid, override_alert_writes=override_alert_writes),
         "reject": lambda: agents.reject(u, aid),
         "pause": lambda: agents.set_status(u, aid, "paused"),
         "resume": lambda: agents.set_status(u, aid, "active"),
@@ -782,6 +807,8 @@ def agents_action(aid: int, action: str, u: dict = Depends(require("dev")),
     out = _agent_http(ops[action])
     name = (agents.get(aid) or {}).get("name", str(aid))
     audit.log(u["email"], f"agent.{action}", name, f"run #{out['id']}" if action == "run" else "")
+    if action == "approve":
+        _audit_alert_override(u, agents.get(aid) or {}, override_alert_writes, before)
     agents_runtime.poke()
     return {"agent": _agent_full(u, aid), **({"run": out} if action == "run" else {})}
 
@@ -1598,6 +1625,10 @@ def session_detail(session_id: str) -> dict:
         tpath = PROJECT_DIR / f"{csid}.jsonl" if csid else None
         if tpath and tpath.exists():
             d = T.parse_file(tpath)
+            # 3.1.2 : an agent run's transcript (Crew → History) never shows its secrets
+            masked = agents.secrets_for_session(session_id)
+            if masked:
+                d = agents.redact_obj(d, masked)
             d.update({
                 "session_id": session_id, "title": s["title"], "tag": s["tag"],
                 "window": "", "active": False, "alive": True,

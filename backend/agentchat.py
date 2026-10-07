@@ -185,6 +185,14 @@ class AgentSession:
         self.tokens_out = 0
         self.num_turns = 0
         self.last_result: dict | None = None
+        # 3.1.2 : valeurs des secrets à masquer dans TOUT ce que la session émet (events
+        # live, replay) — ceux de l'agent pour un run ; posé par get_or_create pour une
+        # session de run rouverte depuis History.
+        self.redact_values: dict[str, str] = (
+            vault.session_env(list(policy.get("secrets") or [])) if policy else {})
+        # 3.1.2 : comptage SOKKAN d'un run sur un modèle non-Claude (agentcost.Meter)
+        self.meter = (policy or {}).get("meter")
+        self.budget_stop: str | None = None
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -196,6 +204,9 @@ class AgentSession:
         self.subscribers.discard(q)
 
     def _emit(self, event: dict) -> None:
+        if self.redact_values:
+            import agents  # pure module (no SDK), imported late to keep this one light
+            event = agents.redact_obj(event, self.redact_values)
         self.events.append(event)
         if len(self.events) > RING_MAX:
             del self.events[: len(self.events) - RING_MAX]
@@ -226,8 +237,9 @@ class AgentSession:
                 # défense en profondeur : une règle « allow » des settings utilisateur ou
                 # projet court-circuite can_use_tool ; disallowed_tools l'emporte toujours
                 opts_kwargs["disallowed_tools"] = self._disallowed_tools()
-            if pol and pol.get("budget_usd") and "max_budget_usd" in _OPTION_FIELDS:
-                opts_kwargs["max_budget_usd"] = float(pol["budget_usd"])
+            sdk_budget = self._sdk_max_budget()
+            if sdk_budget and "max_budget_usd" in _OPTION_FIELDS:
+                opts_kwargs["max_budget_usd"] = sdk_budget
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
             hooks = memrecall.sdk_hooks(self.sid)
             if hooks:
@@ -285,6 +297,15 @@ class AgentSession:
             return SAFE_TOOLS
         safe = [t for t in SAFE_TOOLS if self._tool_permitted(t)]
         return safe + [r for r in pol.get("auto_approve") or [] if r not in safe]
+
+    def _sdk_max_budget(self) -> float | None:
+        """The run budget handed to the SDK — only when the SDK prices the model right
+        (Claude on Anthropic). A non-Claude model would be priced at a Claude tariff
+        by the CLI: the SOKKAN meter (agentcost) enforces the budget instead."""
+        pol = self.policy or {}
+        if not pol.get("budget_usd") or (self.meter is not None and self.meter.active):
+            return None
+        return float(pol["budget_usd"])
 
     def _disallowed_tools(self) -> list[str]:
         """Outils intégrés retirés d'un run d'agent : tous ceux hors de sa liste."""
@@ -499,9 +520,15 @@ class AgentSession:
 
         if isinstance(msg, ResultMessage):
             turn_cost = getattr(msg, "total_cost_usd", None)
-            if turn_cost:
-                self.cost_usd += float(turn_cost)
             usage = getattr(msg, "usage", None) or {}
+            if self.meter is not None and self.meter.active:
+                # the CLI's figure is at a Claude tariff: use SOKKAN's own count
+                if not self.meter.seen:
+                    self.meter.add(usage if isinstance(usage, dict) else None)
+                turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
+                self.cost_usd = self.meter.cost_usd
+            elif turn_cost:
+                self.cost_usd += float(turn_cost)
             if isinstance(usage, dict):
                 self.tokens_in += int(usage.get("input_tokens") or 0) + int(
                     usage.get("cache_read_input_tokens") or 0) + int(
@@ -532,6 +559,16 @@ class AgentSession:
 
         # AssistantMessage (et UserMessage portant des tool_result)
         self._emit_model(getattr(msg, "model", None))  # le modèle réel du tour
+        if self.meter is not None and self.meter.active:
+            self.meter.add(getattr(msg, "usage", None), getattr(msg, "message_id", None))
+            why = self.meter.over() if self.budget_stop is None else None
+            if why:
+                self.budget_stop = why
+                self._emit({"type": "error", "message": f"Agent run stopped: {why}."})
+                try:
+                    asyncio.get_running_loop().create_task(self.interrupt())
+                except RuntimeError:  # no loop (unit test of _translate): the caller stops
+                    pass
         content = getattr(msg, "content", None)
         if not isinstance(content, list):
             return
@@ -629,6 +666,9 @@ def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
                             "truncated": bool(r.get("truncated"))})
     if evs:
         evs.append({"type": "status", "state": "idle"})
+        if s.redact_values:  # a reopened agent run: the transcript holds raw values
+            import agents
+            evs = agents.redact_obj(evs, s.redact_values)
         s.events.extend(evs[-RING_MAX:])
 
 
@@ -641,6 +681,13 @@ def get_or_create(sid: str, resume: str | None = None, user: str = "",
         resume = resume or (board.get_claude_session_id(sid) or None)
         s = AgentSession(sid, resume=resume, user=user, model=model or MODEL, policy=policy,
                          secrets=secrets)
+        if not policy:
+            # a finished agent run reopened from Crew → History / Live: mask its secrets
+            try:
+                import agents
+                s.redact_values = agents.secrets_for_session(sid)
+            except Exception:  # noqa: BLE001
+                pass
         if resume:
             _seed_ring_from_transcript(s, resume)
         _registry[sid] = s

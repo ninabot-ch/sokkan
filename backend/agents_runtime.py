@@ -29,6 +29,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 import agentchat
+import agentcost
 import agents
 import audit
 import board
@@ -67,8 +68,23 @@ def demo_mode() -> bool:
     return enabled() and demo_crew.enabled()
 
 
+# ---- policy ---------------------------------------------------------------------
+def run_auto_approve(a: dict, run: dict) -> tuple[list[str], list[str]]:
+    """(rules that run unasked, write rules held back) for this run. A run started
+    by an alert carries an external payload: its write rules wait for a human —
+    agents activated before 3.1.2 included — unless an admin override covers them."""
+    rules = list(a.get("auto_approve") or [])
+    if run.get("trigger") != "event" or not agents.alert_triggered(a):
+        return rules, []
+    held = agents.alert_write_rules(a)
+    if not held or agents.alert_override_covers(a, held):
+        return rules, []
+    return [r for r in rules if r not in held], held
+
+
 # ---- prompt -------------------------------------------------------------------
-def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None) -> str:
+def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None,
+                 metering: dict | None = None) -> str:
     tz = a.get("timezone") or cronexpr.DEFAULT_TZ
     when = datetime.fromtimestamp(now or time.time(), ZoneInfo(tz)).strftime("%Y-%m-%d %H:%M %Z")
     mission = a["purpose"]
@@ -77,8 +93,9 @@ def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None)
         if r:
             mission = r[0]
     tools = ", ".join(a.get("tools") or []) or "none"
-    if a.get("auto_approve"):
-        gate = ("These run without asking: " + ", ".join(a["auto_approve"]) + ". Any other "
+    auto, held = run_auto_approve(a, run)
+    if auto:
+        gate = ("These run without asking: " + ", ".join(auto) + ". Any other "
                 "mutating call waits for a human approval (the owner is pinged).")
     else:
         gate = ("Every mutating call (writes, shell commands that change state) waits for a "
@@ -105,10 +122,19 @@ def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None)
     limits = [f"{a.get('max_minutes') or 30} minutes"]
     if a.get("budget_usd"):
         limits.insert(0, f"${a['budget_usd']:.2f}")
+    if held:
+        lines.append("- This run was started by an alert: " + ", ".join(held) + " wait for a "
+                     "human approval this time, even though they usually run unasked.")
+    m = metering or {}
+    if m.get("basis") == "sokkan" and m.get("max_tokens_per_run"):
+        limits.append(f"{m['max_tokens_per_run']:,} tokens")
     lines.append(f"- Limits for this run: {' and '.join(limits)}. Stay well inside them.")
     ctx = run.get("context") or {}
     if ctx:
-        lines += ["", "## Event that triggered this run", str(ctx)[:2000]]
+        # 3.1.2 : an event payload is EXTERNAL input (an alert sender) — framed as data
+        lines += ["", "## Event that triggered this run",
+                  agents.untrusted_block("alert" if run.get("trigger") == "event" else "event",
+                                         ctx)]
     if recall:
         lines += ["", recall,
                   "The notes above were auto-recalled from project memory for this mission; "
@@ -326,10 +352,21 @@ class Runtime:
         def on_wait(waiting: bool) -> None:
             agents.update_run(rid, waiting_approval=int(waiting))
 
+        auto, held = run_auto_approve(a, run)
+        if held:
+            audit.log(actor, "agent.run.alert_writes_held", f"run #{rid}", ", ".join(held))
+        try:
+            metering = agentcost.metering(a.get("model") or None)
+        except Exception as e:  # noqa: BLE001 — never unmetered: unknown price → token cap
+            metering = {"basis": "sokkan", "model": a.get("model") or "", "price": None,
+                        "max_tokens_per_run": agentcost.max_tokens_per_run(),
+                        "note": f"metering error: {e}"}
+        meter = agentcost.Meter(metering, a.get("budget_usd") or 0)
         policy = {
             "agent": a["name"], "run": rid,
             "tools": a.get("tools") or [],
-            "auto_approve": a.get("auto_approve") or [],
+            "auto_approve": auto,
+            "meter": meter,
             "secrets": a.get("secrets") or [],
             "budget_usd": a.get("budget_usd") or 0,
             "mcp": list(dict.fromkeys([*(a.get("mcp") or ["sokkan-memory"]), "sokkan-agents"])),
@@ -346,7 +383,7 @@ class Runtime:
                 recall = self.recall(f"{a['name']} {a['purpose']}"[:1000], sid) or ""
             except Exception:  # noqa: BLE001 — memory down never blocks a run
                 recall = ""
-        prompt = build_prompt(a, run, recall)
+        prompt = build_prompt(a, run, recall, metering=metering)
         status, error = "succeeded", ""
         timeout = float(a.get("max_minutes") or 30) * 60
         try:
@@ -372,7 +409,10 @@ class Runtime:
         if status == "succeeded":
             errs = [e.get("message", "") for e in sess.events if e.get("type") == "error"]
             subtype = res.get("subtype") or ""
-            if "budget" in subtype:
+            stop = getattr(sess, "budget_stop", None)
+            if stop:
+                status, error = "budget", stop
+            elif "budget" in subtype:
                 status, error = "budget", f"run budget ${a.get('budget_usd', 0):.2f} reached"
             elif not res:
                 status, error = "failed", (errs[-1] if errs else "the session produced no result")
@@ -384,9 +424,18 @@ class Runtime:
                     status, error = "incomplete", why or "the agent reported an incomplete delivery"
         deliverable = agents.redact(text, secret_vals)
         error = agents.redact(error, secret_vals)
+        if status in ("failed", "incomplete") and getattr(sess, "budget_stop", None):
+            status, error = "budget", sess.budget_stop  # stopped by the meter mid-turn
         outputs = {}
         if deliverable.strip() and status in ("succeeded", "incomplete"):
             outputs = self._file(a, run, sid, deliverable, status)
+        if meter.active:  # History says how this cost was obtained
+            p = metering.get("price")
+            outputs["cost_basis"] = (
+                f"SOKKAN price table · {metering.get('model')} · {p['currency']} {p['input']:g}/"
+                f"{p['output']:g} per M tokens" if p else
+                f"price of {metering.get('model') or 'the model'} unknown · token cap "
+                f"{metering.get('max_tokens_per_run'):,}") + f" · {meter.tokens:,} tokens"
         agents.update_run(rid, status=status, error=error, deliverable=deliverable[:60000],
                           outputs=outputs, waiting_approval=0,
                           cost_usd=round(sess.cost_usd, 6), tokens_in=sess.tokens_in,
