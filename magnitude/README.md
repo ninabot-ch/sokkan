@@ -65,6 +65,7 @@ Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
 | `MAGNITUDE_KV` | *(f16)* | Quantized KV cache, e.g. `q8_0` — halves KV VRAM at 64k (~4.7 GB → ~2.4 GB on an 8B), forces flash attention |
 | `MAGNITUDE_SERVER_ARGS` | *(empty)* | Extra `llama-server` flags, space-separated. Gotcha: llama-server caps per-request context at the model's training window even with YaRN — unlock with `--override-kv <arch>.context_length=int:65536` (e.g. `qwen3.context_length`) |
 | `MAGNITUDE_LLAMA_TAG` | latest | Pin the llama.cpp release |
+| `MAGNITUDE_VISION` | `0` | `1` = the served model reads images: the shim forwards Anthropic `image` blocks (including those inside a `tool_result`, e.g. Claude Code reading a `.png`) as OpenAI `image_url` data URLs. Requires a vision model served with its `--mmproj` (pass it via `MAGNITUDE_SERVER_ARGS`). Off: each image is replaced by an explicit "image omitted" note |
 | `MAGNITUDE_HOME` | `~/.sokkan/magnitude` | Cache directory (runtimes, GGUF weights, logs) |
 
 Rule of thumb for coding sessions: weights + KV must fit — an 8B Q4 at 64k/q8

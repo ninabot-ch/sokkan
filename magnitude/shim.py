@@ -18,7 +18,9 @@ Standalone : `python3 -m magnitude.shim --upstream http://127.0.0.1:8791 \
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
+import os
 import secrets
 import threading
 import time
@@ -45,25 +47,75 @@ def _estimate_tokens(text_len: int) -> int:
 
 # ---------------------------------------------------------------- traduction requête
 
-def _blocks_to_text(blocks) -> str:
-    """Aplatie une liste de blocks (text/image/autre) en texte."""
-    parts: list[str] = []
+# Message visible du modèle quand une image ne peut pas lui être transmise : jamais
+# silencieux — le modèle doit savoir qu'il manque quelque chose et pourquoi.
+IMAGE_OMITTED_NO_VISION = (
+    "[image omitted: the local model served by SOKKAN Magnitude has no vision support "
+    "(serve a vision model with its mmproj and set MAGNITUDE_VISION=1)]")
+IMAGE_OMITTED_BAD_SOURCE = "[image omitted: unsupported image source]"
+# Messages role=system au milieu de la conversation (Claude Code 2.1.29x) : réinjectés
+# en contenu user balisé, les gabarits Qwen3.x stricts refusant un system hors tête.
+_SYS_OPEN, _SYS_CLOSE = "<system-reminder>\n", "\n</system-reminder>"
+
+
+def _env_vision() -> bool:
+    """Capacité vision du modèle servi : `MAGNITUDE_VISION=1` (défaut : non-vision).
+
+    llama-server ne lit les images que lancé avec le mmproj du modèle ; sans lui, une
+    partie `image_url` fait échouer la requête — d'où un défaut prudent."""
+    return os.environ.get("MAGNITUDE_VISION", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _image_part(b: dict, vision: bool) -> dict:
+    """Block image Anthropic → partie OpenAI `image_url` (data URL) ou texte explicite."""
+    if not vision:
+        return {"type": "text", "text": IMAGE_OMITTED_NO_VISION}
+    src = b.get("source") or {}
+    if src.get("type") == "base64" and src.get("data"):
+        url = f"data:{src.get('media_type') or 'image/png'};base64,{src['data']}"
+    elif src.get("type") == "url" and src.get("url"):
+        url = src["url"]
+    else:
+        return {"type": "text", "text": IMAGE_OMITTED_BAD_SOURCE}
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def _blocks_to_parts(blocks, vision: bool) -> list[dict]:
+    """Blocks Anthropic (text/image/autre) → parties de contenu OpenAI."""
+    parts: list[dict] = []
     for b in blocks or []:
         if isinstance(b, str):
-            parts.append(b)
+            if b:
+                parts.append({"type": "text", "text": b})
         elif isinstance(b, dict):
             t = b.get("type")
             if t == "text":
-                parts.append(b.get("text") or "")
+                if b.get("text"):
+                    parts.append({"type": "text", "text": b["text"]})
             elif t == "image":
-                parts.append("[image omitted]")
+                parts.append(_image_part(b, vision))
             else:  # block inconnu : sérialisé plutôt que perdu
-                parts.append(json.dumps(b, ensure_ascii=False))
-    return "\n".join(p for p in parts if p)
+                parts.append({"type": "text", "text": json.dumps(b, ensure_ascii=False)})
+    return parts
 
 
-def _stringify_tool_result(content) -> str:
-    """Contenu d'un tool_result Anthropic (string OU liste de blocks) → string OpenAI."""
+def _parts_text(parts: list[dict]) -> str:
+    return "\n".join(p["text"] for p in parts if p["type"] == "text")
+
+
+def _collapse(parts: list[dict]):
+    """Que du texte → une chaîne (compat maximale des gabarits) ; sinon la liste."""
+    if all(p["type"] == "text" for p in parts):
+        return _parts_text(parts)
+    return parts
+
+
+def _blocks_to_text(blocks) -> str:
+    """Aplatie une liste de blocks en texte (images → marqueur explicite)."""
+    return _parts_text(_blocks_to_parts(blocks, vision=False))
+
+
+def _content_text(content) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
@@ -73,31 +125,58 @@ def _stringify_tool_result(content) -> str:
     return json.dumps(content, ensure_ascii=False)
 
 
-def anthropic_to_openai(req: dict, model_id: str) -> dict:
+def _stringify_tool_result(content) -> str:
+    """Contenu d'un tool_result Anthropic (string OU liste de blocks) → string OpenAI."""
+    return _content_text(content)
+
+
+def _tagged_system(texts: list[str]) -> dict:
+    return {"type": "text",
+            "text": "\n\n".join(_SYS_OPEN + t + _SYS_CLOSE for t in texts)}
+
+
+def anthropic_to_openai(req: dict, model_id: str, vision: bool = False) -> dict:
     """Requête Anthropic Messages → payload OpenAI /v1/chat/completions.
 
     Champs Anthropic inconnus (metadata, thinking, …) ignorés silencieusement.
     Le model du client est ignoré : upstream = model_id du shim.
+
+    - Un SEUL message system, en tête : `system` + les role=system qui précèdent tout
+      message user/assistant. Ceux qui arrivent plus loin deviennent du contenu user
+      balisé `<system-reminder>`, collé au prochain message user (ou au dernier) pour
+      ne pas casser l'alternance ni s'intercaler entre tool_calls et réponses tool.
+    - Images : `image_url` (data URL) si `vision`, sinon texte explicite. Une image
+      dans un tool_result (Read d'un .png) : le message tool garde le texte et un
+      renvoi, l'image part dans le message user qui suit (le rôle tool n'accepte pas
+      d'image dans les gabarits courants).
     """
     messages: list[dict] = []
 
+    head: list[str] = []
     system = req.get("system")
     if system:
         sys_text = system if isinstance(system, str) else _blocks_to_text(system)
         if sys_text:
-            messages.append({"role": "system", "content": sys_text})
+            head.append(sys_text)
 
+    pending_sys: list[str] = []   # system intermédiaires en attente du prochain user
+    seen_turn = False
     for m in req.get("messages") or []:
         role = m.get("role")
         content = m.get("content")
-        if isinstance(content, str):
-            messages.append({"role": role, "content": content})
+        if role == "system":
+            t = _content_text(content)
+            if t:
+                (pending_sys if seen_turn else head).append(t)
             continue
-        blocks = content or []
+        seen_turn = True
         if role == "assistant":
+            if isinstance(content, str):
+                messages.append({"role": "assistant", "content": content})
+                continue
             texts: list[str] = []
             tool_calls: list[dict] = []
-            for b in blocks:
+            for b in content or []:
                 if not isinstance(b, dict):
                     continue
                 t = b.get("type")
@@ -112,7 +191,8 @@ def anthropic_to_openai(req: dict, model_id: str) -> dict:
                                                              ensure_ascii=False)},
                     })
                 elif t == "image":
-                    texts.append("[image omitted]")
+                    # le rôle assistant n'accepte pas d'image côté OpenAI
+                    texts.append("[image omitted: images in assistant turns are not forwarded]")
             msg: dict = {"role": "assistant",
                          "content": "\n".join(t for t in texts if t) or None}
             if tool_calls:
@@ -120,25 +200,60 @@ def anthropic_to_openai(req: dict, model_id: str) -> dict:
             elif msg["content"] is None:
                 msg["content"] = ""
             messages.append(msg)
-        else:  # user
-            tool_msgs: list[dict] = []
-            rest: list = []
-            for b in blocks:
-                if isinstance(b, dict) and b.get("type") == "tool_result":
-                    # role tool AVANT le reste du contenu user du même tour ;
-                    # is_error n'a pas d'équivalent OpenAI → marqueur dans le content
-                    body = _stringify_tool_result(b.get("content"))
-                    if b.get("is_error"):
-                        body = "[tool_error] " + body
-                    tool_msgs.append({"role": "tool",
-                                      "tool_call_id": b.get("tool_use_id") or "",
-                                      "content": body})
+            continue
+        # user
+        blocks = [content] if isinstance(content, str) else (content or [])
+        tool_msgs: list[dict] = []
+        tool_imgs: list[dict] = []
+        rest: list = []
+        for b in blocks:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                # role tool AVANT le reste du contenu user du même tour ;
+                # is_error n'a pas d'équivalent OpenAI → marqueur dans le content
+                c = b.get("content")
+                if isinstance(c, list):
+                    parts = _blocks_to_parts(c, vision)
                 else:
-                    rest.append(b)
-            messages.extend(tool_msgs)
-            text = _blocks_to_text(rest)
-            if text or not tool_msgs:
-                messages.append({"role": "user", "content": text})
+                    parts = [{"type": "text", "text": _content_text(c)}] if c else []
+                body = _parts_text(parts)
+                imgs = [p for p in parts if p["type"] == "image_url"]
+                if imgs:
+                    tid = b.get("tool_use_id") or ""
+                    body = (body + "\n" if body else "") + (
+                        f"[{len(imgs)} image(s) returned by this tool call: "
+                        "see the next user message]")
+                    tool_imgs.append({"type": "text",
+                                      "text": f"Image(s) returned by tool call {tid}:"})
+                    tool_imgs.extend(imgs)
+                if b.get("is_error"):
+                    body = "[tool_error] " + body
+                tool_msgs.append({"role": "tool",
+                                  "tool_call_id": b.get("tool_use_id") or "",
+                                  "content": body})
+            else:
+                rest.append(b)
+        messages.extend(tool_msgs)
+        parts = tool_imgs + _blocks_to_parts(rest, vision)
+        if pending_sys:
+            parts.insert(0, _tagged_system(pending_sys))
+            pending_sys = []
+        if parts or not tool_msgs:
+            messages.append({"role": "user", "content": _collapse(parts) if parts else ""})
+
+    if pending_sys:  # system intermédiaire en fin de conversation
+        tag = _tagged_system(pending_sys)
+        last = messages[-1] if messages else None
+        if last is not None and last["role"] == "user":
+            c = last["content"]
+            if isinstance(c, list):
+                c.append(tag)
+            else:
+                last["content"] = (c + "\n\n" if c else "") + tag["text"]
+        else:
+            messages.append({"role": "user", "content": tag["text"]})
+
+    if head:
+        messages.insert(0, {"role": "system", "content": "\n\n".join(head)})
 
     out: dict = {"model": model_id, "messages": messages}
     if req.get("max_tokens") is not None:
@@ -345,6 +460,37 @@ class StreamTranslator:
 
 # ------------------------------------------------------------------------- serveur
 
+CONNECT_RETRIES = 1  # réessais sur échec de connexion AVANT tout octet de réponse
+
+
+def _is_connect_failure(e: BaseException) -> bool:
+    """Échec de connexion vers llama-server sans aucun octet de réponse reçu.
+
+    Refus, reset ou fermeture avant la ligne de statut (`RemoteDisconnected`, cas
+    typique d'un keep-alive recyclé ou d'un llama-server qui redémarre). PAS les
+    timeouts (le prefill d'un gros contexte peut être légitimement long : réessayer
+    doublerait l'attente) ni les erreurs HTTP (l'amont a répondu)."""
+    if isinstance(e, urllib.error.HTTPError):
+        return False
+    reason = e.reason if isinstance(e, urllib.error.URLError) else e
+    return isinstance(reason, (ConnectionError, http.client.RemoteDisconnected))
+
+
+def _open_upstream(req: urllib.request.Request):
+    """`urlopen` avec un réessai immédiat sur échec de connexion pré-réponse.
+
+    `urlopen` ne rend la main qu'une fois la ligne de statut et les en-têtes reçus :
+    tout échec levé ici précède le premier octet relayé au client, donc rejouer la
+    requête est sûr. Une panne APRÈS (stream en cours, body non-stream) n'est jamais
+    réessayée — elle est gérée par `_relay_stream` / `_handle_messages`."""
+    for attempt in range(CONNECT_RETRIES + 1):
+        try:
+            return urllib.request.urlopen(req, timeout=UPSTREAM_TIMEOUT_S)
+        except (urllib.error.URLError, OSError) as e:
+            if attempt >= CONNECT_RETRIES or not _is_connect_failure(e):
+                raise
+    raise AssertionError("unreachable")
+
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "sokkan-magnitude-shim"
@@ -432,7 +578,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_error_json(400, "invalid_request_error", "body must be an object")
             return
 
-        payload = anthropic_to_openai(req, self.shim.model_id)
+        payload = anthropic_to_openai(req, self.shim.model_id, vision=self.shim.vision)
         stream = bool(payload.get("stream"))
         upstream_req = urllib.request.Request(
             self.shim.upstream + "/v1/chat/completions",
@@ -440,7 +586,7 @@ class _Handler(BaseHTTPRequestHandler):
             headers={"content-type": "application/json"},
             method="POST")
         try:
-            resp = urllib.request.urlopen(upstream_req, timeout=UPSTREAM_TIMEOUT_S)
+            resp = _open_upstream(upstream_req)
         except urllib.error.HTTPError as e:
             detail = ""
             try:
@@ -528,8 +674,12 @@ class Shim:
     """
 
     def __init__(self, upstream: str = DEFAULT_UPSTREAM, port: int = DEFAULT_PORT,
-                 token: str = "", model_id: str = "local-model"):
+                 token: str = "", model_id: str = "local-model",
+                 vision: bool | None = None):
         self.upstream = upstream.rstrip("/")
+        # images transmises en image_url seulement si le modèle servi les lit
+        # (llama-server lancé avec le mmproj) ; défaut : env MAGNITUDE_VISION, sinon non
+        self.vision = _env_vision() if vision is None else bool(vision)
         self.port = port
         self.token = token
         self.model_id = model_id
@@ -568,13 +718,17 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--token", required=True, help="serve token (auth of callers)")
     ap.add_argument("--model", default="local-model", dest="model",
                     help="model id reported to clients and sent upstream")
+    ap.add_argument("--vision", action=argparse.BooleanOptionalAction, default=None,
+                    help="forward images as image_url (served model has vision, i.e. "
+                         "llama-server runs with its mmproj); default: MAGNITUDE_VISION env, "
+                         "else off")
     args = ap.parse_args(argv)
 
     shim = Shim(upstream=args.upstream, port=args.port,
-                token=args.token, model_id=args.model)
+                token=args.token, model_id=args.model, vision=args.vision)
     shim.start()
     print(f"magnitude shim: 0.0.0.0:{args.port} -> {shim.upstream} "
-          f"(model {args.model})", flush=True)
+          f"(model {args.model}, vision {'on' if shim.vision else 'off'})", flush=True)
     try:
         while True:
             time.sleep(3600)
