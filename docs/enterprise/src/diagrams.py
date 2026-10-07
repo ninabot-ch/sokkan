@@ -124,9 +124,9 @@ def hld():
              ("Admin", "projects & teams", "wip"), ("Helm", "manager view (3.3)", "plan")]
     for i, (n, s, st) in enumerate(tiles):
         b += tile(234 + (i % 4) * 136, 140 + (i // 4) * 62, 128, 54, n, s, st)
-    b += [f'<rect x="234" y="330" width="538" height="30" rx="6" class="tile"/>',
+    b += ['<rect x="234" y="330" width="538" height="30" rx="6" class="tile"/>',
           item(246, 350, "Project gate — every route, MCP server, WebSocket scoped; role = role in that project", "wip", "t"),
-          f'<rect x="234" y="368" width="538" height="30" rx="6" class="tile"/>',
+          '<rect x="234" y="368" width="538" height="30" rx="6" class="tile"/>',
           item(246, 388, "Feature registry — each enterprise feature on/off, dependencies checked", "wip", "t")]
     # sessions + MCP
     b += box(220, 450, 276, 210, "Sessions & agent runs", [("ok", "Claude Agent SDK / CLI"),
@@ -218,7 +218,7 @@ def method():
     for i in range(4):
         b += arrow([(40 + i * 245 + 220, 360), (40 + (i + 1) * 245, 360)])
     b += arrow([(1150, 420), (1150, 462), (20, 462), (20, 156), (40, 156)], dashed=True)
-    b += [f'<rect x="300" y="452" width="560" height="20" class="lblbg"/>',
+    b += ['<rect x="300" y="452" width="560" height="20" class="lblbg"/>',
           item(310, 467, "progress rolls up to the manager automatically — Helm direction view, morning brief (3.3)", "plan", "lbl")]
     return svg(1280, 500, b, "SOKKAN Enterprise working method")
 
@@ -297,7 +297,7 @@ def overview_svg():
                                  ("DBA · QA", "données, tests"), ("Managers", "objectifs, suivi"),
                                  ("Administrateurs", "comptes, règles")]):
         b += tile(i * 212, 28, 196, 56, n, s_, None)
-    b += [f'<rect x="0" y="96" width="1056" height="34" rx="8" class="tile"/>',
+    b += ['<rect x="0" y="96" width="1056" height="34" rx="8" class="tile"/>',
           item(14, 118, "Connexion unique (SSO) : les équipes viennent de votre annuaire · droits par projet · "
                         "un compte inconnu est refusé", "wip", "t")]
     b += arrow([(528, 130), (528, 152)])
@@ -311,7 +311,7 @@ def overview_svg():
              ("Nina", "assistante intégrée", "ok"), ("Helm", "vue manager (3.3)", "plan")]
     for i, (n, s_, st) in enumerate(tiles):
         b += tile(16 + (i % 5) * 206, 194 + (i // 5) * 70, 194, 60, n, s_, st)
-    b += [f'<rect x="16" y="340" width="1024" height="48" rx="8" class="tile"/>',
+    b += ['<rect x="16" y="340" width="1024" height="48" rx="8" class="tile"/>',
           item(30, 362, "Chaque fonction entreprise s'active une à une, avec ses dépendances vérifiées —", "wip", "t"),
           text(46, 380, "même code que la version communautaire, pas de version parallèle qui dérive.", "t")]
     b += arrow([(528, 404), (528, 424)])

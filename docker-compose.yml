@@ -102,6 +102,19 @@ services:
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
       # rôle des identités inconnues (viewer par défaut ; none = 403)
       SOKKAN_DEFAULT_ROLE: ${SOKKAN_DEFAULT_ROLE:-viewer}
+      # SSO (feature `sso`, docs/enterprise/OPERATIONS.md § 2) — local = jeton d'accès ;
+      # oidc = IdP (Entra ID, Authentik, Keycloak…). Le secret reste dans .env (0600).
+      SOKKAN_AUTH_MODE: ${SOKKAN_AUTH_MODE:-local}
+      SOKKAN_OIDC_ISSUER: ${SOKKAN_OIDC_ISSUER:-}
+      SOKKAN_OIDC_CLIENT_ID: ${SOKKAN_OIDC_CLIENT_ID:-}
+      SOKKAN_OIDC_CLIENT_SECRET: ${SOKKAN_OIDC_CLIENT_SECRET:-}
+      SOKKAN_OIDC_SCOPES: ${SOKKAN_OIDC_SCOPES:-openid email profile}
+      SOKKAN_OIDC_GROUPS_CLAIM: ${SOKKAN_OIDC_GROUPS_CLAIM:-groups}
+      SOKKAN_OPS_GROUP: ${SOKKAN_OPS_GROUP:-}
+      # intégrations (Infra, Operate, lien CortHeXis) — vides = désactivées
+      SOKKAN_PROM: ${SOKKAN_PROM:-}
+      SOKKAN_GRAFANA_URL: ${SOKKAN_GRAFANA_URL:-}
+      SOKKAN_CORTEX_URL: ${SOKKAN_CORTEX_URL:-}
       # bannière de visite guidée (démo publique read-only uniquement)
       SOKKAN_DEMO_BANNER: ${SOKKAN_DEMO_BANNER:-0}
       # budgets de coût estimé en USD (0 = off ; modifiables aussi dans Profil)

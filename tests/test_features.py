@@ -52,6 +52,9 @@ def test_every_shipped_switch_reaches_the_api_container():
     env = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["api"]["environment"]
     missing = [v for v in F.all_vars() if v not in env]
     assert not missing, f"declare in services.api.environment: {missing}"
+    # and every setting a feature reads to decide it is configured (SSO, GitLab, Teams…)
+    cfg = sorted({c for f in F.REGISTRY for c in f.config} - set(env))
+    assert not cfg, f"declare in services.api.environment: {cfg}"
 
 
 def test_generated_doc_is_up_to_date():
@@ -178,15 +181,20 @@ def test_a_default_on_feature_with_a_dependency_off_is_not_a_problem(clean_env):
 
 
 def test_conflict_and_planned(clean_env):
+    # 3.2.0 ships every roadmap entry; a synthetic planned feature keeps the rule tested
+    ghost = F.Feature("ghost_planned", "Ghost", "a roadmap entry", status="planned",
+                      kind="planned", target="9.9", vars=(F.Var("SOKKAN_FEATURE_GHOST_PLANNED"),))
+    clean_env.setattr(F, "REGISTRY", (*F.REGISTRY, ghost))
+    clean_env.setattr(F, "BY_ID", {**F.BY_ID, ghost.id: ghost})
     clean_env.setenv("SOKKAN_FEATURE_FOUR_EYES", "1")
     clean_env.setenv("SOKKAN_FEATURE_ADMIN_APPROVAL", "1")
-    clean_env.setenv("SOKKAN_FEATURE_REVOCATION", "1")
+    clean_env.setenv("SOKKAN_FEATURE_GHOST_PLANNED", "1")
     st = F.resolve()
     assert st["four_eyes"].enabled and not st["admin_approval"].enabled
     assert "conflicts with `four_eyes`" in st["admin_approval"].reason
-    assert not st["revocation"].enabled and st["revocation"].problem and \
-        "planned" in st["revocation"].reason
-    assert {s.id for s in F.problems()} == {"admin_approval", "revocation"}
+    assert not st["ghost_planned"].enabled and st["ghost_planned"].problem and \
+        "planned" in st["ghost_planned"].reason
+    assert {s.id for s in F.problems()} == {"admin_approval", "ghost_planned"}
 
 
 def test_unknown_feature_id_is_a_programming_error():
