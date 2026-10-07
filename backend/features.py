@@ -304,9 +304,15 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_SCIM_TOKEN", "SOKKAN_SCIM_GROUP_KEY"), doc=M,
             check=lambda: __import__("revocation").readiness()),
     Feature("byok_admin", "BYOK admin screen",
-            "Client admin screen for bring-your-own-key model credentials (lot 7).",
-            status="planned", kind="planned", target="3.2", requires=("multi_project",),
-            vars=_t("byok_admin"), doc=M),
+            "Profile → Model keys: the instance admin sets, replaces or deletes the model "
+            "provider keys (Anthropic, …), stored encrypted with the vault key, never shown "
+            "again (last 4 characters, date, who); optional validity test; exposed to the "
+            "sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured "
+            "(lot 7). Per-project keys: the field exists, planned.",
+            status="beta", defaults=_ed(False, True), requires=("multi_project",),
+            vars=_t("byok_admin"),
+            config=("SOKKAN_GATEWAY_URL", "SOKKAN_GATEWAY_ADMIN_TOKEN", "SOKKAN_GATEWAY_CLIENT"),
+            doc="docs/enterprise/UI-FEATURES.md"),
     Feature("sandbox", "Project sandbox",
             "A session or an agent run of a project (not `default`) reaches only its project's "
             "space: file tools checked by a hook (paths resolved, symlinks followed), Bash "
@@ -317,9 +323,12 @@ REGISTRY: tuple[Feature, ...] = (
                     "SOKKAN_SANDBOX_READ_PATHS"), doc=M,
             check=lambda: __import__("sandbox").readiness()),
     Feature("shared_review", "Shared session / preview for review",
-            "Share a session or a preview, read or read-write, so someone validates the work "
-            "(Preview = the place of validation).", status="planned", kind="planned", target="3.2",
-            requires=("preview", "multi_project"), vars=_t("shared_review")),
+            "Share a session or a preview with a person or a team of its project, read or "
+            "read-write, optionally for a limited time; the recipient sees it in their rail "
+            "(« shared by … »); read-write can receive the session's delegated HITL approval. "
+            "Never wider than the project role (a viewer never gets write); logged; revocable.",
+            status="beta", defaults=_ed(False, True), requires=("preview", "multi_project"),
+            vars=_t("shared_review"), doc="docs/enterprise/UI-FEATURES.md"),
     Feature("helm", "Helm",
             "Hierarchical boards manager → engineer kanban: context flows down, progress up; "
             "management view; Nina breaks work down; morning brief.", status="planned",
@@ -334,9 +343,14 @@ REGISTRY: tuple[Feature, ...] = (
             "via Graph (tenant app, per-resource consent).", status="planned", kind="planned",
             target="3.4", requires=("assistant", "classification", "sso"), vars=_t("teams")),
     Feature("connect_ai", "Connect your AI",
-            "Personal mode (any engine, SOKKAN Router preselected) and governed mode (the admin "
-            "sets the allowed engines).", status="planned", kind="planned", target="3.3",
-            vars=_t("connect_ai")),
+            "One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
+            "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "
+            "any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin "
+            "sets the allowed engines, zones and tiers; choice per project). A connected "
+            "engine can drive a Crew card.", status="beta", defaults=_ed(False, True),
+            vars=_t("connect_ai"),
+            config=("SOKKAN_CONNECT_AI_MODE", "SOKKAN_ROUTER_URL", "SOKKAN_ROUTER_WELCOME_URL"),
+            doc="docs/enterprise/UI-FEATURES.md"),
 )
 
 BY_ID: dict[str, Feature] = {f.id: f for f in REGISTRY}

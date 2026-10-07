@@ -2678,3 +2678,9 @@ def project_budget_set(body: BudgetIn, u: dict = Depends(require("admin"))) -> d
         raise HTTPException(400, str(e))
     audit.log(u["email"], "project.budget", p, f"day={b['day']} month={b['month']} {b['currency']}")
     return budgets.status(p, fresh=True)
+
+
+# --- 3.2 ui features: shared_review, byok_admin, connect_ai (routes in uiroutes.py) ------
+import uiroutes  # noqa: E402
+
+app.include_router(uiroutes.router)

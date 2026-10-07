@@ -6,6 +6,9 @@ import {
 import type { DiffData, PreviewEnv, PreviewRepo, PreviewTrigger } from "@/lib/types";
 import type { TestRun } from "@/lib/api";
 import { ago } from "@/lib/fmt";
+import { useCan } from "@/lib/me";
+import { useFeatureOn } from "@/lib/uifeatures";
+import ShareDialog from "./ShareDialog";
 
 const QUICK = ["http://localhost:3000", "http://localhost:8000"];
 
@@ -29,8 +32,15 @@ export default function Preview() {
   const [mode, setMode] = useState<"env" | "web" | "diff">("env");
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 3.2 shared_review : l'aperçu capturé peut être partagé pour validation
+  const [shotOf, setShotOf] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const shareOn = useFeatureOn("shared_review");
+  const canDev = useCan("dev");
+  const canShare = shareOn && canDev;
   const capture = (full: string) => {
     if (!/^https?:\/\//.test(full)) return;
+    setShotOf(full);
     setLoading(true);
     setSrc(`${shotUrl(full)}&_=${Date.now()}`);
   };
@@ -125,6 +135,16 @@ export default function Preview() {
           ))}
         </div>
 
+        {canShare && shotOf && (
+          <button onClick={() => setSharing(true)} title={`share ${shotOf} for review`}
+            className="ui-focus order-last ml-auto rounded-md border border-line px-2 py-0.5 text-[11.5px] text-mut hover:bg-panel2 hover:text-slate-200">
+            ⇪ share for review</button>
+        )}
+        {sharing && shotOf && (
+          <ShareDialog kind="preview" target={shotOf} title={`Preview ${shotOf.replace(/^https?:\/\//, "")}`}
+            path={(() => { try { return new URL(shotOf).pathname; } catch { return ""; } })()}
+            onClose={() => setSharing(false)} />
+        )}
         {mode === "web" && (
           <>
             <input value={url} onChange={(e) => setUrl(e.target.value)}

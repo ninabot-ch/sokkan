@@ -46,6 +46,7 @@ except ImportError:  # pragma: no cover
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import budgets  # budgets par projet, jour / mois (3.2 lot 4)
+import connectai  # 3.2 Connect your AI: engine of a Crew card / a project
 import instance  # budgets de coût (hard stop HITL par session)
 import memrecall  # rappel mémoire à chaque tour + sous-agents (3.0)
 import llm  # config LLM par instance (BYOK / inférence incluse)
@@ -306,6 +307,9 @@ class AgentSession:
             proj = session_project(self.sid)
             secret_env = vault.session_env(self._secret_names(), project=proj)
             env_extra = {**secret_env, **llm.session_env(self.user)}
+            # 3.2 connect_ai: a Crew card's engine (model `engine:<id>`) or the project's
+            eng_env, eng_model = connectai.session_overrides(self.sid, self.model)
+            env_extra.update(eng_env)
             # 3.2 lot 5: a forge project's session pushes with the PERSON's token, through
             # a credential helper — the env holds a ticket, never the token (forge.gitcred)
             forge_env = self._forge_env()
@@ -329,7 +333,7 @@ class AgentSession:
                 opts_kwargs["hooks"] = hooks
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
-            model = self.model or llm.session_model()
+            model = eng_model if eng_model is not None else (self.model or llm.session_model())
             if model:
                 opts_kwargs["model"] = model
             if self.resume:

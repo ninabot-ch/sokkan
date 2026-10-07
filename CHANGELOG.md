@@ -4,6 +4,28 @@ Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
 ## Unreleased — 3.2 "multi-user" (in progress)
+
+### Sharing, BYOK, Connect your AI
+- **Shared review** (`shared_review`, needs `preview` + `multi_project`): ⇪ share a session (pane
+  header) or a captured preview (Preview) with a person or a team of its project, read or
+  read-write, optionally for a limited time. The recipient finds it at the top of their rail
+  (« Shared with me », shared by …); a write share can carry the session's delegated HITL
+  approval (« ask X to validate » → ✋ allow / deny from the rail). Never wider than the project
+  role (a viewer never gets write; write capped by the current role; a non-member sees nothing),
+  revocable, every step in the journal. `docs/enterprise/UI-FEATURES.md`.
+- **Model keys** (`byok_admin`, lot 7, needs `multi_project`): Profile → Model keys for the
+  instance admin — set, replace, delete provider keys, stored encrypted with the vault key and
+  never shown again (…last 4, date, who); optional validity test (status only, the key is never
+  logged); the Anthropic key reaches the sessions through a reference in llm.json, and is pushed
+  to the SOKKAN gateway's BYOK endpoint when `SOKKAN_GATEWAY_URL` / `_ADMIN_TOKEN` / `_CLIENT` are
+  set. Scope `project:<slug>` reserved (BYOK per project: planned).
+- **Connect your AI** (`connect_ai`): Profile → Model becomes engine cards (SOKKAN Router, Claude
+  key or login, OpenAI / Codex, Gemini, OpenRouter, Ollama / local, Magnitude). Personal mode
+  (community): any engine, SOKKAN Router preselected with a configurable welcome-credit link
+  (`SOKKAN_ROUTER_WELCOME_URL`, no amount in the code). Governed mode (enterprise, or
+  `SOKKAN_CONNECT_AI_MODE`): the admin allows engines, zones and SOKKAN tiers; people only see
+  those; a project maintainer may pick the project's engine. A connected engine is selectable as
+  a Crew card's model (`engine:<id>`). The login card says: check your provider's terms.
 - **Feature registry** (`backend/features.py`, the base of SOKKAN Enterprise — the same app,
   not a fork). Every feature is declared once: switch `SOKKAN_FEATURE_<ID>=1|0`, defaults per
   edition (`SOKKAN_EDITION` = community, the default, or enterprise), `requires`,

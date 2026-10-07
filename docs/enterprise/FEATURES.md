@@ -44,13 +44,13 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | beta (3.2) | toggle | off | on | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
 | [`gitlab`](#gitlab) GitLab projects | beta | toggle | off | on | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
 | [`revocation`](#revocation) Revocation | beta | toggle | off | on | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
-| [`byok_admin`](#byok_admin) BYOK admin screen | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
+| [`byok_admin`](#byok_admin) BYOK admin screen | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
 | [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
-| [`shared_review`](#shared_review) Shared session / preview for review | planned (3.2) | planned | off | off | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
+| [`shared_review`](#shared_review) Shared session / preview for review | beta | toggle | off | on | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
 | [`helm`](#helm) Helm | planned (3.3) | planned | off | off | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
 | [`classification`](#classification) Classification and clearances | planned (3.4) | planned | off | off | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | planned (3.4) | planned | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
-| [`connect_ai`](#connect_ai) Connect your AI | planned (3.3) | planned | off | off | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
+| [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 
 ## Dependency graph
 
@@ -123,7 +123,7 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class byok_admin,shared_review,helm,classification,teams,connect_ai planned;
+  class helm,classification,teams planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -424,14 +424,14 @@ SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: c
 
 ### byok_admin
 
-**BYOK admin screen** — planned for 3.2, planned.
+**BYOK admin screen** — beta, toggle.
 
-Client admin screen for bring-your-own-key model credentials (lot 7).
+Profile → Model keys: the instance admin sets, replaces or deletes the model provider keys (Anthropic, …), stored encrypted with the vault key, never shown again (last 4 characters, date, who); optional validity test; exposed to the sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured (lot 7). Per-project keys: the field exists, planned.
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`
 - Switch: `SOKKAN_FEATURE_BYOK_ADMIN`
-- Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
+- Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
 
 ### sandbox
 
@@ -446,13 +446,14 @@ A session or an agent run of a project (not `default`) reaches only its project'
 
 ### shared_review
 
-**Shared session / preview for review** — planned for 3.2, planned.
+**Shared session / preview for review** — beta, toggle.
 
-Share a session or a preview, read or read-write, so someone validates the work (Preview = the place of validation).
+Share a session or a preview with a person or a team of its project, read or read-write, optionally for a limited time; the recipient sees it in their rail (« shared by … »); read-write can receive the session's delegated HITL approval. Never wider than the project role (a viewer never gets write); logged; revocable.
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `preview`, `multi_project`
 - Switch: `SOKKAN_FEATURE_SHARED_REVIEW`
+- Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
 
 ### helm
 
@@ -487,9 +488,10 @@ Notes carry a classification; Nina acts on the user's behalf within their cleara
 
 ### connect_ai
 
-**Connect your AI** — planned for 3.3, planned.
+**Connect your AI** — beta, toggle.
 
-Personal mode (any engine, SOKKAN Router preselected) and governed mode (the admin sets the allowed engines).
+One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin sets the allowed engines, zones and tiers; choice per project). A connected engine can drive a Crew card.
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`
+- Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)

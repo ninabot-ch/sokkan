@@ -40,13 +40,29 @@ CONFIG = Path(os.environ.get(
 DEFAULT_INCLUDED_MODEL = os.environ.get("SOKKAN_INFER_MODEL") or "sokkan-ship"
 
 
+_REF_FIELDS = ("anthropic_api_key", "claude_oauth_token", "auth_token")
+
+
+def resolve_refs(c: dict) -> dict:
+    """3.2 (`byok_admin` / `connect_ai`): llm.json may hold a REFERENCE to a key stored
+    encrypted by modelkeys (``"key_ref": "instance:anthropic", "key_field": …``) instead of
+    the key. Resolved in memory only; a reference that no longer resolves = no key."""
+    ref = c.get("key_ref")
+    if not ref:
+        return c
+    field = c.get("key_field") if c.get("key_field") in _REF_FIELDS else (
+        "anthropic_api_key" if c.get("mode") == "byok" else "auth_token")
+    import modelkeys
+    return {**c, field: modelkeys.get_plain(ref) or ""}
+
+
 def load() -> dict:
     """Config LLM : llm.json (posé par le cockpit) prioritaire, sinon fallback
     sur l'env `included` seedé au provisioning (SOKKAN_INFER_BASE_URL/TOKEN/MODEL)."""
     try:
         c = json.loads(CONFIG.read_text(encoding="utf-8"))
         if c:
-            return c
+            return resolve_refs(c)
     except (FileNotFoundError, ValueError):
         pass
     base = os.environ.get("SOKKAN_INFER_BASE_URL", "")
@@ -113,7 +129,9 @@ def status() -> dict:
             "base_url": c.get("base_url") if mode == "custom" else None,
             # une instance « included » est opérée par NINABOT → le client ne peut
             # pas basculer en BYOK depuis le cockpit (et inversement)
-            "operator_managed": mode == "included"}
+            "operator_managed": mode == "included",
+            # 3.2: the key lives encrypted in modelkeys (Model keys / Connect your AI)
+            "key_ref": c.get("key_ref") or None, "engine": c.get("engine") or None}
 
 
 def session_env(user_email: str = "") -> dict:
