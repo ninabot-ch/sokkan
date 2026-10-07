@@ -25,7 +25,8 @@ def test_default_project_is_created_once_with_the_instance_access_source(P):
     P.init()
     P.init(force=True)                      # idempotent: a restart never duplicates it
     rows = P.list_projects()
-    assert [p["slug"] for p in rows] == ["default"]
+    # lot 3: + the `shared` project (read-only for everyone)
+    assert [p["slug"] for p in rows] == ["default", "shared"]
     assert rows[0]["access_source"] == "instance"
     assert rows[0]["created_by"] == "migration-3.2"
     con = sqlite3.connect(P.DB)
@@ -39,8 +40,8 @@ def test_instance_roles_keep_applying_to_the_default_project(P):
     assert P.effective_role(U("a@x", "admin"), "default") == "admin"
     assert P.effective_role(U("o@x", "owner"), "default") == "admin"
     assert P.effective_role(U("x@x", "none"), "default") is None
-    assert P.readable_projects(U("v@x", "viewer")) == ["default"]
-    assert not P.multi_project()
+    assert P.readable_projects(U("v@x", "viewer")) == ["default", "shared"]
+    assert not P.multi_project()          # `shared` is not a project one works in
 
 
 # ---- grants ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ def test_sso_group_project_grants_by_user_and_by_team(P):
     assert P.effective_role(bob, "radio-play") is None
     assert P.can(alice, "radio-play", "dev") and not P.can(alice, "radio-play", "admin")
     assert P.multi_project()
-    assert P.readable_projects(bob) == ["default"]
+    assert P.readable_projects(bob) == ["default", "shared"]
 
 
 def test_forge_projects_only_trust_a_fresh_cache_row(P):
@@ -107,18 +108,19 @@ def test_invalid_slugs_and_roles_are_refused(P):
 
 def test_recall_scope_is_one_project_and_fail_closed(P):
     P.create("radio-play", "Radio")
-    assert P.recall_scope("radio-play") == ("radio-play",)
-    assert P.recall_scope(None) == ("default",)        # session created before 3.2
-    assert P.recall_scope("") == ("default",)
+    # lot 3: a project's scope = itself + shared
+    assert P.recall_scope("radio-play") == ("radio-play", "shared")
+    assert P.recall_scope(None) == ("default", "shared")   # session created before 3.2
+    assert P.recall_scope("") == ("default", "shared")
     assert P.recall_scope("ghost") == ()               # unknown project: nothing
     assert P.recall_scope("Bad Slug") == ()
 
 
 def test_unknown_session_gets_default_only_while_single_project(P):
-    assert P.session_scope(None) == ("default",)
+    assert P.session_scope(None) == ("default", "shared")
     P.create("radio-play", "Radio")
     assert P.session_scope(None) == ()
-    assert P.session_scope("radio-play") == ("radio-play",)
+    assert P.session_scope("radio-play") == ("radio-play", "shared")
 
 
 # ---- project columns of the other stores (no data lost) -------------------------------

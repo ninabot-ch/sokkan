@@ -65,8 +65,18 @@ reindex_hook = None
 
 # ----------------------------------------------------------------------------- wiring
 
-def memory_dir() -> Path:
+def memory_dir(project: str = "default") -> Path:
+    """The project's memory directory (3.2 lot 3: one per project; default = as before)."""
+    if project != "default":
+        import store_backend
+        return store_backend.memory_dir_for(project)
     return Path(env("MEMORY_DIR", "~/.sokkan/memory") or "~/.sokkan/memory").expanduser()
+
+
+def ctx_project() -> str:
+    """Project of the request being served (projectgate) — the tab shows ONLY it."""
+    import projectgate
+    return (projectgate.current() or {}).get("project") or "default"
 
 
 def _pg() -> bool:
@@ -79,9 +89,9 @@ def _store():
     return store_backend.get_store()
 
 
-def source():
+def source(project: str = "default"):
     if _pg():
-        return rv.PgSource(_store())
+        return rv.PgSource(_store(), project=project)
     import memorykb
     return rv.SqliteSource(memorykb.MEM_DB)
 
@@ -293,21 +303,27 @@ def _corpus_key(notes: list[rv.CorpusNote], report: dict) -> str:
     return h.hexdigest()[:12]
 
 
-def graph() -> dict:
-    notes = rv.load_corpus(memory_dir())
-    report = current()
-    key = _corpus_key(notes, report)
+def graph(project: str = "default") -> dict:
+    d = memory_dir(project)
+    notes = rv.load_corpus(d) if d.is_dir() else []
+    # the review report (flags) is the default project's until per-project reviews exist
+    report = current() if project == "default" else {}
+    key = f"{project}:" + _corpus_key(notes, report)
     with _lock:
         if _state["graph"] and _state["graph_key"] == key:
             return _state["graph"]
     resolve = rv.Resolver(notes)
-    src = source()
-    indexed, cents, err = {}, {}, None
-    try:
-        indexed = src.indexed()
-        cents = src.centroids()
-    except Exception as e:  # noqa: BLE001
-        err = str(e)[:200]
+    if not _pg() and project != "default":
+        indexed, cents, err = {}, {}, None
+        src = None
+    else:
+        src = source(project)
+        indexed, cents, err = {}, {}, None
+        try:
+            indexed = src.indexed()
+            cents = src.centroids()
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:200]
     names = {n.name for n in notes}
     proj = _pca2d({k: v for k, v in cents.items() if k in names})
     flags = report.get("flags") or {}
@@ -346,7 +362,8 @@ def graph() -> dict:
             "chunks": ix.chunks if ix else 0,
         })
     g = {
-        "version": key, "at": report.get("at"), "source": src.label, "error": err,
+        "version": key, "at": report.get("at"), "source": src.label if src else "",
+        "error": err, "project": project,
         "stats": {"notes": len(notes), "words": sum(n.words for n in notes),
                   "links": len([e for e in edges if not e.get("broken")]),
                   "broken": len([e for e in edges if e.get("broken")]),
@@ -360,8 +377,9 @@ def graph() -> dict:
     return g
 
 
-def note(name: str) -> dict:
-    notes = rv.load_corpus(memory_dir())
+def note(name: str, project: str = "default") -> dict:
+    d = memory_dir(project)
+    notes = rv.load_corpus(d) if d.is_dir() else []
     resolve = rv.Resolver(notes)
     n = resolve(name)
     if not n:
@@ -375,11 +393,12 @@ def note(name: str) -> dict:
         outbound.append({"target": t, "resolved": r.name if r else None})
     ix = None
     try:
-        ix = source().indexed().get(n.name)
+        if _pg() or project == "default":
+            ix = source(project).indexed().get(n.name)
     except Exception:  # noqa: BLE001
         pass
     modified = (ix.modified if ix else None) or n.parsed.modified
-    report = current()
+    report = current() if project == "default" else {}
     flags = []
     for f in report.get("findings", []):
         if n.name not in (f.get("notes") or []):
@@ -595,7 +614,7 @@ def _require(min_role: str):
 
 @router.get("/graph")
 def api_graph(since: str = "", _u: dict = Depends(_require("viewer"))) -> dict:
-    g = graph()
+    g = graph(ctx_project())
     if since and since == g["version"]:
         return {"version": g["version"], "unchanged": True}
     return g
@@ -605,16 +624,32 @@ def api_graph(since: str = "", _u: dict = Depends(_require("viewer"))) -> dict:
 def api_note(name: str, _u: dict = Depends(_require("viewer"))) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
-    return note(name)
+    return note(name, ctx_project())
 
 
 @router.get("/review")
 def api_review(_u: dict = Depends(_require("viewer"))) -> dict:
+    if ctx_project() != "default":
+        return _no_review()
     return overview()
+
+
+def _no_review() -> dict:
+    """3.2 lot 3: the review (duplicates, drift, proposals) runs on the default project
+    only for now; another project gets an empty one — never the default project's."""
+    return {"report": {}, "history": [], "summary": {}, "pending": 0, "running": False,
+            "notify": False, "digest_at": None, "per_project": "not yet"}
+
+
+def _default_only() -> None:
+    if ctx_project() != "default":
+        raise HTTPException(409, "memory review actions are available in the default "
+                                 "project only for now (3.2)")
 
 
 @router.post("/review/run")
 def api_review_run(u: dict = Depends(_require("dev"))) -> dict:
+    _default_only()
     rep = run(alert=False)
     audit.log(u["email"], "memory.review", "", f"score {rep.get('score')}")
     return overview()
@@ -622,21 +657,24 @@ def api_review_run(u: dict = Depends(_require("dev"))) -> dict:
 
 @router.get("/proposals")
 def api_proposals(_u: dict = Depends(_require("viewer"))) -> list[dict]:
-    return proposals()
+    return proposals() if ctx_project() == "default" else []
 
 
 @router.post("/proposals")
 def api_propose(body: ProposalIn, u: dict = Depends(_require("dev"))) -> dict:
+    _default_only()
     return propose(body, u["email"])
 
 
 @router.post("/proposals/{pid}/approve")
 def api_approve(pid: str, u: dict = Depends(_require("dev"))) -> dict:
+    _default_only()
     return decide(pid, True, u["email"])
 
 
 @router.post("/proposals/{pid}/refuse")
 def api_refuse(pid: str, u: dict = Depends(_require("dev"))) -> dict:
+    _default_only()
     return decide(pid, False, u["email"])
 
 
@@ -649,6 +687,7 @@ class CurationIn(BaseModel):
 def api_curation(body: CurationIn, u: dict = Depends(_require("dev"))) -> dict:
     if spawn_hook is None:
         raise HTTPException(503, "sessions are not available on this instance")
+    _default_only()
     subject = curation_subject(body.finding_ids, body.notes)
     prompt, tag = playbooks.render("curation", subject)
     s = spawn_hook(tag, prompt, title="Memory curation", user=u["email"])

@@ -69,12 +69,20 @@ def session_project(sid: str) -> str:
     instance has one project — otherwise to "" (an invalid slug = empty scope = nothing)."""
     import projects
     try:
-        scope = projects.session_scope(board.get_session_project(sid))
+        p = board.get_session_project(sid)
+        if p is None:
+            return "" if projects.multi_project() else projects.DEFAULT_PROJECT
+        return p if projects.recall_scope(p) else ""
     except Exception as e:  # noqa: BLE001 — fail-closed: no project, no recall
         print(f"[sokkan] session project of {sid} unknown ({e!r}): no memory scope",
               file=sys.stderr)
         return ""
-    return scope[0] if scope else ""
+
+
+def session_scope_env(project: str) -> str:
+    """Comma list handed to the MCP servers: the project + shared (lot 3), or "" = none."""
+    import projects
+    return ",".join(projects.recall_scope(project)) if project else ""
 MCP_SERVERS = {
     "sokkan-memory": {"command": _PY, "args": [os.path.abspath(_MEM_SRV)]},
     "sokkan-board": {"command": _PY, "args": [os.path.abspath(_BOARD_SRV)]},
@@ -95,7 +103,9 @@ def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
     if project is None:
         project = session_project(sid)
     who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or "",
-           "SOKKAN_SESSION_PROJECT": project}
+           "SOKKAN_SESSION_PROJECT": project,
+           # what the session may READ: its project + shared (writes: its project only)
+           "SOKKAN_SESSION_SCOPE": session_scope_env(project)}
     if agent_run:
         who["SOKKAN_AGENT_RUN"] = "1"  # agents MCP read-only, memory writes quarantined
         if isinstance(agent_run, dict):
@@ -293,14 +303,18 @@ class AgentSession:
             self.client = None
 
     def _recall_scope(self) -> tuple[str, ...]:
-        """Memory scope of this session (3.2): its project only (see session_project)."""
+        """Memory scope of this session (3.2): its project + shared (see session_project)."""
+        import projects
         p = session_project(self.sid)
-        return (p,) if p else ()
+        return projects.recall_scope(p) if p else ()
 
     def _secret_names(self) -> list[str] | None:
         """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;
         pour une session humaine, tout (mode `all`) ou ceux choisis à son ouverture
         (mode `named`, rien si rien n'a été choisi)."""
+        # 3.2: the vault is per instance until lot 4 → only the default project gets it
+        if session_project(self.sid) != "default":
+            return []
         if self.policy:
             return list(self.policy.get("secrets") or [])
         if vault.session_mode() == "all":
@@ -635,7 +649,10 @@ def _in_memory_dirs(path: str) -> bool:
     try:
         import quarantine
         p = Path(path).expanduser().resolve()
-        for d in (quarantine.memory_dir(), quarantine.qdir()):
+        data = Path(os.environ.get("SOKKAN_DATA_DIR",
+                                   os.path.expanduser("~/.local/share/sokkan")))
+        # 3.2: every project's memory directory lives under <data>/projects
+        for d in (quarantine.memory_dir(), quarantine.qdir(), data / "projects"):
             d = d.expanduser().resolve()
             if p == d or d in p.parents:
                 return True

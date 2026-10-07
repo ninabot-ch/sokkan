@@ -52,7 +52,13 @@ def _scope() -> tuple[str, ...] | None:
     if raw is None:
         return None
     from core import scope as _sc
-    return _sc.normalize([raw.strip()])
+    project = raw.strip()
+    if not _sc.valid_project(project):
+        return ()
+    # 3.2 lot 3: the API also hands the read scope (project + shared); anything else in it
+    # is ignored — the scope can only be the session's project and shared
+    extra = {p.strip() for p in (os.environ.get("SOKKAN_SESSION_SCOPE") or "").split(",")}
+    return _sc.normalize({project} | (extra & {"shared"}))
 
 
 def _legacy_visible(scope: tuple[str, ...] | None) -> bool:
@@ -304,11 +310,13 @@ def memory_write(name: str, description: str, body: str,
     """
     name = (name or "").strip().removesuffix(".md")
     scope = _scope()
-    if scope is not None and not _legacy_visible(scope):
-        # 3.2 lot 1: one memory directory (the default project). Per-project directories
-        # come with lot 2; until then a session of another project cannot write notes.
-        return {"ok": False, "error": "this session's project has no memory directory yet "
-                                      "(per-project memory writes arrive in a later 3.2 step)"}
+    project = (os.environ.get("SOKKAN_SESSION_PROJECT") or "").strip()
+    if scope is not None and not scope:
+        return {"ok": False, "error": "this session has no project: memory writes refused"}
+    # 3.2 lot 3: a session writes in ITS project's directory (never in shared, never
+    # elsewhere); outside SOKKAN (no project) = the configured directory, as before
+    target_dir = (store_backend.memory_dir_for(project)
+                  if scope is not None and project != "default" else MEMORY_DIR)
     if os.environ.get("SOKKAN_AGENT_RUN") == "1":
         # 3.1 : une note écrite par un run d'agent part en QUARANTAINE (hors du dossier
         # indexé) — jamais rappelée tant qu'un humain ne l'a pas relue et validée
@@ -316,7 +324,8 @@ def memory_write(name: str, description: str, body: str,
         return quarantine.write(name, description, body, {
             "agent": os.environ.get("SOKKAN_AGENT_NAME", ""),
             "run": os.environ.get("SOKKAN_AGENT_RUN_ID", ""),
-            "session": os.environ.get("SOKKAN_SESSION_ID", ""), "via": "memory_write"})
+            "session": os.environ.get("SOKKAN_SESSION_ID", ""), "via": "memory_write"},
+            project=project or "default")
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
                                       "2-64 chars, no path separator (e.g. 'decision-delete-404')"}
@@ -326,7 +335,7 @@ def memory_write(name: str, description: str, body: str,
     if not (body or "").strip():
         return {"ok": False, "error": "body is required — one durable fact, with [[links]] "
                                       "to the related notes"}
-    path = MEMORY_DIR / f"{name}.md"
+    path = target_dir / f"{name}.md"
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"note already exists: {name} — read it with memory_get, "
                                       "then call again with overwrite=true to replace it",
@@ -342,7 +351,7 @@ def memory_write(name: str, description: str, body: str,
         fm.append("priority: high")
     fm += ["metadata:", f"  type: {type or 'project'}", "---", ""]
     try:
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".md.tmp")
         tmp.write_text("\n".join(fm) + body.strip() + "\n", encoding="utf-8")
         tmp.replace(path)  # atomique : jamais de note à moitié écrite pour l'indexeur

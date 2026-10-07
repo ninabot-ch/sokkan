@@ -186,7 +186,7 @@ def test_memory_context_maps_the_real_search_shape(monkeypatch):
     assert "[[flotte-exoscale]] — archi flotte" in out
     assert "privnet dédié par client" in out   # les retours ligne sont aplatis
     assert "None" not in out
-    assert seen["scope"] == ("default",)
+    assert seen["scope"] == ("default", "shared")
 
 
 def test_language_directive():

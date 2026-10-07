@@ -38,7 +38,21 @@ def _who() -> tuple[dict, str]:
         # act for the instance owner — writes still wait for a human approval
         email = os.environ.get("SOKKAN_OWNER_EMAIL", "owner@localhost").lower()
     sid = os.environ.get("SOKKAN_SESSION_ID", "")
-    return iam.get_user(email), (f"session:{sid}" if sid else f"session-of:{email}")
+    return _in_project(iam.get_user(email)), (f"session:{sid}" if sid else f"session-of:{email}")
+
+
+def _in_project(user: dict) -> dict:
+    """3.2 lot 3: the person as seen in THIS session's project (SOKKAN_SESSION_PROJECT,
+    set by the API): their role there, and only that project's agents. No project (a
+    server started outside SOKKAN) = the default project while the instance has one, else
+    nothing."""
+    import projectgate
+    import projects
+    p = os.environ.get("SOKKAN_SESSION_PROJECT")
+    if p is None:
+        p = "" if projects.multi_project() else projects.DEFAULT_PROJECT
+    pu = projectgate.project_user(user, p.strip()) if p.strip() else None
+    return pu or {**user, "role": "", "project": p.strip() or "-", "project_role": None}
 
 
 def _in_run() -> bool:
@@ -126,7 +140,7 @@ def create_agent(name: str, purpose: str, deliverable: str, done_criteria: str =
     fields = {k: v for k, v in fields.items() if v is not None}
     try:
         a = agents.create(user, fields, created_by=actor, proposal=True,
-                          known_secrets=vault.names())
+                          known_secrets=(vault.names() if user.get("project", "default") == "default" else []))
     except agents.AgentError as e:
         return _err(e)
     audit.log(actor, "agent.propose", a["name"], f"owner {a['owner']} · {a['trigger']}")
@@ -150,7 +164,7 @@ def update_agent(agent: str, changes: dict) -> dict:
         changes = {**changes, "mcp": changes.pop("mcp_servers")}
     try:
         out = agents.update(user, a["id"], changes, from_session=True,
-                            known_secrets=vault.names())
+                            known_secrets=(vault.names() if user.get("project", "default") == "default" else []))
     except agents.AgentError as e:
         return _err(e)
     audit.log(actor, "agent.update.propose", out["name"], ", ".join(sorted(changes)))

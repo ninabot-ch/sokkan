@@ -434,12 +434,19 @@ class PgSource:
     # 400 MB against 21 s and constant memory (bench 03.10.2026, 768 dims, 4 chunks/note)
     EXACT_MAX_NOTES = 3000
 
-    def __init__(self, store, generation: int | None = None):
+    def __init__(self, store, generation: int | None = None, project: str = "default"):
+        # 3.2: a review reads ONE project's notes — never compares, flags or names a note
+        # of another project (the near-duplicate pairs would otherwise cross projects)
         self.store = store
         self.generation = generation
+        self.project = project
 
     def _g(self):
         return self.store._require_gen(self.generation)
+
+    @staticmethod
+    def _proj_ids(alias: str = "note_id") -> str:
+        return f"{alias} IN (SELECT id FROM notes WHERE project = %(proj)s)"
 
     def indexed(self):
         g = self.store.active_generation()
@@ -448,20 +455,25 @@ class PgSource:
                 "SELECT n.name, n.description, n.modified, n.modified_source, n.body, "
                 "extract(epoch FROM n.updated_at) AS at, "
                 + (f"(SELECT count(*) FROM {g.table} c WHERE c.note_id = n.id)" if g else "0")
-                + " AS chunks FROM notes n").fetchall()
+                + " AS chunks FROM notes n WHERE n.project = %(proj)s",
+                {"proj": self.project}).fetchall()
         return {r["name"]: IndexedNote(r["name"], r["description"], r["modified"],
                                        r["modified_source"], r["body"], float(r["at"]),
                                        int(r["chunks"])) for r in rows}
 
     def versions(self, name, limit=20):
-        return self.store.note_versions(name, limit)
+        try:
+            return self.store.note_versions(name, limit, self.project)
+        except TypeError:
+            return self.store.note_versions(name, limit)
 
     def centroids(self):
         g = self._g()
         with self.store.pool.connection() as con:
             rows = con.execute(
                 f"SELECT n.name, avg(c.embedding::vector) AS v FROM {g.table} c "
-                "JOIN notes n ON n.id = c.note_id GROUP BY n.name").fetchall()
+                "JOIN notes n ON n.id = c.note_id WHERE n.project = %(proj)s GROUP BY n.name",
+                {"proj": self.project}).fetchall()
         out = {}
         for r in rows:
             v = r["v"]
@@ -473,20 +485,22 @@ class PgSource:
         dim = int(g.dim)
         if exact is None:
             with self.store.pool.connection() as con:
-                n = con.execute(f"SELECT count(DISTINCT note_id) AS n FROM {g.table}"
+                n = con.execute(f"SELECT count(DISTINCT note_id) AS n FROM {g.table} "
+                                f"WHERE {self._proj_ids()}", {"proj": self.project}
                                 ).fetchone()["n"]
             exact = n <= self.EXACT_MAX_NOTES
         if exact:
             return _cos_pairs_exact(self.centroids(), min_cosine)
         sql = f"""
             WITH cen AS MATERIALIZED (
-                SELECT note_id, avg(embedding::vector) AS v FROM {g.table} GROUP BY note_id),
+                SELECT note_id, avg(embedding::vector) AS v FROM {g.table}
+                WHERE {self._proj_ids()} GROUP BY note_id),
             cand AS (
                 SELECT DISTINCT least(a.note_id, nb.note_id) AS x,
                                 greatest(a.note_id, nb.note_id) AS y
                 FROM cen a CROSS JOIN LATERAL (
                     SELECT c.note_id FROM {g.table} c
-                    WHERE c.note_id <> a.note_id
+                    WHERE c.note_id <> a.note_id AND {self._proj_ids("c.note_id")}
                     ORDER BY (c.embedding::halfvec({dim})) <#> (a.v::halfvec({dim}))
                     LIMIT %(lim)s) nb)
             SELECT nx.name AS a, ny.name AS b, 1 - (cx.v <=> cy.v) AS cos
@@ -503,7 +517,8 @@ class PgSource:
                               ).fetchone()
             if ver and tuple(int(x) for x in ver["v"].split(".")[:2]) >= (0, 8):
                 con.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
-            rows = con.execute(sql, {"lim": int(k) * 3, "min": float(min_cosine)}).fetchall()
+            rows = con.execute(sql, {"lim": int(k) * 3, "min": float(min_cosine),
+                                     "proj": self.project}).fetchall()
         return [(r["a"], r["b"], float(r["cos"])) for r in rows]
 
     def renames(self):
@@ -512,9 +527,11 @@ class PgSource:
                 "SELECT old.note_name AS old, array_agg(DISTINCT cur.note_name) AS heirs "
                 "FROM note_versions old JOIN note_versions cur "
                 "ON cur.content_hash = old.content_hash AND cur.note_name <> old.note_name "
-                "JOIN notes live ON live.name = cur.note_name "
-                "WHERE NOT EXISTS (SELECT 1 FROM notes n WHERE n.name = old.note_name) "
-                "GROUP BY old.note_name").fetchall()
+                "AND cur.project = old.project "
+                "JOIN notes live ON live.name = cur.note_name AND live.project = cur.project "
+                "WHERE old.project = %(proj)s AND NOT EXISTS (SELECT 1 FROM notes n WHERE "
+                "n.name = old.note_name AND n.project = old.project) "
+                "GROUP BY old.note_name", {"proj": self.project}).fetchall()
         return {r["old"]: r["heirs"][0] for r in rows if len(r["heirs"]) == 1}
 
 

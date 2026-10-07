@@ -203,3 +203,24 @@ def test_migration_0012_from_an_0011_index(store):
     with store.pool.connection() as con:
         con.execute("INSERT INTO notes(name, description, body, project) "
                     "VALUES ('old', 'd', 'b', 'radio')")   # same name, other project: OK
+
+
+def test_memory_review_never_pairs_notes_of_two_projects(store):
+    """The CortHeXis review (near duplicates, renames) of one project never names a note
+    of another: identical notes in radio and tv are not a "duplicate pair"."""
+    from core.review import PgSource
+    g = store.create_generation("t@4", 4)
+    for proj in ("radio", "tv"):
+        for name in ("twin-a", "twin-b"):
+            store.upsert_note(NoteRecord(f"{proj}-{name}", "same text", "project", 0,
+                                         f"/{proj}/{name}.md", None, "indexed", "same", proj),
+                              [ChunkRecord(0, "same words", [1.0, 0, 0, 0])], g.id)
+    store.activate_generation(g.id)
+    src = PgSource(store, project="radio")
+    assert set(src.indexed()) == {"radio-twin-a", "radio-twin-b"}
+    assert set(src.centroids()) == {"radio-twin-a", "radio-twin-b"}
+    for exact in (True, False):
+        pairs = src.near_duplicates(0.9, 5, exact=exact)
+        assert {(a, b) for a, b, _ in pairs} <= {("radio-twin-a", "radio-twin-b"),
+                                                ("radio-twin-b", "radio-twin-a")}
+        assert pairs

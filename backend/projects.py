@@ -32,6 +32,9 @@ DB = Path(os.environ.get("SOKKAN_PROJECTS_DB", os.path.join(
     "projects.db")))
 SCHEMA_VERSION = 1
 DEFAULT_PROJECT = "default"           # = core.contract.DEFAULT_PROJECT (memory side)
+# 3.2 lot 3: knowledge readable by everyone (conventions, runbooks); writing it takes an
+# explicit maintainer grant. Every session's recall scope is (its project, shared).
+SHARED_PROJECT = "shared"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 # project roles, increasing. GitLab: Guest/Reporter → viewer, Developer → dev,
@@ -163,6 +166,13 @@ def init(force: bool = False) -> None:
         con = sqlite3.connect(DB)
         con.execute("PRAGMA journal_mode=WAL")
         con.executescript(_SCHEMA)
+        if not con.execute("SELECT 1 FROM projects WHERE slug=?", (SHARED_PROJECT,)).fetchone():
+            con.execute(
+                "INSERT INTO projects(slug, name, description, access_source, created_at,"
+                " created_by) VALUES(?,?,?,?,?,?)",
+                (SHARED_PROJECT, "Shared",
+                 "Read-only for everyone: conventions, runbooks, glossary. Writing it takes "
+                 "an explicit maintainer grant.", "sso_group", time.time(), "migration-3.2"))
         if not con.execute("SELECT 1 FROM projects WHERE slug=?", (DEFAULT_PROJECT,)).fetchone():
             con.execute(
                 "INSERT INTO projects(slug, name, description, access_source, created_at,"
@@ -199,7 +209,8 @@ def get(slug: str) -> dict | None:
 def list_projects(include_archived: bool = False) -> list[dict]:
     con = _con()
     sql = "SELECT * FROM projects" + ("" if include_archived else " WHERE archived_at IS NULL")
-    rows = [dict(r) for r in con.execute(sql + " ORDER BY slug = 'default' DESC, slug")]
+    rows = [dict(r) for r in con.execute(
+        sql + " ORDER BY slug = 'default' DESC, slug = 'shared', slug")]
     con.close()
     return rows
 
@@ -289,6 +300,8 @@ def effective_role(user: dict, project: str, now: float | None = None) -> str | 
     email = (user.get("email") or "").lower().strip()
     if p["access_source"] == "instance":
         return INSTANCE_TO_PROJECT.get(user.get("role") or "")
+    # shared: everyone who is let in reads it; grants (maintainer…) raise that
+    floor = ["viewer"] if project == SHARED_PROJECT and email and email != "anonyme" else []
     con = _con()
     try:
         rows = con.execute(
@@ -306,7 +319,7 @@ def effective_role(user: dict, project: str, now: float | None = None) -> str | 
                 roles.append(c["role"])
     finally:
         con.close()
-    return _best(roles)
+    return _best(roles + floor)
 
 
 def can(user: dict, project: str, min_role: str) -> bool:
@@ -319,24 +332,126 @@ def readable_projects(user: dict) -> list[str]:
 
 
 def recall_scope(project: str | None) -> tuple[str, ...]:
-    """Memory scope of a session or a run bound to ``project``: that project only. A missing
-    project means a session created before 3.2 → the default project. An unknown or
-    invalid project gives an EMPTY scope (no recall), never a wider one."""
+    """Memory scope of a session or a run bound to ``project``: that project + ``shared``
+    (read-only knowledge of everyone). A missing project means a session created before
+    3.2 → the default project. An unknown or invalid project gives an EMPTY scope (no
+    recall), never a wider one."""
     slug = (project or DEFAULT_PROJECT).strip()
     if not valid_slug(slug) or get(slug) is None:
         return ()
-    return (slug,)
+    return tuple(sorted({slug, SHARED_PROJECT}))
+
+
+def work_projects() -> list[dict]:
+    """Projects one works IN (every project but ``shared``)."""
+    return [p for p in list_projects() if p["slug"] != SHARED_PROJECT]
 
 
 def multi_project() -> bool:
-    """More than the default project exists (lot 1: never through the API)."""
-    return len(list_projects()) > 1
+    """More than one project to work in (``shared`` does not count)."""
+    return len(work_projects()) > 1
+
+
+# ---- instance-level: ops team, administration -----------------------------------------
+
+def ops_group() -> str:
+    """The SSO group whose members get the infrastructure Operate tab (decision of 07.10):
+    set in the admin screen, bootstrap value SOKKAN_OPS_GROUP."""
+    con = _con()
+    r = con.execute("SELECT value FROM meta WHERE key='ops_group'").fetchone()
+    con.close()
+    return (r["value"] if r else os.environ.get("SOKKAN_OPS_GROUP", "")).strip()
+
+
+def set_ops_group(group: str) -> None:
+    con = _con()
+    with con:
+        con.execute("INSERT INTO meta(key, value) VALUES('ops_group', ?) ON CONFLICT(key) "
+                    "DO UPDATE SET value=excluded.value", ((group or "").strip(),))
+    con.close()
+
+
+def team_ids(email: str) -> list[str]:
+    con = _con()
+    rows = con.execute("SELECT team_id FROM team_members WHERE email=? ORDER BY team_id",
+                       ((email or "").lower().strip(),)).fetchall()
+    con.close()
+    return [r["team_id"] for r in rows]
+
+
+def is_ops(user: dict) -> bool:
+    """Instance admin/owner, or member of the ops team (SSO group)."""
+    if user.get("role") in ("admin", "owner"):
+        return True
+    g = ops_group()
+    return bool(g) and f"sso:{g}" in team_ids(user.get("email") or "")
+
+
+def list_teams() -> list[dict]:
+    con = _con()
+    rows = [dict(r) for r in con.execute(
+        "SELECT t.*, (SELECT count(*) FROM team_members m WHERE m.team_id = t.id) AS members "
+        "FROM teams t ORDER BY t.id")]
+    con.close()
+    return rows
+
+
+def list_grants(project: str) -> list[dict]:
+    con = _con()
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM project_grants WHERE project=? ORDER BY principal_kind, principal",
+        (project,))]
+    con.close()
+    return rows
+
+
+def explain(user: dict, project: str) -> dict:
+    """"Who has access and why": every source that gives this person a role."""
+    p = get(project)
+    email = (user.get("email") or "").lower().strip()
+    out: dict = {"project": project, "email": email, "role": effective_role(user, project),
+                 "sources": []}
+    if p is None:
+        return out
+    if p["access_source"] == "instance":
+        out["sources"].append({"source": "instance role", "role":
+                               INSTANCE_TO_PROJECT.get(user.get("role") or "")})
+    teams = set(team_ids(email))
+    for g in list_grants(project):
+        if (g["principal_kind"] == "user" and g["principal"] == email) or \
+                (g["principal_kind"] == "team" and g["principal"] in teams):
+            out["sources"].append({"source": f"grant to {g['principal_kind']} "
+                                   f"{g['principal']}", "role": g["role"],
+                                   "by": g["created_by"]})
+    if project == SHARED_PROJECT and email:
+        out["sources"].append({"source": "shared: everyone reads", "role": "viewer"})
+    return out
+
+
+def update(slug: str, *, name: str | None = None, description: str | None = None,
+           archived: bool | None = None) -> dict:
+    if slug in (DEFAULT_PROJECT, SHARED_PROJECT) and archived:
+        raise ValueError(f"the {slug} project cannot be archived")
+    con = _con()
+    with con:
+        if name is not None:
+            con.execute("UPDATE projects SET name=? WHERE slug=?", (name.strip()[:120], slug))
+        if description is not None:
+            con.execute("UPDATE projects SET description=? WHERE slug=?", (description, slug))
+        if archived is not None:
+            con.execute("UPDATE projects SET archived_at=? WHERE slug=?",
+                        (time.time() if archived else None, slug))
+    con.close()
+    p = get(slug)
+    if p is None:
+        raise ValueError(f"unknown project: {slug}")
+    return p
 
 
 def session_scope(session_project: str | None) -> tuple[str, ...]:
     """Recall scope of a session from its stored project. A session SOKKAN does not know
-    (None) keeps the pre-3.2 behaviour — the default project — only while the instance has
-    a single project; with several projects it gets no recall at all (fail-closed)."""
+    (None) keeps the pre-3.2 behaviour — the default project (+ shared) — only while the
+    instance has a single project; with several it gets no recall at all (fail-closed)."""
     if session_project is None:
-        return (DEFAULT_PROJECT,) if not multi_project() else ()
+        return recall_scope(DEFAULT_PROJECT) if not multi_project() else ()
     return recall_scope(session_project)

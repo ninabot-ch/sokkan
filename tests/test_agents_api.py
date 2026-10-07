@@ -201,7 +201,8 @@ def test_mcp_servers_get_the_caller_identity(tmp_path, monkeypatch):
     # while the instance has only that one)
     assert servers["sokkan-agents"]["env"] == {"SOKKAN_SESSION_ID": "sid-1",
                                                "SOKKAN_SESSION_USER": "dev@x.ch",
-                                               "SOKKAN_SESSION_PROJECT": "default"}
+                                               "SOKKAN_SESSION_PROJECT": "default",
+                                               "SOKKAN_SESSION_SCOPE": "default,shared"}
     run = agentchat.mcp_servers_for("sid-2", "dev@x.ch", only=["sokkan-memory",
                                                                 "sokkan-agents"], agent_run=True)
     assert set(run) == {"sokkan-memory", "sokkan-agents"}

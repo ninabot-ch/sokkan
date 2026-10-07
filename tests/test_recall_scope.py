@@ -194,18 +194,28 @@ def test_mcp_server_reads_its_scope_from_the_api_environment(monkeypatch):
     assert calls.pop("search") == {"projects": ()}
 
 
-def test_mcp_server_refuses_writes_and_legacy_reads_outside_the_default_project(
+def test_mcp_server_writes_in_its_project_directory_and_no_legacy_reads(
         monkeypatch, tmp_path):
+    """Lot 3: a session of `radio` writes in radio's own memory directory (never the
+    default one, never shared); the 2.x index (default project) stays out of its reach."""
     import memory_search_server as mem
     import store_backend
 
     monkeypatch.setattr(store_backend, "enabled", lambda: False)   # 2.x index
-    monkeypatch.setattr(mem, "MEMORY_DIR", tmp_path)
+    monkeypatch.setattr(mem, "MEMORY_DIR", tmp_path / "default-memory")
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SOKKAN_SESSION_PROJECT", "radio")
+    monkeypatch.setenv("SOKKAN_SESSION_SCOPE", "radio,shared,tv")   # tv is ignored
+    assert mem._scope() == ("radio", "shared")
     assert mem.memory_search("deploy")[0].get("empty")
     assert mem.memory_get("anything").startswith("note not found")
     r = mem.memory_write("radio-note", "d", "b")
-    assert not r["ok"] and not list(tmp_path.iterdir())
+    assert r["ok"], r
+    assert (tmp_path / "data" / "projects" / "radio" / "memory" / "radio-note.md").exists()
+    assert not (tmp_path / "default-memory").exists()
+    monkeypatch.setenv("SOKKAN_SESSION_PROJECT", "../etc")
+    assert mem._scope() == ()
+    assert not mem.memory_write("x-note", "d", "b")["ok"]
 
 
 def test_store_backend_filters_what_a_store_returns(monkeypatch):
@@ -260,4 +270,5 @@ def test_spawn_preseed_uses_the_session_project(monkeypatch, tmp_path):
     app._memory_preseed("deploy the player", session_id="s-radio")
     app._memory_preseed("deploy the player", session_id="s-unknown")
     app._memory_preseed("deploy the player")
-    assert seen == [("radio",), (), ()]   # unknown session with 2 projects: nothing
+    # its project + shared (lot 3); unknown session with 2 projects: nothing
+    assert seen == [("radio", "shared"), (), ()]

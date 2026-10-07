@@ -468,14 +468,24 @@ def _language_directive(message: str) -> str:
     return ""
 
 
+def _memory_scope() -> tuple[str, ...]:
+    """3.2 lot 3: Nina reads the project selected in the cockpit (+ shared); outside a
+    project-scoped request, the default project while it is the only one, else nothing."""
+    import projectgate
+    import projects
+    ctx = projectgate.current()
+    if ctx is not None:
+        return projects.recall_scope(ctx["project"])
+    return () if projects.multi_project() else projects.recall_scope(projects.DEFAULT_PROJECT)
+
+
 def _memory_context(query: str, top_k: int = 4) -> str:
     """Extraits de la mémoire projet pertinents pour la question. Pré-récupérés
     (pas d'outil à appeler) — même doctrine que le recall au spawn."""
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
         import memory_search_server as mem
-        # 3.2 lot 1 : Nina lit le projet par défaut (le projet choisi dans le cockpit au lot 2)
-        hits = mem.search_scoped(query, top_k, ("default",)) or []
+        hits = mem.search_scoped(query, top_k, _memory_scope()) or []
     except Exception as e:  # noqa: BLE001
         print(f"[assistant] mémoire indisponible ({e})")
         return ""

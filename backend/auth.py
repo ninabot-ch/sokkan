@@ -93,11 +93,33 @@ def resolve_email(request: Request) -> str:
     raise HTTPException(500, f"unknown SOKKAN_AUTH_MODE: {MODE}")
 
 
-def current_user(request: Request) -> dict:
+def instance_user(request: Request) -> dict:
+    """The person with their INSTANCE role (iam.py), whatever the request's project."""
     user = iam.get_user(resolve_email(request))
     if not user["known"] and iam.DEFAULT_ROLE == "none":
-        raise HTTPException(403, "account not provisioned on this instance")
+        # 3.2: someone the instance does not list may still be a member of a project
+        # through an SSO team or a grant — let them in, with no instance role
+        import projects
+        try:
+            if not projects.readable_projects(user):
+                raise HTTPException(403, "account not provisioned on this instance")
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001 — fail-closed
+            raise HTTPException(403, "account not provisioned on this instance")
     return user
+
+
+def current_user(request: Request) -> dict:
+    """The person as the request sees them. Inside a project-scoped request (3.2,
+    projectgate), the role is THEIR ROLE IN THAT PROJECT, mapped onto the instance scale,
+    so every existing check applies per project."""
+    import projectgate
+    ctx = projectgate.current()
+    email = resolve_email(request)
+    if ctx is not None and ctx.get("email") == (email or "").lower().strip():
+        return ctx
+    return instance_user(request)
 
 
 def auth_info() -> dict:

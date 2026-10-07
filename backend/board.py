@@ -369,17 +369,23 @@ def seed_text(prompt: str, recall: str = "") -> str:
 
 # ---------- cartes ----------
 
-def list_cards(include_archived: bool = False) -> dict:
+def list_cards(include_archived: bool = False, project: str | None = None) -> dict:
+    """Cards per column; ``project`` (3.2) = that project's board only."""
     con = _con()
-    where = "" if include_archived else "WHERE archived=0"
-    rows = [_card_out(r) for r in con.execute(f"SELECT * FROM cards {where} ORDER BY sort, id")]
+    conds, args = ([] if include_archived else ["archived=0"]), []
+    if project is not None:
+        conds.append("project=?")
+        args.append(project)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    rows = [_card_out(r) for r in con.execute(f"SELECT * FROM cards {where} ORDER BY sort, id",
+                                              args)]
     con.close()
     return {b: [c for c in rows if c["bucket"] == b] for b in BUCKETS}
 
 
 def add_card(title: str, description: str = "", tag: str = "backend",
              bucket: str = "Backlog", priority: int = 2, due: str = "",
-             user: str = "", origin: dict | None = None) -> dict:
+             user: str = "", origin: dict | None = None, project: str = "default") -> dict:
     if bucket not in BUCKETS:
         bucket = "Backlog"
     title = (title.strip() or description.strip()[:60] or "tâche")
@@ -387,9 +393,10 @@ def add_card(title: str, description: str = "", tag: str = "backend",
     con = _con()
     cur = con.execute(
         "INSERT INTO cards(title, description, tag, bucket, created_at, sort, priority, due, updated_at,"
-        " closed_at, closed_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        " closed_at, closed_by, project) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (title, description.strip(), tag, bucket, now, now, int(priority), due, now,
-         now if bucket == "Done" else None, (user or "") if bucket == "Done" else ""),
+         now if bucket == "Done" else None, (user or "") if bucket == "Done" else "",
+         project or "default"),
     )
     _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}", origin)
     con.commit()
@@ -590,23 +597,27 @@ def card_comments(card_id: int, limit: int = 200) -> list[dict]:
     return rows
 
 
-def resolve_link(kind: str, ref) -> dict | None:
+def resolve_link(kind: str, ref, project: str | None = None) -> dict | None:
     """Le lien pointe-t-il vers un objet qui EXISTE ? → {kind, ref, label, status,
-    href} ; None sinon. `href` = lien profond du cockpit (session : ouverte par l'UI)."""
+    href} ; None sinon. `href` = lien profond du cockpit (session : ouverte par l'UI).
+    `project` (3.2) : une session / un agent / un run d'un AUTRE projet n'existe pas."""
     ref = str(ref).strip()
+
+    def other(obj_project) -> bool:
+        return project is not None and (obj_project or "default") != project
     if kind not in LINK_KINDS or not ref:
         return None
     try:
         if kind == "session":
             s = next((x for x in list_sessions() if x["session_id"] == ref), None)
-            if not s:
+            if not s or other(s.get("project")):
                 return None
             return {"kind": kind, "ref": ref, "label": f"{s.get('tag') or ''} \u00b7 {s.get('title') or ''}".strip(" \u00b7"),
                     "status": s.get("kind") or "", "href": ""}
         if kind == "agent":
             import agents
             a = agents.resolve(int(ref) if ref.isdigit() else ref)
-            if not a:
+            if not a or other(a.get("project")):
                 return None
             return {"kind": kind, "ref": str(a["id"]), "label": a["name"], "status": a["status"],
                     "href": f"/?tab=crew&agent={a['id']}"}
@@ -618,6 +629,8 @@ def resolve_link(kind: str, ref) -> dict | None:
             if not r:
                 return None
             a = agents.get(r["agent_id"]) or {}
+            if other(a.get("project")):
+                return None
             return {"kind": kind, "ref": str(r["id"]),
                     "label": f"run #{r['id']} of {a.get('name') or 'agent #' + str(r['agent_id'])}",
                     "status": r["status"], "agent_id": r["agent_id"],
@@ -645,8 +658,10 @@ def link_card(card_id: int, kind: str, ref, user: str = "", remove: bool = False
     Refuse un objet qui n'existe pas (ValueError) ; None si la carte n'existe pas."""
     if kind not in LINK_KINDS:
         raise ValueError(f"unknown link kind: {kind} (valid: {list(LINK_KINDS)})")
-    if get_card(card_id) is None:
+    card = get_card(card_id)
+    if card is None:
         return None
+    project = card.get("project") or "default"
     con = _con()
     if remove:
         t = resolve_link(kind, ref)
@@ -658,7 +673,7 @@ def link_card(card_id: int, kind: str, ref, user: str = "", remove: bool = False
         con.commit()
         con.close()
         return {"card_id": card_id, "removed": bool(cur.rowcount)}
-    target = resolve_link(kind, ref)
+    target = resolve_link(kind, ref, project)
     if target is None:
         con.close()
         raise ValueError(f"{kind} {ref} not found")
@@ -699,9 +714,14 @@ def card_detail(card_id: int) -> dict | None:
 
 
 def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str = "",
-                 include_archived: bool = False, limit: int = 50) -> list[dict]:
-    """Recherche plein texte simple (titre, description, commentaires) + filtres."""
+                 include_archived: bool = False, limit: int = 50,
+                 project: str | None = None) -> list[dict]:
+    """Recherche plein texte simple (titre, description, commentaires) + filtres ;
+    `project` (3.2) = le board de ce projet seulement."""
     where, args = [], []
+    if project is not None:
+        where.append("c.project=?")
+        args.append(project)
     if not include_archived:
         where.append("c.archived=0")
     if tag:

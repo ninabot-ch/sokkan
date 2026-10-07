@@ -565,7 +565,7 @@ class Runtime:
                         f"({stamp}, run #{run['id']}): {first}",
                         self._summary_full(deliverable),
                         {"agent": a["name"], "run": run["id"], "session": sid,
-                         "via": "output"})
+                         "via": "output"}, project=a.get("project") or "default")
                     if r.get("ok"):
                         out["memory"] = name
                         out["memory_quarantined"] = True

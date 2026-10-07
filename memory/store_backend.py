@@ -72,6 +72,22 @@ def configured() -> str:
     return "auto" if v == "auto" or database_configured() else "sqlite"
 
 
+def memory_dir_for(project: str) -> Path:
+    """3.2 lot 3 — one memory directory per project. ``default`` keeps the configured
+    directory (nothing moves); any other project: $SOKKAN_DATA_DIR/projects/<slug>/memory.
+    The slug is validated: never a path outside the data directory."""
+    from core import scope as _sc
+    from core.contract import DEFAULT_PROJECT
+
+    if project == DEFAULT_PROJECT:
+        return Path(os.environ.get("CORTHEXIS_MEMORY_DIR") or os.environ.get(
+            "SOKKAN_MEMORY_DIR") or os.path.expanduser("~/.sokkan/memory"))
+    if not _sc.valid_project(project):
+        raise ValueError(f"invalid project: {project!r}")
+    return Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser(
+        "~/.local/share/sokkan"))) / "projects" / project / "memory"
+
+
 def legacy_db() -> Path:
     """The 2.x index (SOKKAN_MEMORY_DB, else $SOKKAN_DATA_DIR/memory.db)."""
     return Path(os.environ.get("SOKKAN_MEMORY_DB") or os.path.join(

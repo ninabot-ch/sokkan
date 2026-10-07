@@ -74,6 +74,7 @@ import memeval
 import panestate
 import preview
 import previewenv
+import projectgate
 import projects
 import provision
 import transcript as T
@@ -108,6 +109,43 @@ def _start_store_indexer() -> None:
     _index_runner = IndexRunner(store_backend.get_store, store_backend.index_embedder, cfg,
                                 activate_first_only=True)
     _index_runner.start()
+    _sync_project_indexers()
+
+
+_project_runners: dict = {}
+
+
+def _sync_project_indexers() -> None:
+    """3.2 lot 3 : un indexeur par dossier mémoire de projet (shared compris). Le projet
+    default garde l'indexeur ci-dessus ; les autres n'écrivent qu'une fois la première
+    génération active (jamais deux générations créées en course au premier démarrage)."""
+    if _index_runner is None or not store_backend.enabled():
+        return
+    from core.indexer import IndexConfig, IndexRunner
+
+    for p in projects.list_projects():
+        slug = p["slug"]
+        if slug == projects.DEFAULT_PROJECT or slug in _project_runners:
+            continue
+        d = store_backend.memory_dir_for(slug)
+        d.mkdir(parents=True, exist_ok=True)
+        cfg = IndexConfig.from_env(memory_dir=d, project=slug, normalize=False)
+
+        def _start(cfg=cfg, slug=slug) -> None:
+            while True:
+                try:
+                    if store_backend.get_store().active_generation() is not None:
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(10)
+            r = IndexRunner(store_backend.get_store, store_backend.index_embedder, cfg,
+                            activate_first_only=True)
+            _project_runners[slug] = r
+            r.start()
+
+        _project_runners[slug] = None
+        threading.Thread(target=_start, daemon=True, name=f"sokkan-index-{slug}").start()
 
 
 def _reindex_loop() -> None:
@@ -233,7 +271,120 @@ def _bg(coro) -> asyncio.Task:
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)) -> dict:
-    return {**user, "source": auth.MODE}
+    return {**user, "source": auth.MODE, "ops": projects.is_ops(user)}
+
+
+# --- 3.2 lot 3 : projets, équipes, attributions -----------------------------------------
+@app.get("/api/projects")
+def my_projects(user: dict = Depends(current_user)) -> dict:
+    """Projects the person can read, with their role — the cockpit's project selector.
+    `shared` is listed apart (read by everyone, never selected as a work project)."""
+    mine = []
+    for p in projects.list_projects():
+        role = projects.effective_role(user, p["slug"])
+        if role is not None:
+            mine.append({"slug": p["slug"], "name": p["name"], "role": role,
+                         "access_source": p["access_source"],
+                         "shared": p["slug"] == projects.SHARED_PROJECT})
+    return {"projects": mine, "multi": projects.multi_project(),
+            "default": projects.DEFAULT_PROJECT, "ops": projects.is_ops(user),
+            "instance_admin": iam.rank(user["role"]) >= iam.rank("admin")}
+
+
+class ProjectIn(BaseModel):
+    slug: str
+    name: str = ""
+    description: str = ""
+    access_source: str = "sso_group"
+
+
+class ProjectPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    archived: bool | None = None
+
+
+class GrantIn(BaseModel):
+    principal_kind: str      # user | team
+    principal: str           # email | team id (sso:<group>)
+    role: str                # viewer | dev | maintainer | admin
+
+
+class OpsIn(BaseModel):
+    group: str = ""
+
+
+@app.get("/api/admin/projects")
+def admin_projects(_u: dict = Depends(require("admin"))) -> dict:
+    """Instance admin: every project, its grants and the teams seen at login. No project
+    CONTENT here (sessions, cards, notes): an admin adds themself to see it (audited)."""
+    out = []
+    for p in projects.list_projects(include_archived=True):
+        out.append({**p, "grants": projects.list_grants(p["slug"])})
+    return {"projects": out, "teams": projects.list_teams(), "ops_group": projects.ops_group(),
+            "roles": projects.PROJECT_ROLES, "sources": list(projects.ACCESS_SOURCES)}
+
+
+@app.post("/api/admin/projects")
+def admin_project_create(body: ProjectIn, u: dict = Depends(require("admin"))) -> dict:
+    if body.access_source == "forge":
+        raise HTTPException(400, "forge access arrives with lot 5 (GitLab); use sso_group")
+    try:
+        p = projects.create(body.slug, body.name or body.slug, access_source=body.access_source,
+                            created_by=u["email"], description=body.description)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "project.create", p["slug"], p["access_source"])
+    _sync_project_indexers()
+    return p
+
+
+@app.patch("/api/admin/projects/{slug}")
+def admin_project_update(slug: str, body: ProjectPatch, u: dict = Depends(require("admin"))) -> dict:
+    try:
+        p = projects.update(slug, name=body.name, description=body.description,
+                            archived=body.archived)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "project.archive" if body.archived else "project.update", slug, "")
+    return p
+
+
+@app.post("/api/admin/projects/{slug}/grants")
+def admin_grant(slug: str, body: GrantIn, u: dict = Depends(require("admin"))) -> dict:
+    if projects.get(slug) is None:
+        raise HTTPException(404, "unknown project")
+    try:
+        projects.grant(slug, body.principal_kind, body.principal, body.role, created_by=u["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    me_ = body.principal_kind == "user" and body.principal.lower().strip() == u["email"]
+    # décision 07.10 : un admin d'instance n'accède au contenu d'un projet qu'en s'y ajoutant
+    # — et ça se voit dans le journal
+    audit.log(u["email"], "project.grant.self" if me_ else "project.grant", slug,
+              f"{body.principal_kind} {body.principal} → {body.role}")
+    return {"grants": projects.list_grants(slug)}
+
+
+@app.delete("/api/admin/projects/{slug}/grants/{kind}/{principal}")
+def admin_revoke(slug: str, kind: str, principal: str, u: dict = Depends(require("admin"))) -> dict:
+    projects.revoke(slug, kind, principal)
+    audit.log(u["email"], "project.revoke", slug, f"{kind} {principal}")
+    return {"grants": projects.list_grants(slug)}
+
+
+@app.get("/api/admin/explain")
+def admin_explain(email: str, project: str, _u: dict = Depends(require("admin"))) -> dict:
+    """Who has access to a project and why (source by source)."""
+    target = iam.get_user(email)
+    return projects.explain(target, project)
+
+
+@app.put("/api/admin/ops-group")
+def admin_ops_group(body: OpsIn, u: dict = Depends(require("admin"))) -> dict:
+    projects.set_ops_group(body.group)
+    audit.log(u["email"], "ops.group", body.group or "(none)", "")
+    return {"ops_group": projects.ops_group()}
 
 
 @app.get("/api/auth/info")
@@ -599,7 +750,7 @@ async def observability_alert(request: Request) -> dict:
 @app.get("/api/runbooks")
 def runbooks_list(_u: dict = Depends(current_user)) -> list[dict]:
     return [{"name": n["name"], "description": n["description"], "mtime": n["mtime"]}
-            for n in memorykb.list_notes() if n["name"].startswith("runbook-")]
+            for n in memorykb.list_notes(_ctx_scope()) if n["name"].startswith("runbook-")]
 
 
 @app.post("/api/runbooks/{name}/run")
@@ -607,8 +758,9 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
     """Spawn une session qui exécute le runbook pas à pas (HITL sur l'irréversible)."""
     if "/" in name or ".." in name or not name.startswith("runbook-"):
         raise HTTPException(400, "invalid runbook")
-    body = mem.memory_get(name)
-    if not body:
+    body = (store_backend.memory_get(name, projects=_ctx_scope()) if store_backend.enabled()
+            else (mem.memory_get(name) if projects.DEFAULT_PROJECT in _ctx_scope() else None))
+    if not body or body.startswith("note not found"):
         raise HTTPException(404, "runbook introuvable")
     prompt = (
         f"Run the runbook **{name}** step by step. Here it is:\n\n{body}\n\n"
@@ -616,7 +768,7 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
         "order, explaining each before you run it, and stop for my approval before "
         "anything irreversible. If a step fails, diagnose before continuing.")
     s = _spawn_sdk("ops", prompt=prompt, title=f"runbook: {name.removeprefix('runbook-')}",
-                   user=u["email"])
+                   user=u["email"], project=_ctx_project())
     audit.log(u["email"], "runbook.run", name, s["session_id"])
     return s
 
@@ -626,7 +778,7 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
 def vault_session(_u: dict = Depends(require("dev"))) -> dict:
     """Pour le formulaire d'ouverture de session : le mode et les NOMS du coffre
     (jamais les valeurs) — un dev choisit ce que sa session reçoit."""
-    return {"mode": vault.session_mode(), "names": vault.names()}
+    return {"mode": vault.session_mode(), "names": _vault_names()}
 
 
 @app.get("/api/vault")
@@ -701,7 +853,7 @@ class AgentBody(BaseModel):
 @app.get("/api/agents/meta")
 def agents_meta(_u: dict = Depends(crew_reader), _f: None = Depends(feature_agents)) -> dict:
     """What the form needs: vault NAMES (never values), choices, playbooks."""
-    return {"secrets": vault.names(), "tools": agents.KNOWN_TOOLS,
+    return {"secrets": _vault_names(), "tools": agents.KNOWN_TOOLS,
             "default_tools": agents.DEFAULT_TOOLS, "mcp": list(agents.MCP_CHOICES),
             "outputs": list(agents.OUTPUTS), "notify_on": list(agents.NOTIFY_ON),
             "models": ["", "haiku", "sonnet", "opus"], "triggers": list(agents.TRIGGERS),
@@ -743,7 +895,7 @@ def agents_create(body: AgentBody, u: dict = Depends(require("dev")),
     fields = body.model_dump(exclude={"activate"})
     override = bool(fields.pop("override_alert_writes", False))
     a = _agent_http(agents.create, u, fields, created_by=f"user:{u['email']}",
-                    activate=body.activate, known_secrets=vault.names(),
+                    activate=body.activate, known_secrets=_vault_names(),
                     override_alert_writes=override)
     audit.log(u["email"], "agent.create", a["name"], a["status"])
     _audit_alert_override(u, a, override)
@@ -757,7 +909,7 @@ def agents_propose(body: AgentBody, u: dict = Depends(require("dev")),
     """A proposal built in Nina's chat → a pending card (a human approves it)."""
     fields = body.model_dump(exclude={"activate"})
     a = _agent_http(agents.create, u, fields, created_by=f"nina:{u['email']}", proposal=True,
-                    known_secrets=vault.names())
+                    known_secrets=_vault_names())
     audit.log(u["email"], "agent.propose", a["name"], "from Nina")
     return _agent_full(u, a["id"])
 
@@ -794,7 +946,7 @@ def agents_patch(aid: int, body: AgentBody, u: dict = Depends(require("dev")),
     fields = body.model_dump(exclude={"activate"}, exclude_unset=True)
     override = bool(fields.pop("override_alert_writes", False))
     before = agents.get(aid) or {}
-    a = _agent_http(agents.update, u, aid, fields, known_secrets=vault.names(),
+    a = _agent_http(agents.update, u, aid, fields, known_secrets=_vault_names(),
                     override_alert_writes=override)
     audit.log(u["email"], "agent.update", a["name"], ", ".join(sorted(fields)))
     _audit_alert_override(u, a, override, before)
@@ -850,12 +1002,12 @@ import quarantine  # noqa: E402 — memory/ est sur le path (cf. imports du haut
 def memory_quarantine(_u: dict = Depends(require("dev"))) -> list[dict]:
     """Notes écrites par des runs d'agent, en attente de relecture humaine. Elles ne
     sont PAS dans le dossier mémoire : aucun rappel (spawn, recherche, hooks)."""
-    return quarantine.list_notes()
+    return quarantine.list_notes(_ctx_project())
 
 
 @app.get("/api/memory/quarantine/{name}")
 def memory_quarantine_get(name: str, _u: dict = Depends(require("dev"))) -> dict:
-    q = quarantine.get(name)
+    q = quarantine.get(name, _ctx_project())
     if q is None:
         raise HTTPException(404, "not in quarantine")
     return q
@@ -868,7 +1020,7 @@ class QuarantineDecision(BaseModel):
 @app.post("/api/memory/quarantine/{name}/approve")
 def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> dict:
     try:
-        out = quarantine.approve(name, u["email"])
+        out = quarantine.approve(name, u["email"], _ctx_project())
     except KeyError:
         raise HTTPException(404, "not in quarantine")
     audit.log(u["email"], "memory.quarantine.approve", name, "")
@@ -879,7 +1031,8 @@ def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> d
 def memory_quarantine_reject(name: str, body: QuarantineDecision | None = None,
                              u: dict = Depends(require("dev"))) -> dict:
     try:
-        out = quarantine.reject(name, u["email"], delete=bool(body and body.delete))
+        out = quarantine.reject(name, u["email"], delete=bool(body and body.delete),
+                                project=_ctx_project())
     except KeyError:
         raise HTTPException(404, "not in quarantine")
     audit.log(u["email"], "memory.quarantine.reject", name,
@@ -1298,11 +1451,10 @@ def _ws_user(websocket: WebSocket) -> dict | None:
     Un viewer est accepté (rôle = « lecture seule (chat/…) ») : il reçoit le flux
     d'events ; toutes les mutations sont gatées ≥ dev dans la boucle WS."""
     try:
-        user = auth.current_user(websocket)  # type: ignore[arg-type]
+        user = auth.instance_user(websocket)  # type: ignore[arg-type]
     except HTTPException:
         return None
-    if iam.rank(user["role"]) < iam.rank("viewer"):
-        return None
+    # 3.2 : le rôle qui compte est celui du projet de la session (agent_ws le projette)
     return user
 
 
@@ -1329,6 +1481,12 @@ async def agent_ws(websocket: WebSocket, sid: str):
     wsu = _ws_user(websocket)
     if wsu is None:
         await websocket.close(code=4401)
+        return
+    # 3.2 lot 3 : la personne telle que la voit le PROJET de la session (rôle de ce projet) ;
+    # aucun rôle dans ce projet = la session n'existe pas pour elle
+    wsu = projectgate.ws_user(wsu, board.get_session_project(sid))
+    if wsu is None:
+        await websocket.close(code=4404)
         return
     await websocket.accept()
     resume = websocket.query_params.get("resume") or None
@@ -1415,6 +1573,13 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(401, f"OIDC exchange failed: {e}")
     email = (claims.get("email") or "").lower()
+    try:  # 3.2 lot 3 : équipes = groupes de l'IdP (claim `groups`), resynchronisées au login
+        groups = claims.get(os.environ.get("SOKKAN_OIDC_GROUPS_CLAIM", "groups")) or []
+        if email and isinstance(groups, list):
+            projects.sync_sso_groups(email, [str(g) for g in groups])
+            audit.log(email, "team.sync", ",".join(str(g) for g in groups)[:300], "")
+    except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur la synchro d'équipes
+        print(f"[sokkan] SSO groups sync failed for {email}: {e!r}", file=sys.stderr)
     if not email:
         raise HTTPException(401, "OIDC token has no email")
     resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
@@ -1443,12 +1608,20 @@ async def require_auth(request: Request, call_next):
     """Gate global : toute route /api exige une identité résolue (sauf /api/auth/* + health).
     Indispensable hors CF Access (mode oidc) : sinon les lectures seraient publiques."""
     p = request.url.path
+    token = None
     if p.startswith("/api/") and not p.startswith(_AUTH_FREE):
         try:
-            auth.current_user(request)
+            user = auth.instance_user(request)
+            # 3.2 lot 3 : de quel projet parle la requête, avec quel rôle (projectgate)
+            token = projectgate.resolve(request, user)
         except HTTPException as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
-    return await call_next(request)
+        except projectgate.Denied as e:
+            return JSONResponse({"detail": e.detail}, status_code=e.status)
+    try:
+        return await call_next(request)
+    finally:
+        projectgate.reset(token)
 
 
 def _transcripts() -> list[Path]:
@@ -1487,6 +1660,8 @@ def sessions() -> list[dict]:
     live = _live_targets()
     out: list[dict] = []
     for s in board.list_sessions():
+        if not _in_ctx(s):            # 3.2 : les sessions du projet sélectionné seulement
+            continue
         if s.get("kind") == "sdk":
             csid = s.get("claude_session_id") or ""
             p = PROJECT_DIR / f"{csid}.jsonl" if csid else None
@@ -1528,8 +1703,27 @@ class SpawnBody(BaseModel):
     # secrets du coffre (NOMS) pour cette session — pris en compte si
     # SOKKAN_SESSION_SECRETS=named ; None = ceux du playbook, sinon aucun
     secrets: list[str] | None = None
-    # 3.2 multi-user : projet de la session (périmètre mémoire) ; l'existant = 'default'
-    project: str = "default"
+    # 3.2 multi-user : projet de la session (périmètre mémoire). Absent = le projet
+    # sélectionné dans le cockpit (en-tête x-sokkan-project), 'default' sinon
+    project: str | None = None
+
+
+def _vault_names() -> list[str]:
+    """Vault NAMES a session / an agent of the request's project may use. The vault is
+    per instance until lot 4: only the default project sees it; other projects get none
+    (fail-closed — a secret of one team never reaches another team's session)."""
+    return vault.names() if _ctx_project() == projects.DEFAULT_PROJECT else []
+
+
+def _ctx_project() -> str:
+    """Project of the request being served (projectgate), 'default' outside one."""
+    ctx = projectgate.current()
+    return (ctx or {}).get("project") or projects.DEFAULT_PROJECT
+
+
+def _in_ctx(row: dict) -> bool:
+    """A stored row (session, card, agent…) belongs to the request's project."""
+    return (row.get("project") or projects.DEFAULT_PROJECT) == _ctx_project()
 
 
 def _session_scope(session_id: str | None) -> tuple[str, ...]:
@@ -1613,13 +1807,18 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
     """Crée une session SOKKAN — chat SDK par défaut, fenêtre tmux si kind='tmux'.
     `playbook` applique un template (prompt façonné + tag par défaut) au sujet tapé.
     `project` (3.2) : la personne doit y avoir au moins le rôle dev."""
-    if not projects.can(u, body.project, "dev"):
+    body.project = body.project or _ctx_project()
+    if body.project != _ctx_project():
+        # le rôle de la requête est celui du projet sélectionné : on n'en crée pas ailleurs
+        raise HTTPException(400, "the session's project must be the selected project")
+    if u.get("project_role") not in ("dev", "maintainer", "admin") and \
+            iam.rank(u["role"]) < iam.rank("dev"):
         raise HTTPException(403, f"no developer access to project '{body.project}'")
     if body.kind == "tmux" and body.project != projects.DEFAULT_PROJECT:
         # lot 1 : un terminal lit le dossier mémoire et .mcp.json partagés → projet par défaut
         raise HTTPException(400, "terminal sessions are only available in the default project")
     if body.secrets is not None:
-        unknown = [n for n in body.secrets if n not in vault.names()]
+        unknown = [n for n in body.secrets if n not in _vault_names()]
         if unknown:
             raise HTTPException(400, f"secrets not in the vault: {', '.join(unknown)}")
     if body.playbook and body.secrets is None:
@@ -1792,6 +1991,8 @@ def bindings() -> list[dict]:
     live = _live_targets()
     out = []
     for s in board.list_sessions():
+        if not _in_ctx(s):
+            continue
         win = s["window"] or ""
         sess, _, wname = win.partition(":")
         out.append({
@@ -1848,7 +2049,11 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
 
 @app.get("/api/audit")
 def audit_recent(limit: int = 200, q: str = "", _u: dict = Depends(require("viewer"))) -> list[dict]:
-    """Journal des actions (onglet Journal) : qui a fait quoi, quand."""
+    """Journal des actions (onglet Journal) : qui a fait quoi, quand.
+    3.2 : avec plusieurs projets, le journal (titres de sessions, cartes, agents de tous les
+    projets) est réservé aux admins de l'instance."""
+    if projects.multi_project() and iam.rank(_u["role"]) < iam.rank("admin"):
+        raise HTTPException(403, "with several projects the journal is for instance admins")
     return audit.recent(limit=limit, q=q)
 
 
@@ -1911,24 +2116,31 @@ def infra_targets() -> list[dict]:
     return infra.targets()
 
 
+def _ctx_scope() -> tuple[str, ...]:
+    """Memory the request's project may read: itself + shared (3.2)."""
+    return projects.recall_scope(_ctx_project())
+
+
 @app.get("/api/memory/stats")
 def memory_stats() -> dict:
+    if _ctx_project() != projects.DEFAULT_PROJECT:   # counts of the selected project only
+        notes = memorykb.list_notes([_ctx_project()])
+        return {"notes": len(notes), "chunks": sum(n.get("chunks") or 0 for n in notes),
+                "project": _ctx_project()}
     return memorykb.stats()
 
 
 @app.get("/api/memory/notes")
 def memory_notes() -> list[dict]:
-    return memorykb.list_notes()
+    """3.2 : les notes du projet sélectionné + celles de shared (lecture)."""
+    return memorykb.list_notes(_ctx_scope())
 
 
 @app.get("/api/memory/search")
-def memory_search(q: str, k: int = 8, deep: bool = False, project: str = "default",
-                  u: dict = Depends(current_user)) -> list[dict]:
+def memory_search(q: str, k: int = 8, deep: bool = False) -> list[dict]:
     """`deep=1` : reranker même en profil standard (asynchrone, ~4-5 s sur CPU).
-    3.2 : limité à `project`, que la personne doit pouvoir lire."""
-    if not projects.can(u, project, "viewer"):
-        raise HTTPException(403, f"no access to project '{project}'")
-    scope = projects.recall_scope(project)
+    3.2 : le projet sélectionné (+ shared) ; projectgate a vérifié l'accès."""
+    scope = _ctx_scope()
     if store_backend.enabled():
         return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep, projects=scope)
     return mem.search_scoped(q, k, scope)
@@ -2011,16 +2223,20 @@ def memory_recall_log(session: str = "", note: str = "", limit: int = 200) -> di
     """Ce que le rappel automatique a injecté : quelle session / quel sous-agent a reçu
     quelles notes, avec quels scores, depuis quelle génération d'index."""
     st = _store_or_503()
+    # 3.2 : les injections de notes du projet sélectionné seulement (son projet, pas shared :
+    # le journal dit QUELLE session a reçu quoi — des sessions d'autres projets lisent shared)
     return {"entries": st.recall_log(session_id=session or None, note=note or None,
-                                     limit=limit),
-            "summary": st.recall_summary()}
+                                     limit=limit, projects=[_ctx_project()]),
+            "summary": st.recall_summary() if not projects.multi_project() else {}}
 
 
 @app.get("/api/memory/note/{name}")
 def memory_note(name: str) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
-    return {"name": name, "body": mem.memory_get(name)}
+    body = (store_backend.memory_get(name, projects=_ctx_scope()) if store_backend.enabled()
+            else (mem.memory_get(name) if projects.DEFAULT_PROJECT in _ctx_scope() else None))
+    return {"name": name, "body": body}
 
 
 @app.get("/api/memory/migration")
@@ -2057,7 +2273,7 @@ def memory_digest(u: dict = Depends(require("dev"))) -> dict:
     """Memory Digest : spawn une session qui synthétise l'état du projet dans la
     note `project-status` — la mémoire se résume elle-même, à la demande."""
     prompt, tag = playbooks.render("digest")
-    s = _spawn_sdk(tag, prompt, title="memory digest", user=u["email"])
+    s = _spawn_sdk(tag, prompt, title="memory digest", user=u["email"], project=_ctx_project())
     audit.log(u["email"], "memory.digest", s["session_id"])
     return s
 
@@ -2211,7 +2427,8 @@ _WEB = {"via": "web"}
 
 @app.get("/api/board")
 def board_list(archived: int = 0) -> dict:
-    return {"buckets": board.BUCKETS, "cards": board.list_cards(include_archived=bool(archived))}
+    return {"buckets": board.BUCKETS, "cards": board.list_cards(include_archived=bool(archived),
+                                                               project=_ctx_project())}
 
 
 @app.get("/api/board/card/{card_id}")
@@ -2227,7 +2444,8 @@ def board_add(body: CardCreate, u: dict = Depends(require("dev"))) -> dict:
     if not body.title.strip() and not body.description.strip():
         raise HTTPException(400, "title or prompt required")
     c = board.add_card(body.title, body.description, body.tag, body.bucket,
-                       priority=body.priority, due=body.due, user=u["email"], origin=_WEB)
+                       priority=body.priority, due=body.due, user=u["email"], origin=_WEB,
+                       project=_ctx_project())
     audit.log(u["email"], "board.card.create", f"card #{c['id']}", c["title"])
     return c
 
@@ -2298,7 +2516,8 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     card = board.get_card(card_id)
     if not card:
         raise HTTPException(404, "card not found")
-    s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"])
+    s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"],
+                   project=card.get("project") or projects.DEFAULT_PROJECT)
     board.update_card(card_id, user=u["email"], origin={**_WEB, "session_id": s["session_id"],
                                                          "session_tag": s.get("tag", "")},
                       session_id=s["session_id"], window="", bucket="Doing")
@@ -2308,5 +2527,17 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
 
 @app.get("/api/usage")
 def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict:
-    """Coûts & tokens agrégés depuis les transcripts (onglet Coûts)."""
-    return usage_mod.summary(days_back=min(days, 90))
+    """Coûts & tokens agrégés depuis les transcripts (onglet Coûts).
+    3.2 : la liste des sessions (titres, premier prompt) ne montre que celles du projet
+    sélectionné ; les totaux restent ceux de l'instance jusqu'aux budgets par projet (lot 4)."""
+    out = usage_mod.summary(days_back=min(days, 90))
+    mine = {}
+    for s in board.list_sessions():
+        if _in_ctx(s):
+            mine[s["session_id"]] = s
+            if s.get("claude_session_id"):
+                mine[s["claude_session_id"]] = s
+    keep_unknown = not projects.multi_project() and _ctx_project() == projects.DEFAULT_PROJECT
+    out["sessions"] = [x for x in out.get("sessions") or []
+                       if x["session_id"] in mine or keep_unknown]
+    return out

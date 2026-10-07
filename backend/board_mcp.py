@@ -113,6 +113,23 @@ def _missing(card_id: int) -> dict:
     return {"error": f"card {card_id} not found (see search_cards / list_board)"}
 
 
+def _project() -> str:
+    """3.2 lot 3 — the board of THIS session's project. The API sets SOKKAN_SESSION_PROJECT
+    in the server's environment; without it (a server started outside SOKKAN) = the
+    default project while the instance has one, else no board at all (fail-closed)."""
+    p = os.environ.get("SOKKAN_SESSION_PROJECT")
+    if p is not None:
+        return p.strip()
+    import projects
+    return "" if projects.multi_project() else projects.DEFAULT_PROJECT
+
+
+def _foreign(card_id: int) -> bool:
+    """A card of another project (or none at all): "not found" for this session."""
+    c = board.get_card(card_id)
+    return c is None or (c.get("project") or "default") != _project()
+
+
 @mcp.tool()
 def create_card(title: str, tag: str = "backend", description: str = "",
                 bucket: str = "Backlog", priority: int = 2) -> dict:
@@ -132,8 +149,11 @@ def create_card(title: str, tag: str = "backend", description: str = "",
     if denied:
         return denied
     who, origin = _origin()
+    if not _project():
+        return {"error": "this session has no project: no board"}
     card = board.add_card(title=title, description=description, tag=tag,
-                          bucket=bucket, priority=priority, user=who, origin=origin)
+                          bucket=bucket, priority=priority, user=who, origin=origin,
+                          project=_project())
     _audit(who, origin, "board.card.create", card["id"], title)
     return card
 
@@ -149,6 +169,8 @@ def move_card(card_id: int, bucket: str) -> dict:
         card_id: id de la carte (cf. list_board()).
         bucket: colonne cible parmi Backlog/Doing/Review/Done.
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     if bucket not in board.BUCKETS:
         return {"error": f"unknown bucket: {bucket} (valid: {board.BUCKETS})"}
     denied = _write_denied()
@@ -196,7 +218,7 @@ def list_tags() -> list[str]:
 @mcp.tool()
 def list_board() -> dict:
     """Retourne les cartes du board groupées par colonne (Backlog/Doing/Review/Done)."""
-    return board.list_cards()
+    return board.list_cards(project=_project())
 
 
 @mcp.tool()
@@ -209,6 +231,8 @@ def get_card(card_id: int) -> dict:
     Args:
         card_id: id of the card (see search_cards() or list_board()).
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     d = board.card_detail(card_id)
     return d if d else _missing(card_id)
 
@@ -229,7 +253,8 @@ def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str
     if bucket and bucket not in board.BUCKETS:
         return {"error": f"unknown bucket: {bucket} (valid: {board.BUCKETS})"}
     rows = board.search_cards(query, tag=tag, bucket=bucket, assignee=assignee,
-                              include_archived=include_archived, limit=limit)
+                              include_archived=include_archived, limit=limit,
+                              project=_project())
     keep = ("id", "title", "tag", "bucket", "priority", "due", "assignee", "archived",
             "closed_at", "session_id", "updated_at")
     cards = [{**{k: c.get(k) for k in keep},
@@ -256,6 +281,8 @@ def update_card(card_id: int, title: str | None = None, description: str | None 
         due: due date YYYY-MM-DD, or "" to clear it.
         assignee: an IAM user email, `agent:<name>` of an existing agent, or "" to unassign.
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     fields: dict = {}
     if title is not None:
         if not title.strip():
@@ -304,6 +331,8 @@ def close_card(card_id: int, resolution: str = "") -> dict:
         card_id: id of the card.
         resolution: one line on how it ended (recorded in the card's history).
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     denied = _write_denied()
     if denied:
         return denied
@@ -324,6 +353,8 @@ def reopen_card(card_id: int, bucket: str = "Backlog", reason: str = "") -> dict
         bucket: column to reopen into: Backlog (default), Doing or Review.
         reason: why it is reopened (recorded in the card's history).
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     denied = _write_denied()
     if denied:
         return denied
@@ -348,6 +379,8 @@ def archive_card(card_id: int, reason: str = "") -> dict:
         card_id: id of the card.
         reason: why it is archived (recorded in the card's history).
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     denied = _write_denied()
     if denied:
         return denied
@@ -369,6 +402,8 @@ def comment_card(card_id: int, body: str) -> dict:
         card_id: id of the card.
         body: the comment, markdown.
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     if not (body or "").strip():
         return {"error": "empty comment"}
     denied = _write_denied()
@@ -393,6 +428,8 @@ def link_card(card_id: int, kind: str, ref: str, remove: bool = False) -> dict:
              Linking to your own session: kind="session", ref="self".
         remove: true to remove the link instead.
     """
+    if _foreign(card_id):  # 3.2: a card of another project does not exist here
+        return _missing(card_id)
     if kind == "session" and ref.strip().lower() == "self":
         ref = _session_ctx().get("session_id", "")
         if not ref:

@@ -29,10 +29,14 @@ def _store():
     return store_backend.get_store() if store_backend.enabled() else None
 
 
-def list_notes() -> list[dict]:
+def list_notes(projects=None) -> list[dict]:
+    """Notes of the ``projects`` scope (3.2; None = all). The 2.x index has no project:
+    it is the default project's, so another scope gets nothing from it."""
     st = _store()
     if st is not None:
-        return st.list_notes()
+        return st.list_notes(projects)
+    if projects is not None and "default" not in projects:
+        return []
     if not MEM_DB.exists():
         return []
     con = _con()

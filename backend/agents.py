@@ -459,7 +459,16 @@ def viewer_readonly() -> bool:
         "1", "true", "yes", "on")
 
 
+def _other_project(user: dict, a: dict) -> bool:
+    """3.2: a person acting inside a project (projectgate) never sees another project's
+    agents — whatever their role there."""
+    p = user.get("project")
+    return p is not None and (a.get("project") or "default") != p
+
+
 def can_read(user: dict, a: dict) -> bool:
+    if _other_project(user, a):
+        return False
     role = iam.rank(user.get("role", ""))
     if role >= iam.rank("admin"):
         return True
@@ -470,6 +479,8 @@ def can_read(user: dict, a: dict) -> bool:
 
 def can_manage(user: dict, a: dict) -> bool:
     """Write access: admin, or the owner with role dev+. A read-only viewer never."""
+    if _other_project(user, a):
+        return False
     role = iam.rank(user.get("role", ""))
     return role >= iam.rank("admin") or (role >= iam.rank("dev")
                                           and a["owner"] == user.get("email"))
@@ -632,7 +643,9 @@ def create(user: dict, fields: dict, created_by: str = "", activate: bool = Fals
         proposal = True  # admin / four_eyes : l'activation passe par un autre regard
     status = "pending" if proposal else ("active" if activate else "draft")
     v.update(owner=user["email"], status=status, created_by=created_by or f"user:{user['email']}",
-             proposed_by=user["email"], created_at=now, updated_at=now)
+             proposed_by=user["email"], created_at=now, updated_at=now,
+             # 3.2: the agent lives in the project the person acts in
+             project=user.get("project") or "default")
     if status == "active":
         ov = _check_alert_writes(user, v, override_alert_writes)
         if ov:
@@ -919,7 +932,8 @@ def pending_approvals(user: dict) -> dict:
     agents_ = [a for a in list_agents(user) if a["status"] == "pending" or a["pending_change"]]
     con = _con()
     try:
-        rows = con.execute("SELECT r.*, a.name AS agent_name, a.owner AS owner FROM runs r"
+        rows = con.execute("SELECT r.*, a.name AS agent_name, a.owner AS owner,"
+                           " a.project AS agent_project FROM runs r"
                            " JOIN agents a ON a.id = r.agent_id"
                            " WHERE r.status='running' AND r.waiting_approval=1").fetchall()
     finally:
@@ -927,7 +941,7 @@ def pending_approvals(user: dict) -> dict:
     runs = []
     for r in rows:
         d = _run_out(r)
-        if can_read(user, {"owner": d.pop("owner")}):
+        if can_read(user, {"owner": d.pop("owner"), "project": d.pop("agent_project")}):
             runs.append(d)
     return {"agents": agents_, "runs": runs}
 
