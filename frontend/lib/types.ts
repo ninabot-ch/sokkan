@@ -252,6 +252,14 @@ export interface Card {
   assignee?: string; // IAM user email, "agent:<name>" or ""
   closed_at?: number | null; // closed = finished, not deleted
   closed_by?: string;
+  project?: string; // 3.2 : the project the card belongs to
+  // 3.3 Helm : hierarchy + the context that flows down to the sessions of the cards below
+  parent_id?: number | null;
+  kind?: "task" | "project" | "reframe";
+  intent?: string;
+  constraints?: string;
+  decisions?: string[];
+  baseline_at?: number | null;
 }
 
 // where a card action came from: the SOKKAN session, and the channel
@@ -291,6 +299,8 @@ export interface CardDetail extends Card {
   events: CardEvent[];
   comments?: CardComment[];
   links?: CardLink[];
+  breadcrumb?: { id: number; title: string; kind: string }[];
+  children?: { id: number; title: string; bucket: string; assignee: string; kind: string }[];
 }
 
 export interface BoardData {
