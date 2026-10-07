@@ -48,3 +48,45 @@ body {
 .md blockquote { border-left: 3px solid theme(colors.line); padding-left: 0.75rem; color: theme(colors.mut); margin: 0.4rem 0; }
 .md table { border-collapse: collapse; margin: 0.5rem 0; display: block; overflow-x: auto; }
 .md th,.md td { border: 1px solid theme(colors.line); padding: 0.25rem 0.5rem; font-size: 12.5px; }
+
+/* ---- Crew deck (3.1) : un agent = une carte, 4 états ----------------------
+   Tokens d'état : contraste vérifié sur panel (#141a24) — bleu 6.9:1, vert 9.4:1,
+   orange 7.6:1, rouge 6.1:1. La couleur n'est jamais le seul signal (libellé +
+   icône sur chaque carte et chaque colonne). Variante claire prête pour le jour
+   où le cockpit aura un thème clair. */
+:root {
+  --crew-idle: #60a5fa;
+  --crew-armed: #34d399;
+  --crew-running: #fb923c;
+  --crew-error: #f87171;
+  --crew-archived: #64748b;
+}
+:root[data-theme="light"] {
+  --crew-idle: #1d4ed8;
+  --crew-armed: #047857;
+  --crew-running: #c2410c;
+  --crew-error: #b91c1c;
+  --crew-archived: #475569;
+}
+.crew-c-idle { --c: var(--crew-idle); }
+.crew-c-armed { --c: var(--crew-armed); }
+.crew-c-running { --c: var(--crew-running); }
+.crew-c-error { --c: var(--crew-error); }
+.crew-c-archived { --c: var(--crew-archived); }
+.crew-fg { color: var(--c); }
+.crew-bd { border-color: color-mix(in srgb, var(--c) 55%, transparent); }
+.crew-bg { background: color-mix(in srgb, var(--c) 9%, transparent); }
+.crew-dot { background: var(--c); }
+.crew-card { border-left: 3px solid var(--c); }
+/* la carte « respire » quand l'agent tourne */
+@keyframes crew-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 6px 0 color-mix(in srgb, var(--c) 18%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 85%, transparent), 0 0 22px 3px color-mix(in srgb, var(--c) 38%, transparent); }
+}
+.crew-breathe { animation: crew-breathe 2.4s ease-in-out infinite; }
+@keyframes crew-blink { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+.crew-live-dot { animation: crew-blink 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .crew-breathe { animation: none; box-shadow: 0 0 0 2px var(--c); }
+  .crew-live-dot { animation: none; }
+}

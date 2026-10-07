@@ -6,7 +6,7 @@ import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 
-const TABS = ["Board", "Sessions", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
+const TABS = ["Board", "Sessions", "Crew", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -17,9 +17,11 @@ export default function Tabs({
   onChange: (t: Tab) => void;
 }) {
   const feats = useFeatures();
+  const canDev = useCan("dev");
   const visible = TABS.filter(
     (t) => (t !== "Preview" || feats.preview) && (t !== "Infra" || feats.infra)
       && (t !== "Operate" || feats.observe) && (t !== "Magnitude" || feats.magnitude)
+      && (t !== "Crew" || (feats.agents && canDev))
   );
   return (
     <>

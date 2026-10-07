@@ -387,3 +387,60 @@ export const memoryRollback = () => mutateD<SwitchJob>("/api/magnitude/memory/ro
 export const memoryLicence = (decision: "accepted" | "declined") =>
   mutateD<{ licence: MemoryView["models"]["licence"]; downloading: boolean; installed: boolean }>(
     "/api/magnitude/memory/licence", "POST", { decision });
+
+// agents — « Crew » (3.1) : un agent = une carte du deck (docs/AGENTS.md)
+export type DeckState = "idle" | "armed" | "running" | "error" | "archived";
+export interface AgentRunLite { id: number; status: string; started_at: number | null; ended_at: number | null; cost_usd: number }
+export interface Agent {
+  id: number; name: string; owner: string; model: string; purpose: string; deliverable: string;
+  done_criteria: string; playbook: string; trigger: "manual" | "once" | "cron" | "event";
+  schedule: string; timezone: string; once_at: number | null; event: string;
+  tools: string[]; mcp: string[]; auto_approve: string[]; secrets: string[];
+  budget_usd: number; max_minutes: number; outputs: string[]; notify_on: string[];
+  status: "draft" | "pending" | "active" | "paused" | "archived";
+  pending_change: Partial<Agent> | null; created_by: string; approved_by: string;
+  approved_at: number | null; next_run_at: number | null; last_run_at: number | null;
+  stats?: { runs: number; cost_usd: number; live: number; waiting: number };
+  last_run?: AgentRunLite | null;
+  deck: DeckState; needs_approval: boolean; waiting_for_human: boolean;
+}
+export interface AgentRun {
+  id: number; agent_id: number; trigger: string; scheduled_for: number | null; status: string;
+  waiting_approval: boolean; session_id: string; cost_usd: number; tokens_in: number;
+  tokens_out: number; num_turns: number; deliverable: string; outputs: Record<string, unknown>;
+  error: string; context: Record<string, unknown>; requested_by: string; created_at: number;
+  started_at: number | null; ended_at: number | null; agent_name?: string;
+}
+export interface AgentsMeta {
+  secrets: string[]; tools: string[]; default_tools: string[]; mcp: string[]; outputs: string[];
+  notify_on: string[]; models: string[]; triggers: string[]; playbooks: Playbook[]; timezone: string;
+}
+export interface AgentsList { agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] } }
+
+async function mutateDetail<T>(url: string, method: string, body?: unknown): Promise<T> {
+  // comme mutate, mais remonte le message de validation de l'API (detail)
+  const r = await fetch(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try { const j = await r.json(); msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch { /* not json */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+export const agentsList = (archived = false) => getJSON<AgentsList>(`/api/agents${archived ? "?archived=1" : ""}`);
+export const agentsMeta = () => getJSON<AgentsMeta>("/api/agents/meta");
+export const agentGet = (id: number) => getJSON<Agent>(`/api/agents/${id}`);
+export const agentCreate = (fields: Partial<Agent> & { activate?: boolean }) =>
+  mutateDetail<Agent>("/api/agents", "POST", fields);
+export const agentPatch = (id: number, fields: Partial<Agent>) =>
+  mutateDetail<Agent>(`/api/agents/${id}`, "PATCH", fields);
+export const agentAction = (id: number, action: "approve" | "reject" | "pause" | "resume" | "archive" | "run") =>
+  mutateDetail<{ agent: Agent; run?: AgentRun }>(`/api/agents/${id}/${action}`, "POST");
+export const agentRuns = (id: number, limit = 50) => getJSON<AgentRun[]>(`/api/agents/${id}/runs?limit=${limit}`);
+export const agentRun = (runId: number) => getJSON<AgentRun>(`/api/agents/runs/${runId}`);
+export const agentRunCancel = (runId: number) => mutateDetail<{ ok: boolean }>(`/api/agents/runs/${runId}/cancel`, "POST");
+export const agentPropose = (fields: Partial<Agent>) => mutateDetail<Agent>("/api/agents/proposals", "POST", fields);

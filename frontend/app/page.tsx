@@ -9,6 +9,7 @@ import Preview from "@/components/Preview";
 import Corthexis from "@/components/Corthexis";
 import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
+import Crew from "@/components/Crew";
 import Journal from "@/components/Journal";
 import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
@@ -32,7 +33,9 @@ export default function Home() {
   const [cols, setCols] = useState(2);
   // lien profond des notifications : /?tab=corthexis[&note=…|&proposal=…]
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "corthexis") setTab("CortHeXis");
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "corthexis") setTab("CortHeXis");
+    if (t === "crew") setTab("Crew");
   }, []);
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
@@ -75,6 +78,8 @@ export default function Home() {
         <Corthexis onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Infra" ? (
         <Infra />
+      ) : tab === "Crew" ? (
+        <Crew onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Operate" ? (
         <Operate onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "Journal" ? (

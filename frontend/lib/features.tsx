@@ -12,9 +12,10 @@ export interface Features {
   missions_link: boolean;
   magnitude: boolean;
   demo: boolean;
+  agents: boolean;
 }
 
-const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true, assistant: false, missions_link: true, magnitude: true, demo: false };
+const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true, assistant: false, missions_link: true, magnitude: true, demo: false, agents: true };
 const Ctx = createContext<Features>(DEFAULTS);
 
 export function FeaturesProvider({ children }: { children: React.ReactNode }) {
