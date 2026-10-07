@@ -140,7 +140,7 @@ def create_agent(name: str, purpose: str, deliverable: str, done_criteria: str =
     fields = {k: v for k, v in fields.items() if v is not None}
     try:
         a = agents.create(user, fields, created_by=actor, proposal=True,
-                          known_secrets=(vault.names() if user.get("project", "default") == "default" else []))
+                          known_secrets=vault.names(user.get("project") or ""))
     except agents.AgentError as e:
         return _err(e)
     audit.log(actor, "agent.propose", a["name"], f"owner {a['owner']} · {a['trigger']}")
@@ -157,14 +157,14 @@ def update_agent(agent: str, changes: dict) -> dict:
     if _in_run():
         return _ro()
     user, actor = _who()
-    a = agents.resolve(agent)
+    a = agents.resolve(agent, user.get("project") or "")
     if not a:
         return _err(agents.NotFound("agent not found"))
     if "mcp_servers" in changes:
         changes = {**changes, "mcp": changes.pop("mcp_servers")}
     try:
         out = agents.update(user, a["id"], changes, from_session=True,
-                            known_secrets=(vault.names() if user.get("project", "default") == "default" else []))
+                            known_secrets=vault.names(user.get("project") or ""))
     except agents.AgentError as e:
         return _err(e)
     audit.log(actor, "agent.update.propose", out["name"], ", ".join(sorted(changes)))
@@ -184,7 +184,7 @@ def list_agents(include_archived: bool = False) -> list[dict]:
 def get_agent(agent: str) -> dict:
     """One agent by id or name — full definition, status, next run, last run."""
     user, _ = _who()
-    a = agents.resolve(agent)
+    a = agents.resolve(agent, user.get("project") or "")
     try:
         agents._need(user, a, write=False)
     except agents.AgentError as e:
@@ -201,7 +201,7 @@ def run_agent_now(agent: str) -> dict:
     if _in_run():
         return _ro()
     user, actor = _who()
-    a = agents.resolve(agent)
+    a = agents.resolve(agent, user.get("project") or "")
     try:
         r = agents.request_run(user, (a or {}).get("id", -1) if a else -1, trigger="session",
                                requested_by=actor)
@@ -215,7 +215,7 @@ def _status(agent: str, status: str, verb: str) -> dict:
     if _in_run():
         return _ro()
     user, actor = _who()
-    a = agents.resolve(agent)
+    a = agents.resolve(agent, user.get("project") or "")
     try:
         out = agents.set_status(user, (a or {}).get("id", -1), status, from_session=True)
     except agents.AgentError as e:
@@ -246,7 +246,7 @@ def archive_agent(agent: str) -> dict:
 def list_runs(agent: str, limit: int = 20) -> list[dict] | dict:
     """Recent runs of an agent: status, cost, tokens, session, when."""
     user, _ = _who()
-    a = agents.resolve(agent)
+    a = agents.resolve(agent, user.get("project") or "")
     try:
         runs = agents.list_runs(user, (a or {}).get("id", -1), limit=limit)
     except agents.AgentError as e:

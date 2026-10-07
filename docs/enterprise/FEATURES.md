@@ -41,7 +41,7 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`infra`](#infra) Infra topology | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM` |
 | [`fleet`](#fleet) Managed fleet | stable | integration | if configured | if configured | — | — | `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN` |
 | [`cortex`](#cortex) CortHeXis link | stable | integration | if configured | if configured | — | — | `SOKKAN_CORTEX_URL` |
-| [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | planned (3.2) | planned | off | off | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
+| [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | beta (3.2) | toggle | off | on | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
 | [`gitlab`](#gitlab) GitLab projects | planned (3.2) | planned | off | off | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
 | [`revocation`](#revocation) Revocation | planned (3.2) | planned | off | off | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
 | [`byok_admin`](#byok_admin) BYOK admin screen | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
@@ -123,7 +123,7 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class project_vault_budgets,gitlab,revocation,byok_admin,sandbox,shared_review,helm,classification,teams,connect_ai planned;
+  class gitlab,revocation,byok_admin,sandbox,shared_review,helm,classification,teams,connect_ai planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -391,11 +391,11 @@ Link from the memory tab to a CortHeXis review UI.
 
 ### project_vault_budgets
 
-**Vault and budgets per project** — planned for 3.2, planned.
+**Vault and budgets per project** — beta for 3.2, toggle.
 
-Per-project vault, cost totals and budgets, agent names and CortHeXis review per project (lot 4).
+Per-project vault, cost totals and budgets, agent names and CortHeXis review per project (lot 4). Off: a project other than `default` gets no vault secret, the CortHeXis review and the journal stay default / instance-admin only (fail-closed).
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `named_secrets`
 - Switch: `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)

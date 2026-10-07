@@ -751,7 +751,7 @@ def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str
     return rows
 
 
-def validate_assignee(value: str) -> str:
+def validate_assignee(value: str, project: str = "default") -> str:
     """'' (personne), l'email d'un utilisateur IAM connu, ou `agent:<nom>` d'un
     agent existant. Renvoie la valeur normalisée ; ValueError sinon."""
     v = (value or "").strip()
@@ -760,7 +760,7 @@ def validate_assignee(value: str) -> str:
     if v.lower().startswith("agent:"):
         import agents
         name = v.split(":", 1)[1].strip()
-        a = agents.get_by_name(name)
+        a = agents.get_by_name(name, project)   # an agent of the card's project only
         if not a:
             raise ValueError(f"unknown agent: {name}")
         return f"agent:{a['name']}"

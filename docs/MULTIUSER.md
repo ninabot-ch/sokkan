@@ -253,6 +253,42 @@ every surface above is scoped.
   removed once and the suite went red (gate, session list, board, agents, memory notes,
   memory search, board MCP, quarantine, CortHeXis graph, usage list, review pairs).
 
+### Lot 4: what shipped
+
+Feature `project_vault_budgets` (registry; beta, on by default in the enterprise edition,
+requires `multi_project` and `named_secrets`). **Off, every point below falls back to the
+fail-closed lot 3 behaviour** — turning it off never opens data.
+
+* **Vault per project.** `vault.json` = `{"format": 2, "projects": {slug: {NAME: token}},
+  "instance": {}}`, migrated in place at the first read (flat 3.1 file → `default`, original
+  kept once as `vault.json.v1.bak`). `vault.namespace(project)` is the only gate: `default`
+  always, another project only with the feature, `shared` never (a secret every project
+  could read would defeat the scope — a secret two projects need is set in both). Session
+  env (`agentchat`), run start and redaction (`agents_runtime`, `agents.secrets_for_session`),
+  the names a session / an agent may pick (`/api/vault/session`, agent forms, `sokkan-agents`
+  MCP) and the admin screen (`/api/vault*`, now project-scoped: the project's admin or
+  maintainer) all name the project. Names unique per (project, name).
+* **Budgets per project** (`backend/budgets.py`, table `project_budgets` in `projects.db`):
+  day and month ceilings in USD or CHF (compared through `SOKKAN_FX_USD_PER_CHF`). Spend =
+  `usage.project_spend`: transcripts of the project's sessions (board mapping) and of its
+  workspace (`$SOKKAN_DATA_DIR/projects/<slug>/work`; the instance workspace = `default`).
+  80 % → one warning per session; 100 % → the session refuses new turns (HITL: a project
+  admin raises the ceiling), a new session is told, an agent run ends `budget` before it
+  starts. Costs tab: the selected project's totals, series, sessions, models + its budget.
+* **Agents**: `agents` rebuilt once with `UNIQUE(project, name)` (ids kept, one
+  transaction, `agents.db.pre-lot4.bak`); names resolved in the session's / card's project.
+  Before each run the owner must still be dev+ in the agent's project, else the run is
+  `skipped` and the agent `paused` (journal `agent.run.owner_lost`, owner notified).
+* **CortHeXis review per project** (store 3.0 only): own corpus, own history
+  (`$DATA/projects/<slug>/corthexis-review.db`), proposals tagged with their project (no
+  `project` = `default`), curation sessions spawned in the project; no chain / bench checks
+  and no alert outside `default` (instance-level).
+* **Journal**: `events.project` (default = the request's project, or the MCP server's
+  `SOKKAN_SESSION_PROJECT`); a project admin / maintainer reads their project's journal
+  (`GET /api/audit` with the project header); instance admins read everything.
+* **Tests**: `tests/test_project_lot4.py` (same three people + carol, maintainer of radio);
+  each filter removed once went red (19 mutations).
+
 ### How the recall filters (lot 1)
 
 1. A session carries a project (`sessions.project`, set at spawn; an agent run takes its
@@ -357,7 +393,9 @@ Automatic at the first start of 3.2, idempotent, nothing deleted or moved:
    agent is in `default`.
 3. Memory store: migration `0011` → every note in `default`; the indexer keeps indexing
    `SOKKAN_MEMORY_DIR` as `default`.
-4. Vault (lot 4): existing secrets → namespace `default`.
+4. Vault (lot 4): existing secrets → namespace `default` (`vault.json.v1.bak` kept; a
+   rollback to 3.1 puts it back as `vault.json`). `agents` table rebuilt with names unique
+   per project (`agents.db.pre-lot4.bak` kept).
 5. Behaviour: identical for projects, roles, recall (scope `("default",)` = every note),
    board and agents. The project selector appears only when a second project exists.
 6. Lot 2 changes three defaults on purpose — check them when upgrading:
@@ -423,7 +461,7 @@ in points (1 point ≈ one focused session of work with its tests).
 | **1 ✅** | Data model (`projects.db`, `project` columns), "default project" migration, memory recall + MCP scoped by project, spawn with `project` (dev+ check), tests | low: dormant (one project) | 3 | unit + Postgres suites; behaviour identical on a 3.1 data dir |
 | **2 ✅** | Scheduler guard (explicit credentials, no boot catch-up), `SOKKAN_SESSION_SECRETS=named` default, session cookie TTL 8 h | low | 1.5 | restart an instance with a queued run and no credentials → nothing runs |
 | **3 ✅** | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
-| 4 | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
+| **4 ✅** | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
 | 5 | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
 | 6 | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
 | 7 | BYOK admin screen (client admin enters their keys) | low | 1.5 | key set, masked, test call, used by sessions |

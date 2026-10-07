@@ -2,7 +2,7 @@ import type {
   AuditEvent, Binding, BoardData, CloudEnv, Card, CardComment, CardDetail, DiffData, IamUser,
   InfraNode, InfraTarget, LiveState, Me, MemNote, MemSearchResult, MemStats,
   PreviewEnv, PreviewRepo, PreviewTrigger, SessionDetail, SessionSummary, TmuxWindow,
-  UsageSummary,
+  ProjectBudget, UsageSummary,
 } from "./types";
 
 async function mutate<T>(url: string, method: string, body?: unknown): Promise<T> {
@@ -211,11 +211,16 @@ export const obsIncidentSet = (rid: number, status: string) =>
   mutate<{ ok: boolean }>(`/api/observability/incident/${rid}`, "POST", { status });
 
 // vault (secrets injected into sessions as env vars — values never returned)
-export const vaultList = () => getJSON<{ names: string[] }>("/api/vault");
+// 3.2 lot 4: the vault of the SELECTED project (`enabled` false = this project has none)
+export interface VaultList { names: string[]; project?: string; enabled?: boolean }
+export const vaultList = () => getJSON<VaultList>("/api/vault");
 export const vaultSet = (name: string, value: string) =>
-  mutate<{ names: string[] }>("/api/vault", "POST", { name, value });
+  mutate<VaultList>("/api/vault", "POST", { name, value });
 export const vaultDelete = (name: string) =>
-  mutate<{ names: string[] }>(`/api/vault/${encodeURIComponent(name)}`, "DELETE");
+  mutate<VaultList>(`/api/vault/${encodeURIComponent(name)}`, "DELETE");
+// 3.2 lot 4: day / month ceiling of the selected project (project admins set it)
+export const budgetSet = (b: { currency?: string; day?: number; month?: number }) =>
+  mutate<ProjectBudget>("/api/budgets", "PUT", b);
 
 // runbooks (memory notes named runbook-*, replayable as a guided session)
 export interface Runbook { name: string; description: string; mtime: number; }

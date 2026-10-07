@@ -40,7 +40,7 @@ export default function Journal() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {err ? (
-          <div className="mt-10 text-center text-[12.5px] text-mut">log not accessible (dev role required)</div>
+          <div className="mt-10 text-center text-[12.5px] text-mut">log not accessible (with several projects: instance admins, or the admins of the selected project)</div>
         ) : !events ? (
           <div className="mt-10 text-center text-[12.5px] text-mut">loading…</div>
         ) : !events.length ? (

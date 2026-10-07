@@ -384,10 +384,19 @@ function Notifications() {
 function Secrets() {
   const isAdmin = useCan("admin");
   const [names, setNames] = useState<string[]>([]);
+  const [scope, setScope] = useState<{ project?: string; enabled?: boolean }>({});
   const [name, setName] = useState(""); const [val, setVal] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (isAdmin) vaultList().then((r) => setNames(r.names)).catch(() => {}); }, [isAdmin]);
+  useEffect(() => {
+    if (isAdmin) vaultList().then((r) => { setNames(r.names); setScope({ project: r.project, enabled: r.enabled }); }).catch(() => {});
+  }, [isAdmin]);
   if (!isAdmin) return <div className="text-[12px] text-mut">Secrets are restricted to administrators.</div>;
+  if (scope.enabled === false) return (
+    <div className="text-[12px] text-mut">
+      Project <span className="font-mono text-slate-300">{scope.project}</span> has no vault: per-project vaults
+      are off on this instance (feature <span className="font-mono">project_vault_budgets</span>), or this is the
+      read-only <span className="font-mono">shared</span> project. Its sessions and agents receive no secret.
+    </div>);
   const add = () => {
     setErr(""); setBusy(true);
     vaultSet(name.trim(), val).then((r) => { setNames(r.names); setName(""); setVal(""); }).catch((e) => setErr(String(e))).finally(() => setBusy(false));
@@ -398,6 +407,8 @@ function Secrets() {
         Secrets are encrypted at rest and injected into your sessions as environment variables
         (<span className="font-mono text-slate-300">$NAME</span>) — your agents use them to operate prod without the value
         ever showing in the UI or going to the model. They never leave this instance.
+        {scope.project && <> Vault of project <span className="font-mono text-slate-300">{scope.project}</span>: only
+          its sessions and agents can use these names.</>}
       </div>
       <div className="space-y-1.5">
         {names.map((n) => (

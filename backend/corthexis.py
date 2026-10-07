@@ -97,9 +97,33 @@ def source(project: str = "default"):
 
 
 _history = {"obj": None, "pg": None}
+_project_history: dict[str, object] = {}
+# 3.2 lot 4: the last review of each project other than default (default: _state["report"])
+_reports: dict[str, dict] = {}
 
 
-def history():
+def per_project_review() -> bool:
+    """Review / proposals / curation per project (feature `project_vault_budgets`, store
+    3.0 only — the 2.x SQLite index has no project). Off: the default project only, the
+    others get an empty review (lot 3, fail-closed)."""
+    import features
+    return features.enabled("project_vault_budgets") and _pg()
+
+
+def scoped(project: str) -> bool:
+    """Has `project` a review of its own right now?"""
+    return project == "default" or per_project_review()
+
+
+def history(project: str = "default"):
+    if project != "default":
+        # one small history per project, next to its memory directory (findings name notes)
+        h = _project_history.get(project)
+        if h is None:
+            d = DATA_DIR / "projects" / project
+            d.mkdir(parents=True, exist_ok=True)
+            h = _project_history[project] = rv.SqliteHistory(d / "corthexis-review.db")
+        return h
     pg = _pg()
     if _history["obj"] is None or _history["pg"] != pg:
         _history["obj"] = rv.PgHistory(_store()) if pg else \
@@ -108,10 +132,10 @@ def history():
     return _history["obj"]
 
 
-def review_config() -> rv.ReviewConfig:
+def review_config(project: str = "default") -> rv.ReviewConfig:
     # the 2.x writer (memory_write) names files "<name>.md": accepted until the corpus
     # moves to the 3.0 store, whose indexer normalises it
-    return rv.ReviewConfig.from_env(memory_dir=memory_dir(), accept_kebab_files=not _pg())
+    return rv.ReviewConfig.from_env(memory_dir=memory_dir(project), accept_kebab_files=not _pg())
 
 
 def chain_config() -> rv.ChainConfig:
@@ -149,6 +173,28 @@ def chain_config() -> rv.ChainConfig:
 
 
 # ----------------------------------------------------------------------------- review
+
+def run_project(project: str) -> dict:
+    """One review pass of a project other than default (3.2 lot 4): its corpus and its
+    index only — no chain / bench checks (instance-level, reported on default), no alert
+    (the notification channels are the instance's)."""
+    if project == "default":
+        return run()
+    if not per_project_review():
+        return {}
+    d = memory_dir(project)
+    d.mkdir(parents=True, exist_ok=True)
+    report = rv.run_review(review_config(project), source(project), chain=[])
+    report["project"] = project
+    try:
+        history(project).record(report)
+    except Exception as e:  # noqa: BLE001
+        print(f"[corthexis] history of {project} not recorded: {e}", file=sys.stderr)
+    with _lock:
+        _reports[project] = report
+        _state["graph"] = None
+    return report
+
 
 def run(*, chain: bool | None = None, alert: bool = True) -> dict:
     """One review pass: record it, maybe alert. Never raises (a failed pass is logged)."""
@@ -215,7 +261,20 @@ def bench_findings() -> list:
         return []
 
 
-def current() -> dict:
+def current(project: str = "default") -> dict:
+    if project != "default":
+        if not per_project_review():
+            return {}
+        rep = _reports.get(project)
+        if rep is None:
+            try:
+                rep = history(project).last_report()
+            except Exception:  # noqa: BLE001
+                rep = None
+            if rep is None:
+                rep = run_project(project)
+            _reports[project] = rep
+        return rep
     rep = _state["report"]
     if rep is None:
         try:
@@ -257,6 +316,15 @@ def loop() -> None:
             run()
         except Exception as e:  # noqa: BLE001
             print(f"[corthexis] review failed: {e}", file=sys.stderr)
+        if per_project_review():
+            import projects
+            for p in projects.work_projects():
+                if p["slug"] == "default":
+                    continue
+                try:
+                    run_project(p["slug"])
+                except Exception as e:  # noqa: BLE001
+                    print(f"[corthexis] review of {p['slug']} failed: {e}", file=sys.stderr)
         # wake up for the digest slot even when the period does not land on it
         pol = rv.AlertPolicy.from_env()
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -306,8 +374,8 @@ def _corpus_key(notes: list[rv.CorpusNote], report: dict) -> str:
 def graph(project: str = "default") -> dict:
     d = memory_dir(project)
     notes = rv.load_corpus(d) if d.is_dir() else []
-    # the review report (flags) is the default project's until per-project reviews exist
-    report = current() if project == "default" else {}
+    # the review report (flags) of THIS project (lot 4); none when it has no review
+    report = current(project) if scoped(project) else {}
     key = f"{project}:" + _corpus_key(notes, report)
     with _lock:
         if _state["graph"] and _state["graph_key"] == key:
@@ -398,7 +466,7 @@ def note(name: str, project: str = "default") -> dict:
     except Exception:  # noqa: BLE001
         pass
     modified = (ix.modified if ix else None) or n.parsed.modified
-    report = current() if project == "default" else {}
+    report = current(project) if scoped(project) else {}
     flags = []
     for f in report.get("findings", []):
         if n.name not in (f.get("notes") or []):
@@ -420,17 +488,18 @@ def note(name: str, project: str = "default") -> dict:
     }
 
 
-def overview() -> dict:
-    rep = current()
-    h = history()
+def overview(project: str = "default") -> dict:
+    rep = current(project)
+    h = history(project)
     try:
         series, summary = h.series(), h.summary()
     except Exception:  # noqa: BLE001
         series, summary = [], {}
-    pending = [p for p in proposals() if p["status"] == "pending"]
+    pending = [p for p in proposals(project) if p["status"] == "pending"]
     return {"report": rep, "history": series, "summary": summary, "pending": len(pending),
-            "running": _state["running"], "notify": notify.enabled(),
-            "digest_at": h.get("digest_at") if hasattr(h, "get") else None}
+            "running": _state["running"], "notify": notify.enabled() and project == "default",
+            "digest_at": h.get("digest_at") if hasattr(h, "get") else None,
+            "project": project}
 
 
 # ----------------------------------------------------------------------------- proposals
@@ -456,15 +525,21 @@ def _save(d: dict) -> None:
     tmp.replace(PROPOSALS)
 
 
-def proposals() -> list[dict]:
+def _project_of(rec: dict) -> str:
+    return rec.get("project") or "default"   # proposals made before 3.2 lot 4 = default
+
+
+def proposals(project: str = "default") -> list[dict]:
+    """The repair proposals of ONE project (lot 4)."""
     with _plock:
         d = _load()
-    return sorted(d.values(), key=lambda p: -p.get("created_at", 0))
+    return sorted((p for p in d.values() if _project_of(p) == project),
+                  key=lambda p: -p.get("created_at", 0))
 
 
-def get_proposal(pid: str) -> dict:
+def get_proposal(pid: str, project: str = "default") -> dict:
     p = _load().get(pid)
-    if not p:
+    if not p or _project_of(p) != project:   # another project's proposal does not exist here
         raise HTTPException(404, "unknown proposal")
     return p
 
@@ -480,8 +555,8 @@ class ProposalIn(BaseModel):
     reason: str = ""          # close
 
 
-def propose(body: ProposalIn, user: str) -> dict:
-    mem = memory_dir()
+def propose(body: ProposalIn, user: str, project: str = "default") -> dict:
+    mem = memory_dir(project)
     try:
         if body.kind == "relink":
             if not (body.target and body.new_target):
@@ -498,24 +573,25 @@ def propose(body: ProposalIn, user: str) -> dict:
             raise rp.RepairError(f"unknown repair {body.kind!r}")
     except rp.RepairError as e:
         raise HTTPException(400, str(e)) from e
-    rec = {**p.to_dict(), "status": "pending", "created_by": user, "created_at": time.time()}
+    rec = {**p.to_dict(), "status": "pending", "created_by": user, "created_at": time.time(),
+           "project": project}
     with _plock:
         d = _load()
         d[p.id] = rec
         _save(d)
     audit.log(user, "memory.repair.propose", p.id, p.title)
-    _arm_ping(p.id, p.title)
+    _arm_ping(p.id, p.title, project)
     return rec
 
 
-def _arm_ping(pid: str, title: str) -> None:
+def _arm_ping(pid: str, title: str, project: str = "default") -> None:
     """Like a session permission: a proposal nobody answers pings the channels once."""
     if not notify.hitl_enabled():
         return
 
     def ping() -> None:
         try:
-            if get_proposal(pid)["status"] == "pending":
+            if get_proposal(pid, project)["status"] == "pending":
                 notify.send("SOKKAN — action required",
                             f"A memory repair is waiting for your approval: {title}",
                             f"{PUBLIC_URL}/?tab=corthexis&proposal={pid}", "hitl")
@@ -526,11 +602,11 @@ def _arm_ping(pid: str, title: str) -> None:
     t.start()
 
 
-def decide(pid: str, approve: bool, user: str) -> dict:
+def decide(pid: str, approve: bool, user: str, project: str = "default") -> dict:
     with _plock:
         d = _load()
         rec = d.get(pid)
-        if not rec:
+        if not rec or _project_of(rec) != project:
             raise HTTPException(404, "unknown proposal")
         if rec["status"] != "pending":
             raise HTTPException(409, f"proposal already {rec['status']}")
@@ -541,7 +617,9 @@ def decide(pid: str, approve: bool, user: str) -> dict:
             audit.log(user, "memory.repair.refuse", pid, rec["title"])
             return rec
         try:
-            written = rp.apply(memory_dir(), rp.Proposal.from_dict(rec), backup_dir=BACKUPS)
+            written = rp.apply(memory_dir(project), rp.Proposal.from_dict(rec),
+                               backup_dir=BACKUPS if project == "default"
+                               else DATA_DIR / "projects" / project / "corthexis-backups")
         except rp.Conflict as e:
             rec.update(status="conflict", error=str(e))
             _save(d)
@@ -555,29 +633,35 @@ def decide(pid: str, approve: bool, user: str) -> dict:
         rec.update(status="applied", written=written)
         _save(d)
     audit.log(user, "memory.repair.apply", pid, f"{rec['title']} ({len(written)} file(s))")
-    threading.Thread(target=_after_repair, daemon=True, name="corthexis-after").start()
+    threading.Thread(target=_after_repair, args=(project,), daemon=True,
+                     name="corthexis-after").start()
     return rec
 
 
-def _after_repair() -> None:
+def _after_repair(project: str = "default") -> None:
     """Reindex what changed, then review again so the tab shows the result."""
     try:
         if _pg():
             from core import embed
             from core.indexer import IndexConfig, Indexer
-            Indexer(_store(), embed.get(), IndexConfig.from_env(memory_dir=memory_dir()),
-                    log=lambda m: None).run()
+            cfg = (IndexConfig.from_env(memory_dir=memory_dir()) if project == "default" else
+                   IndexConfig.from_env(memory_dir=memory_dir(project), project=project,
+                                        normalize=False))
+            Indexer(_store(), embed.get(), cfg, log=lambda m: None).run()
         elif reindex_hook:
             reindex_hook()
     except Exception as e:  # noqa: BLE001
         print(f"[corthexis] reindex after repair failed: {e}", file=sys.stderr)
-    run(chain=False, alert=False)
+    if project == "default":
+        run(chain=False, alert=False)
+    else:
+        run_project(project)
 
 
 # ----------------------------------------------------------------------------- curation
 
-def curation_subject(finding_ids: list[str], notes: list[str]) -> str:
-    rep = current()
+def curation_subject(finding_ids: list[str], notes: list[str], project: str = "default") -> str:
+    rep = current(project)
     lines = []
     for f in rep.get("findings", []):
         if finding_ids and f["id"] not in finding_ids:
@@ -629,53 +713,53 @@ def api_note(name: str, _u: dict = Depends(_require("viewer"))) -> dict:
 
 @router.get("/review")
 def api_review(_u: dict = Depends(_require("viewer"))) -> dict:
-    if ctx_project() != "default":
-        return _no_review()
-    return overview()
+    p = ctx_project()
+    return overview(p) if scoped(p) else _no_review()
 
 
 def _no_review() -> dict:
-    """3.2 lot 3: the review (duplicates, drift, proposals) runs on the default project
-    only for now; another project gets an empty one — never the default project's."""
+    """A project without a review of its own (feature `project_vault_budgets` off, or the
+    2.x index): an empty review — never the default project's (lot 3, fail-closed)."""
     return {"report": {}, "history": [], "summary": {}, "pending": 0, "running": False,
-            "notify": False, "digest_at": None, "per_project": "not yet"}
+            "notify": False, "digest_at": None, "per_project": "off"}
 
 
-def _default_only() -> None:
-    if ctx_project() != "default":
-        raise HTTPException(409, "memory review actions are available in the default "
-                                 "project only for now (3.2)")
+def _scoped_project() -> str:
+    """The request's project when it has a review of its own, else 409."""
+    p = ctx_project()
+    if not scoped(p):
+        raise HTTPException(409, "memory review actions need the per-project review in this "
+                                 "project (feature project_vault_budgets, store 3.0)")
+    return p
 
 
 @router.post("/review/run")
 def api_review_run(u: dict = Depends(_require("dev"))) -> dict:
-    _default_only()
-    rep = run(alert=False)
+    p = _scoped_project()
+    rep = run(alert=False) if p == "default" else run_project(p)
     audit.log(u["email"], "memory.review", "", f"score {rep.get('score')}")
-    return overview()
+    return overview(p)
 
 
 @router.get("/proposals")
 def api_proposals(_u: dict = Depends(_require("viewer"))) -> list[dict]:
-    return proposals() if ctx_project() == "default" else []
+    p = ctx_project()
+    return proposals(p) if scoped(p) else []
 
 
 @router.post("/proposals")
 def api_propose(body: ProposalIn, u: dict = Depends(_require("dev"))) -> dict:
-    _default_only()
-    return propose(body, u["email"])
+    return propose(body, u["email"], _scoped_project())
 
 
 @router.post("/proposals/{pid}/approve")
 def api_approve(pid: str, u: dict = Depends(_require("dev"))) -> dict:
-    _default_only()
-    return decide(pid, True, u["email"])
+    return decide(pid, True, u["email"], _scoped_project())
 
 
 @router.post("/proposals/{pid}/refuse")
 def api_refuse(pid: str, u: dict = Depends(_require("dev"))) -> dict:
-    _default_only()
-    return decide(pid, False, u["email"])
+    return decide(pid, False, u["email"], _scoped_project())
 
 
 class CurationIn(BaseModel):
@@ -687,10 +771,11 @@ class CurationIn(BaseModel):
 def api_curation(body: CurationIn, u: dict = Depends(_require("dev"))) -> dict:
     if spawn_hook is None:
         raise HTTPException(503, "sessions are not available on this instance")
-    _default_only()
-    subject = curation_subject(body.finding_ids, body.notes)
+    p = _scoped_project()
+    subject = curation_subject(body.finding_ids, body.notes, p)
     prompt, tag = playbooks.render("curation", subject)
-    s = spawn_hook(tag, prompt, title="Memory curation", user=u["email"])
+    s = spawn_hook(tag, prompt, title="Memory curation", user=u["email"],
+                   **({"project": p} if p != "default" else {}))
     audit.log(u["email"], "memory.curation", s.get("session_id", ""),
               ",".join(body.finding_ids) or "judgement findings")
     return s

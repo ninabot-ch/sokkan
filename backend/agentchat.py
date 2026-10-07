@@ -45,6 +45,7 @@ except ImportError:  # pragma: no cover
     )
 
 import board  # persistance sid ↔ claude_session_id (resume après restart)
+import budgets  # budgets par projet, jour / mois (3.2 lot 4)
 import instance  # budgets de coût (hard stop HITL par session)
 import memrecall  # rappel mémoire à chaque tour + sous-agents (3.0)
 import llm  # config LLM par instance (BYOK / inférence incluse)
@@ -222,6 +223,7 @@ class AgentSession:
         self._start_lock = asyncio.Lock()
         self.cost_usd = 0.0          # coût estimé cumulé (ResultMessage.total_cost_usd)
         self._budget_warned = False  # avertissement 80 % émis une seule fois
+        self._project_budget_warned = False  # idem pour le budget du projet (lot 4)
         self._model_seen: str | None = None
         self.mode = "default"  # default | acceptEdits | bypassPermissions | plan
         # agent run (3.1) : politique d'outils/secrets/budget de l'agent, None pour
@@ -239,7 +241,8 @@ class AgentSession:
         # live, replay) — ceux de l'agent pour un run ; posé par get_or_create pour une
         # session de run rouverte depuis History.
         self.redact_values: dict[str, str] = (
-            vault.session_env(list(policy.get("secrets") or [])) if policy else {})
+            vault.session_env(list(policy.get("secrets") or []),
+                              project=policy.get("project") or "default") if policy else {})
         # 3.1.2 : comptage SOKKAN d'un run sur un modèle non-Claude (agentcost.Meter)
         self.meter = (policy or {}).get("meter")
         self.budget_stop: str | None = None
@@ -297,7 +300,8 @@ class AgentSession:
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
-            env_extra = {**vault.session_env(self._secret_names()),
+            env_extra = {**vault.session_env(self._secret_names(),
+                                             project=session_project(self.sid)),
                          **llm.session_env(self.user)}
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
@@ -332,9 +336,8 @@ class AgentSession:
         """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;
         pour une session humaine, tout (mode `all`) ou ceux choisis à son ouverture
         (mode `named`, rien si rien n'a été choisi)."""
-        # 3.2: the vault is per instance until lot 4 → only the default project gets it
-        if session_project(self.sid) != "default":
-            return []
+        # 3.2 lot 4: the names are looked up in the session's project vault only
+        # (vault.session_env(…, project=)); a project without a vault gets nothing
         if self.policy:
             return list(self.policy.get("secrets") or [])
         if vault.session_mode() == "all":
@@ -518,6 +521,14 @@ class AgentSession:
                                     f"${budget:.2f}). Raise the budget in Profile → "
                                     "Organisation, or spawn a fresh session.")})
             return
+        # 3.2 lot 4: the project's day / month ceiling — warn at 80 %, hard stop at 100 %
+        bstate, bmsg = budgets.check(session_project(self.sid))
+        if bstate == "stop":
+            self._emit({"type": "error", "message": bmsg})
+            return
+        if bstate == "warn" and not self._project_budget_warned:
+            self._project_budget_warned = True
+            self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
         await self.ensure_started()
         assert self.client is not None
         self._busy = True
