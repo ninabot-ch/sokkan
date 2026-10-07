@@ -25,7 +25,17 @@ mcp = FastMCP("sokkan-board")
 
 
 def _session_ctx() -> dict:
-    """Session SOKKAN appelante, résolue via la fenêtre tmux du process."""
+    """Session SOKKAN appelante. Session SDK (chat du cockpit, carte spawnée, run
+    d'agent) : l'API pose SOKKAN_SESSION_ID dans l'env du serveur MCP
+    (agentchat.mcp_servers_for) — prioritaire, car le process peut hériter du
+    TMUX_PANE de l'API et désigner une fenêtre qui n'est pas la sienne. Session
+    terminal : résolue via la fenêtre tmux du process."""
+    sid = (os.environ.get("SOKKAN_SESSION_ID") or "").strip()
+    if sid:
+        for s in board.list_sessions():
+            if s["session_id"] == sid:
+                return {"session_id": sid, "tag": s["tag"] or "", "window": s["window"] or ""}
+        return {"session_id": sid, "tag": "", "window": ""}
     pane = os.environ.get("TMUX_PANE")
     if not pane:
         return {}
@@ -46,7 +56,8 @@ def _session_ctx() -> dict:
 
 
 def _actor(ctx: dict) -> str:
-    return f"session:{ctx.get('tag') or ctx.get('window') or 'inconnue'}"
+    who = ctx.get("tag") or ctx.get("window") or ctx.get("session_id", "")[:8]
+    return f"session:{who or 'inconnue'}"
 
 
 @mcp.tool()
