@@ -245,3 +245,12 @@ def test_deck_state_columns(ag):
     r2 = ag.request_run(DEV, broken["id"])
     ag.update_run(r2["id"], status="succeeded")
     assert {a["name"]: a for a in ag.list_agents(DEV)}["broken-one"]["deck"] == "idle"
+
+
+def test_nina_kb_unfolds_the_agents_section_for_an_agent_question():
+    import assistant
+
+    kb = assistant._kb_for("I want an agent that audits our dependencies every night")
+    assert "Agents — l'onglet Crew" in kb and "sokkan-agent" in kb
+    kb = assistant._kb_for("je veux créer un agent récurrent")
+    assert "Agents — l'onglet Crew" in kb

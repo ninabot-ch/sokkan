@@ -1,4 +1,5 @@
 "use client";
+import { agentPropose, type Agent } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
 
@@ -144,7 +145,7 @@ export default function Assistant() {
                     : "mr-6 whitespace-pre-wrap rounded-xl border border-line bg-panel px-3 py-2 text-[13px] leading-relaxed text-slate-200"
                 }
               >
-                {m.content}
+                {m.role === "assistant" ? <AssistantText text={m.content} /> : m.content}
               </div>
             ))}
             {busy && <div className="mr-6 animate-pulse text-[13px] text-mut">Nina réfléchit…</div>}
@@ -170,5 +171,62 @@ export default function Assistant() {
         </div>
       )}
     </>
+  );
+}
+
+
+// Nina peut terminer une réponse par un bloc ```sokkan-agent {json}``` (cf. KB
+// « Agents ») : on l'affiche comme une carte proposée, que l'humain crée d'un clic.
+// La carte naît « pending » : elle ne tourne qu'après approbation dans Crew.
+const AGENT_BLOCK = /```sokkan-agent\s*([\s\S]*?)```/;
+
+function AssistantText({ text }: { text: string }) {
+  const m = text.match(AGENT_BLOCK);
+  if (!m) return <>{text}</>;
+  let spec: Record<string, unknown> | null = null;
+  try { spec = JSON.parse(m[1]); } catch { spec = null; }
+  const before = text.slice(0, m.index).trimEnd();
+  const after = text.slice((m.index || 0) + m[0].length).trim();
+  return (
+    <>
+      {before}
+      {spec ? <AgentProposal spec={spec} /> : <pre className="mt-2 whitespace-pre-wrap text-[11px] text-mut">{m[0]}</pre>}
+      {after && <div className="mt-2">{after}</div>}
+    </>
+  );
+}
+
+function AgentProposal({ spec }: { spec: Record<string, unknown> }) {
+  const [state, setState] = useState<{ id?: number; err?: string; busy?: boolean }>({});
+  const create = async () => {
+    setState({ busy: true });
+    try {
+      const a = await agentPropose(spec as Partial<Agent>);
+      setState({ id: a.id });
+    } catch (e) { setState({ err: String((e as Error).message) }); }
+  };
+  const row = (k: string, v: unknown) => (v === undefined || v === "" || (Array.isArray(v) && !v.length) ? null : (
+    <div key={k} className="flex gap-2"><span className="w-24 shrink-0 text-mut">{k}</span><span className="min-w-0 break-words text-slate-200">{Array.isArray(v) ? v.join(", ") : String(v)}</span></div>
+  ));
+  return (
+    <div className="crew-c-idle crew-card mt-2 whitespace-normal rounded-lg border border-line bg-panel2/70 p-2.5 text-[11.5px]">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-[13px] font-semibold text-slate-100">{String(spec.name || "new agent")}</span>
+        <span className="crew-fg text-[10px] font-semibold uppercase">● proposed agent</span>
+      </div>
+      <div className="space-y-0.5">
+        {row("purpose", spec.purpose)}{row("deliverable", spec.deliverable)}{row("trigger", spec.trigger === "cron" ? `cron ${spec.schedule}` : spec.trigger)}
+        {row("model", spec.model)}{row("tools", spec.tools)}{row("auto", spec.auto_approve)}{row("secrets", spec.secrets)}
+        {row("budget", spec.budget_usd !== undefined ? `$${spec.budget_usd} / run` : undefined)}{row("outputs", spec.outputs)}
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        {state.id ? (
+          <a href={`/?tab=crew&agent=${state.id}`} className="text-sea hover:underline">✓ Card created — review & approve it in Crew →</a>
+        ) : (
+          <button onClick={create} disabled={state.busy} className="rounded-md bg-brass/90 px-2.5 py-1 font-semibold text-ink hover:bg-brass disabled:opacity-50">Create the card</button>
+        )}
+        {state.err && <span className="text-red-400">{state.err}</span>}
+      </div>
+    </div>
   );
 }

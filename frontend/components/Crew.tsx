@@ -13,11 +13,11 @@ import AgentChatPane from "./AgentChatPane";
 // sont les états : la carte change de colonne toute seule quand l'agent vit.
 // Spec : docs/AGENTS.md § The Crew tab.
 
-const COLUMNS: { id: Exclude<DeckState, "archived">; label: string; icon: string; hint: string }[] = [
-  { id: "idle", label: "Idle", icon: "●", hint: "not armed — draft, waiting for approval, paused or manual" },
-  { id: "armed", label: "Armed", icon: "◉", hint: "active, waiting for its trigger" },
-  { id: "running", label: "Running", icon: "▶", hint: "a run is going" },
-  { id: "error", label: "Error", icon: "✕", hint: "the last run failed — until a run succeeds" },
+const COLUMNS: { id: Exclude<DeckState, "archived">; label: string; icon: string; hint: string; empty: string }[] = [
+  { id: "idle", label: "Idle", icon: "●", hint: "not armed — draft, waiting for approval, paused or manual", empty: "No idle agent." },
+  { id: "armed", label: "Armed", icon: "◉", hint: "active, waiting for its trigger", empty: "No agent armed on a schedule or an alert." },
+  { id: "running", label: "Running", icon: "▶", hint: "a run is going", empty: "Nothing running right now." },
+  { id: "error", label: "Error", icon: "✕", hint: "the last run failed — until a run succeeds", empty: "No failure. 🎉" },
 ];
 
 const RUN_STATUS: Record<string, { cls: string; label: string }> = {
@@ -48,7 +48,7 @@ const dur = (r: { started_at: number | null; ended_at: number | null }) => {
   const s = Math.round((r.ended_at || Date.now() / 1000) - r.started_at);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}`;
 };
-const usd = (v: number | undefined) => (v ? `$${v < 0.01 ? v.toFixed(4) : v.toFixed(2)}` : "$0");
+const usd = (v: number | undefined) => (!v ? "$0" : v < 0.01 ? "<$0.01" : `$${v.toFixed(2)}`);
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Cron → words for the common shapes; the raw expression otherwise. */
@@ -98,8 +98,11 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
   useEffect(() => { reload(); const iv = setInterval(reload, 4000); return () => clearInterval(iv); }, [reload]);
   // lien profond : /?tab=crew&agent=12
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("agent");
+    const q = new URLSearchParams(window.location.search);
+    const id = q.get("agent");
     if (id && /^\d+$/.test(id)) setOpenId(+id);
+    const chat = q.get("chat");  // /?tab=crew&chat=<sid> : reprendre une création par le chat
+    if (chat && /^[0-9a-f]{32}$/.test(chat)) setChatSid(chat);
   }, []);
 
   const startChat = async () => {
@@ -169,13 +172,12 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
           {COLUMNS.map((col) => (
             <section key={col.id} className={`crew-c-${col.id} flex min-h-0 flex-col rounded-xl border border-line bg-panel/50`} aria-label={`${col.label} agents`}>
               <header className="flex items-center gap-2 border-b border-line px-3 py-2" title={col.hint}>
-                <span className="crew-dot h-2.5 w-2.5 rounded-full" aria-hidden />
-                <span className="crew-fg text-[12.5px] font-semibold">{col.icon} {col.label}</span>
+                <span className="crew-fg text-[12.5px] font-semibold"><span aria-hidden>{col.icon}</span> {col.label}</span>
                 <span className="ml-auto rounded-full bg-panel2 px-1.5 text-[10.5px] text-mut">{byCol[col.id].length}</span>
               </header>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                 {byCol[col.id].length === 0 && (
-                  <div className="px-1 py-6 text-center text-[11px] text-mut/70">{col.hint}</div>
+                  <div className="px-1 py-6 text-center text-[11px] text-mut/70">{col.empty}</div>
                 )}
                 {byCol[col.id].map((a) => <AgentCard key={a.id} a={a} onOpen={() => setOpenId(a.id)} />)}
               </div>
@@ -208,7 +210,9 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
             <span>The card appears in the deck as soon as the chat builds it.</span>
             <button onClick={() => setChatSid(null)} className="ml-auto rounded px-1.5 hover:bg-panel2 hover:text-slate-200" title="close the chat">✕</button>
           </div>
-          <AgentChatPane sid={chatSid} title="New agent" tag="crew" onClose={() => setChatSid(null)} />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <AgentChatPane sid={chatSid} title="New agent" tag="crew" onClose={() => setChatSid(null)} />
+          </div>
         </aside>
       )}
 
@@ -249,7 +253,7 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
           <span>last: <span className={`${RUN_STATUS[a.last_run.status]?.cls || ""} crew-fg`}>{RUN_STATUS[a.last_run.status]?.label || a.last_run.status}</span> · {ago(a.last_run.ended_at)} · {usd(a.last_run.cost_usd)}</span>
         ) : <span>never ran</span>}
         {a.deck === "armed" && a.next_run_at && <span className="ml-auto text-slate-300" title={clock(a.next_run_at, a.timezone)}>next {ago(a.next_run_at)}</span>}
-        {a.deck !== "armed" && a.stats && a.stats.runs > 0 && <span className="ml-auto">{a.stats.runs} runs · {usd(a.stats.cost_usd)}</span>}
+        {a.deck !== "armed" && a.stats && a.stats.runs > 0 && <span className="ml-auto shrink-0">{a.stats.runs} run{a.stats.runs > 1 ? "s" : ""} · {usd(a.stats.cost_usd)}</span>}
       </div>
       <div className="mt-1 truncate text-[10px] text-mut/70">{a.owner}</div>
     </button>
@@ -308,7 +312,7 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
           </div>
           {a && (
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
-              {a.status === "active" && <button onClick={() => act("run")} className="rounded-md border border-sea/50 bg-sea/10 px-2.5 py-1 text-[12px] text-sea hover:border-sea">▶ Run now</button>}
+              {a.status === "active" && live.length === 0 && <button onClick={() => act("run")} className="rounded-md border border-sea/50 bg-sea/10 px-2.5 py-1 text-[12px] text-sea hover:border-sea">▶ Run now</button>}
               {a.status === "active" && <button onClick={() => act("pause")} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200">⏸ Pause</button>}
               {a.status === "paused" && <button onClick={() => act("resume")} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200">⏵ Resume</button>}
               {a.status !== "archived" && <button onClick={() => { if (confirm(`Archive ${a.name}? It stops for good; its history stays.`)) act("archive"); }} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-red-300">Archive</button>}
@@ -430,7 +434,7 @@ function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (s
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11.5px] text-mut">
               <span className={`${RUN_STATUS[run.status]?.cls || ""} crew-fg font-semibold`}>{RUN_STATUS[run.status]?.label || run.status}</span>
               <span>run #{run.id} · {run.trigger}{run.requested_by ? ` · by ${run.requested_by}` : ""}</span>
-              <span>· {run.tokens_in.toLocaleString()} in / {run.tokens_out.toLocaleString()} out · {run.num_turns} turns · {usd(run.cost_usd)}</span>
+              <span>· {run.tokens_in.toLocaleString()} in / {run.tokens_out.toLocaleString()} out · {run.num_turns} turn{run.num_turns === 1 ? "" : "s"} · {usd(run.cost_usd)}</span>
               {run.session_id && (
                 <span className="ml-auto flex gap-1.5">
                   <button onClick={() => setTranscript((t) => !t)} className="rounded border border-line px-2 py-0.5 hover:text-slate-200">{transcript ? "deliverable" : "transcript"}</button>
@@ -450,7 +454,7 @@ function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (s
               <div className="flex h-[52vh] flex-col"><AgentChatPane sid={run.session_id} title={`run #${run.id}`} tag="agent" /></div>
             ) : run.deliverable ? (
               <div className="md rounded-lg border border-line/60 bg-panel2/40 p-3 text-[13px] text-slate-200">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.deliverable}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.deliverable.replace(/\n?\s*\**DELIVERY\**\s*:.*$/i, "").trim()}</ReactMarkdown>
               </div>
             ) : <div className="text-[12px] text-mut">No deliverable.</div>}
           </>

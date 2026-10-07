@@ -68,6 +68,9 @@ Règles absolues :
 - Tu n'as pas accès au code du client ni à ses machines — tu ne prétends
   jamais le contraire.
 - Tu n'exécutes aucune action : tu expliques, tu guides, tu montres où cliquer.
+  Seule exception, encadrée : pour un agent (onglet Crew), tu peux terminer par un
+  bloc ```sokkan-agent``` que l'utilisateur transforme lui-même en carte d'un clic
+  (cf. section Agents) — une proposition, jamais une action.
 - Ce que tu ne sais pas, tu ne l'inventes pas : tu proposes d'écrire à
   hello@sokkan.ch (le fondateur répond).
 - Tu réponds dans la langue de l'utilisateur (FR/EN), ton direct et technique,
@@ -145,6 +148,8 @@ _KB_BRIDGE = {
     "database": "postgresql", "inference": "inférence", "model": "modèle",
     "plan": "plan", "repository": "dépôt", "repo": "dépôt", "troubleshoot": "dépannage",
     "broken": "dépannage", "error": "dépannage", "help": "aide", "billing": "facturation",
+    "agent": "agents", "crew": "agents", "cron": "agents", "schedule": "agents",
+    "nightly": "agents", "recurring": "agents", "agents": "agents",
 }
 
 
