@@ -138,7 +138,8 @@ function ProfileMenuItem({ onOpen }: { onOpen: () => void }) {
 function Identity() {
   const me = useMe();
   const [open, setOpen] = useState(false);
-  const [settings, setSettings] = useState(false);
+  // 3.2 lot 5: back from the GitLab consent (/?forge=…) → Profile → Linked accounts
+  const [settings, setSettings] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("forge"));
   const color: Record<string, string> = {
     owner: "text-brass", admin: "text-sea", dev: "text-emerald-400", viewer: "text-mut",
   };

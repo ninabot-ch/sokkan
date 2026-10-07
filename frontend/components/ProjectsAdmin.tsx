@@ -4,6 +4,8 @@ import {
   adminProjects, adminCreateProject, adminArchiveProject, adminGrant, adminRevoke, adminOpsGroup,
   type AdminProjects,
 } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
+import ProjectRepos from "./ProjectRepos";
 
 const inp = "rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50";
 const btn = "rounded bg-sea/80 px-2 py-0.5 text-[11px] text-white hover:bg-sea disabled:opacity-40";
@@ -17,6 +19,9 @@ export default function ProjectsAdmin() {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [ops, setOps] = useState("");
+  // 3.2 lot 5: access from GitLab (feature `gitlab`)
+  const [source, setSource] = useState("sso_group");
+  const gitlab = useFeatures().registry?.items.find((i) => i.id === "gitlab")?.enabled ?? false;
   const load = () => adminProjects().then((x) => { setD(x); setOps(x.ops_group); }).catch((e) => setErr(String(e.message || e)));
   useEffect(() => { load(); }, []);
   const run = (p: Promise<unknown>) => p.then(() => { setErr(""); load(); }).catch((e) => setErr(String(e.message || e)));
@@ -29,7 +34,12 @@ export default function ProjectsAdmin() {
         <div className="flex flex-wrap gap-1.5">
           <input aria-label="Project slug" placeholder="slug (radio-player)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} className={`${inp} w-40`} />
           <input aria-label="Project name" placeholder="name" value={name} onChange={(e) => setName(e.target.value)} className={`${inp} flex-1`} />
-          <button disabled={!slug} className={btn} onClick={() => run(adminCreateProject(slug, name || slug).then(() => { setSlug(""); setName(""); }))}>create</button>
+          {gitlab && (
+            <select aria-label="Access source" value={source} onChange={(e) => setSource(e.target.value)} className={inp}>
+              <option value="sso_group">grants</option><option value="forge">GitLab roles</option>
+            </select>
+          )}
+          <button disabled={!slug} className={btn} onClick={() => run(adminCreateProject(slug, name || slug, "", source).then(() => { setSlug(""); setName(""); }))}>create</button>
         </div>
       </div>
       {d.projects.map((p) => <ProjectCard key={p.slug} p={p} roles={d.roles} teams={d.teams.map((t) => t.id)} run={run} />)}
@@ -64,7 +74,7 @@ function ProjectCard({ p, roles, teams, run }: {
         <span className="text-[13.5px] font-medium text-slate-100">{p.name}</span>
         <code className="text-[11px] text-mut">{p.slug}</code>
         <span className="rounded-full border border-line px-1.5 text-[10.5px] text-mut">
-          {p.access_source === "instance" ? "instance roles" : p.slug === "shared" ? "read by everyone" : "grants"}
+          {p.access_source === "instance" ? "instance roles" : p.slug === "shared" ? "read by everyone" : p.access_source === "forge" ? "GitLab roles (+ grants)" : "grants"}
         </span>
         {!fixed && (
           <button className="ml-auto text-[11px] text-mut hover:text-red-300" onClick={() => run(adminArchiveProject(p.slug, !p.archived_at))}>
@@ -72,6 +82,7 @@ function ProjectCard({ p, roles, teams, run }: {
           </button>
         )}
       </div>
+      {p.access_source === "forge" && <ProjectRepos slug={p.slug} />}
       {p.access_source !== "instance" && (
         <>
           <ul className="mt-1.5 space-y-0.5">

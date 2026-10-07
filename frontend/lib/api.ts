@@ -86,8 +86,8 @@ export interface AdminProject { slug: string; name: string; description: string;
 export interface AdminTeam { id: string; name: string; source: string; members: number; synced_at: number | null }
 export interface AdminProjects { projects: AdminProject[]; teams: AdminTeam[]; ops_group: string; roles: string[]; sources: string[] }
 export const adminProjects = () => getJSON<AdminProjects>("/api/admin/projects");
-export const adminCreateProject = (slug: string, name: string, description = "") =>
-  mutateDetail<AdminProject>("/api/admin/projects", "POST", { slug, name, description, access_source: "sso_group" });
+export const adminCreateProject = (slug: string, name: string, description = "", access_source = "sso_group") =>
+  mutateDetail<AdminProject>("/api/admin/projects", "POST", { slug, name, description, access_source });
 export const adminArchiveProject = (slug: string, archived: boolean) =>
   mutateDetail<AdminProject>(`/api/admin/projects/${slug}`, "PATCH", { archived });
 export const adminGrant = (slug: string, principal_kind: string, principal: string, role: string) =>

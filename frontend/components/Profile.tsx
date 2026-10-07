@@ -11,11 +11,12 @@ import {
 import type { IamUser } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
 import FeaturesAdmin from "./FeaturesAdmin";
+import LinkedAccounts from "./LinkedAccounts";
 import { useFeatures } from "@/lib/features";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "notify" | "secrets";
+type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "notify" | "secrets" | "linked";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -424,11 +425,15 @@ function Secrets() {
 }
 
 export default function Profile({ onClose }: { onClose: () => void }) {
-  const [sec, setSec] = useState<Section>("account");
+  // 3.2 lot 5: back from the GitLab consent (/?forge=…) → straight to Linked accounts
+  const [sec, setSec] = useState<Section>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("forge") ? "linked" : "account");
+  const gitlab = useFeatures().registry?.items.find((i) => i.id === "gitlab")?.enabled ?? false;
   const me = useMe();
   const featProblems = useFeatures().registry?.problems.length ?? 0;
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
-  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"],
+  const nav: [Section, string][] = [["account", "My account"], ...(gitlab ? [["linked", "Linked accounts"] as [Section, string]] : []),
+    ["org", "Organization"], ["members", "Members"],
     ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
     ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
     ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
@@ -451,7 +456,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "linked" ? <LinkedAccounts /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>
