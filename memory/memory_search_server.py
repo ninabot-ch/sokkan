@@ -47,7 +47,9 @@ def _scope() -> tuple[str, ...] | None:
     """3.2 — project scope of the calling session: ``SOKKAN_SESSION_PROJECT`` is set by the
     SOKKAN API in the server's environment (the model cannot change it). Absent = a server
     started outside SOKKAN (plain ``.mcp.json``): no scope, behaviour unchanged. An invalid
-    value gives an EMPTY scope (nothing visible), never a wider one."""
+    value gives an EMPTY scope (nothing visible), never a wider one.
+    3.4: ``SOKKAN_SESSION_SCOPE`` carries the clearance of the session's owner per project
+    (``radio@3,shared``); an entry missing there reads up to the default level only."""
     raw = os.environ.get("SOKKAN_SESSION_PROJECT")
     if raw is None:
         return None
@@ -57,14 +59,31 @@ def _scope() -> tuple[str, ...] | None:
         return ()
     # 3.2 lot 3: the API also hands the read scope (project + shared); anything else in it
     # is ignored — the scope can only be the session's project and shared
-    extra = {p.strip() for p in (os.environ.get("SOKKAN_SESSION_SCOPE") or "").split(",")}
-    return _sc.normalize({project} | (extra & {"shared"}))
+    given = [e.strip() for e in (os.environ.get("SOKKAN_SESSION_SCOPE") or "").split(",")]
+    keep = [e for e in given if (_sc.parse_entry(e) or ("",))[0] in (project, "shared")]
+    if not any((_sc.parse_entry(e) or ("",))[0] == project for e in keep):
+        keep.append(project)
+    return _sc.normalize(keep)
 
 
 def _legacy_visible(scope: tuple[str, ...] | None) -> bool:
-    """The 2.x index has no project column: all its notes are in the default project."""
+    """The 2.x index has no project column: all its notes are in the default project, at
+    the default level."""
+    from core import scope as _sc
     from core.contract import DEFAULT_PROJECT
-    return scope is None or DEFAULT_PROJECT in scope
+    return _sc.allows(scope, DEFAULT_PROJECT)
+
+
+def _audit(via: str, notes, query: str | None = None) -> None:
+    """3.4 audited recall: what this session's MCP calls handed out (best effort)."""
+    if os.environ.get("SOKKAN_SESSION_PROJECT") is None or not store_backend.enabled():
+        return
+    try:
+        store_backend.get_store().log_access(
+            via, notes, actor=os.environ.get("SOKKAN_SESSION_USER") or None,
+            session_id=os.environ.get("SOKKAN_SESSION_ID") or None, query=query)
+    except Exception:  # noqa: BLE001 — never fail a read on the log
+        pass
 
 
 def _embed_query(text: str) -> list[float]:
@@ -135,7 +154,9 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
         query: la question / le sujet de travail (n'importe quelle langue).
         top_k: nombre de notes à retourner (défaut 8).
     """
-    return search_scoped(query, top_k, _scope())
+    out = search_scoped(query, top_k, _scope())
+    _audit("mcp", [h for h in out if isinstance(h, dict) and h.get("note_name")], query)
+    return out
 
 
 def search_scoped(query: str, top_k: int = 8, scope=None) -> list[dict]:
@@ -227,8 +248,11 @@ def memory_get(note_name: str) -> str:
     """Retourne le corps complet d'une note mémoire par son nom (sans .md)."""
     scope = _scope()
     if store_backend.enabled():
-        body = store_backend.memory_get(note_name, projects=scope)
-        return body if body is not None else f"note not found: {note_name}"
+        rec = store_backend.memory_get_record(note_name, projects=scope)
+        if rec is None:
+            return f"note not found: {note_name}"
+        _audit("mcp", [rec])
+        return store_backend.render_note(rec)
     if not _legacy_visible(scope):
         return f"note not found: {note_name}"
     if not DB_PATH.exists():
@@ -297,7 +321,7 @@ def memory_links(note_name: str) -> dict:
 @mcp.tool()
 def memory_write(name: str, description: str, body: str,
                  priority: bool = False, type: str = "project",
-                 overwrite: bool = False) -> dict:
+                 overwrite: bool = False, classification: str = "") -> dict:
     """Écrit une note mémoire — LE chemin d'écriture de la mémoire projet.
 
     Une note = UN fait durable. `name` = slug kebab-case sans .md (il devient le
@@ -307,9 +331,14 @@ def memory_write(name: str, description: str, body: str,
     d'écraser une note existante (relire d'abord avec memory_get).
 
     L'index et les embeddings suivent tout seuls (réindexation du backend).
+
+    `classification` (public | team | project | confidential | restricted, défaut project) :
+    le niveau de la note. Elle hérite AU MOINS du niveau le plus élevé des notes que cette
+    session a obtenues (calculé, jamais abaissé par ce paramètre).
     """
     name = (name or "").strip().removesuffix(".md")
     scope = _scope()
+    level, inherited = _write_level(classification)
     project = (os.environ.get("SOKKAN_SESSION_PROJECT") or "").strip()
     if scope is not None and not scope:
         return {"ok": False, "error": "this session has no project: memory writes refused"}
@@ -325,7 +354,7 @@ def memory_write(name: str, description: str, body: str,
             "agent": os.environ.get("SOKKAN_AGENT_NAME", ""),
             "run": os.environ.get("SOKKAN_AGENT_RUN_ID", ""),
             "session": os.environ.get("SOKKAN_SESSION_ID", ""), "via": "memory_write"},
-            project=project or "default")
+            project=project or "default", level=level)
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
                                       "2-64 chars, no path separator (e.g. 'decision-delete-404')"}
@@ -336,6 +365,9 @@ def memory_write(name: str, description: str, body: str,
         return {"ok": False, "error": "body is required — one durable fact, with [[links]] "
                                       "to the related notes"}
     path = target_dir / f"{name}.md"
+    if path.exists() and scope is not None and not _may_overwrite(name, project, scope):
+        # 3.4: a note above this session's clearance is neither readable nor replaceable
+        return {"ok": False, "error": f"name not available: {name} — pick another name"}
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"note already exists: {name} — read it with memory_get, "
                                       "then call again with overwrite=true to replace it",
@@ -349,6 +381,8 @@ def memory_write(name: str, description: str, body: str,
     ]
     if priority:
         fm.append("priority: high")
+    if level != _lv().DEFAULT:
+        fm.append(f"classification: {_lv().ident(level)}")
     fm += ["metadata:", f"  type: {type or 'project'}", "---", ""]
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -359,9 +393,52 @@ def memory_write(name: str, description: str, body: str,
         return {"ok": False, "error": f"cannot write {path}: {e}",
                 "hint": f"the memory directory must be writable by uid {os.getuid()} "
                         "(SOKKAN_MEMORY_DIR)"}
+    if level > _lv().DEFAULT and store_backend.enabled():
+        try:  # the floor: an edit of the file cannot take the note below its level
+            store_backend.get_store().set_level(
+                name, level, project=project or "default",
+                by=os.environ.get("SOKKAN_SESSION_USER") or "session",
+                reason="inherited" if inherited and inherited >= level else "requested")
+        except Exception:  # noqa: BLE001
+            pass
     return {"ok": True, "note": name, "path": str(path), "updated": overwrite,
+            "classification": _lv().ident(level),
             "indexed": "the backend reindexes changed notes within ~2 min "
                        "(memory_search/memory_get see it after that)"}
+
+
+def _lv():
+    from core import levels
+    return levels
+
+
+def _write_level(requested: str) -> tuple[int, int | None]:
+    """(level of a note this session writes, level inherited from what it obtained).
+    The derived inherits the highest level of its sources (3.4): the request can raise
+    it, never lower it."""
+    lv = _lv()
+    req = lv.parse(requested)
+    inherited = None
+    sid = os.environ.get("SOKKAN_SESSION_ID")
+    if sid and store_backend.enabled():
+        try:
+            inherited = store_backend.get_store().session_level(sid)
+        except Exception:  # noqa: BLE001 — unknown = the highest the session could read
+            from core import scope as _sc
+            caps = _sc.caps(_scope()) or {}
+            inherited = max(caps.values()) if caps else None
+    return max(lv.DEFAULT if req is None else req, inherited or 0), inherited
+
+
+def _may_overwrite(name: str, project: str, scope) -> bool:
+    if not store_backend.enabled():
+        return True
+    from core import scope as _sc
+    try:
+        lvl = store_backend.get_store().note_level(name, project or "default")
+    except Exception:  # noqa: BLE001
+        return False
+    return lvl is None or _sc.allows(scope, project or "default", lvl)
 
 
 if __name__ == "__main__":

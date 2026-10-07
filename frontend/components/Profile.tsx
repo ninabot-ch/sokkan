@@ -13,6 +13,8 @@ import type { IamUser } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
 import FeaturesAdmin from "./FeaturesAdmin";
 import LinkedAccounts from "./LinkedAccounts";
+import ClassificationAdmin from "./ClassificationAdmin";
+import TeamsAdmin from "./TeamsAdmin";
 import { useFeatures } from "@/lib/features";
 import { useFeatureOn } from "@/lib/uifeatures";
 import ConnectAI from "./ConnectAI";
@@ -20,7 +22,7 @@ import ModelKeys from "./ModelKeys";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "keys" | "notify" | "secrets" | "linked";
+type Section = "account" | "org" | "members" | "projects" | "features" | "classification" | "teams" | "model" | "keys" | "notify" | "secrets" | "linked";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -502,7 +504,8 @@ export default function Profile({ onClose }: { onClose: () => void }) {
     ["org", "Organization"], ["members", "Members"],
     ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
     ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
-    // 3.2 connect_ai wraps Model; byok_admin adds Model keys (instance admins)
+    ["classification", "Classification"],
+    ...(instAdmin ? [["teams", "Teams"] as [Section, string]] : []),
     ["model", connectOn ? "Connect your AI" : "Model"] as [Section, string],
     ...(instAdmin && byokOn ? [["keys", "Model keys"] as [Section, string]] : []),
     ["notify", "Notifications"], ["secrets", "Secrets"]];
@@ -525,7 +528,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "linked" ? <LinkedAccounts /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? (connectOn ? <ConnectAI legacy={<Model />} /> : <Model />) : sec === "keys" ? <ModelKeys /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "linked" ? <LinkedAccounts /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "classification" ? <ClassificationAdmin instanceAdmin={instAdmin} /> : sec === "teams" ? <TeamsAdmin /> : sec === "model" ? (connectOn ? <ConnectAI legacy={<Model />} /> : <Model />) : sec === "keys" ? <ModelKeys /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

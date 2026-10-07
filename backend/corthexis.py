@@ -696,9 +696,74 @@ def _require(min_role: str):
     return dep
 
 
+# ---- 3.4 classification: the tab shows only what the person is cleared for ------------
+def _cap() -> int:
+    """Clearance of the request's person here; feature off = the default level (a note
+    classified above it stays out of reach of everyone)."""
+    import classification
+    from core import levels
+    c = classification.ctx_clearance()
+    return levels.DEFAULT if c is None else c
+
+
+def _levels(project: str) -> dict[str, int]:
+    """Effective level of each note of the project: the highest of the file's level and the
+    store's (which never goes down by a file edit)."""
+    from core import levels
+    stored: dict = {}
+    if _pg():
+        try:
+            stored = _store().levels(project)
+        except Exception:  # noqa: BLE001
+            stored = {}
+    d = memory_dir(project)
+    out = dict(stored)
+    for n in (rv.load_corpus(d) if d.is_dir() else []):
+        lv = getattr(n.parsed, "level", None)
+        out[n.name] = max(levels.DEFAULT if lv is None else lv, stored.get(n.name, 0))
+    return out
+
+
+def _hidden(project: str, lv: dict[str, int] | None = None) -> set[str]:
+    """Notes of the project above the request's clearance."""
+    cap = _cap()
+    lv = _levels(project) if lv is None else lv
+    return {n for n, x in lv.items() if x > cap}
+
+
+def _graph_for(g: dict, hidden: set[str]) -> dict:
+    if not hidden:
+        return g
+    nodes = [n for n in g["nodes"] if n["id"] not in hidden]
+    edges = [e for e in g["edges"] if e["s"] not in hidden and e["t"] not in hidden]
+    stats = {**g["stats"], "notes": len(nodes),
+             "words": sum(n.get("words") or 0 for n in nodes),
+             "links": len([e for e in edges if not e.get("broken")]),
+             "broken": len([e for e in edges if e.get("broken")])}
+    return {**g, "version": g["version"] + f":{len(hidden)}", "nodes": nodes, "edges": edges,
+            "stats": stats}
+
+
+def _report_for(rep: dict, hidden: set[str]) -> dict:
+    """The review without the findings that name a note above the clearance."""
+    if not hidden or not rep:
+        return rep
+    fs = [f for f in rep.get("findings") or [] if not (set(f.get("notes") or []) & hidden)]
+    flags = {k: v for k, v in (rep.get("flags") or {}).items() if k not in hidden}
+    return {**rep, "findings": fs, "flags": flags}
+
+
+def _proposal_hidden(p: dict, hidden: set[str]) -> bool:
+    return bool({p.get(k) for k in ("note", "target", "new_target", "keep", "drop")} & hidden)
+
+
 @router.get("/graph")
 def api_graph(since: str = "", _u: dict = Depends(_require("viewer"))) -> dict:
-    g = graph(ctx_project())
+    from core import levels
+    lv = _levels(ctx_project())
+    g = _graph_for(graph(ctx_project()), _hidden(ctx_project(), lv))
+    g = {**g, "nodes": [{**n, "classification": levels.ident(lv.get(n["id"], levels.DEFAULT))}
+                        for n in g["nodes"]]}
     if since and since == g["version"]:
         return {"version": g["version"], "unchanged": True}
     return g
@@ -708,13 +773,31 @@ def api_graph(since: str = "", _u: dict = Depends(_require("viewer"))) -> dict:
 def api_note(name: str, _u: dict = Depends(_require("viewer"))) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
-    return note(name, ctx_project())
+    from core import levels
+    lv = _levels(ctx_project())
+    hidden = _hidden(ctx_project(), lv)
+    n = note(name, ctx_project())
+    if n["id"] in hidden or name in hidden:
+        raise HTTPException(404, "unknown note")
+    n["classification"] = levels.ident(lv.get(n["id"], levels.DEFAULT))
+    n["in"] = [x for x in n["in"] if x not in hidden]
+    n["out"] = [o for o in n["out"] if o.get("resolved") not in hidden]
+    import classification
+    classification.log_access("cockpit", [{"name": n["id"], "project": ctx_project()}],
+                              actor=(_u or {}).get("email"))
+    return n
 
 
 @router.get("/review")
 def api_review(_u: dict = Depends(_require("viewer"))) -> dict:
     p = ctx_project()
-    return overview(p) if scoped(p) else _no_review()
+    if not scoped(p):
+        return _no_review()
+    ov = overview(p)
+    hidden = _hidden(p)      # 3.4: findings naming a note above the clearance are dropped
+    if hidden:
+        ov = {**ov, "report": _report_for(ov.get("report") or {}, hidden)}
+    return ov
 
 
 def _no_review() -> dict:
@@ -744,22 +827,34 @@ def api_review_run(u: dict = Depends(_require("dev"))) -> dict:
 @router.get("/proposals")
 def api_proposals(_u: dict = Depends(_require("viewer"))) -> list[dict]:
     p = ctx_project()
-    return proposals(p) if scoped(p) else []
+    if not scoped(p):
+        return []
+    hidden = _hidden(p)
+    return [x for x in proposals(p) if not _proposal_hidden(x, hidden)]
 
 
 @router.post("/proposals")
 def api_propose(body: ProposalIn, u: dict = Depends(_require("dev"))) -> dict:
-    return propose(body, u["email"], _scoped_project())
+    p = _scoped_project()
+    if _proposal_hidden(body.model_dump(), _hidden(p)):
+        raise HTTPException(404, "unknown note")
+    return propose(body, u["email"], p)
 
 
 @router.post("/proposals/{pid}/approve")
 def api_approve(pid: str, u: dict = Depends(_require("dev"))) -> dict:
-    return decide(pid, True, u["email"], _scoped_project())
+    p = _scoped_project()
+    if _proposal_hidden(get_proposal(pid, p), _hidden(p)):
+        raise HTTPException(404, "unknown proposal")
+    return decide(pid, True, u["email"], p)
 
 
 @router.post("/proposals/{pid}/refuse")
 def api_refuse(pid: str, u: dict = Depends(_require("dev"))) -> dict:
-    return decide(pid, False, u["email"], _scoped_project())
+    p = _scoped_project()
+    if _proposal_hidden(get_proposal(pid, p), _hidden(p)):
+        raise HTTPException(404, "unknown proposal")
+    return decide(pid, False, u["email"], p)
 
 
 class CurationIn(BaseModel):
@@ -772,6 +867,8 @@ def api_curation(body: CurationIn, u: dict = Depends(_require("dev"))) -> dict:
     if spawn_hook is None:
         raise HTTPException(503, "sessions are not available on this instance")
     p = _scoped_project()
+    if set(body.notes) & _hidden(p):
+        raise HTTPException(404, "unknown note")
     subject = curation_subject(body.finding_ids, body.notes, p)
     prompt, tag = playbooks.render("curation", subject)
     s = spawn_hook(tag, prompt, title="Memory curation", user=u["email"],

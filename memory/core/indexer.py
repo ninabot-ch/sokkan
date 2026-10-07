@@ -488,13 +488,18 @@ class Indexer:
             rec = NoteRecord(name=note.name, description=note.description, type=note.type,
                              priority=note.priority, source_path=str(path),
                              modified=eff.modified, modified_source=eff.source, body=note.body,
-                             project=cfg.project)
+                             project=cfg.project,
+                             level=2 if note.level is None else note.level)
             records.append(rec)
             old = store.get_note(note.name) if note.name in indexed else None
+            # 3.4: the stored level may sit above the file's (floor): the store keeps the
+            # higher one, so compare against max(file, stored) — a lower file level alone
+            # is not a change (it never lowers a note)
             if old is not None and (old.description, old.type, old.priority, old.source_path,
                                     old.body, project_of(old)) == (
                                         rec.description, rec.type, rec.priority,
-                                        rec.source_path, rec.body, rec.project):
+                                        rec.source_path, rec.body, rec.project) and (
+                                        rec.level <= getattr(old, "level", rec.level)):
                 if (old.modified, old.modified_source) != (rec.modified, rec.modified_source):
                     store.upsert_note(rec, None, gen.id)
                     rep.metadata_only += 1

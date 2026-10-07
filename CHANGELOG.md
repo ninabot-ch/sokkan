@@ -26,6 +26,38 @@ Notable changes, newest first. Versions: semver + release hash (see
   `SOKKAN_CONNECT_AI_MODE`): the admin allows engines, zones and SOKKAN tiers; people only see
   those; a project maintainer may pick the project's engine. A connected engine is selectable as
   a Crew card's model (`engine:<id>`). The login card says: check your provider's terms.
+### 3.4 Classification and Teams
+- **Classification and clearances** (feature `classification`, requires `multi_project` +
+  `sso_teams`; enterprise default on). Notes (frontmatter `classification:`), cards, agent
+  deliverables carry a level `public < team < project < confidential < restricted`
+  (default `project`; customer labels with `SOKKAN_CLASSIFICATION_LABELS`). A person's
+  clearance per project = the highest of their project role's level (`SOKKAN_CLEARANCE_ROLES`)
+  and the levels mapped to their SSO groups (Profile → Classification). The memory engine
+  filters every search stage by `(project, clearance)` (migration `0013`: `notes.level`,
+  every existing note at `project`); recall, `memory_search` / `memory_get`, the CortHeXis
+  tab, the board (+ MCP), quarantine, sessions, runs and Nina answer only within the
+  clearance of the person they act for — Nina always as the person who asks. Derived content
+  (a note written by a session, an agent deliverable, a card from a session, a Nina answer)
+  inherits the highest level of its sources; an index upsert never lowers a level; lowering
+  takes a cleared maintainer/admin with a reason, journaled. **Audited recall**: every note
+  handed out is logged (`note_access`: who, which note, via spawn / prompt / mcp / cockpit /
+  nina / teams / brief), `GET /api/classification/audit` for project admins, CSV export.
+  Off: nothing above `project` is reachable by anyone. See `docs/enterprise/SECURITY.md` § 8.
+- **Microsoft Teams** (feature `teams`, requires `assistant` + `classification` + `sso`; off
+  by default, experimental). `@Nina` in a channel, a group chat or 1:1: project status card,
+  `card: …`, `note la décision : …` (a decision note in the project memory with author,
+  date, link to the thread, level inherited from the channel), `run <agent>` → approval
+  card, `approvals` → pending agents as cards. HITL approvals are Adaptive Cards with
+  Approve / Refuse, signed (HMAC), expiring, single use, optionally bound to one approver,
+  executed as the person who clicks (four-eyes refuses the requester). Single-tenant app:
+  every request's Bot Framework JWT is verified (keys, issuer, audience, expiry, serviceUrl,
+  msteams endorsement) and its tenant checked before anything is read; a Teams user acts only
+  through the SOKKAN account linked at their Entra ID sign-in (`oid`), and Nina answers with
+  their clearance capped by the channel's level. Outbound tokens cached Fernet-encrypted.
+  Channel ↔ project mapping and the manifest in Profile → Teams. Calendar via Graph
+  (`Calendars.Read`) behind the new `calendars` interface (for the brief). Built and tested
+  against a Graph / Bot Framework simulator — no app registered yet. See
+  `docs/enterprise/TEAMS.md`.
 - **Feature registry** (`backend/features.py`, the base of SOKKAN Enterprise — the same app,
   not a fork). Every feature is declared once: switch `SOKKAN_FEATURE_<ID>=1|0`, defaults per
   edition (`SOKKAN_EDITION` = community, the default, or enterprise), `requires`,

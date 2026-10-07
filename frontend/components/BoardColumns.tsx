@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { Card } from "@/lib/types";
 import { PRIORITIES, ago, dueTone } from "@/lib/fmt";
+import LevelBadge from "./LevelBadge";
 
 // The board's columns and cards — ONE component for the Board tab and for the kanban of a
 // card in Helm (3.3: opening a parent card shows ITS board, its children by column).
@@ -132,6 +133,7 @@ export function CardTile({
     >
       <div className="flex items-center gap-1.5">
         <span className="rounded bg-brass/15 px-1.5 text-[10px] text-brass">{c.tag}</span>
+        <LevelBadge level={c.level} quiet />
         {c.kind === "project" && <span className="rounded bg-sea/15 px-1.5 text-[10px] text-sea">project</span>}
         {c.kind === "reframe" && <span className="rounded bg-amber-500/15 px-1.5 text-[10px] text-amber-300">reframe</span>}
         {c.priority < 2 && <span className={`text-[10px] ${p.text}`}>{p.label}</span>}

@@ -77,7 +77,8 @@ the standard `ANTHROPIC_BASE_URL` setting.
 | [PIPELINE.md](PIPELINE.md) | the path of one model call; the release pipeline |
 | [FEATURES.md](FEATURES.md) | feature registry: every switch, its default per edition, dependencies (generated from `backend/features.py`) |
 | [OPERATIONS.md](OPERATIONS.md) | runbook: install, SSO, features, backup, upgrade, monitoring, incidents, secrets, go-live checklist |
-| [SECURITY.md](SECURITY.md) | security model and the classification roadmap |
+| [SECURITY.md](SECURITY.md) | security model; classification and clearances (§ 8, 3.4) |
+| [TEAMS.md](TEAMS.md) | Microsoft Teams: app registration, Graph permissions, manifest, variables, limits (3.4) |
 | [hld-overview.html](hld-overview.html) · [PNG](hld-overview.png) · [PDF](hld-overview.pdf) | one-page overview for decision-makers (French) |
 | [../MULTIUSER.md](../MULTIUSER.md), [../AGENTS.md](../AGENTS.md), [../OPERATE.md](../OPERATE.md), [../UPGRADE.md](../UPGRADE.md), [../RELEASING.md](../RELEASING.md) | the contractual specs these pages summarise |
 

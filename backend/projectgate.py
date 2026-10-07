@@ -49,6 +49,7 @@ _PROJECT_PREFIXES = (
     "/api/memory/recall-log", "/api/memory/quarantine", "/api/memory/digest",
     "/api/memory/stats", "/api/corthexis", "/api/runbooks", "/api/assistant",
     "/api/bindings", "/api/usage", "/api/vault", "/api/playbooks", "/api/budgets",
+    "/api/classification",
 )
 # raw terminal, tmux, previews of the instance's repositories: default project only
 # (/term itself = the instance role, which IS the role in the default project)
@@ -97,8 +98,41 @@ def project_user(user: dict, slug: str) -> dict | None:
     role = projects.effective_role(user, slug)
     if role is None:
         return None
-    return {**user, "role": PROJECT_TO_INSTANCE[role], "project": slug,
-            "project_role": role, "instance_role": user.get("role")}
+    pu = {**user, "role": PROJECT_TO_INSTANCE[role], "project": slug,
+          "project_role": role, "instance_role": user.get("role")}
+    import classification
+    if classification.enabled():
+        # 3.4: the person's clearance in this project, for every filter of the request
+        pu["clearance"] = classification.clearance(user, slug)
+    return pu
+
+
+def object_level(kind: str, oid: str) -> int | None:
+    """Classification of an object (3.4): a card's own level; a session or a run = the
+    highest level of the notes its session obtained (its transcript holds them)."""
+    try:
+        if kind == "card":
+            import board
+            c = board.get_card(int(oid))
+            return None if not c else int(c.get("level") if c.get("level") is not None else 2)
+        import classification
+        if kind == "session":
+            return classification.session_level(oid)
+        if kind == "run":
+            import agents
+            r = agents.get_run(int(oid))
+            return classification.session_level(r.get("session_id")) if r else None
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def above_clearance(pu: dict, kind: str, oid: str) -> bool:
+    c = pu.get("clearance")
+    if c is None:
+        return False
+    lvl = object_level(kind, oid)
+    return lvl is not None and lvl > c
 
 
 class Denied(Exception):
@@ -116,9 +150,11 @@ def resolve(request, user: dict) -> contextvars.Token | None:
             raise Denied(403, "Operate is for the ops team and the instance admins")
         return None
     slug = None
+    obj = None
     for _m, rx, kind in _OBJECT_ROUTES:
         m = rx.match(path)
         if m:
+            obj = (kind, m.group("id"))
             slug = object_project(kind, m.group("id"))
             if slug is None:
                 if kind == "session" and not projects.multi_project():
@@ -138,6 +174,9 @@ def resolve(request, user: dict) -> contextvars.Token | None:
     pu = project_user(user, slug)
     if pu is None:
         raise Denied(404, f"no project '{slug}' for you")
+    if obj is not None and above_clearance(pu, *obj):
+        # 3.4: an object above the person's clearance does not exist for them
+        raise Denied(404, "not found")
     return _CURRENT.set(pu)
 
 
@@ -146,10 +185,14 @@ def reset(token) -> None:
         _CURRENT.reset(token)
 
 
-def ws_user(user: dict, slug: str | None) -> dict | None:
-    """WebSocket routes (no middleware): the person inside the session's project."""
+def ws_user(user: dict, slug: str | None, session_id: str | None = None) -> dict | None:
+    """WebSocket routes (no middleware): the person inside the session's project (3.4: and
+    cleared for what the session obtained)."""
     if slug is None:
         if projects.multi_project():
             return None
         slug = projects.DEFAULT_PROJECT
-    return project_user(user, slug)
+    pu = project_user(user, slug)
+    if pu is not None and session_id and above_clearance(pu, "session", session_id):
+        return None
+    return pu

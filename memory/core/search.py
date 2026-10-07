@@ -133,6 +133,7 @@ class Hit:
     chunk_idx: int | None = None
     degraded: str | None = None
     project: str | None = None      # 3.2: the note's project (None = store does not say)
+    level: int | None = None        # 3.4: classification rank (None = store does not say)
 
     def as_dict(self) -> dict:
         """Shape of a ``memory_search`` MCP result (2.x keys + the 3.0 additions)."""
@@ -157,6 +158,9 @@ class Hit:
             d["degraded"] = self.degraded
         if self.project:
             d["project"] = self.project
+        if self.level is not None:
+            from . import levels as _lv
+            d["level"] = _lv.ident(self.level)
         return d
 
 
@@ -176,6 +180,7 @@ class Candidate:
     source_path: str | None = None
     chunk_idx: int | None = None
     project: str | None = None
+    level: int | None = None
 
 
 def short_snippet(text: str) -> str:
@@ -254,7 +259,7 @@ def rank(
             snippet=c.best_chunk, age_days=age_days, date_source=src,
             description=c.description or "", modified=mod, source_path=c.source_path,
             priority=c.priority, generation=generation, chunk_idx=c.chunk_idx, degraded=degraded,
-            project=c.project,
+            project=c.project, level=c.level,
         ))
     hits.sort(key=lambda h: (-h.score, h.note_name))
 

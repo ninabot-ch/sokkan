@@ -126,13 +126,15 @@ memory note **in quarantine** (3.1 invariant) and a notification on success.
 `GET /api/helm/brief` previews it (one's own: any member; someone else's or a team's: the
 managers).
 
-Agenda: interface `helm_calendar.CalendarSource`; implemented: **ICS URL**
+Agenda: the `calendars` interface (`backend/calendars/`, shared with 3.4 Teams). **ICS URL**
+(`calendars/ics.py`)
 (`ICSUrlSource`: https only, private/loopback addresses refused unless
 `SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE=1`, 10 s, 2 MB, DAILY/WEEKLY recurrences with BYDAY,
 INTERVAL, UNTIL, COUNT, EXDATE). The private ICS address is a credential: it lives in the
 vault, referenced **by name** — per person (`PUT /api/helm/calendar {kind: "ics", secret}`)
-or for the instance (`SOKKAN_HELM_CALENDAR_ICS`). Microsoft Graph (`GraphSource`) comes with
-the `teams` feature (3.4).
+or for the instance (`SOKKAN_HELM_CALENDAR_ICS`), read in the vault of the brief's project.
+Without an ICS, the brief asks `calendars.events_for(person)`: Microsoft 365 through Graph
+(`teams.graph.GraphCalendar`) when the `teams` feature and its tenant app are configured.
 
 ## Board MCP (sessions drive the hierarchy)
 

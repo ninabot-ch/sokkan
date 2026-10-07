@@ -6,6 +6,7 @@ import { PRIORITIES } from "@/lib/fmt";
 import { useCan } from "@/lib/me";
 import CardModal from "./CardModal";
 import BoardColumns from "./BoardColumns";
+import { LevelSelect } from "./LevelBadge";
 
 
 export default function Board({ onOpenSession }: { onOpenSession: (sid: string) => void }) {
@@ -14,6 +15,7 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
   const [prompt, setPrompt] = useState("");
   const [tag, setTag] = useState("backend");
   const [prio, setPrio] = useState(2);
+  const [level, setLevel] = useState("project");
   const [busy, setBusy] = useState<number | null>(null);
   const canWrite = useCan("dev");
   const [openCard, setOpenCard] = useState<number | null>(null);
@@ -48,7 +50,7 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
 
   const create = async () => {
     if (!prompt.trim()) return;
-    await addCard(prompt.trim(), tag, "", "Backlog", prio);
+    await addCard(prompt.trim(), tag, "", "Backlog", prio, level);
     setPrompt("");
     reload();
   };
@@ -94,6 +96,7 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
               className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
               {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
+            <LevelSelect value={level} onChange={setLevel} />
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && create()}
               placeholder="describe the task (prompt) — e.g. 'fix the jobup promo filter on the inbox side'"

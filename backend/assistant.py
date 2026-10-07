@@ -473,39 +473,51 @@ def _language_directive(message: str) -> str:
     return ""
 
 
-def _memory_scope() -> tuple[str, ...]:
+def _memory_scope(user_email: str | None = None) -> tuple[str, ...]:
     """3.2 lot 3: Nina reads the project selected in the cockpit (+ shared); outside a
-    project-scoped request, the default project while it is the only one, else nothing."""
+    project-scoped request, the default project while it is the only one, else nothing.
+    3.4: always AS the person who asks — their clearance, never a wider view."""
+    import classification
     import projectgate
     import projects
     ctx = projectgate.current()
     if ctx is not None:
-        return projects.recall_scope(ctx["project"])
-    return () if projects.multi_project() else projects.recall_scope(projects.DEFAULT_PROJECT)
+        return classification.ctx_scope()
+    if projects.multi_project():
+        return ()
+    return classification.scope_for_email(user_email or "", projects.DEFAULT_PROJECT)
 
 
-def _memory_context(query: str, top_k: int = 4) -> str:
-    """Extraits de la mémoire projet pertinents pour la question. Pré-récupérés
-    (pas d'outil à appeler) — même doctrine que le recall au spawn."""
+def _memory_hits(query: str, scope, top_k: int = 4) -> list[dict]:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
         import memory_search_server as mem
-        hits = mem.search_scoped(query, top_k, _memory_scope()) or []
+        hits = mem.search_scoped(query, top_k, scope) or []
     except Exception as e:  # noqa: BLE001
         print(f"[assistant] mémoire indisponible ({e})")
-        return ""
+        return []
+    # {"info": …} quand la mémoire est vide, {"error": …} si l'index est KO
+    return [h for h in hits if isinstance(h, dict) and h.get("note_name")]
+
+
+def _memory_context(query: str, top_k: int = 4, scope=None, hits=None) -> str:
+    """Extraits de la mémoire projet pertinents pour la question. Pré-récupérés
+    (pas d'outil à appeler) — même doctrine que le recall au spawn."""
+    if hits is None:
+        hits = _memory_hits(query, _memory_scope() if scope is None else scope, top_k)
     out = []
     for h in hits:
         name = h.get("note_name")
-        if not name:  # {"info": …} quand la mémoire est vide, {"error": …} si l'index est KO
-            continue
         excerpt = (h.get("snippet") or "").strip().replace("\n", " ")
         out.append(f"[[{name}]] — {h.get('description') or ''}\n{excerpt[:600]}")
     return "\n\n".join(out)
 
 
-def _prepare(user_email: str, message: str) -> tuple[dict, dict | None, str, list[dict]]:
-    """Validations, quota, et montage du prompt. Partagé par chat() et chat_stream()."""
+def _prepare(user_email: str, message: str, scope=None, meta: dict | None = None,
+             via: str = "nina") -> tuple[dict, dict | None, str, list[dict]]:
+    """Validations, quota, et montage du prompt. Partagé par chat() et chat_stream().
+    3.4 : la mémoire est lue AU NOM de `user_email` (``scope`` explicite — Teams — ou le
+    périmètre de la requête cockpit) ; ``meta`` reçoit le niveau hérité de la réponse."""
     message = (message or "").strip()
     if not message:
         raise ValueError("message vide")
@@ -531,7 +543,18 @@ def _prepare(user_email: str, message: str) -> tuple[dict, dict | None, str, lis
     dossier = _dossier()
     if dossier:
         system += f"\n\n=== DOSSIER CLIENT (état réel, lecture seule) ===\n\n{dossier}"
-    notes = _memory_context(message)
+    if scope is None:
+        scope = _memory_scope(user_email)
+    hits = _memory_hits(message, scope)
+    notes = _memory_context(message, hits=hits)
+    if hits:
+        import classification
+        classification.log_access(via, hits, actor=user_email, query=message)
+    if meta is not None:
+        from core import levels as _lv
+        meta["level"] = _lv.ident(_lv.highest(
+            [_lv.of(h) for h in hits] or [_lv.DEFAULT]))
+        meta["sources"] = [h["note_name"] for h in hits]
     if notes:
         system += ("\n\n=== EXTRAITS DE MÉMOIRE PROJET (pertinents pour la question) ==="
                    f"\n\n{notes}")
@@ -551,13 +574,16 @@ def _persist(user_email: str, message: str, reply: str) -> None:
     con.close()
 
 
-def chat(user_email: str, message: str) -> dict:
-    """Un tour de chat, réponse complète. Retourne {reply, via}."""
-    cfg, fb, system, msgs = _prepare(user_email, message)
+def chat(user_email: str, message: str, scope=None, channel: str = "nina") -> dict:
+    """Un tour de chat, réponse complète. Retourne {reply, via, level, sources}.
+    3.4 : ``level`` = le niveau le plus élevé des notes qui ont servi (la réponse en hérite)."""
+    meta: dict = {}
+    cfg, fb, system, msgs = _prepare(user_email, message, scope=scope, meta=meta, via=channel)
     reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
     reply = reply or "(réponse vide)"
     _persist(user_email, message, reply)
-    return {"reply": reply, "via": via}
+    return {"reply": reply, "via": via, "level": meta.get("level", "project"),
+            "sources": meta.get("sources", [])}
 
 
 def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
@@ -573,7 +599,7 @@ def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
     Le basculement vers le repli n'est possible qu'AVANT le premier octet —
     après, le flux est engagé (même règle que la passerelle d'inférence).
     """
-    cfg, fb, system, msgs = _prepare(user_email, message)
+    cfg, fb, system, msgs = _prepare(user_email, message, meta={})
     global _primary_down_until
     chain = [cfg] if not fb else ([fb] if time.time() < _primary_down_until else [cfg, fb])
     last_err: Exception | None = None

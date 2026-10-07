@@ -51,8 +51,9 @@ export const sendInput = (target: string, text: string) =>
 export const fetchBoard = (archived = false) =>
   getJSON<BoardData>(`/api/board${archived ? "?archived=1" : ""}`);
 export const fetchCardDetail = (id: number) => getJSON<CardDetail>(`/api/board/card/${id}`);
-export const addCard = (description: string, tag = "backend", title = "", bucket = "Backlog", priority = 2) =>
-  mutate<Card>("/api/board/card", "POST", { title, description, tag, bucket, priority });
+export const addCard = (description: string, tag = "backend", title = "", bucket = "Backlog", priority = 2,
+  classification = "") =>
+  mutate<Card>("/api/board/card", "POST", { title, description, tag, bucket, priority, classification });
 export const patchCard = (id: number, fields: Partial<Card>) =>
   mutate<Card>(`/api/board/card/${id}`, "PATCH", fields);
 export const deleteCard = (id: number) =>

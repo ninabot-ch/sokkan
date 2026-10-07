@@ -217,6 +217,11 @@ def owner_check(a: dict) -> str | None:
     return None
 
 
+def _run_level(sid: str) -> int:
+    import classification
+    return max(classification.session_level(sid) or 0, 2)
+
+
 class Runtime:
     def __init__(self, recall: Callable[[str, str], str] | None = None):
         self.runner_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
@@ -465,7 +470,9 @@ class Runtime:
         board.add_sdk_session(sid, "agent", title=f"agent {a['name']} · run #{rid}",
                               prompt=a["purpose"][:300],
                               # 3.2 : un run hérite du projet de son agent (périmètre mémoire)
-                              project=a.get("project") or "default")
+                              project=a.get("project") or "default",
+                              # 3.4 : le run agit au nom de son propriétaire (habilitation)
+                              owner=a.get("owner") or "")
 
         def on_wait(waiting: bool) -> None:
             agents.update_run(rid, waiting_approval=int(waiting))
@@ -596,6 +603,8 @@ class Runtime:
                                     f"session {link}",
                         tag="devops", bucket="Review", priority=2,
                         user=f"agent:{a['name']}",
+                        # 3.4: the deliverable inherits the highest level its run obtained
+                        level=_run_level(sid),
                         origin={"session_id": sid, "session_tag": "agent",
                                 "via": f"agent-run #{run['id']}"})
                     out["card"] = c["id"]
@@ -615,7 +624,8 @@ class Runtime:
                         f"({stamp}, run #{run['id']}): {first}",
                         self._summary_full(deliverable),
                         {"agent": a["name"], "run": run["id"], "session": sid,
-                         "via": "output"}, project=a.get("project") or "default")
+                         "via": "output"}, project=a.get("project") or "default",
+                        level=_run_level(sid))
                     if r.get("ok"):
                         out["memory"] = name
                         out["memory_quarantined"] = True

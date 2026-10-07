@@ -48,8 +48,8 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
 | [`shared_review`](#shared_review) Shared session / preview for review | beta | toggle | off | on | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
 | [`helm`](#helm) Helm | beta | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
-| [`classification`](#classification) Classification and clearances | planned (3.4) | planned | off | off | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
-| [`teams`](#teams) Microsoft Teams | planned (3.4) | planned | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
+| [`classification`](#classification) Classification and clearances | beta | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
+| [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 
 ## Dependency graph
@@ -123,7 +123,6 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class classification,teams planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -468,24 +467,26 @@ Hierarchical cards (manager's project card → engineer's cards → sub-tasks): 
 
 ### classification
 
-**Classification and clearances** — planned for 3.4, planned.
+**Classification and clearances** — beta, toggle.
 
-Notes carry a classification; Nina acts on the user's behalf within their clearance; derived content inherits the highest level; audited recall.
+Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the CortHeXis tab, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `sso_teams`
 - Required by: `teams`
 - Switch: `SOKKAN_FEATURE_CLASSIFICATION`
+- Doc: [docs/enterprise/SECURITY.md](../../docs/enterprise/SECURITY.md)
 
 ### teams
 
-**Microsoft Teams** — planned for 3.4, planned.
+**Microsoft Teams** — experimental, toggle.
 
-@Nina in Teams, HITL approvals as Teams cards, decision capture, calendar/presence via Graph (tenant app, per-resource consent).
+@Nina in Teams channels and chats (project status, cards, proposed agents → approval), HITL approvals as signed single-use Adaptive Cards, decision capture into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. Single-tenant app, admin consent, Nina answers as the identified user only.
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `assistant`, `classification`, `sso`
 - Switch: `SOKKAN_FEATURE_TEAMS`
+- Doc: [docs/enterprise/TEAMS.md](../../docs/enterprise/TEAMS.md)
 
 ### connect_ai
 

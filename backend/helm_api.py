@@ -18,7 +18,7 @@ import audit
 import board
 import features
 import helm
-import helm_calendar
+from calendars import ics as helm_calendar
 import projectgate
 import projects
 

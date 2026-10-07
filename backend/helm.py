@@ -361,7 +361,11 @@ def _has_context(c: dict) -> bool:
 def context_block(card_id: int) -> str:
     """What a session of `card_id` must know from the cards ABOVE it: intent,
     constraints, decisions and links of every ancestor, root first. '' = none."""
-    chain = [a for a in board.ancestors(card_id)]
+    me = board.get_card(card_id) or {}
+    mine = _lvl(me)
+    # 3.4: an ancestor classified ABOVE this card does not flow down (its sessions may be
+    # opened by people cleared for this card only); a new child inherits its parent's level
+    chain = [a for a in board.ancestors(card_id) if _lvl(a) <= mine]
     parts = []
     for a in chain:
         links = [lk for lk in board.card_links(a["id"]) if not lk.get("missing")]
@@ -386,6 +390,11 @@ def context_block(card_id: int) -> str:
            "\nStay within this intent and these constraints. If the work needs to depart from a "
            "recorded decision, say so and ask before acting.")
     return out if len(out) <= CONTEXT_MAX else out[:CONTEXT_MAX - 1] + "…"
+
+
+def _lvl(card: dict) -> int:
+    v = card.get("level")
+    return 2 if v is None else int(v)
 
 
 def context_note_name(card_id: int) -> str:
@@ -422,7 +431,11 @@ def write_context_note(card_id: int) -> dict | None:
         body += ["## Cards under it"] + [f"- #{k['id']} {k['title']} ({k['bucket']})" for k in kids] + [""]
     fm = ["---", f"name: {name}",
           f"description: {json.dumps(' '.join(desc.split())[:300], ensure_ascii=False)}",
-          "metadata:", "  type: project", f"  card: \"card:{card_id}\"", "  source: helm", "---", ""]
+          "metadata:", "  type: project", f"  card: \"card:{card_id}\"", "  source: helm"]
+    if _lvl(c) != 2:   # 3.4: the note carries the card's level (never below it)
+        from core import levels
+        fm.append(f"classification: {levels.ident(_lvl(c))}")
+    fm += ["---", ""]
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{name}.md"
     tmp = path.with_suffix(".md.tmp")
@@ -1128,7 +1141,7 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
     except Exception as e:  # noqa: BLE001 — Crew off or unreadable: the brief says nothing of it
         print(f"[helm] brief: agents unreadable: {e!r}", flush=True)
     sugg = list_suggestions([project])
-    agenda = calendar_events if calendar_events is not None else _agenda(person, team, now)
+    agenda = calendar_events if calendar_events is not None else _agenda(person, team, now, project)
     out = {"project": project, "person": person, "team": team, "since": since, "now": now,
            "moved": [{"card_id": cid, "title": by_id[cid]["title"], "bucket": by_id[cid]["bucket"],
                       "events": [f"{e['action']}: {e['detail']}" for e in evs][-4:]}
@@ -1141,16 +1154,33 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
     return out
 
 
-def _agenda(person: str, team: str, now: float) -> list[dict] | None:
+def _agenda(person: str, team: str, now: float, project: str = "default") -> list[dict] | None:
+    """Today's agenda for the brief, through the `calendars` interface (3.4): an ICS set
+    for the person / team (or the instance's team calendar) first, else the registered
+    provider (Microsoft 365 via Graph when the Teams app is configured); None = no calendar."""
     try:
-        import helm_calendar
-        src = helm_calendar.source_for(person or team)
-        if src is None:
-            return None
+        import calendars
+        from calendars import ics
         day = datetime.fromtimestamp(now, TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-        return [e.as_dict() for e in src.events(day, day + timedelta(days=1))]
+        src = ics.source_for(person or team, project)
+        if src is not None:
+            return [e.as_dict() for e in src.events(day, day + timedelta(days=1))]
+        if not person or calendars.provider() is None:
+            return None
+        return [_brief_event(e) for e in calendars.events_for(person, day.date(), TZ)]
     except Exception as e:  # noqa: BLE001 — a calendar outage never kills the brief
         return [{"error": f"calendar unavailable: {type(e).__name__}"}]
+
+
+def _brief_event(e) -> dict:
+    """A `calendars.CalendarEvent` in the brief's shape (same keys as ics.Event.as_dict)."""
+    s = datetime.fromisoformat(e.start.replace("Z", "+00:00")).astimezone(TZ)
+    en = datetime.fromisoformat(e.end.replace("Z", "+00:00")).astimezone(TZ) if e.end else None
+    all_day = en is not None and (en - s) >= timedelta(days=1) and s.hour == 0 and s.minute == 0
+    return {"start": s.isoformat(), "end": en.isoformat() if en else None, "title": e.subject,
+            "all_day": all_day, "location": e.location,
+            "start_local": "all day" if all_day else s.strftime("%H:%M"),
+            "end_local": "" if all_day or not en else en.strftime("%H:%M")}
 
 
 def brief_markdown(b: dict) -> str:

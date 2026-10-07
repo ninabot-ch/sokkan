@@ -499,7 +499,7 @@ END:VCALENDAR
 
 
 def test_ics_parser_recurrence_and_window():
-    import helm_calendar as hc
+    from calendars import ics as hc
     s = datetime(2026, 10, 8, tzinfo=hc.TZ)
     ev = hc.parse_ics(ICS, s, s + timedelta(days=1))
     assert [e.title for e in ev] == ["Stand-up radio", "Lunch with , the CTO"]
@@ -510,8 +510,9 @@ def test_ics_parser_recurrence_and_window():
         hc._check_url("http://example.com/cal.ics")
     with pytest.raises(ValueError):
         hc._check_url("https://127.0.0.1/cal.ics")
-    with pytest.raises(NotImplementedError):
-        hc.GraphSource().events(s, s)
+    # Microsoft 365 is not an ICS kind: it is the `calendars` provider of the teams feature
+    with pytest.raises(ValueError):
+        hc.set_source("dan@x", "graph", "X")
 
 
 def test_morning_brief_content(env, monkeypatch):
@@ -529,7 +530,7 @@ def test_morning_brief_content(env, monkeypatch):
                        {"name": "player-smoke", "purpose": "p", "deliverable": "d"}, activate=True)
     run = agents.enqueue_run(ag["id"], "manual", requested_by="dan@x")
     agents.update_run(run["id"], status="failed", ended_at=time.time())
-    import helm_calendar as hc
+    from calendars import ics as hc
     sday = datetime(2026, 10, 8, tzinfo=hc.TZ)
     cal = [e.as_dict() for e in hc.parse_ics(ICS, sday, sday + timedelta(days=1))]
     out = helm.morning_brief("radio", person="dan@x", calendar_events=cal)
@@ -556,6 +557,10 @@ def test_morning_brief_content(env, monkeypatch):
     hc.set_source("dan@x", "ics", "DAN_ICS")
     src = hc.source_for("dan@x")
     assert isinstance(src, hc.ICSUrlSource) and src.url.endswith("private.ics")
+    # the same calendar through the `calendars` interface (3.4) used by the brief
+    import calendars
+    assert isinstance(hc.ICSCalendar(), calendars.CalendarProvider)
+    assert hc.source_for("dan@x", "radio") is None        # radio's vault has no DAN_ICS
     with pytest.raises(ValueError):
         hc.set_source("dan@x", "graph", "DAN_ICS")
 
@@ -624,3 +629,21 @@ def test_periodic_job_refreshes_and_suggests(env, monkeypatch):
     out = helm.run_once()
     assert out["radio"]["new"] >= 1 and sent and "radio" in sent[0][0]
     assert json.loads(json.dumps(out))   # serialisable for the logs
+
+
+def test_classified_parent_context_does_not_flow_below_its_level(env):
+    """3.3 × 3.4: a child card inherits its parent's level; a parent classified ABOVE a card
+    (moved under it afterwards) does not flow down into that card's sessions; the context
+    note carries the card's level."""
+    board, helm = env["board"], env["helm"]
+    top = board.add_card("Merger talks", "x", project="radio", kind="project", level=3,
+                         intent="Prepare the merger with the other broadcaster", user="mia@x")
+    kid = board.add_card("Due diligence", "x", project="radio", parent_id=top["id"], user="mia@x")
+    assert kid["level"] == 3                                 # inherited, never below
+    assert "Prepare the merger" in helm.context_block(kid["id"])
+    loose = board.add_card("Public FAQ", "x", project="radio", user="mia@x")
+    board.set_parent(loose["id"], top["id"], user="mia@x")    # moved under: stays project
+    assert board.get_card(loose["id"])["level"] == 2
+    assert helm.context_block(loose["id"]) == ""
+    note = helm.write_context_note(top["id"])
+    assert "classification: confidential" in open(note["path"]).read()

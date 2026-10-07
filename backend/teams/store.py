@@ -1,0 +1,168 @@
+"""teams.store — teams.db: channel ↔ project mapping, Teams user ↔ SOKKAN account links,
+single-use approvals, and the encrypted cache of outbound tokens."""
+from __future__ import annotations
+
+import os
+import sqlite3
+import threading
+import time
+from pathlib import Path
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS channel_map (
+    channel_id TEXT PRIMARY KEY,         -- Teams channel id, or the conversation id of a chat
+    project TEXT NOT NULL,
+    level INTEGER NOT NULL DEFAULT 2,    -- audience of the channel (3.4 classification)
+    name TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    created_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS user_links (
+    aad_object_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    linked_at REAL NOT NULL,
+    PRIMARY KEY (aad_object_id, tenant_id)
+);
+CREATE TABLE IF NOT EXISTS approvals (
+    nonce TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,                  -- agent.run | agent.activate
+    ref TEXT NOT NULL,
+    project TEXT NOT NULL,
+    requested_by TEXT NOT NULL DEFAULT '',
+    approver_aad TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at REAL,
+    used_by TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS token_cache (
+    name TEXT PRIMARY KEY,
+    value_enc TEXT NOT NULL,             -- Fernet
+    expires_at REAL NOT NULL
+);
+"""
+_lock = threading.Lock()
+_ready: str | None = None
+
+
+def _dir() -> Path:
+    return Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))
+
+
+def db_path() -> Path:
+    return Path(os.environ.get("SOKKAN_TEAMS_DB") or (_dir() / "teams.db"))
+
+
+def con() -> sqlite3.Connection:
+    global _ready
+    p = db_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(p, timeout=10)
+    c.row_factory = sqlite3.Row
+    if _ready != str(p):
+        with _lock:
+            c.executescript(_SCHEMA)
+            c.commit()
+            _ready = str(p)
+    return c
+
+
+# ---- key of the instance (token encryption, approval signatures) -------------------------
+def _key_path() -> Path:
+    return Path(os.environ.get("SOKKAN_TEAMS_KEY_FILE") or (_dir() / "teams.key"))
+
+
+def key() -> bytes:
+    """Fernet key of the Teams integration (generated once, 0600)."""
+    from cryptography.fernet import Fernet
+    p = _key_path()
+    with _lock:
+        if not p.exists():
+            p.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(Fernet.generate_key())
+    return p.read_bytes().strip()
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    return Fernet(key())
+
+
+def put_token(name: str, value: str, expires_at: float) -> None:
+    c = con()
+    with c:
+        c.execute("INSERT OR REPLACE INTO token_cache(name, value_enc, expires_at) VALUES(?,?,?)",
+                  (name, _fernet().encrypt(value.encode()).decode(), expires_at))
+    c.close()
+
+
+def get_token(name: str, margin: float = 120.0) -> str | None:
+    c = con()
+    r = c.execute("SELECT value_enc, expires_at FROM token_cache WHERE name=?", (name,)).fetchone()
+    c.close()
+    if not r or r["expires_at"] - margin < time.time():
+        return None
+    try:
+        return _fernet().decrypt(r["value_enc"].encode()).decode()
+    except Exception:  # noqa: BLE001 — key rotated: fetch a new token
+        return None
+
+
+# ---- channels ---------------------------------------------------------------------------
+def map_channel(channel_id: str, project: str, level: int = 2, name: str = "", by: str = "") -> None:
+    c = con()
+    with c:
+        c.execute("INSERT OR REPLACE INTO channel_map(channel_id, project, level, name, created_at,"
+                  " created_by) VALUES(?,?,?,?,?,?)",
+                  (channel_id, project, int(level), name, time.time(), by))
+    c.close()
+
+
+def unmap_channel(channel_id: str) -> None:
+    c = con()
+    with c:
+        c.execute("DELETE FROM channel_map WHERE channel_id=?", (channel_id,))
+    c.close()
+
+
+def channel(channel_id: str) -> dict | None:
+    c = con()
+    r = c.execute("SELECT * FROM channel_map WHERE channel_id=?", (channel_id,)).fetchone()
+    c.close()
+    return dict(r) if r else None
+
+
+def channels() -> list[dict]:
+    c = con()
+    rows = [dict(r) for r in c.execute("SELECT * FROM channel_map ORDER BY project, name")]
+    c.close()
+    return rows
+
+
+# ---- user links -------------------------------------------------------------------------
+def link_user(aad_object_id: str, tenant: str, email: str) -> None:
+    c = con()
+    with c:
+        c.execute("INSERT OR REPLACE INTO user_links(aad_object_id, tenant_id, email, linked_at)"
+                  " VALUES(?,?,?,?)", (aad_object_id, tenant, email.lower().strip(), time.time()))
+    c.close()
+
+
+def linked_email(aad_object_id: str, tenant: str) -> str | None:
+    c = con()
+    r = c.execute("SELECT email FROM user_links WHERE aad_object_id=? AND tenant_id=?",
+                  (aad_object_id, tenant)).fetchone()
+    c.close()
+    return r["email"] if r else None
+
+
+def aad_of(email: str, tenant: str) -> str | None:
+    c = con()
+    r = c.execute("SELECT aad_object_id FROM user_links WHERE email=? AND tenant_id=?",
+                  (email.lower().strip(), tenant)).fetchone()
+    c.close()
+    return r["aad_object_id"] if r else None

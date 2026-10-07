@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""helm_calendar.py — SOKKAN 3.3: the agenda of the morning brief.
+"""calendars.ics — SOKKAN 3.3: ICS calendars for the morning brief (Helm).
 
-An abstract `CalendarSource` (events between two instants) with one implementation
-now — an ICS URL (the private "secret address" every calendar exports: Google,
-Outlook/Exchange, Nextcloud…) — and Microsoft Graph later (3.4, feature `teams`).
+Part of the `calendars` interface (backend/calendars/__init__.py): `ICSCalendar` is a
+`CalendarProvider` (an ICS URL — the private "secret address" every calendar exports:
+Google, Outlook/Exchange, Nextcloud…). Microsoft 365 is the other provider
+(`teams.graph.GraphCalendar`, feature `teams`, 3.4), registered with `calendars.register`.
+The brief (helm._agenda) reads an ICS configured for the person / team first, then
+`calendars.events_for` (Graph when the Teams app is configured).
 
 The URL of a private ICS feed IS a credential (whoever has it reads the calendar), so
 it lives in the vault and is referenced BY NAME: per person or team in Helm
@@ -29,7 +32,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Zurich")
 MAX_BYTES = 2 * 1024 * 1024
-KINDS = ("ics",)            # "graph" planned (3.4)
+KINDS = ("ics",)            # Graph is not set per person: it comes with the teams feature
 
 
 @dataclass
@@ -54,13 +57,6 @@ class CalendarSource:
 
     def events(self, start: datetime, end: datetime) -> list[Event]:  # pragma: no cover
         raise NotImplementedError
-
-
-class GraphSource(CalendarSource):
-    """Microsoft Graph (Teams / Outlook) — planned with the `teams` feature (3.4)."""
-
-    def events(self, start: datetime, end: datetime) -> list[Event]:
-        raise NotImplementedError("Microsoft Graph calendars come with the teams feature (3.4)")
 
 
 # ---- ICS ------------------------------------------------------------------------------
@@ -225,7 +221,8 @@ def set_source(principal: str, kind: str, secret: str) -> dict:
     import helm
     import vault
     if kind not in KINDS:
-        raise ValueError(f"calendar kind: one of {', '.join(KINDS)} (Microsoft Graph comes in 3.4)")
+        raise ValueError(f"calendar kind: one of {', '.join(KINDS)} (Microsoft 365 calendars come "
+                         "from the teams feature, not from a per-person setting)")
     if not vault.valid_name(secret):
         raise ValueError("secret: a vault secret NAME (the ICS address is a credential)")
     con = helm._con()
@@ -254,14 +251,15 @@ def get_source_config(principal: str) -> dict | None:
     return dict(r) if r else None
 
 
-def source_for(principal: str) -> CalendarSource | None:
-    """The calendar of a person / team, else the instance's team calendar, else None."""
+def source_for(principal: str, project: str = "default") -> CalendarSource | None:
+    """The calendar of a person / team, else the instance's team calendar, else None.
+    The secret is read in the vault of `project` (3.2 lot 4: one vault per project)."""
     import vault
     cfg = get_source_config(principal) if principal else None
     name = (cfg or {}).get("secret") or (os.environ.get("SOKKAN_HELM_CALENDAR_ICS") or "").strip()
     if not name:
         return None
-    url = vault.session_env([name]).get(name)
+    url = vault.session_env([name], project=project or "default").get(name)
     if not url:
         return None
     return ICSUrlSource(url)
@@ -271,3 +269,26 @@ def today_window(now: float | None = None) -> tuple[datetime, datetime]:
     d = datetime.fromtimestamp(now or time.time(), TZ)
     s = datetime.combine(date(d.year, d.month, d.day), datetime.min.time(), TZ)
     return s, s + timedelta(days=1)
+
+
+class ICSCalendar:
+    """`calendars.CalendarProvider` over the ICS sources above (per person, else the
+    instance's team calendar). Not registered globally: Helm asks it first, then
+    `calendars.events_for` (see helm._agenda)."""
+    name = "ics"
+
+    def __init__(self, project: str = "default"):
+        self.project = project
+
+    def configured(self) -> bool:
+        return True
+
+    def events(self, email: str, start: datetime, end: datetime) -> list:
+        from calendars import CalendarEvent
+        src = source_for(email, self.project)
+        if src is None:
+            return []
+        return [CalendarEvent(start=e.start.astimezone(timezone.utc).isoformat(),
+                              end=(e.end or e.start).astimezone(timezone.utc).isoformat(),
+                              subject=e.title, location=e.location)
+                for e in src.events(start, end)]

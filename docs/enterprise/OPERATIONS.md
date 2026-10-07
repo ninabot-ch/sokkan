@@ -217,7 +217,9 @@ switch to `0` and restart `api`.
 | 7. GitLab | `gitlab` | § 2b | Reporter cannot push; Developer pushes a branch and opens an MR; Maintainer pushes the protected branch | ◐ lot 5 (beta) |
 | 8. Revocation | `revocation` | § 2.1 (`SOKKAN_SCIM_TOKEN`, IdP provisioning) | SCIM deactivate → 403 at once, sessions closed, agents paused | ◐ lot 6 |
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | per registry | per feature spec | ○ |
-| 10. Helm, classification, Teams | `helm`, `classification`, `teams` | — | — | ○ 3.3 / 3.4 |
+| 10. Helm | `helm` | — | — | ○ 3.3 |
+| 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Profile → Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
+| 12. Teams | `teams` | [TEAMS.md](TEAMS.md): app registration, `SOKKAN_TEAMS_*`, admin consent, channel ↔ project mapping | `@Nina status` in a mapped channel answers as the sender; an approval card works once, for the right person | ◐ 3.4 |
 
 Planned features cannot be switched on: asking for one is reported, never honoured.
 

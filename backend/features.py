@@ -339,14 +339,25 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_HELM_TICK_S", "SOKKAN_HELM_DRIFT_MIN", "SOKKAN_HELM_SNOOZE_DAYS",
                     "SOKKAN_HELM_CALENDAR_ICS"), doc="docs/HELM.md"),
     Feature("classification", "Classification and clearances",
-            "Notes carry a classification; Nina acts on the user's behalf within their "
-            "clearance; derived content inherits the highest level; audited recall.",
-            status="planned", kind="planned", target="3.4", requires=("multi_project", "sso_teams"),
-            vars=_t("classification")),
+            "Notes, decisions, cards and agent deliverables carry a level (public < team < "
+            "project < confidential < restricted); each person a clearance per project from "
+            "their SSO groups and project role. Recall, memory_search / memory_get, the "
+            "CortHeXis tab, the board, Nina and Teams return only what the person is cleared "
+            "for; derived content inherits the highest level of its sources; every note handed "
+            "out is logged (audited recall). Off: nothing above `project` is reachable.",
+            status="beta", defaults=_ed(False, True), requires=("multi_project", "sso_teams"),
+            vars=_t("classification"),
+            config=("SOKKAN_CLASSIFICATION_LABELS", "SOKKAN_CLEARANCE_ROLES"),
+            doc="docs/enterprise/SECURITY.md"),
     Feature("teams", "Microsoft Teams",
-            "@Nina in Teams, HITL approvals as Teams cards, decision capture, calendar/presence "
-            "via Graph (tenant app, per-resource consent).", status="planned", kind="planned",
-            target="3.4", requires=("assistant", "classification", "sso"), vars=_t("teams")),
+            "@Nina in Teams channels and chats (project status, cards, proposed agents → "
+            "approval), HITL approvals as signed single-use Adaptive Cards, decision capture "
+            "into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. "
+            "Single-tenant app, admin consent, Nina answers as the identified user only.",
+            status="experimental", requires=("assistant", "classification", "sso"),
+            vars=_t("teams"),
+            config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD", "SOKKAN_TEAMS_TENANT_ID"),
+            doc="docs/enterprise/TEAMS.md"),
     Feature("connect_ai", "Connect your AI",
             "One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
             "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "

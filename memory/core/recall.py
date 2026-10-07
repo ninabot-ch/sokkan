@@ -342,7 +342,7 @@ class Recaller:
                     snippet=(note.body or "")[:320], age_days=days, date_source=src,
                     description=note.description, modified=mod, source_path=note.source_path,
                     priority=note.priority, generation=gen.id,
-                    project=_scope.project_of(note)))
+                    project=_scope.project_of(note), level=getattr(note, "level", None)))
                 res.forced.append(name)
         # quoted names first, then the ranking
         kept.sort(key=lambda h: (h.note_name not in res.forced, -h.score))

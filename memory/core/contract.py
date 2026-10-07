@@ -41,6 +41,7 @@ class NoteRecord:
     modified_source: str          # one of DATE_SOURCES
     body: str
     project: str = DEFAULT_PROJECT  # 3.2: project scope of the note (migration 0011)
+    level: int = 2                  # 3.4: classification rank (core.levels; 2 = project)
 
 
 @dataclass

@@ -253,6 +253,7 @@ export interface ChecklistItem {
 
 export interface Card {
   id: number;
+  level?: number;          // 3.4 classification rank (2 = project)
   title: string;
   description: string;
   tag: string;

@@ -251,6 +251,9 @@ def list_runs(agent: str, limit: int = 20) -> list[dict] | dict:
         runs = agents.list_runs(user, (a or {}).get("id", -1), limit=limit)
     except agents.AgentError as e:
         return _err(e)
+    import classification
+    cap = classification.env_cap()
+    runs = [classification.redact_run(r, cap) for r in runs]
     for r in runs:
         r["deliverable"] = (r["deliverable"] or "")[:300]
     return runs
@@ -261,7 +264,9 @@ def get_run(run_id: int) -> dict:
     """One run in full: status, error, cost, tokens, deliverable, where it was filed."""
     user, _ = _who()
     try:
-        return agents.get_run_for(user, int(run_id))
+        import classification
+        return classification.redact_run(agents.get_run_for(user, int(run_id)),
+                                         classification.env_cap())
     except agents.AgentError as e:
         return _err(e)
 
