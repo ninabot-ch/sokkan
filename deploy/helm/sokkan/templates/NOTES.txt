@@ -1,0 +1,14 @@
+SOKKAN {{ .Chart.AppVersion }} — release {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+Cockpit: https://{{ .Values.ingress.host }}
+{{- else }}
+No Ingress: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "sokkan.fullname" . }}-api 8097
+{{- end }}
+Sessions run in their own pods (runner: {{ .Values.runner.mode }}):
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/component=session,sokkan.ch/instance={{ .Release.Name }}
+{{- if .Values.devPostgres.enabled }}
+
+WARNING: devPostgres is for tests only (one pod, no backup). Use a managed Postgres with pgvector.
+{{- end }}
+Guide: docs/enterprise/KUBERNETES.md

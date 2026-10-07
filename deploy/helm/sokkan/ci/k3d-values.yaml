@@ -1,0 +1,27 @@
+# Local test on k3d / kind (deploy/helm/sokkan/ci/k3d-test.sh): local images, in-release
+# test Postgres, no TLS, sessions with small limits, the model = the test mock.
+api:
+  image: {repository: sokkan-api, tag: local, pullPolicy: Never}
+  publicUrl: http://sokkan.localtest.me
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  env:
+    SOKKAN_FEATURE_UPDATE_CHECK: "0"
+    SOKKAN_FEATURE_AGENTS: "0"
+web:
+  image: {repository: sokkan-web, tag: local, pullPolicy: Never}
+  replicas: 1
+runner:
+  image: {repository: sokkan-session, tag: local, pullPolicy: Never}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+ingress:
+  host: sokkan.localtest.me
+  tls: {enabled: false}
+persistence:
+  size: 2Gi
+devPostgres:
+  enabled: true
+  size: 1Gi

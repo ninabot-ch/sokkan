@@ -340,8 +340,13 @@ class AgentSession:
                 opts_kwargs["model"] = model
             if self.resume:
                 opts_kwargs["resume"] = self.resume
-            options = ClaudeAgentOptions(**opts_kwargs)
-            self.client = ClaudeSDKClient(options=options)
+            # runner (SOKKAN_RUNNER): local = the SDK spawns the CLI here, as always;
+            # docker / kubernetes = the CLI runs in a session container / pod (backend/runner)
+            import runner
+            options, transport = runner.client_args(
+                self.sid, opts_kwargs, user=self.user, project=session_project(self.sid),
+                kind="run" if pol else "session")
+            self.client = ClaudeSDKClient(options=options, transport=transport)
             # __aenter__ plutôt que `async with` : on garde le client ouvert
             await self.client.__aenter__()
 

@@ -1,0 +1,68 @@
+{{- $fn := include "sokkan.fullname" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}-web
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+# identity of the session pods: no RBAC binding, no token mounted
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}-session
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+{{- if eq .Values.runner.mode "kubernetes" }}
+---
+# what the api needs to run sessions — namespaced, nothing cluster-wide
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fn }}-runner
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  # one Secret per session (its environment), owned by its pod
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, delete, patch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fn }}-runner
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fn }}-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fn }}-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}

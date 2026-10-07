@@ -58,6 +58,25 @@ Notable changes, newest first. Versions: semver + release hash (see
   (`Calendars.Read`) behind the new `calendars` interface (for the brief). Built and tested
   against a Graph / Bot Framework simulator — no app registered yet. See
   `docs/enterprise/TEAMS.md`.
+### Kubernetes runner and Helm chart
+- **Session runners** (feature `kubernetes_runner`, experimental, off by default;
+  `backend/runner/`, docs/enterprise/KUBERNETES.md). `SOKKAN_RUNNER=local` (default) keeps
+  the CLI inside the api exactly as before. `docker` runs each session / agent run in its own
+  container on the compose host (opt-in override `docker/runner/compose.docker-runner.yml`);
+  `kubernetes` in its own Pod through the K8s API. A session container is non-root
+  (arbitrary uid OK), read-only, capabilities dropped, CPU/memory limited, mounts only its
+  workspace and transcript directory, and reaches nothing but the api's MCP relay and an
+  allowlist egress gateway. The cockpit still drives it with the Agent SDK (permissions,
+  hooks, budgets unchanged); a supervisor in the container keeps the CLI alive across an api
+  restart and the restarted api reattaches to it. New image `docker/session.Dockerfile`.
+- **Helm chart** `deploy/helm/sokkan` (vanilla Kubernetes; overlays `values-sks.yaml` for
+  Exoscale SKS and `values-openshift.yaml` for the restricted SCC): api (single replica —
+  refused otherwise, see the doc's limits), web, Ingress (/api and /term to the api),
+  external Postgres via Secret (test-only pgvector pod `devPostgres`), optional embeddings
+  and vLLM on GPU nodes, Secret / ExternalSecret, minimal namespaced RBAC, NetworkPolicies,
+  PodDisruptionBudget. `tests/test_helm_chart.py` renders every overlay and checks: no root,
+  no privileged, limits everywhere, dedicated ServiceAccounts.
+
 - **Feature registry** (`backend/features.py`, the base of SOKKAN Enterprise — the same app,
   not a fork). Every feature is declared once: switch `SOKKAN_FEATURE_<ID>=1|0`, defaults per
   edition (`SOKKAN_EDITION` = community, the default, or enterprise), `requires`,

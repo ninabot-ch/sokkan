@@ -83,6 +83,18 @@ table in [FEATURES.md](FEATURES.md).
   sandbox. ◐
 * Sandbox per sensitive project (own uid / container). ○ 3.2 lot 8
 
+**Execution layer — session pods** ◐ *in progress* (feature `kubernetes_runner`,
+[KUBERNETES.md](KUBERNETES.md)). Where the CLI of a session or agent run executes is a
+runner: `local` (in the api, default ●), `docker` (one container per session on the compose
+host ◐) or `kubernetes` (one Pod per session through the K8s API, Helm chart ◐). A session
+container is non-root, read-only, capability-free, CPU/memory limited, mounts only its
+project's workspace and transcripts, and reaches only the api's MCP relay (identity set by the
+api) and an allowlist egress gateway. The SDK keeps driving it (permissions, hooks, budgets);
+a supervisor in the container survives an api restart and the api reattaches. Validated: unit
+and docker tests with the real CLI; the chart on a real k3s cluster (real images, a session
+pod started from the api, api restart → reattach, cleanup) and under the enforced `restricted`
+Pod Security Standard — SKS and OpenShift clusters not yet.
+
 ### 2.4 Embedded MCP servers
 
 `sokkan-memory` (search, get, links, write) ● · `sokkan-board` (search, read, create, edit,
@@ -146,6 +158,7 @@ journal records actions, not conversation content.
 
 | View | Content |
 |---|---|
+| Kubernetes (◐ in progress) | Helm chart `deploy/helm/sokkan`: `api` (1 replica), `web`, egress gateway, one Pod per session / run; Postgres = DBaaS; optional embeddings and vLLM on GPU nodes; overlays SKS and OpenShift (restricted SCC) |
 | Single VM (POC) | `docker compose`: `web`, `api`, `db` (Postgres), `corthexis-embed`; optional profiles `rerank` (`corthexis-rerank`) and `edge` (Caddy, TLS); volumes `sokkan-data`, `sokkan-pg`, `corthexis-models` |
 | Three VMs (POC target) | cockpit · CortHeXis memory engine · small LLM — **TBD**: split topology not yet documented as a supported layout |
 | Managed (SOKKAN Cloud) | dedicated VM + private network per customer in Geneva |

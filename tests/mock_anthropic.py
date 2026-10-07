@@ -41,7 +41,7 @@ def all_text(req: dict) -> str:
 
 
 class MockAnthropic:
-    def __init__(self):
+    def __init__(self, host: str = "127.0.0.1", port: int = 0):
         self.requests: list[dict] = []
         self._lock = threading.Lock()
         self._n = 0
@@ -124,8 +124,8 @@ class MockAnthropic:
                 ev("message_stop", {"type": "message_stop"})
                 self.wfile.flush()
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.server = ThreadingHTTPServer((host, port), H)
+        self.url = f"http://{host}:{self.server.server_address[1]}"
         self._t = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def answer(self, req: dict, mid: int):

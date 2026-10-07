@@ -41,6 +41,7 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`infra`](#infra) Infra topology | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM` |
 | [`fleet`](#fleet) Managed fleet | stable | integration | if configured | if configured | — | — | `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN` |
 | [`cortex`](#cortex) CortHeXis link | stable | integration | if configured | if configured | — | — | `SOKKAN_CORTEX_URL` |
+| [`kubernetes_runner`](#kubernetes_runner) Container runner (docker / Kubernetes) | experimental | toggle | off | off | — | — | `SOKKAN_FEATURE_KUBERNETES_RUNNER`<br>`SOKKAN_RUNNER` |
 | [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | beta (3.2) | toggle | off | on | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
 | [`gitlab`](#gitlab) GitLab projects | beta | toggle | off | on | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
 | [`revocation`](#revocation) Revocation | beta | toggle | off | on | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
@@ -83,6 +84,7 @@ graph LR
   infra["Infra topology"]
   fleet["Managed fleet"]
   cortex["CortHeXis link"]
+  kubernetes_runner["Container runner (docker / Kubernetes)"]
   project_vault_budgets["Vault and budgets per project"]
   gitlab["GitLab projects"]
   revocation["Revocation"]
@@ -387,6 +389,16 @@ Link from the memory tab to a CortHeXis review UI.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_CORTEX_URL`
+
+### kubernetes_runner
+
+**Container runner (docker / Kubernetes)** — experimental, toggle.
+
+Each session and agent run gets its own container (SOKKAN_RUNNER=docker, compose host) or Pod (SOKKAN_RUNNER=kubernetes, Helm chart): non-root, CPU/memory limits, only its project's workspace mounted, no network but the api's MCP relay and the egress gateway. Off (SOKKAN_RUNNER=local): the CLI runs inside the api, as before.
+
+- Defaults: community **off**, enterprise **off**
+- Switch: `SOKKAN_FEATURE_KUBERNETES_RUNNER`, `SOKKAN_RUNNER`
+- Doc: [docs/enterprise/KUBERNETES.md](../../docs/enterprise/KUBERNETES.md)
 
 ### project_vault_budgets
 

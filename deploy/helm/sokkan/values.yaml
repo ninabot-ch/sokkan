@@ -1,0 +1,224 @@
+# SOKKAN Helm chart — default values (vanilla Kubernetes).
+# Overlays: values-sks.yaml (Exoscale SKS), values-openshift.yaml (restricted SCC).
+# Full guide: docs/enterprise/KUBERNETES.md. Every key below is commented; keep it that way.
+
+# -- Shared image settings ------------------------------------------------------------
+global:
+  # registry prefix applied to every SOKKAN image whose repository has no registry
+  imageRegistry: ""
+  imagePullSecrets: []        # [{name: regcred}]
+
+# Pod security for every SOKKAN pod (api, web, egress, sessions, embeddings).
+# Vanilla: fixed non-root uid/gid 1000 and fsGroup 1000 (the data volume is writable).
+# OpenShift: values-openshift.yaml sets all three to null — the restricted SCC assigns them.
+podSecurity:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Edition of the app (backend/features.py): enterprise turns on its defaults
+# (multi_project, four_eyes; missions_link off). Individual switches go to api.env.
+edition: enterprise
+
+# -- api (FastAPI + Claude Agent SDK) ----------------------------------------------------
+api:
+  image:
+    repository: ghcr.io/ninabot-ch/sokkan-api
+    tag: ""                   # default: .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  # The api is STATEFUL today: SQLite databases (board, agents, projects, vault) and the live
+  # sessions are on its data volume and in its memory. Keep ONE replica (strategy Recreate).
+  # More replicas / the HPA need allowMultipleReplicas=true and are NOT supported yet: the
+  # chart refuses them otherwise (docs/enterprise/KUBERNETES.md § Limits).
+  replicas: 1
+  allowMultipleReplicas: false
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "2", memory: 3Gi}
+  # public URL of the cockpit (links in mails / notifications, OIDC redirect)
+  publicUrl: https://sokkan.example.com
+  ownerEmail: owner@example.com
+  ownerName: Owner
+  timezone: Europe/Zurich
+  # extra environment (plain values): any SOKKAN_* switch of docs/enterprise/FEATURES.md
+  env: {}
+  #   SOKKAN_AUTH_MODE: oidc
+  #   SOKKAN_OIDC_ISSUER: https://login.example.com/realms/acme
+  #   SOKKAN_OIDC_CLIENT_ID: sokkan
+  # extra envFrom (ConfigMaps / Secrets you manage)
+  extraEnvFrom: []
+  probes:
+    readiness: {initialDelaySeconds: 10, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6}
+    liveness: {initialDelaySeconds: 60, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# -- web (Next.js) ---------------------------------------------------------------------------
+web:
+  image:
+    repository: ghcr.io/ninabot-ch/sokkan-web
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 2                 # stateless
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -- Ingress: / → web, /api and /term → api (WebSockets included). Controller-agnostic:
+# put TLS / controller specifics in annotations (cert-manager, NGINX timeouts, Route…).
+ingress:
+  enabled: true
+  className: ""
+  host: sokkan.example.com
+  annotations: {}
+  #   cert-manager.io/cluster-issuer: letsencrypt
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  tls:
+    enabled: true
+    secretName: ""            # default: <release>-sokkan-tls
+
+# -- Data volume: SQLite databases, workspaces, transcripts, memory notes (.md = source of
+# truth of the memory). ReadWriteOnce works with ONE api replica: session pods are then
+# scheduled on the api's node (podAffinity). ReadWriteMany (NFS, CephFS…) lifts that.
+persistence:
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 20Gi
+
+# -- Postgres (memory store CortHeXis 3.0, needs pgvector). External / DBaaS by default.
+database:
+  # Secret holding the URL (postgresql://user:pass@host:5432/db?sslmode=require)
+  existingSecret: ""
+  secretKey: DATABASE_URL
+  # or the URL itself (rendered into the chart's Secret; prefer existingSecret)
+  url: ""
+  # memory backend: postgres (store only) | auto (migrates a 2.x memory once) | sqlite
+  memoryBackend: postgres
+
+# A pgvector Postgres INSIDE the release, for tests and evaluation only (single pod, no
+# backup, no HA). Production = a managed Postgres with pgvector (Exoscale DBaaS, RDS…).
+# (Not the Bitnami sub-chart: the memory needs the pgvector extension, which it lacks.)
+devPostgres:
+  enabled: false
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+  password: ""                # empty = generated once and kept in the release Secret
+  size: 5Gi
+  storageClass: ""
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+# -- Memory embeddings (CortHeXis) -----------------------------------------------------------
+memory:
+  # leger = in-process ONNX model baked in the api image (no extra pod);
+  # standard | gpu = llama.cpp embedding server below (embeddings.enabled) or embedUrls
+  profile: leger
+  embedUrls: ""               # comma list of embedding servers, tried in order
+  rerankUrl: ""               # reranker URL, "off" disables
+  acceptGemmaTerms: ""        # "1" = accept the Gemma Terms of Use (EmbeddingGemma), "0" = MIT model
+
+embeddings:
+  enabled: false
+  image:
+    repository: ghcr.io/ggml-org/llama.cpp
+    tag: server-b11347
+  device: cpu
+  modelsSize: 5Gi
+  storageClass: ""
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "2", memory: 2Gi}
+
+# -- Session runner: one Pod per agent session / run -------------------------------------------
+runner:
+  # kubernetes (this chart's purpose) | local (CLI inside the api pod, like compose)
+  mode: kubernetes
+  image:
+    repository: ghcr.io/ninabot-ch/sokkan-session
+    tag: ""
+    pullPolicy: IfNotPresent
+  # per-session pod resources (measured: docs/enterprise/KUBERNETES.md § Sizing)
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+  idleSeconds: 900            # supervisor exits after this long without the api
+  maxSeconds: 86400           # activeDeadlineSeconds of a session pod
+  startTimeoutSeconds: 300
+  nodeSelector: {}
+  tolerations: []
+  # egress gateway: the ONLY way out of a session pod (HTTPS CONNECT allowlist)
+  egress:
+    allow:
+      - api.anthropic.com
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+
+# -- Secrets ------------------------------------------------------------------------------------
+# One Secret with the api's sensitive environment. Either the chart creates it from `values`
+# (fine for tests; use --set-file or an encrypted values file), or you point to yours, or the
+# External Secrets Operator syncs it (externalSecret).
+secrets:
+  existingSecret: ""
+  values: {}
+  #   ANTHROPIC_API_KEY: sk-ant-…          # BYOK (or CLAUDE_CODE_OAUTH_TOKEN)
+  #   SOKKAN_OIDC_CLIENT_SECRET: …
+  #   SOKKAN_LOCAL_TOKEN: …                 # login token when no SSO
+  # vault master key (Fernet) of the secrets vault, mounted at /data/vault.key
+  # (else generated on first start and kept on the data volume)
+  vaultKey:
+    existingSecret: ""
+    key: vault.key
+
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef: {kind: ClusterSecretStore, name: ""}
+  # [{secretKey: ANTHROPIC_API_KEY, remoteRef: {key: sokkan/byok, property: key}}]
+  data: []
+
+# -- Optional GPU inference (vLLM, OpenAI-compatible) for local models / embeddings ------------
+vllm:
+  enabled: false
+  image:
+    repository: vllm/vllm-openai
+    tag: v0.10.1
+  model: Qwen/Qwen2.5-Coder-7B-Instruct
+  args: ["--max-model-len", "32768"]
+  gpus: 1
+  resources:
+    requests: {cpu: "2", memory: 16Gi}
+    limits: {cpu: "8", memory: 32Gi}
+  nodeSelector: {}
+  tolerations: []
+  cacheSize: 50Gi
+  storageClass: ""
+
+# -- Policies --------------------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # namespaces allowed to reach web / api (the ingress controller's)
+  ingressNamespaceSelector:
+    matchLabels: {}
+  # extra egress of the api (CIDRs) besides DNS, its DB and HTTPS; [] = HTTPS anywhere
+  apiEgressCIDRs: []
+
+podDisruptionBudget:
+  enabled: true
+
+serviceAccount:
+  annotations: {}

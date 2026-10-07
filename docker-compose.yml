@@ -217,6 +217,16 @@ services:
       SOKKAN_HELM_SNOOZE_DAYS: ${SOKKAN_HELM_SNOOZE_DAYS:-7}
       SOKKAN_HELM_CALENDAR_ICS: ${SOKKAN_HELM_CALENDAR_ICS:-}
       SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE: ${SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE:-0}
+      # runner — where the CLI of a session / agent run executes (feature kubernetes_runner,
+      # docs/enterprise/KUBERNETES.md). local (default) = inside this container, as before;
+      # docker = one container per session: add docker/runner/compose.docker-runner.yml
+      # to COMPOSE_FILE (it sets the variables below); kubernetes = the Helm chart.
+      SOKKAN_FEATURE_KUBERNETES_RUNNER: ${SOKKAN_FEATURE_KUBERNETES_RUNNER:-}
+      SOKKAN_RUNNER: ${SOKKAN_RUNNER:-local}
+      # docker runner : valeurs posées par docker/runner/compose.docker-runner.yml (vide = défauts)
+      SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
+      SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}
+      SOKKAN_RUNNER_RELAY_ADDR: ${SOKKAN_RUNNER_RELAY_ADDR:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

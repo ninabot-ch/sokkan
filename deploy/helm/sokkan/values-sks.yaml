@@ -1,0 +1,50 @@
+# Exoscale SKS overlay:  helm install sokkan deploy/helm/sokkan -f values-sks.yaml -f my.yaml
+# Prerequisites (docs/enterprise/KUBERNETES.md § SKS): an SKS cluster with the Exoscale CSI
+# addon (block storage) and the Exoscale CCM (LoadBalancer = NLB), an ingress controller
+# exposed through an NLB, a DBaaS PostgreSQL with pgvector, optionally a GPU nodepool.
+
+persistence:
+  # Exoscale CSI block storage: ReadWriteOnce → session pods follow the api on its node
+  storageClass: exoscale-sbs
+  accessMode: ReadWriteOnce
+  size: 50Gi
+
+ingress:
+  className: nginx
+  annotations:
+    # TLS by cert-manager (or terminate on the NLB); WebSockets of the session view
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+
+# the ingress-nginx Service (in its own namespace) is the one that gets the Exoscale NLB:
+#   controller.service.annotations:
+#     service.beta.kubernetes.io/exoscale-loadbalancer-name: sokkan
+#     service.beta.kubernetes.io/exoscale-loadbalancer-service-healthcheck-mode: http
+networkPolicy:
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: ingress-nginx
+
+database:
+  # Secret with DATABASE_URL = the DBaaS URI (exo dbaas show <name> --uri), sslmode=require;
+  # add the SKS nodes' egress IPs to the DBaaS ip-filter
+  existingSecret: sokkan-db
+  memoryBackend: postgres
+
+runner:
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  # sessions on the general nodepool; GPU nodes stay for inference
+  nodeSelector: {}
+
+# optional: vLLM on an SKS GPU nodepool (label + taint set on the nodepool)
+vllm:
+  enabled: false
+  storageClass: exoscale-sbs
+  nodeSelector:
+    node.exoscale.net/nodepool: gpu
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}

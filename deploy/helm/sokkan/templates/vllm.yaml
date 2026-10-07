@@ -1,0 +1,94 @@
+{{- if .Values.vllm.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+# Optional GPU inference (OpenAI-compatible) on GPU nodes — e.g. SKS GPU nodepool. Point the
+# cockpit's model settings (Profile → Model) or SOKKAN_ASSISTANT_LLM_URL at
+# http://<release>-vllm:8000/v1. Runs non-root like every pod of the chart (HOME = the cache
+# volume); needs the NVIDIA device plugin (nvidia.com/gpu) on the GPU nodes.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-vllm-cache
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.vllm.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.vllm.cacheSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-vllm
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "vllm") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: vllm
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: vllm
+          image: {{ printf "%s:%s" .Values.vllm.image.repository .Values.vllm.image.tag }}
+          args: {{ concat (list "--model" .Values.vllm.model "--port" "8000") .Values.vllm.args | toJson }}
+          env:
+            - {name: HOME, value: /cache}
+            - {name: HF_HOME, value: /cache/hf}
+          ports:
+            - {name: http, containerPort: 8000}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              {{- toYaml .Values.vllm.resources.requests | nindent 14 }}
+            limits:
+              {{- toYaml .Values.vllm.resources.limits | nindent 14 }}
+              nvidia.com/gpu: {{ .Values.vllm.gpus }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" false) | nindent 12 }}
+          volumeMounts:
+            - {name: cache, mountPath: /cache}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: {{ $fn }}-vllm-cache}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 8Gi}}
+      {{- with .Values.vllm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vllm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-vllm
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "vllm") | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}
+{{- end }}

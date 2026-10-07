@@ -1,0 +1,227 @@
+{{- $fn := include "sokkan.fullname" . -}}
+{{- if and (or (gt (int .Values.api.replicas) 1) .Values.api.autoscaling.enabled) (not .Values.api.allowMultipleReplicas) -}}
+{{- fail "api.replicas > 1 / api.autoscaling: the api keeps SQLite databases and live sessions on its volume and in memory — not supported yet (set api.allowMultipleReplicas=true only to test it; see docs/enterprise/KUBERNETES.md § Limits)" -}}
+{{- end -}}
+{{- if and (not .Values.database.existingSecret) (not .Values.database.url) (not .Values.devPostgres.enabled) -}}
+{{- fail "a Postgres is required: database.existingSecret (recommended), database.url, or devPostgres.enabled=true (tests only)" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  strategy:
+    type: Recreate            # RWO data volume + SQLite: never two api pods at once
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $fn }}-api
+      automountServiceAccountToken: {{ eq .Values.runner.mode "kubernetes" }}
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      initContainers:
+        # the layout the api and the session pods share on the data volume
+        - name: data-layout
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.api.image) }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command: ["sh", "-c", "mkdir -p /data/workspace /data/claude/projects /data/projects"]
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      containers:
+        - name: api
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.api.image) }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 8097}
+            - {name: relay, containerPort: 8098}
+          env:
+            - {name: SOKKAN_EDITION, value: {{ .Values.edition | quote }}}
+            - {name: SOKKAN_PUBLIC_URL, value: {{ .Values.api.publicUrl | quote }}}
+            - {name: SOKKAN_OWNER_EMAIL, value: {{ .Values.api.ownerEmail | quote }}}
+            - {name: SOKKAN_OWNER_NAME, value: {{ .Values.api.ownerName | quote }}}
+            - {name: SOKKAN_TZ, value: {{ .Values.api.timezone | quote }}}
+            - {name: SOKKAN_VERSION, value: {{ default .Chart.AppVersion .Values.api.image.tag | quote }}}
+            # layout on the data volume (same paths in the session pods)
+            - {name: SOKKAN_DATA_DIR, value: /data}
+            - {name: HOME, value: /data}
+            - {name: CLAUDE_CONFIG_DIR, value: /data/claude}
+            - {name: SOKKAN_AGENT_CWD, value: /data/workspace}
+            - {name: SOKKAN_PROJECT_WD, value: /data/workspace}
+            - {name: SOKKAN_MEMORY_DIR, value: /data/claude/projects/-data-workspace/memory}
+            # no raw terminal inside the api pod (sessions run in their own pods)
+            - {name: SOKKAN_FEATURE_TMUX, value: "0"}
+            # memory store
+            - name: CORTHEXIS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sokkan.dbSecretName" . }}
+                  key: {{ .Values.database.secretKey }}
+            - {name: CORTHEXIS_MEMORY_BACKEND, value: {{ .Values.database.memoryBackend | quote }}}
+            - {name: CORTHEXIS_MEMORY_PROFILE, value: {{ .Values.memory.profile | quote }}}
+            {{- $embed := .Values.memory.embedUrls }}
+            {{- if and .Values.embeddings.enabled (not $embed) }}
+            {{- $embed = printf "http://%s-embed:8080" $fn }}
+            {{- end }}
+            - {name: CORTHEXIS_EMBED_URLS, value: {{ $embed | quote }}}
+            - {name: CORTHEXIS_RERANK_URL, value: {{ .Values.memory.rerankUrl | quote }}}
+            # runner (feature kubernetes_runner)
+            - {name: SOKKAN_RUNNER, value: {{ .Values.runner.mode | quote }}}
+            {{- if eq .Values.runner.mode "kubernetes" }}
+            - {name: SOKKAN_RUNNER_INSTANCE, value: {{ .Release.Name | quote }}}
+            - {name: SOKKAN_K8S_NAMESPACE, value: {{ .Release.Namespace | quote }}}
+            - {name: SOKKAN_SESSION_IMAGE, value: {{ include "sokkan.image" (dict "root" . "image" .Values.runner.image) | quote }}}
+            - {name: SOKKAN_SESSION_IMAGE_PULL_POLICY, value: {{ .Values.runner.image.pullPolicy | quote }}}
+            {{- with .Values.global.imagePullSecrets }}
+            - {name: SOKKAN_SESSION_IMAGE_PULL_SECRET, value: {{ (first .).name | quote }}}
+            {{- end }}
+            - {name: SOKKAN_K8S_SESSION_SERVICE_ACCOUNT, value: {{ printf "%s-session" $fn | quote }}}
+            - {name: SOKKAN_RUNNER_MOUNTS, value: {{ printf "/data=pvc:%s" (include "sokkan.dataClaim" .) | quote }}}
+            - {name: SOKKAN_RUNNER_RELAY_BIND, value: "0.0.0.0:8098"}
+            - {name: SOKKAN_RUNNER_RELAY_ADDR, value: {{ printf "%s-api-relay.%s.svc:8098" $fn .Release.Namespace | quote }}}
+            - {name: SOKKAN_SESSION_HTTPS_PROXY, value: {{ printf "http://%s-egress.%s.svc:3128" $fn .Release.Namespace | quote }}}
+            - {name: SOKKAN_K8S_RUN_AS_USER, value: {{ .Values.podSecurity.runAsUser | default "" | toString | quote }}}
+            - {name: SOKKAN_K8S_FS_GROUP, value: {{ .Values.podSecurity.fsGroup | default "" | toString | quote }}}
+            {{- if eq .Values.persistence.accessMode "ReadWriteOnce" }}
+            - {name: SOKKAN_K8S_SESSION_AFFINITY, value: api}
+            {{- end }}
+            - name: SOKKAN_K8S_API_POD_LABELS
+              value: {{ include "sokkan.selector" (dict "root" . "component" "api") | fromYaml | toJson | quote }}
+            - {name: SOKKAN_K8S_SESSION_NODE_SELECTOR, value: {{ .Values.runner.nodeSelector | toJson | quote }}}
+            - {name: SOKKAN_K8S_SESSION_TOLERATIONS, value: {{ .Values.runner.tolerations | toJson | quote }}}
+            - name: SOKKAN_K8S_SESSION_LABELS
+              value: {{ dict "app.kubernetes.io/instance" .Release.Name | toJson | quote }}
+            - {name: SOKKAN_SESSION_CPU_REQUEST, value: {{ .Values.runner.resources.requests.cpu | quote }}}
+            - {name: SOKKAN_SESSION_CPU_LIMIT, value: {{ .Values.runner.resources.limits.cpu | quote }}}
+            - {name: SOKKAN_SESSION_MEMORY_REQUEST, value: {{ .Values.runner.resources.requests.memory | quote }}}
+            - {name: SOKKAN_SESSION_MEMORY_LIMIT, value: {{ .Values.runner.resources.limits.memory | quote }}}
+            - {name: SOKKAN_SESSION_IDLE_S, value: {{ .Values.runner.idleSeconds | quote }}}
+            - {name: SOKKAN_SESSION_MAX_S, value: {{ .Values.runner.maxSeconds | quote }}}
+            - {name: SOKKAN_K8S_START_TIMEOUT_S, value: {{ .Values.runner.startTimeoutSeconds | quote }}}
+            - name: SOKKAN_RUNNER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fn }}-runner
+                  key: runner-secret
+            {{- end }}
+            {{- range $k, $v := .Values.api.env }}
+            - name: {{ $k }}
+              value: {{ $v | toString | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "sokkan.secretName" . }}
+                optional: true
+            {{- with .Values.api.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            {{- toYaml .Values.api.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            {{- toYaml .Values.api.probes.liveness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" false) | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.secrets.vaultKey.existingSecret }}
+            - name: vault-key
+              mountPath: /data/vault.key
+              subPath: {{ .Values.secrets.vaultKey.key }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "sokkan.dataClaim" . }}
+        - name: tmp
+          emptyDir: {sizeLimit: 2Gi}
+        {{- if .Values.secrets.vaultKey.existingSecret }}
+        - name: vault-key
+          secret:
+            secretName: {{ .Values.secrets.vaultKey.existingSecret }}
+            defaultMode: 0400
+        {{- end }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - {name: http, port: 8097, targetPort: http}
+---
+# MCP relay: reached by the session pods only (NetworkPolicy)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-api-relay
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - {name: relay, port: 8098, targetPort: relay}
+{{- if not .Values.persistence.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-data
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep   # never deleted by `helm uninstall`
+spec:
+  accessModes: [{{ .Values.persistence.accessMode }}]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

@@ -1,0 +1,77 @@
+{{- if .Values.devPostgres.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+# TESTS / EVALUATION ONLY: one pgvector Postgres pod, no backup, no HA.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fn }}-postgres
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ $fn }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: postgres
+          image: {{ printf "%s:%s" .Values.devPostgres.image.repository .Values.devPostgres.image.tag }}
+          env:
+            - {name: POSTGRES_USER, value: sokkan}
+            - {name: POSTGRES_DB, value: sokkan}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ include "sokkan.dbSecretName" . }}, key: POSTGRES_PASSWORD}
+          ports:
+            - {name: pg, containerPort: 5432}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "sokkan", "-d", "sokkan"]}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.devPostgres.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" false) | nindent 12 }}
+          volumeMounts:
+            - {name: pg, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - {name: run, emptyDir: {}}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 256Mi}}
+  volumeClaimTemplates:
+    - metadata:
+        name: pg
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.devPostgres.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.devPostgres.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-postgres
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "postgres") | nindent 4 }}
+  ports:
+    - {name: pg, port: 5432, targetPort: pg}
+{{- end }}

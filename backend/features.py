@@ -280,6 +280,19 @@ REGISTRY: tuple[Feature, ...] = (
             kind="integration", auto=_fleet_configured, config=("SOKKAN_FLEET_URL", "SOKKAN_FLEET_TOKEN")),
     Feature("cortex", "CortHeXis link", "Link from the memory tab to a CortHeXis review UI.",
             kind="integration", auto=_cortex_configured, config=("SOKKAN_CORTEX_URL",)),
+    # -- execution layer (Kubernetes runner and Helm chart)
+    Feature("kubernetes_runner", "Container runner (docker / Kubernetes)",
+            "Each session and agent run gets its own container (SOKKAN_RUNNER=docker, compose "
+            "host) or Pod (SOKKAN_RUNNER=kubernetes, Helm chart): non-root, CPU/memory limits, "
+            "only its project's workspace mounted, no network but the api's MCP relay and the "
+            "egress gateway. Off (SOKKAN_RUNNER=local): the CLI runs inside the api, as before.",
+            status="experimental", defaults=_both(False),
+            vars=_t("kubernetes_runner",
+                    Var("SOKKAN_RUNNER", _mode(("docker", "kubernetes"), ("local",)), False,
+                        "docker | kubernetes = on, local = off")),
+            config=("SOKKAN_RUNNER", "SOKKAN_SESSION_IMAGE", "SOKKAN_RUNNER_MOUNTS",
+                    "SOKKAN_RUNNER_RELAY_ADDR"),
+            doc="docs/enterprise/KUBERNETES.md"),
     # -- roadmap (planned: declared so the dependencies are agreed before the code exists)
     Feature("project_vault_budgets", "Vault and budgets per project",
             "Per-project vault, cost totals and budgets, agent names and CortHeXis review per "

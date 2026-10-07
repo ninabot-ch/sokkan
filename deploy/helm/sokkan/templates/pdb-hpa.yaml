@@ -1,0 +1,46 @@
+{{- $fn := include "sokkan.fullname" . -}}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.web.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fn }}-web
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "web") | nindent 6 }}
+{{- end }}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.api.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 6 }}
+{{- end }}
+{{- if .Values.api.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ $fn }}-api}
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}}
+{{- end }}
