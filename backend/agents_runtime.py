@@ -40,7 +40,7 @@ import playbooks
 import quarantine
 import vault
 
-TICK_S = float(os.environ.get("SOKKAN_AGENTS_TICK_S", "15"))
+TICK_S = float(os.environ.get("SOKKAN_AGENTS_TICK_S") or "15")  # "" from compose = default
 MAX_CONCURRENT = max(1, int(os.environ.get("SOKKAN_AGENTS_MAX_CONCURRENT", "2")))
 MISFIRE_S = float(os.environ.get("SOKKAN_AGENTS_MISFIRE_S", str(6 * 3600)))
 DATA_DIR = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))

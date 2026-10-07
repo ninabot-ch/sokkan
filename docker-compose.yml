@@ -115,6 +115,14 @@ services:
       SOKKAN_CREW_VIEWER_READONLY: ${SOKKAN_CREW_VIEWER_READONLY:-0}
       # 3.1.1 : runs SIMULÉS de la démo publique (exige SOKKAN_DEMO_BANNER=1, aucune inférence)
       SOKKAN_DEMO_CREW: ${SOKKAN_DEMO_CREW:-0}
+      # 3.1 : réglages fins déjà documentés (docs/AGENTS.md), jusqu'ici non transmis
+      SOKKAN_AGENTS_TICK_S: ${SOKKAN_AGENTS_TICK_S:-15}
+      SOKKAN_MEMORY_QUARANTINE_DIR: ${SOKKAN_MEMORY_QUARANTINE_DIR:-}
+      # 3.1.2 : coût des runs sur un modèle non-Claude (passerelle, endpoint custom) —
+      # plafond en tokens si le prix est inconnu, table de prix (JSON), change CHF→USD
+      SOKKAN_AGENTS_MAX_TOKENS_PER_RUN: ${SOKKAN_AGENTS_MAX_TOKENS_PER_RUN:-5000000}
+      SOKKAN_MODEL_PRICES: ${SOKKAN_MODEL_PRICES:-}
+      SOKKAN_FX_USD_PER_CHF: ${SOKKAN_FX_USD_PER_CHF:-1.30}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
