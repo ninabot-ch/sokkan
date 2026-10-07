@@ -1,0 +1,25 @@
+# OpenShift overlay (restricted-v2 SCC): helm install … -f values-openshift.yaml
+# - no fixed uid / gid / fsGroup: the SCC assigns them from the namespace range; every SOKKAN
+#   image runs under an arbitrary uid (group 0 writable paths, HOME on volumes);
+# - no privileged pod, no host namespaces, no user namespaces, capabilities dropped,
+#   RuntimeDefault seccomp (already the chart's defaults);
+# - exposure through a standard Ingress, turned into a Route by the OpenShift router
+#   (TLS edge with the router's certificate unless tls.secretName is set).
+podSecurity:
+  runAsUser: null
+  runAsGroup: null
+  fsGroup: null
+
+ingress:
+  className: ""
+  annotations:
+    route.openshift.io/termination: edge
+    haproxy.router.openshift.io/timeout: 3600s
+  tls:
+    enabled: true
+    secretName: ""
+
+networkPolicy:
+  ingressNamespaceSelector:
+    matchLabels:
+      network.openshift.io/policy-group: ingress

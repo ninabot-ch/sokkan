@@ -1,0 +1,9 @@
+.DS_Store
+*.swp
+*.bak
+*.tmp
+tests/
+ci/*.sh
+ci/*.py
+ci/*.Dockerfile
+ci/mock-anthropic.yaml

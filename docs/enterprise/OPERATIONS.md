@@ -1,7 +1,7 @@
 # Operations runbook — SOKKAN Enterprise
 
 Scope: a self-hosted SOKKAN instance run by the customer's ops team (single VM, Docker
-Compose). Managed instances (SOKKAN Cloud) are operated by SOKKAN; the steps marked
+Compose — or a Kubernetes cluster with the Helm chart, §1.1 and [KUBERNETES.md](KUBERNETES.md)). Managed instances (SOKKAN Cloud) are operated by SOKKAN; the steps marked
 *managed* say what differs. Commands are exact where the tool exists; **TBD** marks what is
 not built or not yet validated — never improvise around a TBD, ask the maintainers.
 
@@ -42,6 +42,20 @@ SOKKAN_UPDATE_CHECK=1                 # 0 to forbid the daily GET to sokkan.ch
 
 `SOKKAN_EDITION` changes defaults only; every feature can still be set explicitly
 ([FEATURES.md](FEATURES.md)).
+
+### 1.1 Deployment options
+
+| Option | When | How |
+|---|---|---|
+| Compose, sessions in the api (default) | one VM, trusted team | the steps above |
+| Compose + docker runner | one VM, one container per session (limits, no network but the gateway) | `COMPOSE_FILE=docker-compose.yml:docker/runner/compose.docker-runner.yml` — [KUBERNETES.md §7](KUBERNETES.md) |
+| Helm chart (Kubernetes, SKS, OpenShift) | a cluster, one Pod per session | `helm install sokkan deploy/helm/sokkan -f values-sks.yaml -f my.yaml` — [KUBERNETES.md §3](KUBERNETES.md) |
+
+Status: the two runners are **experimental** (feature `kubernetes_runner`). On Kubernetes the
+api stays a single replica (SQLite + live sessions): plan its downtime at upgrades (~1 min,
+session pods survive and are reattached). Backup on Kubernetes = the data PVC (volume snapshot
+or a `tar` through a helper pod, KUBERNETES.md §8) + the DBaaS backups; the restore order of
+§5 is unchanged.
 
 ## 2. Single sign-on
 

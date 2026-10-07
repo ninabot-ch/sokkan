@@ -1,0 +1,16 @@
+apiVersion: v2
+name: sokkan
+description: >-
+  SOKKAN cockpit on Kubernetes (enterprise packaging of the same open-source app):
+  api, web, one Pod per agent session, ingress, external Postgres, optional embeddings
+  and GPU inference. Vanilla Kubernetes; OpenShift restricted SCC compatible.
+type: application
+version: 0.1.0
+appVersion: "3.1.2"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/ninabot-ch/sokkan
+sources:
+  - https://github.com/ninabot-ch/sokkan
+keywords: [sokkan, claude-code, agents, devops]
+annotations:
+  sokkan.ch/docs: docs/enterprise/KUBERNETES.md

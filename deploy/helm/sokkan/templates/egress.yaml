@@ -1,0 +1,60 @@
+{{- if eq .Values.runner.mode "kubernetes" }}
+{{- $fn := include "sokkan.fullname" . -}}
+# the only way out of a session pod: HTTPS CONNECT to runner.egress.allow (logged)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-egress
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress
+spec:
+  replicas: {{ .Values.runner.egress.replicas }}
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "egress") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: egress
+    spec:
+      serviceAccountName: {{ $fn }}-session
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: egress
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.runner.image) }}
+          imagePullPolicy: {{ .Values.runner.image.pullPolicy }}
+          command: ["sokkan-egress-proxy"]
+          env:
+            - {name: SOKKAN_EGRESS_ALLOW, value: {{ join "," .Values.runner.egress.allow | quote }}}
+          ports:
+            - {name: proxy, containerPort: 3128}
+          readinessProbe:
+            tcpSocket: {port: proxy}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: proxy}
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.runner.egress.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-egress
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "egress") | nindent 4 }}
+  ports:
+    - {name: proxy, port: 3128, targetPort: proxy}
+{{- end }}

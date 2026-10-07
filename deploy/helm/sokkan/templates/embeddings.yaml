@@ -1,0 +1,110 @@
+{{- if .Values.embeddings.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+# CortHeXis embedding server (llama.cpp). The model is fetched and checked (SHA-256, licence
+# decision) by the init container — the same models.py as `corthexis-embed-fetch` in compose.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-embed
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+data:
+  run.sh: |
+    {{- .Files.Get "files/embed-run.sh" | nindent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-models
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.embeddings.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.embeddings.modelsSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-embed
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: embed
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "embed") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: embed
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: fetch
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.api.image) }}
+          command: ["python", "/app/memory/core/models.py", "setup"]
+          env:
+            - {name: CORTHEXIS_MODELS_DIR, value: /models}
+            - {name: CORTHEXIS_MEMORY_PROFILE, value: {{ .Values.memory.profile | quote }}}
+            - {name: CORTHEXIS_ACCEPT_GEMMA_TERMS, value: {{ .Values.memory.acceptGemmaTerms | quote }}}
+            - {name: CORTHEXIS_OWNER, value: {{ .Values.api.ownerEmail | quote }}}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          volumeMounts:
+            - {name: models, mountPath: /models}
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: embed
+          image: {{ printf "%s:%s" .Values.embeddings.image.repository .Values.embeddings.image.tag }}
+          command: ["/bin/sh", "/opt/corthexis/run.sh", "embed"]
+          env:
+            - {name: CORTHEXIS_MEMORY_PROFILE, value: {{ .Values.memory.profile | quote }}}
+            - {name: CORTHEXIS_EMBED_DEVICE, value: {{ .Values.embeddings.device | quote }}}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.embeddings.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          volumeMounts:
+            - {name: models, mountPath: /models, readOnly: true}
+            - {name: run, mountPath: /opt/corthexis}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: models
+          persistentVolumeClaim: {claimName: {{ $fn }}-models}
+        - name: run
+          configMap: {name: {{ $fn }}-embed}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-embed
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: embed
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "embed") | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+{{- end }}

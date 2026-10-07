@@ -1,0 +1,58 @@
+# TEST ONLY (k3d-test.sh): the scripted Messages API of tests/mock_anthropic.py as a pod, and
+# the NetworkPolicy that lets the session pods reach it (in production they only reach the
+# egress gateway). Reuses the api image (Python); the script comes from a ConfigMap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-anthropic
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mock-anthropic}
+  template:
+    metadata:
+      labels: {app: mock-anthropic}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mock
+          image: sokkan-api:local
+          imagePullPolicy: Never
+          command: ["python", "-c", "import sys,time; sys.path.insert(0,'/mock'); from mock_anthropic import MockAnthropic; m=MockAnthropic('0.0.0.0', 8080); m.__enter__(); print('mock up', flush=True); time.sleep(10**9)"]
+          ports: [{containerPort: 8080}]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: mock, mountPath: /mock}]
+      volumes:
+        - name: mock
+          configMap: {name: mock-anthropic}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-anthropic
+spec:
+  selector: {app: mock-anthropic}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-sessions-to-mock
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: session}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: mock-anthropic}
+      ports: [{protocol: TCP, port: 8080}]

@@ -1,0 +1,139 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+# Session pods: deny all, then only — from the api to the supervisor (7070); to the api's
+# MCP relay (8098), the egress gateway (3128) and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-session
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: session
+      sokkan.ch/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 7070}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8098}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "egress") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 3128}
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: {dns.operator.openshift.io/daemonset-dns: default}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+        - {protocol: UDP, port: 5353}
+        - {protocol: TCP, port: 5353}
+---
+# Egress gateway: reached by the session pods only; goes out on 443 (+ allowlisted ports)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-egress
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "egress") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: session
+              sokkan.ch/instance: {{ .Release.Name }}
+      ports:
+        - {protocol: TCP, port: 3128}
+---
+# api: from web, the ingress controller and the session pods (relay) only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-api
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "web") | nindent 14 }}
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 8097}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: session
+              sokkan.ch/instance: {{ .Release.Name }}
+      ports:
+        - {protocol: TCP, port: 8098}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-web
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 3000}
+{{- if or .Values.devPostgres.enabled .Values.embeddings.enabled .Values.vllm.enabled }}
+---
+# in-release backends: reached by the api only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-backends
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}]}
+      - {key: app.kubernetes.io/component, operator: In, values: [postgres, embed, vllm]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 14 }}
+{{- end }}
+{{- end }}

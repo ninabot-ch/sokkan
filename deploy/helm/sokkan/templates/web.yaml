@@ -1,0 +1,73 @@
+{{- $fn := include "sokkan.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-web
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+    spec:
+      serviceAccountName: {{ $fn }}-web
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: web
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.web.image) }}
+          imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 3000}
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /app/.next/cache}
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 256Mi}}
+        - {name: cache, emptyDir: {sizeLimit: 512Mi}}
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-web
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "web") | nindent 4 }}
+  ports:
+    - {name: http, port: 3000, targetPort: http}

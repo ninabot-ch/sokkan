@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+# / → web; /api and /term → api directly (WebSockets: the controller must allow upgrades and
+# long reads — e.g. nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"). On OpenShift the
+# router turns this Ingress into a Route (values-openshift.yaml).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ default (printf "%s-tls" $fn) .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- range list "/api" "/term" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fn }}-api
+                port: {name: http}
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fn }}-web
+                port: {name: http}
+{{- end }}
