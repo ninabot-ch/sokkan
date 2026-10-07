@@ -83,8 +83,8 @@ def project_cwd(sid: str) -> str:
     """Working directory of a session (3.2 lot 3): the instance's workspace for the default
     project (unchanged); for another project its own workspace
     $SOKKAN_DATA_DIR/projects/<slug>/work — so Claude Code does not load the default
-    project's CLAUDE.md / MEMORY.md / .mcp.json into it. (Not a sandbox: Read/Bash can
-    still reach other paths the API user can read — lot 8.)"""
+    project's CLAUDE.md / MEMORY.md / .mcp.json into it. (The boundary itself is the
+    sandbox of lot 8 (sandbox.py: tool hook + bubblewrap), when the feature is on.)"""
     p = session_project(sid)
     if p == "default":
         return CWD
@@ -181,6 +181,9 @@ def _tool_title(name: str, inp: dict) -> str:
     field = _TOOL_TITLE_FIELD.get(name)
     val = inp.get(field) if field else None
     if isinstance(val, str) and val.strip():
+        if name == "Bash" and "/sandbox/sessions/" in val:
+            import sandbox  # lot 8: show what the model asked, not the wrapper
+            val = sandbox.display_command(val) or val
         return val.strip().splitlines()[0][:200]
     return name
 
@@ -243,6 +246,8 @@ class AgentSession:
         # 3.1.2 : comptage SOKKAN d'un run sur un modèle non-Claude (agentcost.Meter)
         self.meter = (policy or {}).get("meter")
         self.budget_stop: str | None = None
+        # 3.2 lot 8: project whose sandbox confines this session (None = not confined)
+        self.sandboxed: str | None = None
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -292,13 +297,29 @@ class AgentSession:
                 opts_kwargs["max_budget_usd"] = sdk_budget
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
             hooks = memrecall.sdk_hooks(self.sid, projects=self._recall_scope())
-            if hooks:
-                opts_kwargs["hooks"] = hooks
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
-            env_extra = {**vault.session_env(self._secret_names()),
-                         **llm.session_env(self.user)}
+            secret_env = vault.session_env(self._secret_names())
+            env_extra = {**secret_env, **llm.session_env(self.user)}
+            # 3.2 lot 8: a session of another project reaches only its project's space —
+            # file tools checked by a PreToolUse hook (runs before any allow rule), Bash
+            # inside bubblewrap or refused; no extra directory handed to the CLI
+            import sandbox
+            proj = session_project(self.sid)
+            if sandbox.applies(proj):
+                sb = sandbox.sdk_hooks(sid=self.sid, user=self.user, project=proj,
+                                       cwd=self.cwd,
+                                       auto_rules=(pol or {}).get("auto_approve") or [],
+                                       env_names=sorted(secret_env))
+                for ev, matchers in sb.items():
+                    hooks = dict(hooks or {})
+                    hooks[ev] = [*matchers, *(hooks.get(ev) or [])]
+                if "add_dirs" in _OPTION_FIELDS:
+                    opts_kwargs["add_dirs"] = []
+                self.sandboxed = proj
+            if hooks:
+                opts_kwargs["hooks"] = hooks
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = self.model or llm.session_model()
@@ -394,6 +415,15 @@ class AgentSession:
     # ---- callback de permission (cœur de l'interactivité) -------------------
     async def _can_use_tool(self, tool_name: str, input_data: dict, context: Any):
         loop = asyncio.get_event_loop()
+        if self.sandboxed is not None:
+            # lot 8, defence in depth: the hook already decided; never let a call reach
+            # the permission flow unconfined
+            import sandbox
+            checked = sandbox.recheck(tool_name, input_data, sid=self.sid, user=self.user,
+                                      project=self.sandboxed, cwd=self.cwd)
+            if isinstance(checked, str):
+                return PermissionResultDeny(message=checked)
+            input_data = checked
 
         if self.policy:
             # run d'agent : personne ne regarde → une question est refusée avec une
@@ -456,9 +486,15 @@ class AgentSession:
             if not self._perms:
                 self._set_waiting(False)
         if decision.get("decision") == "allow":
-            return PermissionResultAllow(
-                updated_input=decision.get("updated_input") or input_data
-            )
+            final = decision.get("updated_input") or input_data
+            if self.sandboxed is not None:
+                # the browser may send an edited input: what runs is re-checked/re-wrapped
+                import sandbox
+                final = sandbox.recheck(tool_name, final, sid=self.sid, user=self.user,
+                                        project=self.sandboxed, cwd=self.cwd)
+                if isinstance(final, str):
+                    return PermissionResultDeny(message=final)
+            return PermissionResultAllow(updated_input=final)
         return PermissionResultDeny(
             message=decision.get("message") or "Denied by the user"
         )
