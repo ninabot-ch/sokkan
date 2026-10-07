@@ -33,6 +33,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from . import scope as _scope
 from . import search as rk
 from .config import env, env_int
 from .contract import DATE_SOURCES, ChunkRecord, NoteRecord, SeenRecord
@@ -150,6 +151,11 @@ def _unit(vec: Sequence[float], dim: int) -> HalfVector:
 def tsvector_words(tsv: str) -> list[str]:
     """Words of a tsvector's text form ('w1' 'w2' …, no positions: array_to_tsvector)."""
     return [w.strip("'") for w in tsv.split()]
+
+
+def _project(note) -> str:
+    """Project column of a note record (fail-closed: unknown or invalid = default)."""
+    return _scope.project_of(note)
 
 
 def _iso(v) -> str | None:
@@ -481,21 +487,21 @@ class Store:
             rows[note.name] = (note.name, note.description or "", note.type,
                                int(note.priority or 0), note.source_path, _iso(note.modified),
                                note.modified_source, note.body or "", " ".join(head),
-                               " ".join(lex))
+                               " ".join(lex), _project(note))
         cols = list(zip(*[rows[n] for n in sorted(rows)]))
         ids = {r["name"]: r["id"] for r in con.execute(
             "INSERT INTO notes(name, description, type, priority, source_path, modified,"
-            " modified_source, body, head_tokens, lex_tokens, updated_at)"
+            " modified_source, body, head_tokens, lex_tokens, project, updated_at)"
             " SELECT n, d, ty, p, sp, m, ms, b, string_to_array(h, ' '), string_to_array(l, ' '),"
-            " now() FROM unnest(%s::text[], %s::text[], %s::text[], %s::int[], %s::text[],"
-            " %s::text[], %s::text[], %s::text[], %s::text[], %s::text[])"
-            " AS x(n, d, ty, p, sp, m, ms, b, h, l)"
+            " pr, now() FROM unnest(%s::text[], %s::text[], %s::text[], %s::int[], %s::text[],"
+            " %s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::text[])"
+            " AS x(n, d, ty, p, sp, m, ms, b, h, l, pr)"
             " ON CONFLICT (name) DO UPDATE SET description = excluded.description,"
             " type = excluded.type, priority = excluded.priority,"
             " source_path = excluded.source_path, modified = excluded.modified,"
             " modified_source = excluded.modified_source, body = excluded.body,"
             " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
-            " updated_at = now() RETURNING id, name", [list(c) for c in cols]).fetchall()}
+            " project = excluded.project, updated_at = now() RETURNING id, name", [list(c) for c in cols]).fetchall()}
         self._apply_df(con, delta)
         return ids
 
@@ -553,7 +559,7 @@ class Store:
         with self.pool.connection() as con:
             r = con.execute(
                 "SELECT name, description, type, priority, source_path, modified, "
-                "modified_source, body FROM notes WHERE name = %s", (name,)).fetchone()
+                "modified_source, body, project FROM notes WHERE name = %s", (name,)).fetchone()
         return NoteRecord(**r) if r else None
 
     def find_note_by_path(self, stem: str) -> str | None:
@@ -579,15 +585,21 @@ class Store:
                         "JOIN notes n ON n.id = c.note_id WHERE n.name = %s ORDER BY c.idx",
                         (name,)).fetchall()]
 
-    def note_names(self, generation: int | Generation | None = None) -> set[str]:
-        """Notes that have chunks in ``generation``; every known note when None."""
+    def note_names(self, generation: int | Generation | None = None, *,
+                   project: str | None = None) -> set[str]:
+        """Notes that have chunks in ``generation``; every known note when None.
+        ``project`` restricts to the notes of one project (3.2: an indexer pass over one
+        project's directory must never prune the notes of another)."""
+        where, args = ("WHERE n.project = %s", (project,)) if project is not None else ("", ())
         with self.pool.connection() as con:
             if generation is None:
-                return {r["name"] for r in con.execute("SELECT name FROM notes")}
+                return {r["name"] for r in con.execute(f"SELECT name FROM notes n {where}",
+                                                       args)}
             g = self._require_gen(generation)
+            cond = f"{where} AND" if where else "WHERE"
             return {r["name"] for r in con.execute(
-                f"SELECT n.name FROM notes n WHERE EXISTS "
-                f"(SELECT 1 FROM {g.table} c WHERE c.note_id = n.id)")}
+                f"SELECT n.name FROM notes n {cond} EXISTS "
+                f"(SELECT 1 FROM {g.table} c WHERE c.note_id = n.id)", args)}
 
     def generations(self) -> list[Generation]:
         return self.list_generations()
@@ -701,14 +713,19 @@ class Store:
                 (session_id, agent_id, list(channels))).fetchall()
         return {r["note_name"] for r in rows}
 
-    def existing_names(self, names: Iterable[str]) -> set[str]:
-        """The subset of ``names`` that are notes of the store."""
+    def existing_names(self, names: Iterable[str], *,
+                       projects: Iterable[str] | None = None) -> set[str]:
+        """The subset of ``names`` that are notes of the store (of the ``projects`` scope
+        when given: a note of another project "does not exist" for that caller)."""
         names = sorted({n for n in names if n})
-        if not names:
+        scope = _scope.normalize(projects)
+        if not names or scope == ():
             return set()
+        sql, args = "SELECT name FROM notes WHERE name = ANY(%s)", [names]
+        if scope is not None:
+            sql, args = sql + " AND project = ANY(%s)", [names, list(scope)]
         with self.pool.connection() as con:
-            return {r["name"] for r in con.execute(
-                "SELECT name FROM notes WHERE name = ANY(%s)", (names,)).fetchall()}
+            return {r["name"] for r in con.execute(sql, args).fetchall()}
 
     def log_recall_turn(self, channel: str, *, session_id: str | None = None,
                         agent_id: str | None = None, query: str | None = None,
@@ -810,7 +827,8 @@ class Store:
     # ------------------------------------------------------------------ search
     def search(self, query_vec: Sequence[float] | None, query_text: str, k: int = 8, *,
                generation: int | Generation | None = None, rerank: Reranker | None = None,
-               config: SearchConfig | None = None, **overrides) -> list[Hit]:
+               config: SearchConfig | None = None,
+               projects: Iterable[str] | None = None, **overrides) -> list[Hit]:
         """Two-stage search. ``query_vec`` None = lexical-only (embedding backend down):
         results then carry ``degraded``. Keyword overrides patch ``config`` for this call
         (e.g. ``fusion="rrf"``, ``lexical_weight=0.5``).
@@ -820,7 +838,13 @@ class Store:
         every note when the generation is small (``exact_max_chunks``); each candidate is
         re-scored EXACTLY (best chunk cosine, IDF head/body lexical score).
         Stage 2 (Python): blend or RRF, priority boost, reranker on the top ``rerank_top``.
+
+        ``projects`` (3.2): only the notes of these projects are candidates, at every stage
+        (dense, lexical, final rows); ``None`` = every note, an empty scope = no result.
         """
+        scope = _scope.normalize(projects)
+        if scope == ():
+            return []
         cfg = config or self.config
         if overrides:
             cfg = SearchConfig(**{**cfg.__dict__, **overrides})
@@ -839,14 +863,17 @@ class Store:
                   "nd": int(cfg.dense_candidates), "nl": int(cfg.lexical_candidates),
                   "cap_abs": 2**31 - 1 if exact else int(cfg.lexical_filter_min_df),
                   "cap_rel": cfg.lexical_filter_df,
-                  "cap_fallback": cfg.lexical_fallback_max_df if qv is not None else 2**31 - 1}
+                  "cap_fallback": cfg.lexical_fallback_max_df if qv is not None else 2**31 - 1,
+                  "proj": list(scope) if scope is not None else None}
+        scoped = scope is not None
         with self.pool.connection() as con:
             if qv is not None:
                 if not exact:
                     self._set_ef_search(con, max(cfg.ef_search, cfg.dense_candidates))
-                rows = con.execute(self._dense_sql(g, exact), params).fetchall()
+                    self._set_iterative_scan(con, scoped)
+                rows = con.execute(self._dense_sql(g, exact, scoped), params).fetchall()
             else:
-                rows = con.execute(self._lexical_only_sql(g, exact), params).fetchall()
+                rows = con.execute(self._lexical_only_sql(g, exact, scoped), params).fetchall()
         cands, lex = [], {}
         for r in rows:
             lex[r["name"]] = r["lex"]
@@ -854,16 +881,18 @@ class Store:
                 note_name=r["name"], description=r["description"], best_chunk=r["body"],
                 cosine=r.get("cos"), chunk_overlap=r.get("ov") or 0.0, priority=r["priority"],
                 modified=r["modified"], modified_source=r["modified_source"],
-                source_path=r["source_path"], chunk_idx=r["idx"]))
+                source_path=r["source_path"], chunk_idx=r["idx"], project=r.get("project")))
         degraded = None if qv is not None else (
             "embedding unavailable: lexical-only scoring, degraded recall (no cross-lingual)")
         lw = cfg.lexical_weight if cfg.lexical_weight is not None \
             else g.effective_lexical_weight
-        return rk.rank(
+        hits = rk.rank(
             query_text, cands, weights={}, k=k, lexical_weight=lw,
             head_share=cfg.head_share, fusion=cfg.fusion, rrf_k=cfg.rrf_k,
             priority_boost=cfg.priority_boost, rerank=rerank, rerank_top=cfg.rerank_top,
             generation=g.id, degraded=degraded, lexical=lex)
+        # the SQL already restricts every stage; this keeps the rule true by construction
+        return _scope.filter_hits(hits, scope)
 
     def _active_cached(self) -> Generation:
         """Active generation, cached ``ACTIVE_TTL`` seconds (one round trip less per search;
@@ -875,6 +904,36 @@ class Store:
         g = self._require_gen(None)
         self._active = (now, g)
         return g
+
+    _iterative: bool | None = None
+
+    def _set_iterative_scan(self, con, on: bool) -> None:
+        """A project-scoped HNSW probe filters the nearest chunks: with pgvector >= 0.8 the
+        index scan goes on until it has enough rows of the scope (``relaxed_order``); on an
+        older pgvector the scope still holds (filter + final check), with fewer dense
+        candidates when the other projects dominate the neighbourhood."""
+        if Store._iterative is None:
+            try:
+                v = con.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+                                ).fetchone()["extversion"]
+                Store._iterative = tuple(int(x) for x in v.split(".")[:2]) >= (0, 8)
+            except Exception:  # noqa: BLE001
+                Store._iterative = False
+        if not Store._iterative:
+            return
+        # session level on a pooled connection: switched back off for an unscoped search,
+        # so a search without a scope runs exactly as before 3.2
+        state = getattr(self, "_iter_state", None)
+        if state is None:
+            state = self._iter_state = {}
+        prev = state.get(id(con))
+        if prev is not None and prev[0] is con and prev[1] == on:
+            return
+        if prev is None and not on:
+            state[id(con)] = (con, on)
+            return
+        con.execute(f"SET hnsw.iterative_scan = {'relaxed_order' if on else 'off'}")
+        state[id(con)] = (con, on)
 
     def _set_ef_search(self, con, ef: int) -> None:
         if self._ef.get(id(con)) != (con, ef):
@@ -910,39 +969,47 @@ class Store:
 
     _HEAD = "coalesce((SELECT sum(q.w) FROM q WHERE q.t = ANY(n.head_tokens)), 0)"
 
-    def _lexc_cte(self, limit: bool) -> str:
+    _SCOPE_NOTES = "SELECT id FROM notes WHERE project = ANY(%(proj)s::text[])"
+
+    def _lexc_cte(self, limit: bool, scoped: bool = False) -> str:
         """Lexical candidates: best notes on the picked words (body + head)."""
-        return (self._body_lex_cte("lexp", "pick") + ", "
+        restrict = "WHERE n.project = ANY(%(proj)s::text[])" if scoped else ""
+        return (self._body_lex_cte("lexp", "pick", restrict) + ", "
                 f"lexc AS (SELECT n.id AS note_id FROM lexp JOIN notes n ON n.id = lexp.id "
                 f"ORDER BY (1 - %(hs)s) * lexp.s + %(hs)s * {self._HEAD} DESC, n.name"
                 + (" LIMIT %(nl)s)" if limit else ")"))
 
     _META = ("n.name, n.description, n.priority, n.modified, n.modified_source, "
-             "n.source_path")
+             "n.source_path, n.project")
 
-    def _final(self, g: Generation, best_select: str) -> str:
+    def _final(self, g: Generation, best_select: str, scoped: bool = False) -> str:
         # LATERAL: one index lookup per candidate note instead of a hash join that would
-        # scan the whole notes table
+        # scan the whole notes table. With a project scope, a row of another project is
+        # dropped HERE whatever the stages above let through (the definitive check).
+        guard = " AND nn.project = ANY(%(proj)s::text[])" if scoped else ""
         return (f"best AS ({best_select}) "
                 f"SELECT b.*, n.* FROM best b, LATERAL (SELECT {self._META.replace('n.', 'nn.')}, "
                 f"((1 - %(hs)s) * coalesce((SELECT lb.s FROM lexb lb WHERE lb.id = nn.id), 0)"
                 f" + %(hs)s * {self._HEAD.replace('n.head_tokens', 'nn.head_tokens')}) "
-                f"/ (SELECT v FROM tot) AS lex FROM notes nn WHERE nn.id = b.note_id) n")
+                f"/ (SELECT v FROM tot) AS lex FROM notes nn WHERE nn.id = b.note_id{guard}) n")
 
-    def _dense_sql(self, g: Generation, exact: bool) -> str:
+    def _dense_sql(self, g: Generation, exact: bool, scoped: bool = False) -> str:
+        in_scope = f"note_id IN ({self._SCOPE_NOTES})" if scoped else ""
         if exact:
+            where = f"WHERE c.{in_scope} " if scoped else ""
             best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
-                    f"-(c.embedding <#> %(qv)s::halfvec) AS cos FROM {g.table} c "
+                    f"-(c.embedding <#> %(qv)s::halfvec) AS cos FROM {g.table} c {where}"
                     "ORDER BY c.note_id, c.embedding <#> %(qv)s::halfvec, c.idx")
             return (f"WITH {self._Q_CTES}, {self._body_lex_cte('lexb', 'q')}, "
-                    + self._final(g, best))
+                    + self._final(g, best, scoped))
         # A note found by HNSW keeps its best chunk among the HNSW hits (with an exact
         # kNN that IS its best chunk); only the notes found by the lexical side alone have
         # all their chunks scored. Saves ~10 heap rows per dense candidate.
         dist = f"(embedding::halfvec({g.dim})) <#> %(qv)s::halfvec({g.dim})"
-        return (f"WITH {self._Q_CTES}, {self._lexc_cte(True)}, "
+        dwhere = f"WHERE {in_scope} " if scoped else ""
+        return (f"WITH {self._Q_CTES}, {self._lexc_cte(True, scoped)}, "
                 f"dense AS (SELECT note_id, idx, body, -({dist}) AS cos FROM {g.table} "
-                f"ORDER BY {dist} LIMIT %(nd)s), "
+                f"{dwhere}ORDER BY {dist} LIMIT %(nd)s), "
                 "lexonly AS (SELECT note_id FROM lexc EXCEPT SELECT note_id FROM dense), "
                 "cand AS (SELECT note_id FROM dense UNION SELECT note_id FROM lexonly), "
                 "rows AS (SELECT * FROM dense UNION ALL "
@@ -950,9 +1017,9 @@ class Store:
                 f"FROM {g.table} c WHERE c.note_id IN (SELECT note_id FROM lexonly)), "
                 + self._body_lex_cte("lexb", "q", "WHERE n.id IN (SELECT note_id FROM cand)")
                 + ", " + self._final(g, "SELECT DISTINCT ON (note_id) * FROM rows "
-                                        "ORDER BY note_id, cos DESC, idx"))
+                                        "ORDER BY note_id, cos DESC, idx", scoped))
 
-    def _lexical_only_sql(self, g: Generation, exact: bool) -> str:
+    def _lexical_only_sql(self, g: Generation, exact: bool, scoped: bool = False) -> str:
         """Embedding down: candidates by lexical score only; the snippet is the chunk with
         the largest share of the query words (``ov``)."""
         best = ("SELECT DISTINCT ON (c.note_id) c.note_id, c.idx, c.body, "
@@ -961,6 +1028,6 @@ class Store:
                 " / greatest(cardinality(%(qtok)s::text[]), 1) AS ov "
                 f"FROM {g.table} c WHERE c.note_id IN (SELECT note_id FROM lexc) "
                 "ORDER BY c.note_id, ov DESC, c.idx")
-        return (f"WITH {self._Q_CTES}, {self._lexc_cte(not exact)}, "
+        return (f"WITH {self._Q_CTES}, {self._lexc_cte(not exact, scoped)}, "
                 + self._body_lex_cte("lexb", "q", "WHERE n.id IN (SELECT note_id FROM lexc)")
-                + ", " + self._final(g, best))
+                + ", " + self._final(g, best, scoped))

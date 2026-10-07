@@ -9,6 +9,7 @@ import copy
 import datetime
 
 from .contract import ChunkRecord, Generation, NoteRecord, SeenRecord
+from .scope import project_of
 
 
 class InMemoryStore:
@@ -38,8 +39,9 @@ class InMemoryStore:
         n = self.notes.get(name)
         return copy.deepcopy(n) if n else None
 
-    def note_names(self, generation):
-        return {n for (g, n) in self.chunks if g == generation}
+    def note_names(self, generation, *, project=None):
+        return {n for (g, n) in self.chunks if g == generation
+                and (project is None or project_of(self.notes.get(n)) == project)}
 
     def set_links(self, src, dsts):
         self.links[src] = list(dsts)

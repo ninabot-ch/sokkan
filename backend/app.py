@@ -73,6 +73,7 @@ import memeval
 import panestate
 import preview
 import previewenv
+import projects
 import provision
 import transcript as T
 import updatecheck
@@ -129,6 +130,11 @@ def _reindex_loop() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    # 3.2 multi-user : tables projets + projet « default » (idempotent, rien n'est déplacé)
+    try:
+        projects.init()
+    except Exception as e:  # noqa: BLE001 — le cockpit démarre ; le rappel reste fail-closed
+        print(f"[sokkan] projects migration failed: {e!r}", file=sys.stderr)
     if store_backend.enabled():
         _start_store_indexer()
     elif memory_migration.active():
@@ -1478,6 +1484,17 @@ class SpawnBody(BaseModel):
     # secrets du coffre (NOMS) pour cette session — pris en compte si
     # SOKKAN_SESSION_SECRETS=named ; None = ceux du playbook, sinon aucun
     secrets: list[str] | None = None
+    # 3.2 multi-user : projet de la session (périmètre mémoire) ; l'existant = 'default'
+    project: str = "default"
+
+
+def _session_scope(session_id: str | None) -> tuple[str, ...]:
+    """Périmètre mémoire d'une session (3.2) : son projet seulement — fail-closed."""
+    try:
+        return projects.session_scope(board.get_session_project(session_id)
+                                      if session_id else None)
+    except Exception:  # noqa: BLE001
+        return ()
 
 
 def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
@@ -1485,9 +1502,10 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
     """Recherche mémoire DÉTERMINISTE au spawn : le serveur fait le memory_search
     lui-même et pré-injecte le top-k dans le premier message — le rappel ne
     dépend plus de l'obéissance du modèle au rituel. Best-effort : mémoire vide
-    ou backend down → chaîne vide (le seed retombe sur le rituel textuel)."""
+    ou backend down → chaîne vide (le seed retombe sur le rituel textuel).
+    3.2 : limité au projet de la session (jamais une note d'un autre projet)."""
     try:
-        hits = mem.memory_search(query, top_k=top_k)
+        hits = mem.search_scoped(query, top_k, _session_scope(session_id))
     except Exception:  # noqa: BLE001 — le spawn ne doit jamais échouer sur la mémoire
         return ""
     if not isinstance(hits, list) or not hits or hits and hits[0].get("empty"):
@@ -1514,12 +1532,13 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
 
 
 def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
-               secrets: list[str] | None = None) -> dict:
+               secrets: list[str] | None = None, project: str = "default") -> dict:
     """Session SDK : enregistrée dans le store + AgentSession créée ; le seed
     (sujet + mémoire pré-injectée + HITL) part en tâche de fond — les events
     sont bufferisés et rejoués quand le pane se connecte."""
     sid = agentchat.new_sid()
-    s = board.add_sdk_session(sid, tag, title=title, prompt=prompt, secrets=secrets)
+    s = board.add_sdk_session(sid, tag, title=title, prompt=prompt, secrets=secrets,
+                              project=project)
     session = agentchat.get_or_create(sid, user=user, secrets=secrets)
     day_budget = instance.budgets().get("budget_day_usd", 0.0)
     if day_budget:
@@ -1548,7 +1567,13 @@ def playbooks_list(_u: dict = Depends(current_user)) -> list[dict]:
 @app.post("/api/spawn")
 async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> dict:
     """Crée une session SOKKAN — chat SDK par défaut, fenêtre tmux si kind='tmux'.
-    `playbook` applique un template (prompt façonné + tag par défaut) au sujet tapé."""
+    `playbook` applique un template (prompt façonné + tag par défaut) au sujet tapé.
+    `project` (3.2) : la personne doit y avoir au moins le rôle dev."""
+    if not projects.can(u, body.project, "dev"):
+        raise HTTPException(403, f"no developer access to project '{body.project}'")
+    if body.kind == "tmux" and body.project != projects.DEFAULT_PROJECT:
+        # lot 1 : un terminal lit le dossier mémoire et .mcp.json partagés → projet par défaut
+        raise HTTPException(400, "terminal sessions are only available in the default project")
     if body.secrets is not None:
         unknown = [n for n in body.secrets if n not in vault.names()]
         if unknown:
@@ -1576,7 +1601,8 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
         s = board.spawn(body.tag, prompt=body.prompt, title=body.title)
     else:
         extra = {"secrets": body.secrets} if body.secrets is not None else {}
-        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title, user=u["email"], **extra)
+        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title, user=u["email"],
+                       project=body.project, **extra)
     audit.log(u["email"], "session.spawn", s.get("window") or s["session_id"],
               f"{s['title']} ({body.kind})"
               + (f" · secrets: {', '.join(body.secrets)}" if body.secrets else ""))
@@ -1848,11 +1874,16 @@ def memory_notes() -> list[dict]:
 
 
 @app.get("/api/memory/search")
-def memory_search(q: str, k: int = 8, deep: bool = False) -> list[dict]:
-    """`deep=1` : reranker même en profil standard (asynchrone, ~4-5 s sur CPU)."""
+def memory_search(q: str, k: int = 8, deep: bool = False, project: str = "default",
+                  u: dict = Depends(current_user)) -> list[dict]:
+    """`deep=1` : reranker même en profil standard (asynchrone, ~4-5 s sur CPU).
+    3.2 : limité à `project`, que la personne doit pouvoir lire."""
+    if not projects.can(u, project, "viewer"):
+        raise HTTPException(403, f"no access to project '{project}'")
+    scope = projects.recall_scope(project)
     if store_backend.enabled():
-        return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep)
-    return mem.memory_search(q, k)
+        return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep, projects=scope)
+    return mem.search_scoped(q, k, scope)
 
 
 def _store_or_503():
@@ -1918,9 +1949,10 @@ async def memory_hook(request: Request) -> dict:
     if not isinstance(payload, dict):
         raise HTTPException(400, "invalid payload")
     sid = os.environ.get("CORTHEXIS_RECALL_SESSION_ID") or payload.get("session_id") or ""
+    scope = _session_scope(sid or None)  # 3.2 : le projet de la session, rien d'autre
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(memrecall.hook_output, payload, sid), timeout=4)
+            asyncio.to_thread(memrecall.hook_output, payload, sid, scope), timeout=4)
     except Exception as e:  # noqa: BLE001 — un rappel ne casse jamais un tour
         print(f"[sokkan] recall hook failed: {e!r}", file=sys.stderr)
         return {}

@@ -132,6 +132,7 @@ class Hit:
     generation: int | None = None
     chunk_idx: int | None = None
     degraded: str | None = None
+    project: str | None = None      # 3.2: the note's project (None = store does not say)
 
     def as_dict(self) -> dict:
         """Shape of a ``memory_search`` MCP result (2.x keys + the 3.0 additions)."""
@@ -154,6 +155,8 @@ class Hit:
             d["priority"] = True
         if self.degraded:
             d["degraded"] = self.degraded
+        if self.project:
+            d["project"] = self.project
         return d
 
 
@@ -172,6 +175,7 @@ class Candidate:
     modified_source: str | None = None
     source_path: str | None = None
     chunk_idx: int | None = None
+    project: str | None = None
 
 
 def short_snippet(text: str) -> str:
@@ -250,6 +254,7 @@ def rank(
             snippet=c.best_chunk, age_days=age_days, date_source=src,
             description=c.description or "", modified=mod, source_path=c.source_path,
             priority=c.priority, generation=generation, chunk_idx=c.chunk_idx, degraded=degraded,
+            project=c.project,
         ))
     hits.sort(key=lambda h: (-h.score, h.note_name))
 

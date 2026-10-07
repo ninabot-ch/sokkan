@@ -23,6 +23,12 @@ from typing import Protocol, runtime_checkable
 DATE_SOURCES = ("frontmatter", "indexed", "migrated-mtime", "inferred", "transcript", "inconnue")
 MEASURED_SOURCES = ("frontmatter", "indexed", "transcript")
 
+# Project a note belongs to (SOKKAN 3.2 multi-user). Every note indexed before 3.2, and every
+# note of a single-project install, is in DEFAULT_PROJECT. A recall / search given a project
+# scope never returns a note of another project (fail-closed: a note without a project counts
+# as DEFAULT_PROJECT, never as "everywhere").
+DEFAULT_PROJECT = "default"
+
 
 @dataclass
 class NoteRecord:
@@ -34,6 +40,7 @@ class NoteRecord:
     modified: str | None          # ISO 8601, effective date (see core.dates)
     modified_source: str          # one of DATE_SOURCES
     body: str
+    project: str = DEFAULT_PROJECT  # 3.2: project scope of the note (migration 0011)
 
 
 @dataclass
@@ -112,6 +119,6 @@ class IndexStore(Protocol):
     def generations(self) -> list[Generation]: ...
     def create_generation(self, embed_identity: str, dim: int) -> Generation: ...
     def activate_generation(self, generation: int) -> None: ...
-    def note_names(self, generation: int) -> set[str]:
-        """Notes that have chunks in this generation."""
+    def note_names(self, generation: int, *, project: str | None = None) -> set[str]:
+        """Notes that have chunks in this generation (of ``project`` only when given)."""
     def set_links(self, src: str, dsts: list[str]) -> None: ...

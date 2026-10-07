@@ -34,6 +34,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+from . import scope as _scope
 from .config import env, env_bool, env_int
 from .search import Hit, age, tokens
 
@@ -213,7 +214,11 @@ class Recaller:
     # -- the recall
     def recall(self, text: str, *, session_id: str | None = None, agent_id: str | None = None,
                channel: str = "prompt", top_k: int | None = None,
-               snippets: bool | None = None, write_log: bool = True) -> RecallResult:
+               snippets: bool | None = None, write_log: bool = True,
+               projects=None) -> RecallResult:
+        """``projects`` (3.2) = the project scope of the caller: only notes of these
+        projects can be injected — by the ranking AND by a quoted name. ``None`` = no
+        scope (standalone use); an empty scope = nothing is recalled."""
         t0 = self.clock()
         cfg = self.cfg
         k = top_k or (cfg.subagent_top_k if channel == "subagent" else cfg.top_k)
@@ -222,9 +227,12 @@ class Recaller:
         query = (text or "").strip()[: cfg.max_query_chars]
         res = RecallResult(channel=channel, query=query)
         res.skipped = _skip_reason(query, cfg.min_words)
+        scope = _scope.normalize(projects)
+        if res.skipped is None and scope == ():
+            res.skipped = "no-project"
         if res.skipped is None:
             try:
-                self._search(res, query, k, session_id, agent_id, t0)
+                self._search(res, query, k, session_id, agent_id, t0, scope)
             except Exception as e:  # noqa: BLE001 — a recall never breaks a turn
                 res.error = repr(e)
                 res.hits = []
@@ -241,7 +249,7 @@ class Recaller:
         return self.cfg.budget_s - (self.clock() - t0)
 
     def _search(self, res: RecallResult, query: str, k: int, session_id, agent_id,
-                t0: float) -> None:
+                t0: float, scope=None) -> None:
         gen = self.store.active_generation()
         if gen is None:
             res.skipped = "no-index"
@@ -270,14 +278,17 @@ class Recaller:
         if self.cfg.dedup and session_id and hasattr(self.store, "recalled_notes"):
             exclude = self.store.recalled_notes(session_id, agent_id=agent_id)
         overrides = {"rerank_top": self.cfg.rerank_top} if reranker else {}
+        scoped = {"projects": scope} if scope is not None else {}
         try:
             cands = self.store.search(qvec, query, k + min(len(exclude), 2 * k) + 2,
-                                      rerank=reranker, **overrides)
+                                      rerank=reranker, **overrides, **scoped)
         except Exception as e:  # noqa: BLE001
             if qvec is None:
                 raise
             res.degraded = f"search with the embedding failed ({type(e).__name__}): lexical-only"
-            cands = self.store.search(None, query, k + 2)
+            cands = self.store.search(None, query, k + 2, **scoped)
+        # the store filters by project; this keeps the rule even for a store that does not
+        cands = _scope.filter_hits(cands, scope)
         res.candidates = cands
         res.reranked = any(h.rerank is not None for h in cands)
         if cands and cands[0].degraded and not res.degraded:
@@ -316,17 +327,21 @@ class Recaller:
         # a note quoted by its full name that the search did not return
         if hasattr(self.store, "existing_names"):
             have = {h.note_name for h in kept} | exclude
-            for name in sorted(self.store.existing_names(n for n in qnames if "-" in n)
-                               - have):
+            quoted = [n for n in qnames if "-" in n]
+            found = (self.store.existing_names(quoted, projects=scope) if scope is not None
+                     else self.store.existing_names(quoted))
+            for name in sorted(found - have):
                 note = self.store.get_note(name)
-                if note is None:
+                # a note of another project "does not exist" for this caller, even quoted
+                if note is None or not _scope.visible(note, scope):
                     continue
                 mod, days, src = age(note.modified, note.modified_source)
                 kept.insert(0, Hit(
                     note_name=name, score=0.0, cosine=None, lexical=0.0, rerank=None,
                     snippet=(note.body or "")[:320], age_days=days, date_source=src,
                     description=note.description, modified=mod, source_path=note.source_path,
-                    priority=note.priority, generation=gen.id))
+                    priority=note.priority, generation=gen.id,
+                    project=_scope.project_of(note)))
                 res.forced.append(name)
         # quoted names first, then the ranking
         kept.sort(key=lambda h: (h.note_name not in res.forced, -h.score))
@@ -399,17 +414,19 @@ def subagent_text(tool_input: dict) -> str:
     return "\n".join(p for p in parts if p.strip())
 
 
-def hook_output(payload: dict, recaller: Recaller, *, session_id: str | None = None) -> dict:
+def hook_output(payload: dict, recaller: Recaller, *, session_id: str | None = None,
+                projects=None) -> dict:
     """The JSON a Claude Code hook must print for ``payload`` (``{}`` = nothing to add).
 
     UserPromptSubmit → ``additionalContext``; PreToolUse on Task/Agent → ``updatedInput``
     with the recall appended to the sub-agent's prompt (Claude Code ≥ 2.1, verified on the
-    CLI bundled with claude-agent-sdk; see memory/README.md)."""
+    CLI bundled with claude-agent-sdk; see memory/README.md). ``projects``: the session's
+    project scope (see ``Recaller.recall``)."""
     event = payload.get("hook_event_name")
     sid = session_id or payload.get("session_id")
     if event == "UserPromptSubmit":
         res = recaller.recall(payload.get("prompt") or "", session_id=sid, channel="prompt",
-                              agent_id=payload.get("agent_id"))
+                              agent_id=payload.get("agent_id"), projects=projects)
         if not res.context:
             return {}
         return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
@@ -421,7 +438,7 @@ def hook_output(payload: dict, recaller: Recaller, *, session_id: str | None = N
         if not prompt or SUBAGENT_MARKER in prompt:
             return {}
         res = recaller.recall(subagent_text(tin), session_id=sid, channel="subagent",
-                              agent_id=payload.get("tool_use_id") or None)
+                              agent_id=payload.get("tool_use_id") or None, projects=projects)
         if not res.context:
             return {}
         tin["prompt"] = prompt + "\n" + res.context
@@ -482,6 +499,11 @@ def main(stdin=None, stdout=None) -> int:
         return 0
     if not enabled():
         return 0
+    # 3.2: CORTHEXIS_RECALL_PROJECTS=a,b scopes the recall; an app that requires a scope
+    # (CORTHEXIS_RECALL_REQUIRE_SCOPE=1, set by SOKKAN) gets NO recall without one
+    projects = _scope.from_env(env("RECALL_PROJECTS"))
+    if projects is None and env_bool("RECALL_REQUIRE_SCOPE", False):
+        return 0
     event = payload.get("hook_event_name")
     if event == "PreToolUse" and payload.get("tool_name") not in SUBAGENT_TOOLS:
         return 0
@@ -496,7 +518,8 @@ def main(stdin=None, stdout=None) -> int:
         if debug:
             recaller.log = lambda m: print(f"[recall] {m}", file=sys.stderr)
         out = hook_output(payload, recaller,
-                          session_id=env("RECALL_SESSION_ID") or payload.get("session_id"))
+                          session_id=env("RECALL_SESSION_ID") or payload.get("session_id"),
+                          projects=projects)
         if out:
             stdout.write(json.dumps(out, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001 — a hook never breaks the turn

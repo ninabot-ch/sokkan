@@ -43,6 +43,24 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 mcp = FastMCP("sokkan-memory")
 
 
+def _scope() -> tuple[str, ...] | None:
+    """3.2 — project scope of the calling session: ``SOKKAN_SESSION_PROJECT`` is set by the
+    SOKKAN API in the server's environment (the model cannot change it). Absent = a server
+    started outside SOKKAN (plain ``.mcp.json``): no scope, behaviour unchanged. An invalid
+    value gives an EMPTY scope (nothing visible), never a wider one."""
+    raw = os.environ.get("SOKKAN_SESSION_PROJECT")
+    if raw is None:
+        return None
+    from core import scope as _sc
+    return _sc.normalize([raw.strip()])
+
+
+def _legacy_visible(scope: tuple[str, ...] | None) -> bool:
+    """The 2.x index has no project column: all its notes are in the default project."""
+    from core.contract import DEFAULT_PROJECT
+    return scope is None or DEFAULT_PROJECT in scope
+
+
 def _embed_query(text: str) -> list[float]:
     # 2.x path: the 2.x model, checked against the one memory.db was built with
     return store_backend.legacy_embed_query(text, DB_PATH)
@@ -111,8 +129,20 @@ def memory_search(query: str, top_k: int = 8) -> list[dict]:
         query: la question / le sujet de travail (n'importe quelle langue).
         top_k: nombre de notes à retourner (défaut 8).
     """
+    return search_scoped(query, top_k, _scope())
+
+
+def search_scoped(query: str, top_k: int = 8, scope=None) -> list[dict]:
+    """``memory_search`` with an explicit project scope (the API's spawn pre-seed passes the
+    session's project; NOT an MCP tool: the model never chooses its scope)."""
+    if scope is not None:
+        from core import scope as _sc
+        scope = _sc.normalize(scope)
     if store_backend.enabled():
-        return store_backend.memory_search(query, top_k, None, "embedding backend")
+        return store_backend.memory_search(query, top_k, None, "embedding backend",
+                                           projects=scope)
+    if not _legacy_visible(scope):
+        return [{"info": "No project memory in this session's scope.", "empty": True}]
     if not _load_chunks():
         return [{"info": "No project memory yet. Write notes as markdown files in the workspace "
                  "memory directory (one fact per file, with a description: frontmatter) and they "
@@ -189,9 +219,12 @@ def rank_2x(query: str, q: list[float] | None, top_k: int = 8,
 @mcp.tool()
 def memory_get(note_name: str) -> str:
     """Retourne le corps complet d'une note mémoire par son nom (sans .md)."""
+    scope = _scope()
     if store_backend.enabled():
-        body = store_backend.memory_get(note_name)
+        body = store_backend.memory_get(note_name, projects=scope)
         return body if body is not None else f"note not found: {note_name}"
+    if not _legacy_visible(scope):
+        return f"note not found: {note_name}"
     if not DB_PATH.exists():
         return f"memory index not found: {DB_PATH}"
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -219,8 +252,11 @@ def memory_links(note_name: str) -> dict:
     """Navigation du graphe memoire : liens sortants ([[wikilinks]] de la note)
     et entrants (notes qui la citent), avec leurs descriptions. Permet a une
     session de suivre le graphe sans relire les fichiers."""
+    scope = _scope()
     if store_backend.enabled():
-        return store_backend.memory_links(note_name)
+        return store_backend.memory_links(note_name, projects=scope)
+    if not _legacy_visible(scope):
+        return {"error": f"note not found: {note_name}"}
     if not DB_PATH.exists():
         return {"error": f"memory index not found: {DB_PATH}"}
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -267,6 +303,12 @@ def memory_write(name: str, description: str, body: str,
     L'index et les embeddings suivent tout seuls (réindexation du backend).
     """
     name = (name or "").strip().removesuffix(".md")
+    scope = _scope()
+    if scope is not None and not _legacy_visible(scope):
+        # 3.2 lot 1: one memory directory (the default project). Per-project directories
+        # come with lot 2; until then a session of another project cannot write notes.
+        return {"ok": False, "error": "this session's project has no memory directory yet "
+                                      "(per-project memory writes arrive in a later 3.2 step)"}
     if os.environ.get("SOKKAN_AGENT_RUN") == "1":
         # 3.1 : une note écrite par un run d'agent part en QUARANTAINE (hors du dossier
         # indexé) — jamais rappelée tant qu'un humain ne l'a pas relue et validée

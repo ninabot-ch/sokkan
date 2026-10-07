@@ -170,16 +170,23 @@ def test_memory_context_maps_the_real_search_shape(monkeypatch):
     """memory_search rend note_name/snippet — pas name/chunk. Les entrées
     sentinelles ({info}/{error}) ne doivent pas produire de [[None]]."""
     import types
-    fake = types.SimpleNamespace(memory_search=lambda q, k: [
+    rows = [
         {"note_name": "flotte-exoscale", "description": "archi flotte",
          "snippet": "privnet dédié\npar client"},
         {"info": "No project memory yet."},
-    ])
+    ]
+    seen = {}
+
+    def scoped(q, k, scope):  # 3.2 : Nina lit le projet par défaut, jamais toute la mémoire
+        seen["scope"] = scope
+        return rows
+    fake = types.SimpleNamespace(memory_search=lambda q, k: rows, search_scoped=scoped)
     monkeypatch.setitem(sys.modules, "memory_search_server", fake)
     out = assistant._memory_context("flotte")
     assert "[[flotte-exoscale]] — archi flotte" in out
     assert "privnet dédié par client" in out   # les retours ligne sont aplatis
     assert "None" not in out
+    assert seen["scope"] == ("default",)
 
 
 def test_language_directive():

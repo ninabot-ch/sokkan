@@ -61,7 +61,7 @@ def test_subject_optional_playbooks_are_not_blocked(client, monkeypatch):
 
     seen = {}
 
-    def _fake_spawn(tag, prompt="", title="", user=""):
+    def _fake_spawn(tag, prompt="", title="", user="", **_kw):
         seen.update(tag=tag, prompt=prompt, title=title)
         return {"session_id": "sid", "title": title, "tag": tag}
 

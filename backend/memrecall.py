@@ -16,6 +16,9 @@ sessions (tmux, plain ``claude``) get the same logic as command hooks through
 Both are keyed on the SOKKAN session id, the one the spawn pre-recall is logged under.
 
 Off when the memory store is not the backend (2.x SQLite) or ``CORTHEXIS_RECALL=0``.
+
+3.2 multi-user: every recall is scoped to the session's project (``projects`` below; the
+store never returns, and a quoted name never forces, a note of another project).
 """
 from __future__ import annotations
 
@@ -90,25 +93,28 @@ def reset() -> None:
         _recaller = _legacy_recaller = None
 
 
-def hook_output(payload: dict, session_id: str) -> dict:
-    """Synchronous core of both hooks (also used by the tests)."""
+def hook_output(payload: dict, session_id: str, projects=None) -> dict:
+    """Synchronous core of both hooks (also used by the tests). ``projects`` = the
+    session's scope (3.2); the SOKKAN callers always pass one."""
     from core import recall
 
-    return recall.hook_output(payload, recaller(), session_id=session_id)
+    return recall.hook_output(payload, recaller(), session_id=session_id, projects=projects)
 
 
 # --------------------------------------------------------------------------- SDK sessions
 
-def sdk_hooks(session_id: str) -> dict:
-    """``ClaudeAgentOptions.hooks`` for one chat session ({} when recall is off)."""
+def sdk_hooks(session_id: str, projects=None) -> dict:
+    """``ClaudeAgentOptions.hooks`` for one chat session ({} when recall is off).
+    ``projects``: the session's memory scope (3.2), fixed for the session's life."""
     if not active():
         return {}
+    scope = tuple(projects) if projects is not None else None
     from claude_agent_sdk import HookMatcher  # type: ignore
 
     async def _run(payload: dict) -> dict:
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(hook_output, dict(payload), session_id),
+                asyncio.to_thread(hook_output, dict(payload), session_id, scope),
                 timeout=HOOK_TIMEOUT_S - 1)
         except Exception as e:  # noqa: BLE001 — a recall never breaks a turn
             print(f"[sokkan] recall hook failed: {e!r}", file=sys.stderr)
@@ -163,14 +169,19 @@ def api_url() -> str:
         f"http://127.0.0.1:{os.environ.get('SOKKAN_API_PORT', '8097')}"
 
 
-def cli_settings(session_id: str | None = None) -> dict:
+def cli_settings(session_id: str | None = None, projects=None) -> dict:
     """Claude Code settings fragment with the two command hooks. The hook asks the warm
-    backend (``POST /api/memory/hook``, ~50 ms of process start) and only falls back to
-    an in-process recall (~1 s: psycopg + numpy imports) when the API does not answer."""
+    backend (``POST /api/memory/hook``, ~50 ms of process start; the API scopes the recall
+    to the session's project) and only falls back to an in-process recall (~1 s: psycopg +
+    numpy imports) when the API does not answer. 3.2: that fallback is scoped too —
+    ``projects`` when given, else NO fallback recall (``CORTHEXIS_RECALL_REQUIRE_SCOPE``)."""
     py = os.environ.get("SOKKAN_PYTHON", sys.executable)
     hook_token()
     env = (f"CORTHEXIS_RECALL_API_URL={shlex.quote(api_url())} "
-           f"CORTHEXIS_RECALL_TOKEN_FILE={shlex.quote(str(token_path()))} ")
+           f"CORTHEXIS_RECALL_TOKEN_FILE={shlex.quote(str(token_path()))} "
+           "CORTHEXIS_RECALL_REQUIRE_SCOPE=1 ")
+    if projects:
+        env += f"CORTHEXIS_RECALL_PROJECTS={shlex.quote(','.join(projects))} "
     cmd = f"{env}{shlex.quote(py)} {shlex.quote(str(_MEMORY / 'recall_hook.py'))}"
     if session_id:
         cmd = f"CORTHEXIS_RECALL_SESSION_ID={shlex.quote(session_id)} {cmd}"
@@ -181,6 +192,17 @@ def cli_settings(session_id: str | None = None) -> dict:
     }}
 
 
+def _shared_scope() -> tuple[str, ...] | None:
+    """Fallback scope written in the settings file SHARED by every terminal session: the
+    default project while the instance has only that one (= the pre-3.2 behaviour), none
+    once there are several (the fallback then recalls nothing; the API path still does)."""
+    try:
+        import projects
+        return None if projects.multi_project() else (projects.DEFAULT_PROJECT,)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def cli_settings_path() -> str | None:
     """A settings file for ``claude --settings`` (None when recall is off). The session id
     comes from the hook payload: SOKKAN starts terminal sessions with ``--session-id``."""
@@ -189,7 +211,7 @@ def cli_settings_path() -> str | None:
     path = _data_dir() / "claude-hooks" / "memory-recall.json"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(cli_settings(), indent=1)
+        text = json.dumps(cli_settings(projects=_shared_scope()), indent=1)
         if not path.exists() or path.read_text(encoding="utf-8") != text:
             tmp = path.with_suffix(".tmp")
             tmp.write_text(text, encoding="utf-8")

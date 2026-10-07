@@ -54,6 +54,8 @@ _CARD_MIGRATIONS = {
     "assignee": "TEXT DEFAULT ''",
     "closed_at": "REAL",
     "closed_by": "TEXT DEFAULT ''",
+    # 3.2 multi-user : chaque carte appartient à un projet ; l'existant → 'default'
+    "project": "TEXT NOT NULL DEFAULT 'default'",
 }
 # 3.2 : d'où vient un événement (session SOKKAN, canal web / mcp / run d'agent)
 _EVENT_MIGRATIONS = {
@@ -127,6 +129,8 @@ def init(force: bool = False) -> None:
             con.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT DEFAULT ''")
         if "secrets" not in scols:  # 3.1 : secrets nommés à l'ouverture (JSON, NULL = non choisi)
             con.execute("ALTER TABLE sessions ADD COLUMN secrets TEXT DEFAULT NULL")
+        if "project" not in scols:  # 3.2 : projet de la session (périmètre du rappel mémoire)
+            con.execute("ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
         con.commit()
         con.close()
         _initialized = True
@@ -304,7 +308,7 @@ def _uniquify_sdk(tag: str) -> str:
 
 
 def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "",
-                    secrets: list[str] | None = None) -> dict:
+                    secrets: list[str] | None = None, project: str = "default") -> dict:
     """Enregistre une session SDK possédée par SOKKAN (le chat vit dans l'API,
     l'historique dans le transcript du claude_session_id, persisté plus tard)."""
     tag = (tag or "session").strip().replace(" ", "-")[:24]
@@ -312,14 +316,15 @@ def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "",
     title = (title or prompt or tag).strip().splitlines()[0][:60] or tag
     con = _con()
     con.execute(
-        "INSERT INTO sessions(session_id, tag, window, title, prompt, created_at, kind, secrets)"
-        " VALUES(?,?,?,?,?,?, 'sdk', ?)",
+        "INSERT INTO sessions(session_id, tag, window, title, prompt, created_at, kind, secrets,"
+        " project) VALUES(?,?,?,?,?,?, 'sdk', ?, ?)",
         (sid, name, "", title, prompt, time.time(),
-         None if secrets is None else json.dumps(list(secrets))),
+         None if secrets is None else json.dumps(list(secrets)), project or "default"),
     )
     con.commit()
     con.close()
-    return {"session_id": sid, "tag": name, "window": "", "title": title, "kind": "sdk"}
+    return {"session_id": sid, "tag": name, "window": "", "title": title, "kind": "sdk",
+            "project": project or "default"}
 
 
 def set_claude_session_id(sid: str, csid: str) -> None:
@@ -334,6 +339,14 @@ def get_claude_session_id(sid: str) -> str:
     r = con.execute("SELECT claude_session_id FROM sessions WHERE session_id=?", (sid,)).fetchone()
     con.close()
     return (r["claude_session_id"] if r else "") or ""
+
+
+def get_session_project(sid: str) -> str | None:
+    """Projet d'une session SOKKAN (3.2) ; None = session inconnue de SOKKAN."""
+    con = _con()
+    r = con.execute("SELECT project FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    con.close()
+    return (r["project"] or "default") if r else None
 
 
 def get_session_secrets(sid: str) -> list[str] | None:

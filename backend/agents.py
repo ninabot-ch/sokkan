@@ -135,6 +135,8 @@ def init(force: bool = False) -> None:
         for col in ("proposed_by", "pending_change_by"):  # 3.1 : qui a proposé (4 yeux)
             if col not in cols:
                 con.execute(f"ALTER TABLE agents ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+        if "project" not in cols:  # 3.2 : l'agent appartient à un projet ; l'existant → default
+            con.execute("ALTER TABLE agents ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
         con.commit()
         con.close()
         _initialized_for = str(DB)

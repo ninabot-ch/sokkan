@@ -186,13 +186,20 @@ def test_mcp_other_user_cannot_see_or_touch(mcp, client, monkeypatch):
     assert mcp.run_agent_now("nightly-cve-audit")["ok"] is False
 
 
-def test_mcp_servers_get_the_caller_identity():
+def test_mcp_servers_get_the_caller_identity(tmp_path, monkeypatch):
     import agentchat
+    import board
+
+    monkeypatch.setattr(board, "DB", tmp_path / "board.db")
+    board.init(force=True)
 
     servers = agentchat.mcp_servers_for("sid-1", "dev@x.ch")
     assert set(servers) >= {"sokkan-memory", "sokkan-board", "sokkan-agents"}
+    # 3.2: + the session's project (a session SOKKAN does not know → the default project
+    # while the instance has only that one)
     assert servers["sokkan-agents"]["env"] == {"SOKKAN_SESSION_ID": "sid-1",
-                                               "SOKKAN_SESSION_USER": "dev@x.ch"}
+                                               "SOKKAN_SESSION_USER": "dev@x.ch",
+                                               "SOKKAN_SESSION_PROJECT": "default"}
     run = agentchat.mcp_servers_for("sid-2", "dev@x.ch", only=["sokkan-memory",
                                                                 "sokkan-agents"], agent_run=True)
     assert set(run) == {"sokkan-memory", "sokkan-agents"}

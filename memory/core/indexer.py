@@ -31,8 +31,9 @@ from pathlib import Path
 from . import dates, drift
 from .config import env, env_bool, env_int, env_list
 from . import normalize as normalize_mod
-from .contract import ChunkRecord, Generation, NoteRecord
+from .contract import DEFAULT_PROJECT, ChunkRecord, Generation, NoteRecord
 from .notes import INDEX_FILENAME, filename_for, parse_links, parse_note
+from .scope import project_of, valid_project
 
 CHUNK_TARGET = 1200     # chars; pack paragraphs up to this size
 EMBED_BATCH = 64
@@ -336,6 +337,9 @@ class IndexConfig:
     dead_path_roots: list[Path] = field(default_factory=list)
     dead_path_prefixes: tuple[str, ...] = ()
     index_header: str | None = None
+    # 3.2: the project of every note of ``memory_dir`` (one directory = one project). A pass
+    # only prunes the notes of its own project.
+    project: str = DEFAULT_PROJECT
 
     @classmethod
     def from_env(cls, **overrides) -> "IndexConfig":
@@ -354,6 +358,7 @@ class IndexConfig:
             migrate_mtime=env_bool("MIGRATE_MTIME", False),
             dead_path_roots=[Path(p).expanduser() for p in env_list("DEAD_PATH_ROOTS", ":")],
             dead_path_prefixes=tuple(env_list("DEAD_PATH_PREFIXES")),
+            project=env("MEMORY_PROJECT", DEFAULT_PROJECT) or DEFAULT_PROJECT,
         )
         for k, v in overrides.items():
             setattr(cfg, k, v)
@@ -445,7 +450,9 @@ class Indexer:
         gen, building = self._target_generation(rebuild)
         rep.generation, rep.built_generation = gen.id, building
         rep.bootstrap = store.seen_count() == 0
-        indexed = store.note_names(gen.id)
+        if not valid_project(cfg.project):
+            raise ValueError(f"invalid project name for the memory directory: {cfg.project!r}")
+        indexed = store.note_names(gen.id, project=cfg.project)
 
         files = sorted(p for p in mem_dir.glob("*.md") if p.name != cfg.index_filename)
         seen: dict[str, Path] = {}
@@ -478,12 +485,14 @@ class Indexer:
 
             rec = NoteRecord(name=note.name, description=note.description, type=note.type,
                              priority=note.priority, source_path=str(path),
-                             modified=eff.modified, modified_source=eff.source, body=note.body)
+                             modified=eff.modified, modified_source=eff.source, body=note.body,
+                             project=cfg.project)
             records.append(rec)
             old = store.get_note(note.name) if note.name in indexed else None
             if old is not None and (old.description, old.type, old.priority, old.source_path,
-                                    old.body) == (rec.description, rec.type, rec.priority,
-                                                  rec.source_path, rec.body):
+                                    old.body, project_of(old)) == (
+                                        rec.description, rec.type, rec.priority,
+                                        rec.source_path, rec.body, rec.project):
                 if (old.modified, old.modified_source) != (rec.modified, rec.modified_source):
                     store.upsert_note(rec, None, gen.id)
                     rep.metadata_only += 1

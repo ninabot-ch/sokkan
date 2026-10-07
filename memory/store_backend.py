@@ -255,9 +255,18 @@ def _reranker(deep: bool = False) -> Callable | None:
 
 def memory_search(query: str, top_k: int,
                   embed_query_fn: Callable[[str], list[float]] | None = None,
-                  backend_label: str = "embedding backend", *, deep: bool = False) -> list[dict]:
+                  backend_label: str = "embedding backend", *, deep: bool = False,
+                  projects=None) -> list[dict]:
+    """``projects`` (3.2): the caller's project scope — notes of other projects are never
+    returned (None = every note; an empty scope = nothing)."""
+    from core import scope as _scope
     from core.search import tokens
     from core.store import DimensionMismatch, StoreError
+
+    scope = _scope.normalize(projects)
+    if scope == ():
+        return [{"info": "No project memory in this session's scope.", "empty": True}]
+    scoped = {"projects": scope} if scope is not None else {}
 
     try:
         st = get_store()
@@ -273,15 +282,16 @@ def memory_search(query: str, top_k: int,
         return [{"error": f"{degraded}; the query has no usable keyword"}]
     try:
         hits = st.search(q, query, max(1, top_k),
-                         rerank=_reranker(deep) if q is not None else None)
+                         rerank=_reranker(deep) if q is not None else None, **scoped)
     except DimensionMismatch as e:
         # the query was embedded by another model than the active index generation
         degraded = f"query embedding does not match the index ({e}) — lexical-only scoring"
         if not tokens(query):
             return [{"error": degraded}]
-        hits = st.search(None, query, max(1, top_k))
+        hits = st.search(None, query, max(1, top_k), **scoped)
     except StoreError as e:
         return [{"error": str(e)}]
+    hits = _scope.filter_hits(hits, scope)
     if not hits:
         return [{"info": "No project memory yet (the 3.0 index is empty or has no active "
                  "generation).", "empty": True}]
@@ -308,21 +318,36 @@ def age_header(name: str, modified, source) -> str:
     return head + "]"
 
 
-def memory_get(note_name: str) -> str | None:
-    """Full note body prefixed with its age and date provenance; None = not in the store."""
+def memory_get(note_name: str, projects=None) -> str | None:
+    """Full note body prefixed with its age and date provenance; None = not in the store,
+    or (3.2) not in the caller's project scope — the same answer, so that a scoped caller
+    cannot even learn that a note of another project exists."""
+    from core import scope as _scope
+
+    scope = _scope.normalize(projects)
     st = get_store()
     name = note_name if st.get_note(note_name) else st.find_note_by_path(note_name)
     note = st.get_note(name) if name else None
-    if note is None:
+    if note is None or not _scope.visible(note, scope):
         return None
     return age_header(note.name, note.modified, note.modified_source) + "\n\n" + (note.body or "")
 
 
-def memory_links(note_name: str) -> dict:
+def memory_links(note_name: str, projects=None) -> dict:
+    from core import scope as _scope
+
+    scope = _scope.normalize(projects)
     st = get_store()
-    if st.get_note(note_name) is None:
+    note = st.get_note(note_name)
+    if note is None or not _scope.visible(note, scope):
         return {"error": f"note not found: {note_name}"}
     out = st.links(note_name)
+    if scope is not None:  # links / backlinks to notes outside the scope are not shown
+        visible = st.existing_names([r["name"] for r in out["links"] + out["backlinks"]],
+                                    projects=scope)
+        out["links"] = [r for r in out["links"]
+                        if r["name"] in visible or not r["exists"]]
+        out["backlinks"] = [r for r in out["backlinks"] if r["name"] in visible]
     out["links"] = [{"name": r["name"], "description": r["description"] or "",
                      "exists": bool(r["exists"])} for r in out["links"]]
     out["backlinks"] = [{"name": r["name"], "description": r["description"] or ""}

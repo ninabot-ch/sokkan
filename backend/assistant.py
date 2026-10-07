@@ -474,7 +474,8 @@ def _memory_context(query: str, top_k: int = 4) -> str:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
         import memory_search_server as mem
-        hits = mem.memory_search(query, top_k) or []
+        # 3.2 lot 1 : Nina lit le projet par défaut (le projet choisi dans le cockpit au lot 2)
+        hits = mem.search_scoped(query, top_k, ("default",)) or []
     except Exception as e:  # noqa: BLE001
         print(f"[assistant] mémoire indisponible ({e})")
         return ""

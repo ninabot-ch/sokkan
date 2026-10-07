@@ -321,7 +321,9 @@ class Runtime:
             return
         sid = agentchat.new_sid()
         board.add_sdk_session(sid, "agent", title=f"agent {a['name']} · run #{rid}",
-                              prompt=a["purpose"][:300])
+                              prompt=a["purpose"][:300],
+                              # 3.2 : un run hérite du projet de son agent (périmètre mémoire)
+                              project=a.get("project") or "default")
 
         def on_wait(waiting: bool) -> None:
             agents.update_run(rid, waiting_approval=int(waiting))

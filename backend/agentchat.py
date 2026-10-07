@@ -61,6 +61,20 @@ _BOARD_SRV = os.path.join(_HERE, "board_mcp.py")
 _OBS_SRV = os.path.join(_HERE, "observability_mcp.py")
 _AGENTS_SRV = os.path.join(_HERE, "agents_mcp.py")
 _PY = os.environ.get("SOKKAN_PYTHON", sys.executable)
+
+
+def session_project(sid: str) -> str:
+    """Project of a session for its memory scope (3.2). The value handed to the MCP server
+    is a single project; an unknown session maps to the default project only while the
+    instance has one project — otherwise to "" (an invalid slug = empty scope = nothing)."""
+    import projects
+    try:
+        scope = projects.session_scope(board.get_session_project(sid))
+    except Exception as e:  # noqa: BLE001 — fail-closed: no project, no recall
+        print(f"[sokkan] session project of {sid} unknown ({e!r}): no memory scope",
+              file=sys.stderr)
+        return ""
+    return scope[0] if scope else ""
 MCP_SERVERS = {
     "sokkan-memory": {"command": _PY, "args": [os.path.abspath(_MEM_SRV)]},
     "sokkan-board": {"command": _PY, "args": [os.path.abspath(_BOARD_SRV)]},
@@ -72,11 +86,16 @@ MCP_SERVERS = {
 
 
 def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
-                    agent_run: bool | dict = False) -> dict:
+                    agent_run: bool | dict = False, project: str | None = None) -> dict:
     """MCP servers of ONE session: same commands, plus who is calling (the API
     sets it, the model cannot) so a server can attribute and gate its writes.
-    `only` restricts the set (agent runs get the servers their agent lists)."""
-    who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or ""}
+    `only` restricts the set (agent runs get the servers their agent lists).
+    `project` (3.2) scopes the memory server to the session's project; None = the
+    session's stored project (board), resolved here."""
+    if project is None:
+        project = session_project(sid)
+    who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or "",
+           "SOKKAN_SESSION_PROJECT": project}
     if agent_run:
         who["SOKKAN_AGENT_RUN"] = "1"  # agents MCP read-only, memory writes quarantined
         if isinstance(agent_run, dict):
@@ -230,7 +249,7 @@ class AgentSession:
             if pol and pol.get("budget_usd") and "max_budget_usd" in _OPTION_FIELDS:
                 opts_kwargs["max_budget_usd"] = float(pol["budget_usd"])
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
-            hooks = memrecall.sdk_hooks(self.sid)
+            hooks = memrecall.sdk_hooks(self.sid, projects=self._recall_scope())
             if hooks:
                 opts_kwargs["hooks"] = hooks
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
@@ -260,6 +279,11 @@ class AgentSession:
             except Exception:  # noqa: BLE001
                 pass
             self.client = None
+
+    def _recall_scope(self) -> tuple[str, ...]:
+        """Memory scope of this session (3.2): its project only (see session_project)."""
+        p = session_project(self.sid)
+        return (p,) if p else ()
 
     def _secret_names(self) -> list[str] | None:
         """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;

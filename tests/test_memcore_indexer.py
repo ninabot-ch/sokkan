@@ -328,3 +328,37 @@ def test_memory_index_packs_single_note_families_as_a_last_resort():
     assert stats["fits"] and content.count("\n") <= 100
     for n in notes:
         assert n.name in content
+
+
+def test_a_directory_is_one_project_and_never_prunes_another(tmp_path):
+    """3.2: every note of the indexed directory gets the configured project; a pass over
+    one project's directory leaves the notes of the other projects alone."""
+    radio, tv = tmp_path / "radio", tmp_path / "tv"
+    radio.mkdir()
+    tv.mkdir()
+    clean_corpus(radio)
+    write(tv, "tv_rundown.md", fm("tv-rundown", "Evening rundown checklist") + "Check.\n")
+    ind, st = make(radio, project="radio", write_index=False)
+    ind.run()
+    ind_tv, _ = make(tv, store=st, project="tv", write_index=False)
+    ind_tv.run()
+    gen = st.active_generation()
+    assert st.get_note("tv-rundown").project == "tv"
+    assert st.get_note("oven-schedule").project == "radio"
+    assert st.note_names(gen.id) == {"oven-schedule", "flour-supplier",
+                                     "feedback-wash-hands", "tv-rundown"}
+    ind.run()                                   # radio again: tv-rundown is not pruned
+    assert "tv-rundown" in st.note_names(gen.id)
+    assert st.note_names(gen.id, project="tv") == {"tv-rundown"}
+    with pytest.raises(ValueError):
+        make(radio, store=st, project="Not A Slug", write_index=False)[0].run()
+
+
+def test_default_project_when_not_configured(tmp_path, monkeypatch):
+    monkeypatch.delenv("CORTHEXIS_MEMORY_PROJECT", raising=False)
+    monkeypatch.delenv("SOKKAN_MEMORY_PROJECT", raising=False)
+    assert ix.IndexConfig.from_env().project == "default"
+    clean_corpus(tmp_path)
+    ind, st = make(tmp_path)
+    ind.run()
+    assert st.get_note("oven-schedule").project == "default"
