@@ -7,7 +7,7 @@ import json
 import os
 import secrets
 
-from .base import Resources, SessionSpec
+from .base import Resources, SessionSpec, cpu_to_nano, mem_to_bytes  # noqa: F401
 from .mounts import SESSION_HOME
 
 SUPERVISOR_PORT = 7070
@@ -68,28 +68,14 @@ def container_env(spec: SessionSpec, relay_addr: str, proxy: str = "") -> dict[s
     })
     if proxy:
         relay_host = relay_addr.rpartition(":")[0]
+        # SOKKAN_SESSION_NO_PROXY: hosts the session reaches directly (an in-cluster model
+        # gateway allowed by your own NetworkPolicy)
+        extra = [x.strip() for x in (os.environ.get("SOKKAN_SESSION_NO_PROXY") or "").split(",")
+                 if x.strip()]
+        no_proxy = ",".join(x for x in [relay_host, "localhost", "127.0.0.1", *extra] if x)
         env.update({"HTTPS_PROXY": proxy, "https_proxy": proxy,
-                    "NO_PROXY": ",".join(x for x in (relay_host, "localhost", "127.0.0.1")
-                                         if x),
-                    "no_proxy": relay_host})
+                    "NO_PROXY": no_proxy, "no_proxy": no_proxy})
     return env
-
-
-def cpu_to_nano(v: str) -> int:
-    v = v.strip()
-    return int(float(v[:-1]) * 1e6) if v.endswith("m") else int(float(v) * 1e9)
-
-
-_UNITS = {"Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4,
-          "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4}
-
-
-def mem_to_bytes(v: str) -> int:
-    v = v.strip()
-    for u in sorted(_UNITS, key=len, reverse=True):
-        if v.endswith(u):
-            return int(float(v[: -len(u)]) * _UNITS[u])
-    return int(float(v))
 
 
 def describe(r: Resources) -> dict:

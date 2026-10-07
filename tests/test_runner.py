@@ -603,3 +603,14 @@ def _free_port() -> int:
     p = s.getsockname()[1]
     s.close()
     return p
+
+
+def test_session_requests_never_exceed_limits(monkeypatch):
+    """Found on a real cluster: a limit below the default request was refused (422)."""
+    monkeypatch.setenv("SOKKAN_SESSION_MEMORY_LIMIT", "256Mi")
+    monkeypatch.setenv("SOKKAN_SESSION_CPU_LIMIT", "100m")
+    r = base.Resources.from_env()
+    assert (r.memory_request, r.memory_limit) == ("256Mi", "256Mi")
+    assert (r.cpu_request, r.cpu_limit) == ("100m", "100m")
+    monkeypatch.setenv("SOKKAN_SESSION_MEMORY_LIMIT", "4Gi")
+    assert base.Resources.from_env().memory_request == "512Mi"

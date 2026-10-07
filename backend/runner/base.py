@@ -45,6 +45,23 @@ ENV_DROP = ("HOME", "PATH", "PWD", "CLAUDE_CONFIG_DIR", "HOSTNAME", "SHLVL", "_"
 STATUSES = ("pending", "running", "succeeded", "failed", "gone")
 
 
+def cpu_to_nano(v: str) -> int:
+    v = v.strip()
+    return int(float(v[:-1]) * 1e6) if v.endswith("m") else int(float(v) * 1e9)
+
+
+_UNITS = {"Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4,
+          "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4}
+
+
+def mem_to_bytes(v: str) -> int:
+    v = v.strip()
+    for u in sorted(_UNITS, key=len, reverse=True):
+        if v.endswith(u):
+            return int(float(v[: -len(u)]) * _UNITS[u])
+    return int(float(v))
+
+
 @dataclass
 class Resources:
     cpu_request: str = "250m"
@@ -55,10 +72,17 @@ class Resources:
     @classmethod
     def from_env(cls) -> "Resources":
         e = os.environ.get
-        return cls(e("SOKKAN_SESSION_CPU_REQUEST") or cls.cpu_request,
-                   e("SOKKAN_SESSION_CPU_LIMIT") or cls.cpu_limit,
-                   e("SOKKAN_SESSION_MEMORY_REQUEST") or cls.memory_request,
-                   e("SOKKAN_SESSION_MEMORY_LIMIT") or cls.memory_limit)
+        r = cls(e("SOKKAN_SESSION_CPU_REQUEST") or cls.cpu_request,
+                e("SOKKAN_SESSION_CPU_LIMIT") or cls.cpu_limit,
+                e("SOKKAN_SESSION_MEMORY_REQUEST") or cls.memory_request,
+                e("SOKKAN_SESSION_MEMORY_LIMIT") or cls.memory_limit)
+        # a request above its limit is refused by the API server (422): only a limit set
+        # lower than the default request means "this much, period"
+        if cpu_to_nano(r.cpu_request) > cpu_to_nano(r.cpu_limit):
+            r.cpu_request = r.cpu_limit
+        if mem_to_bytes(r.memory_request) > mem_to_bytes(r.memory_limit):
+            r.memory_request = r.memory_limit
+        return r
 
 
 @dataclass
