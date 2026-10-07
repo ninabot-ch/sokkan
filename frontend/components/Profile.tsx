@@ -9,10 +9,11 @@ import {
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
 } from "@/lib/api";
 import type { IamUser } from "@/lib/types";
+import ProjectsAdmin from "./ProjectsAdmin";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "model" | "notify" | "secrets";
+type Section = "account" | "org" | "members" | "projects" | "model" | "notify" | "secrets";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -31,6 +32,8 @@ function Account() {
         <div className="text-[11.5px] text-mut">{me?.email}</div>
         <div className="mt-1.5 text-[11px]">role <span className={color[me?.role || ""] || "text-mut"}>{me?.role}</span>
           <span className="ml-2 text-mut">· login {me?.source}</span></div>
+        {me?.project && <div className="mt-0.5 text-[11px] text-mut">project <span className="text-slate-300">{me.project}</span>
+          {me.project_role && <> · {me.project_role}</>} · instance role {me.instance_role || "—"}</div>}
       </div>
       <a href="/api/auth/logout" className="inline-block rounded-lg border border-line px-3 py-1.5 text-[12px] text-slate-200 hover:bg-panel2">Sign out →</a>
     </div>
@@ -420,7 +423,11 @@ function Secrets() {
 
 export default function Profile({ onClose }: { onClose: () => void }) {
   const [sec, setSec] = useState<Section>("account");
-  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"], ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
+  const me = useMe();
+  const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
+  const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"],
+    ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
+    ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
       <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -437,7 +444,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

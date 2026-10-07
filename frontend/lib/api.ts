@@ -79,6 +79,22 @@ export const fetchPreviewTrigger = () =>
 export const fetchUsage = (days = 30) => getJSON<UsageSummary>(`/api/usage?days=${days}`);
 // iam
 export const fetchMe = () => getJSON<Me>("/api/me");
+// 3.2 multi-user : projets lisibles (sélecteur) + administration (admin d'instance)
+export const fetchProjects = () => getJSON<import("./types").ProjectsList>("/api/projects");
+export interface AdminGrant { project: string; principal_kind: "user" | "team"; principal: string; role: string; created_by: string }
+export interface AdminProject { slug: string; name: string; description: string; access_source: string; archived_at: number | null; created_by: string; grants: AdminGrant[] }
+export interface AdminTeam { id: string; name: string; source: string; members: number; synced_at: number | null }
+export interface AdminProjects { projects: AdminProject[]; teams: AdminTeam[]; ops_group: string; roles: string[]; sources: string[] }
+export const adminProjects = () => getJSON<AdminProjects>("/api/admin/projects");
+export const adminCreateProject = (slug: string, name: string, description = "") =>
+  mutateDetail<AdminProject>("/api/admin/projects", "POST", { slug, name, description, access_source: "sso_group" });
+export const adminArchiveProject = (slug: string, archived: boolean) =>
+  mutateDetail<AdminProject>(`/api/admin/projects/${slug}`, "PATCH", { archived });
+export const adminGrant = (slug: string, principal_kind: string, principal: string, role: string) =>
+  mutateDetail<{ grants: AdminGrant[] }>(`/api/admin/projects/${slug}/grants`, "POST", { principal_kind, principal, role });
+export const adminRevoke = (slug: string, kind: string, principal: string) =>
+  mutateDetail<{ grants: AdminGrant[] }>(`/api/admin/projects/${slug}/grants/${kind}/${encodeURIComponent(principal)}`, "DELETE");
+export const adminOpsGroup = (group: string) => mutateDetail<{ ops_group: string }>("/api/admin/ops-group", "PUT", { group });
 export const iamUsers = () => getJSON<IamUser[]>("/api/iam/users");
 export const iamUpsert = (email: string, role: string, name = "") =>
   mutate<IamUser>("/api/iam/users", "POST", { email, role, name });

@@ -17,6 +17,11 @@ import Magnitude from "@/components/Magnitude";
 import { MeProvider } from "@/lib/me";
 import { FeaturesProvider } from "@/lib/features";
 import { fetchSessions } from "@/lib/api";
+import { installProjectFetch } from "@/lib/project";
+
+// 3.2 : chaque appel /api porte le projet sélectionné (en-tête x-sokkan-project) —
+// installé avant le premier fetch (identité, features…)
+installProjectFetch();
 
 const DENSITIES = [1, 2, 3, 4];
 

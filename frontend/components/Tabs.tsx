@@ -5,6 +5,7 @@ import { useFeatures } from "@/lib/features";
 import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
+import ProjectSelector from "./ProjectSelector";
 
 const TABS = ["Board", "Sessions", "Crew", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
@@ -18,17 +19,26 @@ export default function Tabs({
 }) {
   const feats = useFeatures();
   const canDev = useCan("dev");
+  const me = useMe();
   const visible = TABS.filter(
     (t) => (t !== "Preview" || feats.preview) && (t !== "Infra" || feats.infra)
-      && (t !== "Operate" || feats.observe) && (t !== "Magnitude" || feats.magnitude)
+      // 3.2 : Operate = l'équipe ops (groupe SSO) + les admins de l'instance
+      && (t !== "Operate" || (feats.observe && (!me || me.ops !== false)))
+      && (t !== "Magnitude" || feats.magnitude)
       && (t !== "Crew" || (feats.agents && (canDev || !!feats.agents_viewer_readonly)))
   );
   return (
     <>
     {feats.demo && <DemoBanner onChange={onChange} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}
+    {me?.secrets_warning && (
+      <div role="status" className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[12px] text-amber-100">
+        ⚠ {me.secrets_warning}
+      </div>
+    )}
     <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line bg-panel px-2 md:overflow-visible md:px-4">
       <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
-      <span className="mr-2 md:mr-8" />
+      <ProjectSelector />
+      <span className="mr-2 md:mr-6" />
       {visible.map((t) => {
         const enabled = true;
         return (

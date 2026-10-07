@@ -327,3 +327,12 @@ def test_websocket_of_another_project_session_is_refused(world):
                                  headers={"origin": "http://testserver"}) as ws:
             ws.receive_json()
     assert e.value.code in (4404, 4403)
+
+
+def test_me_is_the_person_in_the_selected_project(world):
+    me = world["as"]("alice@x", "radio").get("/api/me").json()
+    assert (me["project"], me["project_role"], me["role"]) == ("radio", "dev", "dev")
+    me = world["as"]("alice@x", "default").get("/api/me").json()
+    assert me["role"] == "none" and me["project_role"] is None   # the UI switches project
+    me = world["as"]("bob@x").get("/api/me").json()
+    assert (me["project"], me["role"], me["instance_role"]) == ("default", "dev", "dev")

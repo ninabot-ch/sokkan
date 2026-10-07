@@ -107,10 +107,26 @@ export interface Binding {
 
 export interface Me {
   email: string;
+  /** role IN THE SELECTED PROJECT (3.2), on the instance scale the UI checks */
   role: string;
   name: string;
   known: boolean;
   source: string;
+  project?: string;
+  project_role?: "viewer" | "dev" | "maintainer" | "admin" | null;
+  instance_role?: string;
+  /** member of the ops team (or instance admin): the Operate tab */
+  ops?: boolean;
+  /** B1: sessions receive the whole vault on this instance */
+  secrets_warning?: string | null;
+}
+
+export interface ProjectRow {
+  slug: string; name: string; role: string; access_source: string; shared: boolean;
+}
+
+export interface ProjectsList {
+  projects: ProjectRow[]; multi: boolean; default: string; ops: boolean; instance_admin: boolean;
 }
 
 export interface IamUser {

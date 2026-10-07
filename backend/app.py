@@ -270,8 +270,16 @@ def _bg(coro) -> asyncio.Task:
 
 
 @app.get("/api/me")
-def me(user: dict = Depends(current_user)) -> dict:
-    return {**user, "source": auth.MODE, "ops": projects.is_ops(user),
+def me(request: Request, user: dict = Depends(current_user)) -> dict:
+    """Who am I — IN THE SELECTED PROJECT (3.2): `role` is the role there (mapped onto the
+    instance scale the UI checks), `project_role` the project's own name for it,
+    `instance_role` the instance one. No role in that project = role "none" (the cockpit
+    then switches to a project the person can read)."""
+    slug = projectgate.requested_project(request)
+    pu = projectgate.project_user(user, slug)
+    shown = pu or {**user, "role": "none", "project": slug, "project_role": None,
+                   "instance_role": user.get("role")}
+    return {**shown, "source": auth.MODE, "ops": projects.is_ops(user),
             # 3.2 (B1) : bandeau du cockpit quand les sessions reçoivent tout le coffre
             "secrets_warning": vault.mode_warning() if iam.rank(user["role"]) >= iam.rank("dev")
             else None}
