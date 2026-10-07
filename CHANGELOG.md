@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.1.1 — 2026-10-07 — "Crew on show"
+## 3.1.1 — 2026-10-07 — "Crew up"
 - **Crew in read-only for viewers** — `SOKKAN_CREW_VIEWER_READONLY=1` (off by default).
   A viewer then sees the deck and opens every agent (Settings, Live, History, the
   deliverables) but changes nothing: every write route stays `403`, the action buttons
