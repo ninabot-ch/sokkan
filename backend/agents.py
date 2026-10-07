@@ -142,8 +142,65 @@ def init(force: bool = False) -> None:
         if "project" not in cols:  # 3.2 : l'agent appartient à un projet ; l'existant → default
             con.execute("ALTER TABLE agents ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
         con.commit()
+        _names_per_project(con)
         con.close()
         _initialized_for = str(DB)
+
+
+_AGENTS_RX = re.compile(r'^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?agents["`]?', re.I)
+_NAME_UNIQUE_RX = re.compile(r"\bname\s+TEXT\s+NOT\s+NULL\s+UNIQUE\b", re.I)
+
+
+def _names_per_project(con: sqlite3.Connection) -> None:
+    """3.2 lot 4: agent names unique per (project, name), not per instance — with names
+    unique per instance, « an agent named X already exists » told a person that a project
+    they cannot see has an agent X. SQLite cannot drop a column constraint: the table is
+    rebuilt (same columns, same ids, so runs keep their agent), in ONE transaction, after a
+    copy of the file (agents.db.pre-lot4.bak, once). Idempotent; a concurrent process that
+    already rebuilt it is detected inside the transaction."""
+    def done() -> bool:
+        r = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'"
+                        ).fetchone()
+        return r is None or "UNIQUE(project, name)" in r[0]
+    if done():
+        return
+    bak = DB.with_name(DB.name + ".pre-lot4.bak")
+    if not bak.exists():
+        dst = sqlite3.connect(bak)
+        try:
+            con.backup(dst)
+        finally:
+            dst.close()
+        os.chmod(bak, 0o600)
+    old_iso = con.isolation_level
+    con.isolation_level = None
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if done():
+                con.execute("COMMIT")
+                return
+            sql = con.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                              "AND name='agents'").fetchone()[0]
+            new = _NAME_UNIQUE_RX.sub("name TEXT NOT NULL", sql, count=1)
+            new = _AGENTS_RX.sub("CREATE TABLE agents_lot4", new, count=1)
+            new = new.rstrip().rstrip(")").rstrip() + ",\n    UNIQUE(project, name)\n)"
+            cols = ", ".join(f'"{r[1]}"' for r in con.execute("PRAGMA table_info(agents)"))
+            before = con.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+            con.execute(new)
+            con.execute(f"INSERT INTO agents_lot4({cols}) SELECT {cols} FROM agents")
+            after = con.execute("SELECT COUNT(*) FROM agents_lot4").fetchone()[0]
+            if after != before:
+                raise sqlite3.DatabaseError(f"agents rebuild copied {after}/{before} rows")
+            con.execute("DROP TABLE agents")
+            con.execute("ALTER TABLE agents_lot4 RENAME TO agents")
+            con.execute("CREATE INDEX IF NOT EXISTS ix_agents_project ON agents(project, name)")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    finally:
+        con.isolation_level = old_iso
 
 
 def _con() -> sqlite3.Connection:
@@ -547,20 +604,37 @@ def get(agent_id: int) -> dict | None:
         con.close()
 
 
-def get_by_name(name: str) -> dict | None:
+def get_by_name(name: str, project: str = "default") -> dict | None:
+    """The agent called `name` IN `project` (names are unique per project, lot 4)."""
     con = _con()
     try:
-        return _agent_out(con.execute("SELECT * FROM agents WHERE name=?",
-                                      ((name or "").strip().lower(),)).fetchone())
+        return _agent_out(con.execute("SELECT * FROM agents WHERE name=? AND project=?",
+                                      ((name or "").strip().lower(), project or "default")
+                                      ).fetchone())
     finally:
         con.close()
 
 
-def resolve(ref) -> dict | None:
-    """id (int or digits) or name."""
+def name_taken(name: str, project: str, exclude_id: int | None = None) -> bool:
+    """Is `name` already used? Per project with `project_vault_budgets` (lot 4); without
+    it, per instance as in 3.1 (the stricter rule: turning the feature off never lets two
+    agents share a name the 3.1 way of resolving them would confuse)."""
+    import features
+    per_project = features.enabled("project_vault_budgets")
+    con = _con()
+    try:
+        q = "SELECT id FROM agents WHERE name=?" + (" AND project=?" if per_project else "")
+        args = ((name or "").strip().lower(),) + ((project or "default",) if per_project else ())
+        return any(r["id"] != exclude_id for r in con.execute(q, args))
+    finally:
+        con.close()
+
+
+def resolve(ref, project: str = "default") -> dict | None:
+    """id (int or digits) or name (looked up in `project`)."""
     if isinstance(ref, int) or (isinstance(ref, str) and ref.isdigit()):
         return get(int(ref))
-    return get_by_name(str(ref))
+    return get_by_name(str(ref), project)
 
 
 def list_agents(user: dict, include_archived: bool = False) -> list[dict]:
@@ -638,7 +712,7 @@ def create(user: dict, fields: dict, created_by: str = "", activate: bool = Fals
                        ("notify_on", ["failure", "timeout", "budget", "approval"])):
         v.setdefault(k, default)
     _check_trigger(v)
-    if get_by_name(v["name"]):
+    if name_taken(v["name"], user.get("project") or "default"):
         raise AgentError(f"an agent named {v['name']!r} already exists")
     now = time.time()
     if activate and not proposal and not self_activation_allowed(user):
@@ -698,7 +772,8 @@ def update(user: dict, agent_id: int, fields: dict, from_session: bool = False,
     if not fields:
         raise AgentError(f"nothing to update (editable: {', '.join(_EDITABLE)})")
     v = validate(fields, partial=True, known_secrets=known_secrets)
-    if "name" in v and v["name"] != a["name"] and get_by_name(v["name"]):
+    if "name" in v and v["name"] != a["name"] and name_taken(
+            v["name"], a.get("project") or "default", exclude_id=a["id"]):
         raise AgentError(f"an agent named {v['name']!r} already exists")
     merged = {**a, **v}
     _check_trigger(merged)
@@ -1081,7 +1156,7 @@ def secrets_for_session(sid: str) -> dict[str, str]:
     try:
         con = _con()
         try:
-            r = con.execute("SELECT a.secrets FROM runs r JOIN agents a ON a.id = r.agent_id"
+            r = con.execute("SELECT a.secrets, a.project FROM runs r JOIN agents a ON a.id = r.agent_id"
                             " WHERE r.session_id=? ORDER BY r.id DESC LIMIT 1",
                             (sid,)).fetchone()
         finally:
@@ -1090,7 +1165,7 @@ def secrets_for_session(sid: str) -> dict[str, str]:
         if not names:
             return {}
         import vault
-        return vault.session_env(names)
+        return vault.session_env(names, project=r["project"] or "default")
     except Exception:  # noqa: BLE001 — never break a read on the vault
         return {}
 

@@ -48,6 +48,7 @@ import audit
 import features
 import auth
 import board
+import budgets
 import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
 import iam
 import infra
@@ -801,8 +802,10 @@ def vault_session(_u: dict = Depends(require("dev"))) -> dict:
 
 @app.get("/api/vault")
 def vault_list(_u: dict = Depends(require("admin"))) -> dict:
-    """Noms des secrets (JAMAIS les valeurs)."""
-    return {"names": vault.names()}
+    """Noms des secrets du projet sélectionné (JAMAIS les valeurs). 3.2 lot 4 : un admin
+    (ou maintainer) DU PROJET gère son coffre ; un projet sans coffre → liste vide."""
+    p = _ctx_project()
+    return {"names": vault.names(p), "project": p, "enabled": vault.namespace(p) is not None}
 
 
 class SecretIn(BaseModel):
@@ -812,19 +815,24 @@ class SecretIn(BaseModel):
 
 @app.post("/api/vault")
 def vault_set(body: SecretIn, u: dict = Depends(require("admin"))) -> dict:
+    p = _ctx_project()
     try:
-        vault.set_secret(body.name.strip(), body.value)
+        vault.set_secret(body.name.strip(), body.value, project=p)
     except ValueError as e:
         raise HTTPException(400, str(e))
     audit.log(u["email"], "vault.set", body.name.strip(), "")  # nom only, jamais la valeur
-    return {"names": vault.names()}
+    return {"names": vault.names(p), "project": p, "enabled": True}
 
 
 @app.delete("/api/vault/{name}")
 def vault_delete(name: str, u: dict = Depends(require("admin"))) -> dict:
-    vault.delete_secret(name)
+    p = _ctx_project()
+    try:
+        vault.delete_secret(name, project=p)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     audit.log(u["email"], "vault.delete", name, "")
-    return {"names": vault.names()}
+    return {"names": vault.names(p), "project": p, "enabled": True}
 
 
 # --- agents (3.1 « Crew up ») — spec docs/AGENTS.md --------------------------
@@ -1731,10 +1739,9 @@ class SpawnBody(BaseModel):
 
 
 def _vault_names() -> list[str]:
-    """Vault NAMES a session / an agent of the request's project may use. The vault is
-    per instance until lot 4: only the default project sees it; other projects get none
-    (fail-closed — a secret of one team never reaches another team's session)."""
-    return vault.names() if _ctx_project() == projects.DEFAULT_PROJECT else []
+    """Vault NAMES a session / an agent of the request's project may use: that project's
+    vault only (lot 4); a project without one (feature off, `shared`) gets none."""
+    return vault.names(_ctx_project())
 
 
 def _ctx_project() -> str:
@@ -1811,6 +1818,9 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
                     "consider wrapping up or raising the budget (Profile → Organisation).")})
         except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
             pass
+    bstate, bmsg = budgets.check(project)   # 3.2 lot 4 : budget du projet (jour / mois)
+    if bstate != "ok":
+        session._emit({"type": "error", "message": bmsg})
     if prompt.strip():
         recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt,
                                  session_id=sid)
@@ -2070,13 +2080,26 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
 
 
 @app.get("/api/audit")
-def audit_recent(limit: int = 200, q: str = "", _u: dict = Depends(require("viewer"))) -> list[dict]:
+def audit_recent(request: Request, limit: int = 200, q: str = "",
+                 u: dict = Depends(current_user)) -> list[dict]:
     """Journal des actions (onglet Journal) : qui a fait quoi, quand.
-    3.2 : avec plusieurs projets, le journal (titres de sessions, cartes, agents de tous les
-    projets) est réservé aux admins de l'instance."""
-    if projects.multi_project() and iam.rank(_u["role"]) < iam.rank("admin"):
-        raise HTTPException(403, "with several projects the journal is for instance admins")
-    return audit.recent(limit=limit, q=q)
+    3.2 : avec plusieurs projets, le journal complet (titres de sessions, cartes, agents de
+    tous les projets) est réservé aux admins de l'instance. Lot 4 (`project_vault_budgets`) :
+    un admin (ou maintainer) d'un projet voit le journal DE CE projet (projet sélectionné,
+    en-tête x-sokkan-project) — jamais les événements d'instance ni ceux d'autres projets."""
+    rank = iam.rank(u.get("role") or "")
+    if not projects.multi_project():
+        if rank < iam.rank("viewer"):
+            raise HTTPException(403, "role 'viewer' required")
+        return audit.recent(limit=limit, q=q)
+    if rank >= iam.rank("admin"):
+        return audit.recent(limit=limit, q=q)
+    slug = projectgate.requested_project(request)
+    if features.enabled("project_vault_budgets") and \
+            projects.prank(projects.effective_role(u, slug)) >= projects.prank("maintainer"):
+        return audit.recent(limit=limit, q=q, project=slug)
+    raise HTTPException(403, "with several projects the journal is for instance admins "
+                             "and the admins of a project (its own journal)")
 
 
 # --- environnements cloud (connecteur ouvert → control plane NINABOT fermé) ---
@@ -2479,7 +2502,7 @@ def board_patch(card_id: int, body: CardPatch, u: dict = Depends(require("dev"))
         fields["checklist"] = [dict(i) for i in body.checklist or []]
     if "assignee" in fields:
         try:
-            fields["assignee"] = board.validate_assignee(fields["assignee"])
+            fields["assignee"] = board.validate_assignee(fields["assignee"], _ctx_project())
         except ValueError as e:
             raise HTTPException(400, str(e))
     c = board.update_card(card_id, user=u["email"], origin=_WEB, **fields)
@@ -2550,16 +2573,51 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
 @app.get("/api/usage")
 def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict:
     """Coûts & tokens agrégés depuis les transcripts (onglet Coûts).
-    3.2 : la liste des sessions (titres, premier prompt) ne montre que celles du projet
-    sélectionné ; les totaux restent ceux de l'instance jusqu'aux budgets par projet (lot 4)."""
-    out = usage_mod.summary(days_back=min(days, 90))
+    3.2 : la liste des sessions ne montre que celles du projet sélectionné. Lot 4
+    (`project_vault_budgets`) : totaux, série quotidienne et répartition par modèle du
+    projet aussi, + son budget (`project_budget`) ; sans la feature, totaux d'instance."""
+    p = _ctx_project()
+    per_project = features.enabled("project_vault_budgets")
+    out = usage_mod.summary(days_back=min(days, 90), **({"project": p} if per_project else {}))
+    if per_project:
+        out["project_budget"] = budgets.status(p)
+        return out
     mine = {}
     for s in board.list_sessions():
         if _in_ctx(s):
             mine[s["session_id"]] = s
             if s.get("claude_session_id"):
                 mine[s["claude_session_id"]] = s
-    keep_unknown = not projects.multi_project() and _ctx_project() == projects.DEFAULT_PROJECT
+    keep_unknown = not projects.multi_project() and p == projects.DEFAULT_PROJECT
     out["sessions"] = [x for x in out.get("sessions") or []
                        if x["session_id"] in mine or keep_unknown]
     return out
+
+
+class BudgetIn(BaseModel):
+    currency: str | None = None   # USD | CHF
+    day: float | None = None      # 0 = no daily ceiling
+    month: float | None = None    # 0 = no monthly ceiling
+
+
+@app.get("/api/budgets")
+def project_budget(_u: dict = Depends(require("viewer"))) -> dict:
+    """Budget of the selected project (3.2 lot 4): ceilings, spend, state."""
+    if not features.enabled("project_vault_budgets"):
+        raise HTTPException(404, "per-project budgets are off (feature project_vault_budgets)")
+    return budgets.status(_ctx_project(), fresh=True)
+
+
+@app.put("/api/budgets")
+def project_budget_set(body: BudgetIn, u: dict = Depends(require("admin"))) -> dict:
+    """A project admin (or maintainer) sets their project's ceilings."""
+    if not features.enabled("project_vault_budgets"):
+        raise HTTPException(404, "per-project budgets are off (feature project_vault_budgets)")
+    p = _ctx_project()
+    try:
+        b = budgets.set_budget(p, day=body.day, month=body.month, currency=body.currency,
+                               by=u["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "project.budget", p, f"day={b['day']} month={b['month']} {b['currency']}")
+    return budgets.status(p, fresh=True)

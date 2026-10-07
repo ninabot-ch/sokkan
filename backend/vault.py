@@ -24,7 +24,7 @@ KEY_PATH = os.path.join(DATA_DIR, "vault.key")
 STORE = os.path.join(DATA_DIR, "vault.json")
 # nom = variable d'environnement valide (injectée telle quelle dans les sessions)
 _NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 def _key() -> bytes:
@@ -41,19 +41,85 @@ def _key() -> bytes:
         return k
 
 
-def _load() -> dict:
+FORMAT = 2   # {"format": 2, "projects": {slug: {NAME: token}}, "instance": {NAME: token}}
+
+
+def _read() -> dict:
     try:
         with open(STORE) as f:
-            return json.load(f)
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
+def _migrate(d: dict) -> tuple[dict, bool]:
+    """3.2 lot 4: the flat 3.1 vault ({NAME: token}) becomes namespaced per project; every
+    existing secret goes to `default`. Idempotent; returns (vault, changed)."""
+    if d.get("format") == FORMAT and isinstance(d.get("projects"), dict):
+        d.setdefault("instance", {})
+        return d, False
+    flat = {k: v for k, v in d.items() if isinstance(v, str) and valid_name(k)}
+    return {"format": FORMAT, "projects": {"default": flat} if flat else {},
+            "instance": {}}, True
+
+
+def _load() -> dict:
+    """The namespaced vault. A 3.1 file is migrated in place on first read (the original
+    is kept once as vault.json.v1.bak, 0600 — what a rollback to 3.1 restores)."""
+    d, changed = _migrate(_read())
+    if changed and os.path.exists(STORE):
+        with _lock:
+            raw = _read()
+            d, changed = _migrate(raw)
+            if changed:
+                bak = STORE + ".v1.bak"
+                if not os.path.exists(bak):
+                    with open(bak, "w") as f:
+                        json.dump(raw, f, indent=2)
+                    os.chmod(bak, 0o600)
+                _save(d)
+    return d
+
+
 def _save(d: dict) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(STORE, "w") as f:
+    tmp = STORE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(d, f, indent=2)
-    os.chmod(STORE, 0o600)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, STORE)
+
+
+def namespace(project: str | None) -> str | None:
+    """Vault namespace a project's sessions, agents and admins use — None = no vault.
+
+    `default` always has its namespace (= the 3.1 vault). Another project has its own only
+    with the feature `project_vault_budgets` on (otherwise none: fail-closed, a secret of
+    one team never reaches another team's session). `shared` (read-only knowledge for
+    everyone) never holds secrets: a secret seen by every project would defeat the scope."""
+    p = (project or "").strip()
+    if p == "default":
+        return p
+    if not p or p == "shared":
+        return None
+    import features
+    import projects
+    if not features.enabled("project_vault_budgets") or not projects.valid_slug(p):
+        return None
+    return p
+
+
+class VaultOff(ValueError):
+    """The project has no vault (feature off, `shared`, unknown project)."""
+
+
+def _ns_or_raise(project: str | None) -> str:
+    ns = namespace(project)
+    if ns is None:
+        raise VaultOff(f"project {project!r} has no vault (per-project vault: feature "
+                       "project_vault_budgets; `shared` never holds secrets)")
+    return ns
 
 
 def session_mode() -> str:
@@ -93,36 +159,43 @@ def valid_name(name: str) -> bool:
     return bool(_NAME_RE.match(name))
 
 
-def names() -> list[str]:
-    """Noms des secrets (JAMAIS les valeurs) — pour l'UI et le MCP."""
-    return sorted(_load().keys())
+def names(project: str = "default") -> list[str]:
+    """Noms des secrets d'UN projet (JAMAIS les valeurs) — pour l'UI et le MCP."""
+    ns = namespace(project)
+    return sorted((_load()["projects"].get(ns) or {}).keys()) if ns else []
 
 
-def set_secret(name: str, value: str) -> None:
+def set_secret(name: str, value: str, project: str = "default") -> None:
     if not valid_name(name):
         raise ValueError("le nom doit être une variable d'environnement (A-Z, 0-9, _)")
+    ns = _ns_or_raise(project)
     f = Fernet(_key())
     with _lock:
         d = _load()
-        d[name] = f.encrypt(value.encode()).decode()
+        d["projects"].setdefault(ns, {})[name] = f.encrypt(value.encode()).decode()
         _save(d)
 
 
-def delete_secret(name: str) -> None:
+def delete_secret(name: str, project: str = "default") -> None:
+    ns = _ns_or_raise(project)
     with _lock:
         d = _load()
-        d.pop(name, None)
+        (d["projects"].get(ns) or {}).pop(name, None)
         _save(d)
 
 
-def session_env(only: list[str] | None = None) -> dict[str, str]:
+def session_env(only: list[str] | None = None, project: str = "default") -> dict[str, str]:
     """{NAME: valeur déchiffrée} à merger dans l'env des sessions. Appelé côté
     serveur uniquement (agentchat), jamais renvoyé à l'UI ni au LLM.
-    `only` (runs d'agent, 3.1) = les seuls noms référencés par l'agent ; None =
-    tout le coffre (session humaine, comportement historique)."""
+    `project` (3.2 lot 4) : le coffre de CE projet seulement (rien si le projet n'en a
+    pas). `only` = les seuls noms voulus (runs d'agent, mode `named`) ; None = tout le
+    coffre du projet (mode `all`)."""
+    ns = namespace(project)
+    if ns is None:
+        return {}
     f = Fernet(_key())
     out: dict[str, str] = {}
-    for k, v in _load().items():
+    for k, v in (_load()["projects"].get(ns) or {}).items():
         if only is not None and k not in only:
             continue
         try:

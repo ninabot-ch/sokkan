@@ -198,6 +198,25 @@ def _cron_latest_due(a: dict, now: float) -> float | None:
     return occ
 
 
+def owner_check(a: dict) -> str | None:
+    """Why an agent may not run any more because of its owner's role in its project
+    (lot 4, feature `project_vault_budgets`), None = fine."""
+    import budgets
+    if not budgets.enabled():
+        return None
+    import iam
+    import projects
+    proj = a.get("project") or "default"
+    try:
+        role = projects.effective_role(iam.get_user(a["owner"]), proj)
+    except Exception as e:  # noqa: BLE001 — fail-closed: an unknown role does not run
+        return f"owner role in project {proj!r} unknown ({e})"
+    if projects.prank(role) < projects.prank("dev"):
+        return (f"owner {a['owner']} is no longer dev or more in project {proj!r}: run skipped, "
+                "agent paused (a project admin re-assigns or resumes it)")
+    return None
+
+
 class Runtime:
     def __init__(self, recall: Callable[[str, str], str] | None = None):
         self.runner_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
@@ -241,7 +260,7 @@ class Runtime:
                               error="the SOKKAN API restarted during this run")
             a = agents.get(r["agent_id"])
             if a:
-                audit.log(f"agent:{a['name']}", "agent.run.interrupted", f"run #{r['id']}", "")
+                audit.log(f"agent:{a['name']}", "agent.run.interrupted", f"run #{r['id']}", "", project=a.get("project") or "default")
                 self._notify(a, r, "interrupted", "The API restarted during this run.")
 
     def drop_boot_backlog(self, boot_at: float) -> int:
@@ -406,7 +425,8 @@ class Runtime:
     async def _execute(self, a: dict, run: dict) -> None:
         rid = run["id"]
         actor = f"agent:{a['name']}"
-        secret_vals = vault.session_env(a.get("secrets") or [])
+        secret_vals = vault.session_env(a.get("secrets") or [],
+                                       project=a.get("project") or "default")
         missing = [s for s in a.get("secrets") or [] if s not in secret_vals]
         if missing:
             agents.update_run(rid, status="failed",
@@ -414,6 +434,25 @@ class Runtime:
             if not self._incident(a, agents.get_run(rid)):
                 self._notify(a, agents.get_run(rid), "failed",
                              f"Secrets missing from the vault: {', '.join(missing)}")
+            return
+        # 3.2 lot 4: the project's day / month ceiling (hard stop) — the run does not start
+        import budgets
+        bstate, bmsg = budgets.check(a.get("project") or "default")
+        if bstate == "stop":
+            agents.update_run(rid, status="budget", error=bmsg)
+            audit.log(actor, "agent.run.project_budget", f"run #{rid}", bmsg,
+                      project=a.get("project") or "default")
+            self._notify(a, agents.get_run(rid), "budget", bmsg)
+            return
+        # 3.2 lot 4: the owner must still be dev or more in the agent's project (a person
+        # who left the project does not keep running agents there): run skipped, agent paused
+        why = owner_check(a)
+        if why:
+            agents.update_run(rid, status="skipped", error=why)
+            agents._write(a["id"], status="paused")
+            audit.log(actor, "agent.run.owner_lost", f"run #{rid}", why,
+                      project=a.get("project") or "default")
+            self._notify(a, agents.get_run(rid), "failed", why)
             return
         sid = agentchat.new_sid()
         board.add_sdk_session(sid, "agent", title=f"agent {a['name']} · run #{rid}",
@@ -426,7 +465,7 @@ class Runtime:
 
         auto, held = run_auto_approve(a, run)
         if held:
-            audit.log(actor, "agent.run.alert_writes_held", f"run #{rid}", ", ".join(held))
+            audit.log(actor, "agent.run.alert_writes_held", f"run #{rid}", ", ".join(held), project=a.get("project") or "default")
         try:
             metering = agentcost.metering(a.get("model") or None)
         except Exception as e:  # noqa: BLE001 — never unmetered: unknown price → token cap
@@ -440,6 +479,7 @@ class Runtime:
             "auto_approve": auto,
             "meter": meter,
             "secrets": a.get("secrets") or [],
+            "project": a.get("project") or "default",
             "budget_usd": a.get("budget_usd") or 0,
             "mcp": list(dict.fromkeys([*(a.get("mcp") or ["sokkan-memory"]), "sokkan-agents"])),
             "on_wait": on_wait,
@@ -448,7 +488,7 @@ class Runtime:
                                        policy=policy)
         self.sessions[rid] = sess
         agents.update_run(rid, session_id=sid)
-        audit.log(actor, "agent.run.start", f"run #{rid}", f"{run['trigger']} · session {sid}")
+        audit.log(actor, "agent.run.start", f"run #{rid}", f"{run['trigger']} · session {sid}", project=a.get("project") or "default")
         recall = ""
         if self.recall:
             try:
@@ -515,7 +555,7 @@ class Runtime:
         agents.set_next_run(a["id"], (agents.get(a["id"]) or {}).get("next_run_at"),
                             last_run_at=time.time())
         audit.log(actor, "agent.run.end", f"run #{rid}",
-                  f"{status} · ${sess.cost_usd:.4f} · {error[:200]}")
+                  f"{status} · ${sess.cost_usd:.4f} · {error[:200]}", project=a.get("project") or "default")
         final = agents.get_run(rid)
         if not self._incident(a, final):
             self._notify(a, final, status, error or self._summary(deliverable))

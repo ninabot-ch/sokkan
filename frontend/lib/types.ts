@@ -69,6 +69,23 @@ export interface UsageSummary {
   sessions: UsageSession[];
   by_model: { model: string; cost: number; out_tokens: number }[];
   note: string;
+  project?: string | null;          // 3.2 lot 4: totals of this project only
+  project_budget?: ProjectBudget;   // 3.2 lot 4 (feature project_vault_budgets)
+}
+
+export interface ProjectBudget {
+  project: string;
+  currency: "USD" | "CHF";
+  day: number;       // 0 = no ceiling
+  month: number;
+  spent_day: number; // in `currency`
+  spent_month: number;
+  pct_day?: number;
+  pct_month?: number;
+  state: "ok" | "warn" | "stop" | "off";
+  message: string;
+  enabled: boolean;
+  updated_by?: string;
 }
 
 export interface LiveChoice {
@@ -304,6 +321,7 @@ export interface AuditEvent {
   action: string;
   resource: string;
   detail: string;
+  project?: string;  // 3.2 lot 4: the project the action was about ("" = instance-level)
 }
 
 export interface PreviewTrigger {

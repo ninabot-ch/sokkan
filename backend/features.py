@@ -277,7 +277,9 @@ REGISTRY: tuple[Feature, ...] = (
     # -- roadmap (planned: declared so the dependencies are agreed before the code exists)
     Feature("project_vault_budgets", "Vault and budgets per project",
             "Per-project vault, cost totals and budgets, agent names and CortHeXis review per "
-            "project (lot 4).", status="planned", kind="planned", target="3.2",
+            "project (lot 4). Off: a project other than `default` gets no vault secret, the "
+            "CortHeXis review and the journal stay default / instance-admin only (fail-closed).",
+            status="beta", defaults=_ed(False, True), target="3.2",
             requires=("multi_project", "named_secrets"), vars=_t("project_vault_budgets"), doc=M),
     Feature("gitlab", "GitLab projects",
             "Project access from GitLab roles (OAuth PKCE), credential helper, push and merge "

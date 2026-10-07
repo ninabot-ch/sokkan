@@ -90,7 +90,32 @@ def _con() -> sqlite3.Connection:
         );
         """
     )
+    if "project" not in {r[1] for r in con.execute("PRAGMA table_info(files)")}:
+        # 3.2 lot 4: project of the workspace the transcript was found in
+        con.execute("ALTER TABLE files ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
     return con
+
+
+def _data_dir() -> Path:
+    return Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))
+
+
+def transcript_dirs() -> list[tuple[Path, str]]:
+    """(directory of Claude Code transcripts, project) — the instance's workspace for
+    `default`, and since 3.2 lot 3 one workspace per other project
+    ($SOKKAN_DATA_DIR/projects/<slug>/work → ~/.claude/projects/<its slug>)."""
+    out = [(PROJECT_DIR, "default")]
+    root = _data_dir() / "projects"
+    try:
+        work = sorted(p for p in root.glob("*/work") if p.is_dir())
+    except OSError:
+        work = []
+    for w in work:
+        slug = w.parent.name
+        if slug in ("default", "_no-project"):
+            continue
+        out.append((Path(_claude_dir) / "projects" / str(w).replace("/", "-"), slug))
+    return out
 
 
 def _parse_file(path: Path) -> tuple[dict, dict[str, dict]]:
@@ -153,7 +178,7 @@ def refresh() -> None:
     con = _con()
     known = {r["path"]: (r["mtime"], r["size"]) for r in con.execute("SELECT path, mtime, size FROM files")}
     live = set()
-    for p in PROJECT_DIR.glob("*.jsonl"):
+    for p, proj in ((p, proj) for d, proj in transcript_dirs() for p in d.glob("*.jsonl")):
         st = p.stat()
         key = str(p)
         live.add(key)
@@ -163,10 +188,10 @@ def refresh() -> None:
         con.execute(
             "INSERT OR REPLACE INTO files(path, mtime, size, session_id, first_prompt,"
             " models, turns, in_tokens, out_tokens, cache_read, cache_write, cost,"
-            " first_ts, last_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " first_ts, last_ts, project) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (key, st.st_mtime, st.st_size, p.stem, tot["first_prompt"],
              ",".join(sorted(tot["models"])), tot["turns"], tot["in"], tot["out"],
-             tot["cr"], tot["cw"], tot["cost"], tot["first_ts"], tot["last_ts"]),
+             tot["cr"], tot["cw"], tot["cost"], tot["first_ts"], tot["last_ts"], proj),
         )
         con.execute("DELETE FROM days WHERE path=?", (key,))
         con.executemany(
@@ -181,21 +206,75 @@ def refresh() -> None:
     con.close()
 
 
-def summary(days_back: int = 30) -> dict:
+def _known_sessions() -> dict:
+    import board
+    known = {}
+    for s in board.list_sessions():
+        if s.get("claude_session_id"):
+            known[s["claude_session_id"]] = s
+        known[s["session_id"]] = s
+    return known
+
+
+def _project_paths(con, project: str, known: dict) -> list[str]:
+    """Transcripts that belong to `project` (3.2 lot 4): the project of the SOKKAN session
+    when the transcript is one of ours, else the project of the workspace it was found in
+    (the instance's own workspace = `default`)."""
+    out = []
+    for r in con.execute("SELECT path, session_id, project FROM files"):
+        s = known.get(r["session_id"])
+        p = ((s or {}).get("project") or "default") if s else (r["project"] or "default")
+        if p == project:
+            out.append(r["path"])
+    return out
+
+
+def _in(paths: list[str] | None) -> tuple[str, list]:
+    if paths is None:
+        return "", []
+    if not paths:
+        return " AND 0", []
+    return f" AND path IN ({','.join('?' * len(paths))})", list(paths)
+
+
+def project_spend(project: str) -> dict:
+    """Estimated spend of a project, USD: today and this month (SOKKAN_TZ) — for the
+    per-project budgets (lot 4)."""
     refresh()
     con = _con()
+    try:
+        paths = _project_paths(con, project, _known_sessions())
+        now = datetime.now(TZ)
+        flt, args = _in(paths)
+        def since(day: str) -> float:
+            return float(con.execute(f"SELECT COALESCE(SUM(cost),0) FROM days WHERE day >= ?{flt}",
+                                     (day, *args)).fetchone()[0])
+        return {"day": since(now.strftime("%Y-%m-%d")),
+                "month": since(now.strftime("%Y-%m-01"))}
+    finally:
+        con.close()
+
+
+def summary(days_back: int = 30, project: str | None = None) -> dict:
+    """`project` (3.2 lot 4): the totals, the daily series, the session list and the
+    per-model split of THAT project only; None = the whole instance (3.1)."""
+    refresh()
+    con = _con()
+    known = _known_sessions()
+    paths = _project_paths(con, project, known) if project is not None else None
+    flt, fargs = _in(paths)
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     start = (datetime.now(TZ) - timedelta(days=days_back - 1)).strftime("%Y-%m-%d")
     # série quotidienne (jours manquants remplis à 0 côté front)
     day_rows = [dict(r) for r in con.execute(
         "SELECT day, SUM(turns) turns, SUM(in_tokens) in_tokens,"
         " SUM(out_tokens) out_tokens, SUM(cost) cost"
-        " FROM days WHERE day >= ? GROUP BY day ORDER BY day", (start,),
+        f" FROM days WHERE day >= ?{flt} GROUP BY day ORDER BY day", (start, *fargs),
     )]
     def _tot(since: str) -> dict:
         r = con.execute(
             "SELECT COALESCE(SUM(cost),0) cost, COALESCE(SUM(out_tokens),0) out,"
-            " COALESCE(SUM(turns),0) turns FROM days WHERE day >= ?", (since,),
+            f" COALESCE(SUM(turns),0) turns FROM days WHERE day >= ?{flt}", (since, *fargs),
         ).fetchone()
         return {"cost": r["cost"], "out_tokens": r["out"], "turns": r["turns"]}
     week = (datetime.now(TZ) - timedelta(days=6)).strftime("%Y-%m-%d")
@@ -203,21 +282,14 @@ def summary(days_back: int = 30) -> dict:
         "today": _tot(today), "7d": _tot(week), "30d": _tot(start),
         "all": dict(con.execute(
             "SELECT COALESCE(SUM(cost),0) cost, COALESCE(SUM(out_tokens),0) out_tokens,"
-            " COALESCE(SUM(turns),0) turns FROM files").fetchone()),
+            f" COALESCE(SUM(turns),0) turns FROM files WHERE 1{flt}", fargs).fetchone()),
     }
-    # top sessions (30j), titres résolus depuis le store SOKKAN si connu
-    import board
-    known = {}
-    for s in board.list_sessions():
-        if s.get("claude_session_id"):
-            known[s["claude_session_id"]] = s
-        known[s["session_id"]] = s
     cutoff = time.time() - days_back * 86400
     sessions = []
     for r in con.execute(
         "SELECT session_id, first_prompt, models, turns, in_tokens, out_tokens,"
-        " cache_read, cost, last_ts FROM files WHERE last_ts >= ?"
-        " ORDER BY cost DESC LIMIT 25", (cutoff,),
+        f" cache_read, cost, last_ts FROM files WHERE last_ts >= ?{flt}"
+        " ORDER BY cost DESC LIMIT 25", (cutoff, *fargs),
     ):
         s = known.get(r["session_id"])
         sessions.append({
@@ -230,7 +302,8 @@ def summary(days_back: int = 30) -> dict:
         })
     # par modèle (approx. : coût total des fichiers mono-modèle + ventilation grossière sinon)
     by_model: dict[str, dict] = {}
-    for r in con.execute("SELECT models, cost, out_tokens FROM files WHERE last_ts >= ?", (cutoff,)):
+    for r in con.execute(f"SELECT models, cost, out_tokens FROM files WHERE last_ts >= ?{flt}",
+                         (cutoff, *fargs)):
         key = r["models"] or "?"
         m = by_model.setdefault(key, {"cost": 0.0, "out_tokens": 0})
         m["cost"] += r["cost"]
@@ -239,5 +312,6 @@ def summary(days_back: int = 30) -> dict:
     return {
         "days": day_rows, "totals": totals, "sessions": sessions,
         "by_model": [{"model": k, **v} for k, v in sorted(by_model.items(), key=lambda x: -x[1]["cost"])],
+        "project": project,
         "note": "estimation grille API (input/output/cache read 0.1×/write 1.25–2×) — pas une facture",
     }

@@ -48,7 +48,7 @@ _PROJECT_PREFIXES = (
     "/api/agent/", "/api/memory/notes", "/api/memory/search", "/api/memory/note/",
     "/api/memory/recall-log", "/api/memory/quarantine", "/api/memory/digest",
     "/api/memory/stats", "/api/corthexis", "/api/runbooks", "/api/assistant",
-    "/api/bindings", "/api/usage", "/api/vault/session", "/api/playbooks",
+    "/api/bindings", "/api/usage", "/api/vault", "/api/playbooks", "/api/budgets",
 )
 # raw terminal, tmux, previews of the instance's repositories: default project only
 # (/term itself = the instance role, which IS the role in the default project)

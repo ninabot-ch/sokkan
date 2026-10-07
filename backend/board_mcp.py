@@ -304,7 +304,7 @@ def update_card(card_id: int, title: str | None = None, description: str | None 
         fields["due"] = due.strip()
     if assignee is not None:
         try:
-            fields["assignee"] = board.validate_assignee(assignee)
+            fields["assignee"] = board.validate_assignee(assignee, _project())
         except ValueError as e:
             return {"error": str(e)}
     if not fields:

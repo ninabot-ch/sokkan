@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { fetchUsage, instanceInfo } from "@/lib/api";
+import { budgetSet, fetchUsage, instanceInfo } from "@/lib/api";
 import type { InstanceInfo } from "@/lib/api";
-import type { UsageSummary } from "@/lib/types";
+import type { ProjectBudget, UsageSummary } from "@/lib/types";
 import { ago } from "@/lib/fmt";
 
 const usd = (v: number) =>
@@ -18,6 +18,52 @@ function Tile({ label, cost, sub, budget }: { label: string; cost: number; sub: 
       <div className="text-[11px] uppercase tracking-wide text-mut">{label}</div>
       <div className={`mt-1 text-[26px] font-semibold tabular-nums ${over ? "text-red-300" : warn ? "text-amber-200" : "text-slate-100"}`}>{usd(cost)}</div>
       <div className="text-[11px] text-mut">{sub}{budget ? ` · budget ${usd(budget)}/day` : ""}</div>
+    </div>
+  );
+}
+
+// 3.2 lot 4 — the selected project's day / month ceiling: spend, state, and the form a
+// project admin uses to change it (the API refuses it to anyone else).
+function BudgetPanel({ b, onSaved }: { b: ProjectBudget; onSaved: (b: ProjectBudget) => void }) {
+  const [day, setDay] = useState(String(b.day || ""));
+  const [month, setMonth] = useState(String(b.month || ""));
+  const [cur, setCur] = useState<string>(b.currency);
+  const [err, setErr] = useState("");
+  const tone = b.state === "stop" ? "border-red-500/50" : b.state === "warn" ? "border-amber-500/50" : "border-line";
+  const row = (label: string, spent: number, cap: number) => (
+    <div className="flex items-baseline gap-2">
+      <span className="w-14 text-[11px] uppercase tracking-wide text-mut">{label}</span>
+      <span className="tabular-nums text-slate-100">{spent.toFixed(2)} {b.currency}</span>
+      <span className="text-[11px] text-mut">{cap ? `of ${cap.toFixed(2)} (${Math.round((100 * spent) / cap)}%)` : "no ceiling"}</span>
+    </div>
+  );
+  const save = () => {
+    setErr("");
+    budgetSet({ currency: cur, day: Number(day || 0), month: Number(month || 0) })
+      .then(onSaved).catch((e) => setErr(String(e)));
+  };
+  return (
+    <div className={`rounded-xl border bg-panel p-4 text-[12.5px] ${tone}`}>
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="font-medium text-slate-200">Project budget — <span className="font-mono">{b.project}</span></span>
+        <span className="text-[11px] text-mut">warning at 80 %, new turns and agent runs stop at 100 %</span>
+      </div>
+      {row("today", b.spent_day, b.day)}
+      {row("month", b.spent_month, b.month)}
+      {b.message && <div className={`mt-2 text-[11.5px] ${b.state === "stop" ? "text-red-300" : "text-amber-200"}`}>{b.message}</div>}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <input value={day} onChange={(e) => setDay(e.target.value)} placeholder="per day" inputMode="decimal"
+          className="w-24 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+        <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="per month" inputMode="decimal"
+          className="w-24 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
+        <select value={cur} onChange={(e) => setCur(e.target.value)}
+          className="rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100">
+          <option>USD</option><option>CHF</option>
+        </select>
+        <button onClick={save} className="rounded bg-sea/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-sea">save</button>
+        <span className="text-[11px] text-mut">0 = no ceiling · project admins only</span>
+      </div>
+      {err && <div className="mt-1 text-[11px] text-red-400">{err}</div>}
     </div>
   );
 }
@@ -60,7 +106,9 @@ export default function Costs() {
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="mx-auto max-w-5xl space-y-5">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-[15px] font-semibold text-slate-100">Costs &amp; usage</h2>
+          <h2 className="text-[15px] font-semibold text-slate-100">
+            Costs &amp; usage{data.project ? <> — project <span className="font-mono">{data.project}</span></> : null}
+          </h2>
           <span className="text-[11px] text-mut">— {data.note}</span>
         </div>
 
@@ -76,6 +124,11 @@ export default function Costs() {
           <Tile label="total (transcripts)" cost={data.totals.all.cost}
             sub={`${data.totals.all.turns} turns · ${ktok(data.totals.all.out_tokens)} tok out`} />
         </div>
+
+        {data.project_budget && (
+          <BudgetPanel b={data.project_budget}
+            onSaved={(b) => setData((d) => (d ? { ...d, project_budget: b } : d))} />
+        )}
 
         {/* barres quotidiennes — série unique (pas de légende), labels en encre neutre */}
         <div className="rounded-xl border border-line bg-panel p-4">
