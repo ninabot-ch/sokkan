@@ -356,14 +356,28 @@ def next_fire(a: dict, after: float | None = None) -> float | None:
 
 
 # ---- access control (IAM roles, owner field) ---------------------------------
+def viewer_readonly() -> bool:
+    """SOKKAN_CREW_VIEWER_READONLY=1 : a viewer SEES the whole Crew (deck, settings,
+    runs, deliverables — secret NAMES, never values) and changes nothing. Off by
+    default: a viewer sees nothing of Crew. Meant for the public read-only demo."""
+    return (os.environ.get("SOKKAN_CREW_VIEWER_READONLY") or "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def can_read(user: dict, a: dict) -> bool:
     role = iam.rank(user.get("role", ""))
-    return role >= iam.rank("admin") or (role >= iam.rank("dev")
-                                          and a["owner"] == user.get("email"))
+    if role >= iam.rank("admin"):
+        return True
+    if role >= iam.rank("dev") and a["owner"] == user.get("email"):
+        return True
+    return viewer_readonly() and role >= iam.rank("viewer")
 
 
 def can_manage(user: dict, a: dict) -> bool:
-    return can_read(user, a)
+    """Write access: admin, or the owner with role dev+. A read-only viewer never."""
+    role = iam.rank(user.get("role", ""))
+    return role >= iam.rank("admin") or (role >= iam.rank("dev")
+                                          and a["owner"] == user.get("email"))
 
 
 APPROVAL_MODES = ("owner", "admin", "four_eyes")
@@ -385,6 +399,8 @@ def approval_check(user: dict, a: dict) -> tuple[bool, str]:
     """(peut approuver ?, pourquoi pas) pour ce qui attend sur l'agent `a`."""
     if not can_read(user, a):
         return False, "not visible to you"
+    if not can_manage(user, a):
+        return False, "read-only"
     mode = approval_mode()
     if mode == "admin" and not _is_admin(user):
         return False, "needs an admin"
@@ -402,12 +418,15 @@ def self_activation_allowed(user: dict) -> bool:
     return mode == "owner" or (mode == "admin" and _is_admin(user))
 
 
-def _need(user: dict, a: dict | None) -> dict:
+def _need(user: dict, a: dict | None, write: bool = True) -> dict:
+    """The agent if `user` may see it (`write=False`) or change it (default)."""
     if a is None:
         raise NotFound("agent not found")
     if not can_read(user, a):
         # same answer as "missing": do not leak other owners' agents
         raise NotFound("agent not found")
+    if write and not can_manage(user, a):
+        raise Forbidden("read-only: your role can see this agent, not change it")
     return a
 
 
@@ -726,12 +745,12 @@ def get_run_for(user: dict, run_id: int) -> dict:
     r = get_run(run_id)
     if r is None:
         raise NotFound("run not found")
-    a = _need(user, get(r["agent_id"]))
+    a = _need(user, get(r["agent_id"]), write=False)
     return {**r, "agent_name": a["name"]}
 
 
 def list_runs(user: dict, agent_id: int, limit: int = 50) -> list[dict]:
-    _need(user, get(agent_id))
+    _need(user, get(agent_id), write=False)
     con = _con()
     try:
         rows = con.execute("SELECT * FROM runs WHERE agent_id=? ORDER BY id DESC LIMIT ?",
@@ -787,6 +806,31 @@ def pending_approvals(user: dict) -> dict:
         if can_read(user, {"owner": d.pop("owner")}):
             runs.append(d)
     return {"agents": agents_, "runs": runs}
+
+
+def runs_by_incident(user: dict, incident_ids: list[int]) -> dict[int, list[dict]]:
+    """Agent runs started by an Operate incident (run.context.incident), for the
+    links Ops → Crew. Only the agents `user` may see."""
+    ids = [int(i) for i in incident_ids if i is not None]
+    if not ids:
+        return {}
+    con = _con()
+    try:
+        rows = con.execute(
+            "SELECT r.id, r.agent_id, r.status, r.started_at, a.name AS agent_name, a.owner,"
+            " CAST(json_extract(r.context, '$.incident') AS INTEGER) AS incident FROM runs r"
+            " JOIN agents a ON a.id = r.agent_id"
+            f" WHERE CAST(json_extract(r.context, '$.incident') AS INTEGER) IN"
+            f" ({','.join('?' * len(ids))}) ORDER BY r.id", ids).fetchall()
+    finally:
+        con.close()
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        if not can_read(user, {"owner": d.pop("owner")}):
+            continue
+        out.setdefault(d.pop("incident"), []).append(d)
+    return out
 
 
 def redact(text: str, secrets: dict[str, str]) -> str:

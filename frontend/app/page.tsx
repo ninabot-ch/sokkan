@@ -36,7 +36,17 @@ export default function Home() {
     const t = new URLSearchParams(window.location.search).get("tab");
     if (t === "corthexis") setTab("CortHeXis");
     if (t === "crew") setTab("Crew");
+    if (t === "operate") setTab("Operate");
   }, []);
+
+  // liens Operate ⇄ Crew (3.1.1) : l'URL porte la cible, le composant la lit au montage
+  const goDeep = (tab: Tab, params: Record<string, string>) => {
+    try { window.history.pushState(null, "", `/?${new URLSearchParams({ tab: tab.toLowerCase(), ...params })}`); } catch { /* no history API */ }
+    setTab(tab);
+  };
+  const openAgent = (agentId: number, runId?: number) =>
+    goDeep("Crew", { agent: String(agentId), ...(runId ? { run: String(runId) } : {}) });
+  const openIncident = (id: number) => goDeep("Operate", { incident: String(id) });
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
 
@@ -79,9 +89,9 @@ export default function Home() {
       ) : tab === "Infra" ? (
         <Infra />
       ) : tab === "Crew" ? (
-        <Crew onOpenSession={(sid) => openSession({ session_id: sid })} />
+        <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
       ) : tab === "Operate" ? (
-        <Operate onOpenSession={(sid) => openSession({ session_id: sid })} />
+        <Operate onOpenSession={(sid) => openSession({ session_id: sid })} onOpenAgent={openAgent} />
       ) : tab === "Journal" ? (
         <Journal />
       ) : tab === "Costs" ? (

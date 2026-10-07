@@ -172,7 +172,15 @@ export const notifySet = (cfg: Partial<{ telegram_bot_token: string; telegram_ch
 export const notifyTest = () => mutate<{ sent: Record<string, string> }>("/api/notify/test", "POST");
 
 // observability / operate
-export interface Incident { id: number; ts: number; title: string; summary: string; severity: string; status: string; session_id: string; }
+export interface IncidentAgentRun { id: number; agent_id: number; agent_name: string; status: string; started_at: number | null }
+export interface Incident {
+  id: number; ts: number; title: string; summary: string; severity: string; status: string; session_id: string;
+  /** runs of agents this incident's alert started (run.context.incident) */
+  agent_runs?: IncidentAgentRun[];
+  /** 3.1.1 : incident opened by a failed agent run (SOKKAN_AGENTS_INCIDENTS=1) */
+  agent_id?: number | null; agent_name?: string; runs?: number[]; occurrences?: number;
+  updated_ts?: number | null; agent_visible?: boolean;
+}
 export interface ObsStatus { enabled: boolean; prometheus: boolean; loki: boolean; grafana: boolean; grafana_public_url: string | null; incidents: Incident[]; }
 export interface Dashboard { title: string; uid: string; url?: string; }
 export const obsStatus = () => getJSON<ObsStatus>("/api/observability");
@@ -421,6 +429,8 @@ export interface AgentsMeta {
   secrets: string[]; tools: string[]; default_tools: string[]; mcp: string[]; outputs: string[];
   notify_on: string[]; models: string[]; triggers: string[]; playbooks: Playbook[]; timezone: string;
   approval_mode: "owner" | "admin" | "four_eyes"; self_activation: boolean;
+  /** viewer with SOKKAN_CREW_VIEWER_READONLY=1 : sees everything, changes nothing */
+  read_only?: boolean;
 }
 export interface AgentsList { agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] } }
 

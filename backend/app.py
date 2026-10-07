@@ -482,8 +482,21 @@ def notify_test(u: dict = Depends(require("admin"))) -> dict:
 # --- observabilité : opérer la prod depuis le cockpit ------------------------
 @app.get("/api/observability")
 def observability_status(_u: dict = Depends(current_user)) -> dict:
-    """État de la stack obs (Prom/Grafana/Loki) + fil d'incidents."""
-    return {**observability.status(), "incidents": observability.incidents(30)}
+    """État de la stack obs (Prom/Grafana/Loki) + fil d'incidents (+ les runs
+    d'agent qu'un incident a déclenchés, pour le lien Ops → Crew)."""
+    incs = observability.incidents(30)
+    if agents_runtime.enabled():
+        try:
+            by = agents.runs_by_incident(_u, [i["id"] for i in incs])
+        except Exception:  # noqa: BLE001 — the incident feed never breaks on agents
+            by = {}
+        for i in incs:
+            i["agent_runs"] = by.get(i["id"], [])
+            # incident opened BY a failed agent run (SOKKAN_AGENTS_INCIDENTS=1): the
+            # link to Crew only for whoever may see that agent
+            ag = agents.get(i["agent_id"]) if i.get("agent_id") else None
+            i["agent_visible"] = bool(ag and agents.can_read(_u, ag))
+    return {**observability.status(), "incidents": incs}
 
 
 @app.get("/api/observability/dashboards")
@@ -637,6 +650,16 @@ def vault_delete(name: str, u: dict = Depends(require("admin"))) -> dict:
 feature_agents = _feature("SOKKAN_FEATURE_AGENTS")
 
 
+def crew_reader(user: dict = Depends(current_user)) -> dict:
+    """Read routes of Crew: dev+, or viewer+ when SOKKAN_CREW_VIEWER_READONLY=1
+    (public demo). Every write route keeps require("dev") AND the owner/admin
+    check of agents._need — a viewer gets 403 on all of them."""
+    need = "viewer" if agents.viewer_readonly() else "dev"
+    if iam.rank(user["role"]) < iam.rank(need):
+        raise HTTPException(403, f"role {need!r} required (you are {user['role']!r})")
+    return user
+
+
 def _agent_http(fn, *a, **kw):
     try:
         return fn(*a, **kw)
@@ -649,7 +672,7 @@ def _agent_http(fn, *a, **kw):
 
 
 def _agent_full(u: dict, aid: int) -> dict:
-    a = _agent_http(lambda: agents._need(u, agents.get(aid)))
+    a = _agent_http(lambda: agents._need(u, agents.get(aid), write=False))
     full = next((x for x in agents.list_agents(u, include_archived=True) if x["id"] == a["id"]), a)
     return agents.public(full) | {k: full.get(k) for k in ("deck", "needs_approval",
                                                            "waiting_for_human", "created_at",
@@ -663,7 +686,7 @@ class AgentBody(BaseModel):
 
 
 @app.get("/api/agents/meta")
-def agents_meta(_u: dict = Depends(require("dev")), _f: None = Depends(feature_agents)) -> dict:
+def agents_meta(_u: dict = Depends(crew_reader), _f: None = Depends(feature_agents)) -> dict:
     """What the form needs: vault NAMES (never values), choices, playbooks."""
     return {"secrets": vault.names(), "tools": agents.KNOWN_TOOLS,
             "default_tools": agents.DEFAULT_TOOLS, "mcp": list(agents.MCP_CHOICES),
@@ -671,11 +694,13 @@ def agents_meta(_u: dict = Depends(require("dev")), _f: None = Depends(feature_a
             "models": ["", "haiku", "sonnet", "opus"], "triggers": list(agents.TRIGGERS),
             "playbooks": [p for p in playbooks.catalog() if p["id"] != "new-agent"],
             "timezone": "Europe/Zurich", "approval_mode": agents.approval_mode(),
-            "self_activation": agents.self_activation_allowed(_u)}
+            "self_activation": (iam.rank(_u["role"]) >= iam.rank("dev")
+                                and agents.self_activation_allowed(_u)),
+            "read_only": iam.rank(_u["role"]) < iam.rank("dev")}
 
 
 @app.get("/api/agents")
-def agents_list(archived: bool = False, u: dict = Depends(require("dev")),
+def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
                 _f: None = Depends(feature_agents)) -> dict:
     items = [agents.public(a) | {k: a.get(k) for k in ("deck", "needs_approval",
                                                        "waiting_for_human")}
@@ -706,7 +731,7 @@ def agents_propose(body: AgentBody, u: dict = Depends(require("dev")),
 
 
 @app.get("/api/agents/runs/{run_id}")
-def agents_run(run_id: int, u: dict = Depends(require("dev")),
+def agents_run(run_id: int, u: dict = Depends(crew_reader),
                _f: None = Depends(feature_agents)) -> dict:
     return _agent_http(agents.get_run_for, u, run_id)
 
@@ -715,6 +740,7 @@ def agents_run(run_id: int, u: dict = Depends(require("dev")),
 def agents_run_cancel(run_id: int, u: dict = Depends(require("dev")),
                       _f: None = Depends(feature_agents)) -> dict:
     r = _agent_http(agents.get_run_for, u, run_id)
+    _agent_http(lambda: agents._need(u, agents.get(r["agent_id"])))  # write: owner or admin
     rt = agents_runtime.get_runtime()
     ok = rt.cancel(run_id) if rt else False
     if not ok and r["status"] == "queued":
@@ -725,7 +751,7 @@ def agents_run_cancel(run_id: int, u: dict = Depends(require("dev")),
 
 
 @app.get("/api/agents/{aid}")
-def agents_get(aid: int, u: dict = Depends(require("dev")),
+def agents_get(aid: int, u: dict = Depends(crew_reader),
                _f: None = Depends(feature_agents)) -> dict:
     return _agent_full(u, aid)
 
@@ -761,7 +787,7 @@ def agents_action(aid: int, action: str, u: dict = Depends(require("dev")),
 
 
 @app.get("/api/agents/{aid}/runs")
-def agents_runs(aid: int, limit: int = 50, u: dict = Depends(require("dev")),
+def agents_runs(aid: int, limit: int = 50, u: dict = Depends(crew_reader),
                 _f: None = Depends(feature_agents)) -> list[dict]:
     return _agent_http(agents.list_runs, u, aid, limit)
 
@@ -1099,6 +1125,10 @@ def features() -> dict:
         "demo": os.environ.get("SOKKAN_DEMO_BANNER", "0") != "0",
         # onglet Crew (agents, 3.1)
         "agents": agents_runtime.enabled(),
+        # 3.1.1 : Crew visible en lecture seule pour un viewer (démo publique)
+        "agents_viewer_readonly": agents.viewer_readonly(),
+        # 3.1.1 : runs simulés de la démo publique (aucune inférence)
+        "demo_crew": agents_runtime.demo_mode(),
     }
 
 

@@ -172,7 +172,7 @@ def get_agent(agent: str) -> dict:
     user, _ = _who()
     a = agents.resolve(agent)
     try:
-        agents._need(user, a)
+        agents._need(user, a, write=False)
     except agents.AgentError as e:
         return _err(e)
     full = next((x for x in agents.list_agents(user, include_archived=True)

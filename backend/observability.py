@@ -20,6 +20,7 @@ Config par env (seedée au provisioning de l'add-on obs, ou posée en self-host)
 """
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -128,6 +129,13 @@ def _con() -> sqlite3.Connection:
         " id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL,"
         " title TEXT, summary TEXT, severity TEXT DEFAULT 'warning',"
         " status TEXT DEFAULT 'open', session_id TEXT DEFAULT '')")
+    cols = {r[1] for r in con.execute("PRAGMA table_info(incidents)")}
+    # 3.1.1 : incident ouvert par un run d'agent en échec (SOKKAN_AGENTS_INCIDENTS=1)
+    for col, ddl in (("agent_id", "INTEGER"), ("agent_name", "TEXT DEFAULT ''"),
+                     ("runs", "TEXT DEFAULT '[]'"), ("occurrences", "INTEGER DEFAULT 1"),
+                     ("updated_ts", "REAL")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE incidents ADD COLUMN {col} {ddl}")
     return con
 
 
@@ -160,6 +168,61 @@ def set_incident_status(rid: int, status: str) -> None:
 def incidents(limit: int = 50) -> list[dict]:
     con = _con()
     rows = [dict(r) for r in con.execute(
-        "SELECT * FROM incidents ORDER BY ts DESC LIMIT ?", (limit,))]
+        "SELECT * FROM incidents ORDER BY COALESCE(updated_ts, ts) DESC LIMIT ?", (limit,))]
     con.close()
+    for r in rows:
+        try:
+            r["runs"] = json.loads(r.get("runs") or "[]")
+        except ValueError:
+            r["runs"] = []
     return rows
+
+
+def agent_incident(agent_id: int, agent_name: str, run_id: int, status: str, error: str,
+                   session_id: str = "", severity: str = "warning") -> tuple[int, bool]:
+    """A failed agent run → its incident. ONE open incident per agent: the next
+    failures are added to it (runs, occurrences, latest error) instead of opening
+    new ones — no incident storm from an agent failing every 15 minutes.
+    Returns (incident id, created?)."""
+    now = time.time()
+    summary = f"Run #{run_id} ended {status}: {error}".strip()[:2000]
+    with _lock:
+        con = _con()
+        try:
+            r = con.execute("SELECT id, runs, occurrences FROM incidents WHERE agent_id=?"
+                            " AND status != 'resolved' ORDER BY id DESC LIMIT 1",
+                            (agent_id,)).fetchone()
+            if r:
+                runs = json.loads(r["runs"] or "[]") + [run_id]
+                con.execute("UPDATE incidents SET runs=?, occurrences=?, summary=?, updated_ts=?,"
+                            " session_id=COALESCE(NULLIF(?, ''), session_id) WHERE id=?",
+                            (json.dumps(runs[-50:]), (r["occurrences"] or 1) + 1, summary, now,
+                             session_id, r["id"]))
+                con.commit()
+                return r["id"], False
+            cur = con.execute(
+                "INSERT INTO incidents(ts, title, summary, severity, session_id, agent_id,"
+                " agent_name, runs, occurrences, updated_ts) VALUES(?,?,?,?,?,?,?,?,1,?)",
+                (now, f"Agent {agent_name} failed"[:200], summary, severity, session_id,
+                 agent_id, agent_name, json.dumps([run_id]), now))
+            con.commit()
+            return cur.lastrowid, True
+        finally:
+            con.close()
+
+
+def resolve_agent_incidents(agent_id: int) -> list[int]:
+    """The agent ran fine again → its open incident is resolved."""
+    with _lock:
+        con = _con()
+        try:
+            ids = [r["id"] for r in con.execute(
+                "SELECT id FROM incidents WHERE agent_id=? AND status != 'resolved'",
+                (agent_id,))]
+            if ids:
+                con.execute(f"UPDATE incidents SET status='resolved', updated_ts=? WHERE id IN"
+                            f" ({','.join('?' * len(ids))})", (time.time(), *ids))
+                con.commit()
+            return ids
+        finally:
+            con.close()

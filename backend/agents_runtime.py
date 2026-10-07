@@ -34,6 +34,7 @@ import audit
 import board
 import cronexpr
 import notify
+import observability
 import playbooks
 import quarantine
 import vault
@@ -48,6 +49,22 @@ _DELIVERY_RE = re.compile(r"^\s*\**DELIVERY\**\s*:\s*\**\s*(done|incomplete)\b[\
 
 def enabled() -> bool:
     return os.environ.get("SOKKAN_FEATURE_AGENTS", "1") != "0"
+
+
+INCIDENT_STATUSES = ("failed", "timeout", "budget")
+
+
+def incidents_enabled() -> bool:
+    """SOKKAN_AGENTS_INCIDENTS=1 : a run ending failed / timeout / budget opens (or
+    joins) the agent's incident in Operate. Off by default."""
+    return (os.environ.get("SOKKAN_AGENTS_INCIDENTS") or "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def demo_mode() -> bool:
+    """Public demo only (SOKKAN_DEMO_CREW=1 + demo banner): simulated runs, no model."""
+    import demo_crew
+    return enabled() and demo_crew.enabled()
 
 
 # ---- prompt -------------------------------------------------------------------
@@ -298,8 +315,9 @@ class Runtime:
         if missing:
             agents.update_run(rid, status="failed",
                               error=f"secrets missing from the vault: {', '.join(missing)}")
-            self._notify(a, agents.get_run(rid), "failed",
-                         f"Secrets missing from the vault: {', '.join(missing)}")
+            if not self._incident(a, agents.get_run(rid)):
+                self._notify(a, agents.get_run(rid), "failed",
+                             f"Secrets missing from the vault: {', '.join(missing)}")
             return
         sid = agentchat.new_sid()
         board.add_sdk_session(sid, "agent", title=f"agent {a['name']} · run #{rid}",
@@ -378,7 +396,8 @@ class Runtime:
         audit.log(actor, "agent.run.end", f"run #{rid}",
                   f"{status} · ${sess.cost_usd:.4f} · {error[:200]}")
         final = agents.get_run(rid)
-        self._notify(a, final, status, error or self._summary(deliverable))
+        if not self._incident(a, final):
+            self._notify(a, final, status, error or self._summary(deliverable))
         self.sessions.pop(rid, None)
         # free the CLI subprocess; the transcript stays, the session reopens on demand
         try:
@@ -438,6 +457,40 @@ class Runtime:
                 out[f"{kind}_error"] = f"{type(e).__name__}: {e}"
         return out
 
+    def _incident(self, a: dict, run: dict | None) -> bool:
+        """SOKKAN_AGENTS_INCIDENTS=1 : failed / timeout / budget → the agent's incident in
+        Operate (one open incident per agent, later failures join it); a succeeded run
+        resolves it. True when a NEW incident was opened and notified through the
+        Operate channel — the run's own failure ping is then not sent twice."""
+        if run is None or not incidents_enabled():
+            return False
+        try:
+            if run["status"] == "succeeded":
+                for iid in observability.resolve_agent_incidents(a["id"]):
+                    audit.log(f"agent:{a['name']}", "incident.resolved", f"incident #{iid}",
+                              f"run #{run['id']} succeeded")
+                return False
+            if run["status"] not in INCIDENT_STATUSES:
+                return False
+            iid, created = observability.agent_incident(
+                a["id"], a["name"], run["id"], run["status"], run.get("error") or "",
+                run.get("session_id") or "")
+            agents.update_run(run["id"], outputs={**(run.get("outputs") or {}), "incident": iid})
+            audit.log(f"agent:{a['name']}", "incident.open" if created else "incident.update",
+                      f"incident #{iid}", f"run #{run['id']} {run['status']}")
+        except Exception as e:  # noqa: BLE001 — an incident store problem never fails a run
+            print(f"[agents] incident failed: {type(e).__name__}: {e}", file=sys.stderr)
+            return False
+        if not created:
+            return False
+        try:
+            notify.send(f"SOKKAN — 🚨 agent {a['name']}: {run['status']} (run #{run['id']})",
+                        (run.get("error") or "")[:900],
+                        f"{notify.PUBLIC_URL}/?tab=operate&incident={iid}", "alert")
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
     def _notify(self, a: dict, run: dict | None, status: str, body: str) -> None:
         if run is None:
             return
@@ -464,7 +517,11 @@ def start(recall=None) -> Runtime | None:
     global _runtime
     if not enabled():
         return None
-    _runtime = Runtime(recall=recall)
+    import demo_crew
+    if demo_crew.requested() and not demo_crew.enabled():
+        print("[agents] SOKKAN_DEMO_CREW ignored: only for the public demo "
+              "(SOKKAN_DEMO_BANNER=1) — the real scheduler runs", file=sys.stderr)
+    _runtime = demo_crew.DemoRuntime(recall) if demo_crew.enabled() else Runtime(recall=recall)
     _runtime.start()
     return _runtime
 

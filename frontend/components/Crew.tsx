@@ -1,13 +1,16 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   agentsList, agentsMeta, agentGet, agentCreate, agentPatch, agentAction, agentRuns,
-  agentRunCancel, spawnSession,
+  agentRunCancel, spawnSession, fetchTags,
   type Agent, type AgentRun, type AgentsList, type AgentsMeta, type DeckState,
 } from "@/lib/api";
+import { useCan } from "@/lib/me";
+import { useFeatures } from "@/lib/features";
 import AgentChatPane from "./AgentChatPane";
+import CardModal from "./CardModal";
 import { QuarantineReview } from "./Quarantine";
 
 // « Crew » (3.1) — un agent = une carte. Le deck est un kanban dont les colonnes
@@ -75,6 +78,17 @@ function triggerWords(a: Agent): string {
   return "manual";
 }
 
+/** Read-only (viewer with SOKKAN_CREW_VIEWER_READONLY=1): an action is shown, greyed
+ *  out, with the reason as a tooltip — the visitor sees what an owner could do. */
+function useReadOnly() {
+  const canWrite = useCan("dev");
+  const feats = useFeatures();
+  return { ro: !canWrite, tip: feats.demo ? "read-only demo" : "read-only — your role can see agents, not change them" };
+}
+function Locked({ tip, children }: { tip: string; children: React.ReactNode }) {
+  return <span title={tip} className="inline-flex cursor-not-allowed [&>button]:pointer-events-none [&>button]:opacity-45">{children}</span>;
+}
+
 function StatePill({ state, small }: { state: DeckState; small?: boolean }) {
   const col = COLUMNS.find((c) => c.id === state);
   return (
@@ -85,8 +99,12 @@ function StatePill({ state, small }: { state: DeckState; small?: boolean }) {
 }
 
 // ---- deck -------------------------------------------------------------------
-export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) => void }) {
+export default function Crew({ onOpenSession, onOpenIncident }: {
+  onOpenSession?: (sid: string) => void; onOpenIncident?: (id: number) => void;
+}) {
+  const { ro, tip } = useReadOnly();
   const [data, setData] = useState<AgentsList | null>(null);
+  const [focusRun, setFocusRun] = useState<number | null>(null);
   const [err, setErr] = useState("");
   const [archived, setArchived] = useState(false);
   const [openId, setOpenId] = useState<number | "new" | null>(null);
@@ -102,6 +120,8 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
     const q = new URLSearchParams(window.location.search);
     const id = q.get("agent");
     if (id && /^\d+$/.test(id)) setOpenId(+id);
+    const run = q.get("run");  // /?tab=crew&agent=12&run=34 : History, on that run (lien depuis Operate)
+    if (run && /^\d+$/.test(run)) setFocusRun(+run);
     const chat = q.get("chat");  // /?tab=crew&chat=<sid> : reprendre une création par le chat
     if (chat && /^[0-9a-f]{32}$/.test(chat)) setChatSid(chat);
   }, []);
@@ -127,9 +147,10 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
             <div className="text-[14px] font-semibold text-slate-100">Crew</div>
             <div className="text-[10.5px] text-mut">agents that run on their own — one card each, human-gated</div>
           </div>
+          {ro && <span title={tip} className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[10.5px] text-mut">👁 read-only</span>}
           {pendingCount > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-brass/40 bg-brass/10 px-2 py-1 text-[11.5px] text-brass">
-              <b>{pendingCount} waiting for you:</b>
+              <b>{pendingCount} waiting for {ro ? "an approval" : "you"}:</b>
               {data!.pending.agents.map((a) => (
                 <button key={`a${a.id}`} onClick={() => setOpenId(a.id)} className="rounded border border-brass/40 px-1.5 hover:bg-brass/20">
                   {a.pending_change ? "change to" : "new"} {a.name}
@@ -146,9 +167,13 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
             <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> archived
           </label>
           <div className="relative">
+            {ro ? (
+              <Locked tip={tip}><button disabled className="rounded-md bg-brass/90 px-3 py-1.5 text-[12.5px] font-semibold text-ink">+ New agent</button></Locked>
+            ) : (
             <button onClick={() => setNewMenu((o) => !o)} className="rounded-md bg-brass/90 px-3 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-brass">
               + New agent
             </button>
+            )}
             {newMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setNewMenu(false)} />
@@ -200,7 +225,7 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
           <div className="mx-auto mb-10 max-w-lg rounded-xl border border-line bg-panel2/40 p-4 text-center text-[12.5px] text-mut">
             No agent yet. An agent is a job that runs on its own — a nightly CVE audit, a log triage every morning,
             a weekly ops report — and hands back a deliverable you review.
-            <div className="mt-3"><button onClick={startChat} className="rounded-md bg-brass/90 px-3 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-brass">💬 Build the first one in a chat</button></div>
+            {!ro && <div className="mt-3"><button onClick={startChat} className="rounded-md bg-brass/90 px-3 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-brass">💬 Build the first one in a chat</button></div>}
           </div>
         )}
       </div>
@@ -218,8 +243,16 @@ export default function Crew({ onOpenSession }: { onOpenSession?: (sid: string) 
       )}
 
       {openId !== null && (
-        <AgentPopout id={openId} onClose={() => { setOpenId(null); reload(); }}
-          onCreated={(id) => { setOpenId(id); reload(); }} onChanged={reload} onOpenSession={onOpenSession} />
+        <AgentPopout id={openId} initialRun={focusRun}
+          onClose={() => {
+            setOpenId(null); setFocusRun(null); reload();
+            try {  // the deep link has been followed: closing does not reopen it on reload
+              const q = new URLSearchParams(window.location.search);
+              if (q.has("agent") || q.has("run")) { q.delete("agent"); q.delete("run"); window.history.replaceState(null, "", `${window.location.pathname}?${q}`); }
+            } catch { /* no history API */ }
+          }}
+          onCreated={(id) => { setOpenId(id); reload(); }} onChanged={reload} onOpenSession={onOpenSession}
+          onOpenIncident={onOpenIncident} />
       )}
     </div>
   );
@@ -242,7 +275,7 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="trigger">⏱ {triggerWords(a)}</span>
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="model">{a.model || "default model"}</span>
         {a.secrets.length > 0 && <span className="rounded bg-panel px-1.5 py-px text-slate-300" title={`vault: ${a.secrets.join(", ")}`}>🔑 {a.secrets.length}</span>}
-        {a.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">{a.approval && !a.approval.can_approve ? a.approval.reason : "needs approval"}</span>}
+        {a.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">{a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" ? a.approval.reason : "needs approval"}</span>}
         {a.waiting_for_human && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">waiting for you</span>}
         {a.status === "paused" && <span className="rounded bg-panel px-1.5 py-px text-mut">⏸ paused</span>}
         {a.status === "draft" && <span className="rounded bg-panel px-1.5 py-px text-mut">draft</span>}
@@ -264,13 +297,14 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
 // ---- popout -----------------------------------------------------------------
 type PopTab = "Settings" | "Live" | "History";
 
-function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
-  id: number | "new"; onClose: () => void; onCreated: (id: number) => void; onChanged: () => void;
-  onOpenSession?: (sid: string) => void;
+function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSession, onOpenIncident }: {
+  id: number | "new"; initialRun?: number | null; onClose: () => void; onCreated: (id: number) => void;
+  onChanged: () => void; onOpenSession?: (sid: string) => void; onOpenIncident?: (id: number) => void;
 }) {
+  const { ro, tip } = useReadOnly();
   const [a, setA] = useState<Agent | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
-  const [tab, setTab] = useState<PopTab>("Settings");
+  const [tab, setTab] = useState<PopTab>(initialRun ? "History" : "Settings");
   const [meta, setMeta] = useState<AgentsMeta | null>(null);
   const [msg, setMsg] = useState("");
 
@@ -307,11 +341,19 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
             <div className="flex items-center gap-2">
               <span className="truncate text-[16px] font-semibold text-slate-100">{a ? a.name : "New agent"}</span>
               {a && <StatePill state={a.deck} />}
-              {a?.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">{a.approval && !a.approval.can_approve ? a.approval.reason : "needs approval"}</span>}
+              {a?.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">{a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" ? a.approval.reason : "needs approval"}</span>}
             </div>
             {a && <div className="mt-0.5 truncate text-[11px] text-mut">⏱ {triggerWords(a)} · {a.model || "default model"} · owner {a.owner} · {a.status}{a.created_by.startsWith("session:") ? " · proposed by a session" : a.created_by.startsWith("nina:") ? " · proposed by Nina" : ""}</div>}
           </div>
-          {a && (
+          {a && ro && (
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {a.status === "active" && <Locked tip={tip}><button disabled className="rounded-md border border-sea/50 bg-sea/10 px-2.5 py-1 text-[12px] text-sea">▶ Run now</button></Locked>}
+              {a.status === "active" && <Locked tip={tip}><button disabled className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut">⏸ Pause</button></Locked>}
+              {a.status === "paused" && <Locked tip={tip}><button disabled className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut">⏵ Resume</button></Locked>}
+              {a.status !== "archived" && <Locked tip={tip}><button disabled className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut">Archive</button></Locked>}
+            </div>
+          )}
+          {a && !ro && (
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
               {a.status === "active" && live.length === 0 && <button onClick={() => act("run")} className="rounded-md border border-sea/50 bg-sea/10 px-2.5 py-1 text-[12px] text-sea hover:border-sea">▶ Run now</button>}
               {a.status === "active" && <button onClick={() => act("pause")} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200">⏸ Pause</button>}
@@ -323,7 +365,7 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
         </header>
 
         {a?.needs_approval && (
-          <ApprovalBar a={a} onApprove={() => act("approve")} onReject={() => act("reject")} />
+          <ApprovalBar a={a} ro={ro} tip={tip} onApprove={() => act("approve")} onReject={() => act("reject")} />
         )}
 
         <nav className="flex gap-1 border-b border-line px-3 pt-2" role="tablist">
@@ -338,7 +380,7 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === "Settings" && meta && (
-            <Settings a={id === "new" ? null : a} meta={meta}
+            <Settings a={id === "new" ? null : a} meta={meta} readOnlyRole={ro}
               onSaved={(saved) => { setMsg(""); if (id === "new") onCreated(saved.id); else { setA(saved); onChanged(); } }}
               onError={setMsg} />
           )}
@@ -346,7 +388,7 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
             <div className="p-3">
               {live.length === 0 ? (
                 <div className="rounded-lg border border-line bg-panel2/40 p-4 text-[12.5px] text-mut">
-                  No run going. {a.status === "active" ? <button onClick={() => act("run")} className="ml-1 text-sea hover:underline">▶ Run now</button> : `The agent is ${a.status}.`}
+                  No run going. {a.status === "active" ? (ro ? "The agent waits for its trigger." : <button onClick={() => act("run")} className="ml-1 text-sea hover:underline">▶ Run now</button>) : `The agent is ${a.status}.`}
                 </div>
               ) : live.map((r) => (
                 <div key={r.id} className="mb-3">
@@ -354,23 +396,29 @@ function AgentPopout({ id, onClose, onCreated, onChanged, onOpenSession }: {
                     <span className="crew-c-running crew-fg font-medium">run #{r.id} · {r.status}</span>
                     <span>{r.trigger} · started {ago(r.started_at)} · {dur(r)}</span>
                     {r.waiting_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 font-medium text-brass">a tool call waits for your approval below</span>}
-                    <button onClick={() => agentRunCancel(r.id).then(load)} className="ml-auto rounded border border-line px-2 py-0.5 text-[11px] hover:text-red-300">Stop run</button>
+                    {ro || isSimulated(r) ? (
+                      <span className="ml-auto"><Locked tip={isSimulated(r) && !ro ? "simulated run" : tip}><button disabled className="rounded border border-line px-2 py-0.5 text-[11px]">Stop run</button></Locked></span>
+                    ) : (
+                      <button onClick={() => agentRunCancel(r.id).then(load)} className="ml-auto rounded border border-line px-2 py-0.5 text-[11px] hover:text-red-300">Stop run</button>
+                    )}
                   </div>
-                  {r.session_id ? (
+                  {isSimulated(r) ? (
+                    <SimulatedLive run={r} />
+                  ) : r.session_id ? (
                     <div className="flex h-[52vh] flex-col"><AgentChatPane sid={r.session_id} title={`${a.name} · run #${r.id}`} tag="agent" /></div>
                   ) : <div className="text-[12px] text-mut">Starting…</div>}
                 </div>
               ))}
             </div>
           )}
-          {tab === "History" && a && <History runs={runs} onOpenSession={onOpenSession} />}
+          {tab === "History" && a && <History runs={runs} initialRun={initialRun} ro={ro} onOpenSession={onOpenSession} onOpenIncident={onOpenIncident} />}
         </div>
       </div>
     </div>
   );
 }
 
-function ApprovalBar({ a, onApprove, onReject }: { a: Agent; onApprove: () => void; onReject: () => void }) {
+function ApprovalBar({ a, ro, tip, onApprove, onReject }: { a: Agent; ro: boolean; tip: string; onApprove: () => void; onReject: () => void }) {
   const change = a.pending_change;
   return (
     <div className="border-b border-brass/30 bg-brass/10 px-4 py-2.5 text-[12px] text-brass">
@@ -378,14 +426,19 @@ function ApprovalBar({ a, onApprove, onReject }: { a: Agent; onApprove: () => vo
         <b>{change ? "A change is waiting for your approval" : "This agent waits for your approval — it does not run before."}</b>
         <span className="text-brass/80">{a.created_by.startsWith("session:") ? "Proposed from a session." : a.created_by.startsWith("nina:") ? "Proposed in Nina's chat." : ""} Review the settings below.</span>
         <span className="ml-auto flex gap-1.5">
-          {a.approval && !a.approval.can_approve ? (
+          {ro ? (
+            <>
+              <Locked tip={tip}><button disabled className="rounded-md bg-emerald-600/25 px-3 py-1 font-medium text-emerald-200 ring-1 ring-emerald-500/50">✓ Approve</button></Locked>
+              <Locked tip={tip}><button disabled className="rounded-md px-3 py-1 text-mut ring-1 ring-line">Reject</button></Locked>
+            </>
+          ) : a.approval && !a.approval.can_approve ? (
             <span className="rounded-md border border-brass/50 px-2.5 py-1 font-medium" title={`approval mode: ${a.approval.mode}`}>
               {a.approval.reason === "needs a second approver" ? "🔒 needs a second approver — someone other than the proposer and the owner" : `🔒 ${a.approval.reason}`}
             </span>
           ) : (
             <button onClick={onApprove} className="rounded-md bg-emerald-600/25 px-3 py-1 font-medium text-emerald-200 ring-1 ring-emerald-500/50 hover:bg-emerald-600/40">✓ Approve</button>
           )}
-          <button onClick={onReject} className="rounded-md px-3 py-1 text-mut ring-1 ring-line hover:text-red-300">Reject</button>
+          {!ro && <button onClick={onReject} className="rounded-md px-3 py-1 text-mut ring-1 ring-line hover:text-red-300">Reject</button>}
         </span>
       </div>
       {change && (
@@ -406,9 +459,20 @@ function ApprovalBar({ a, onApprove, onReject }: { a: Agent; onApprove: () => vo
 }
 const fmtVal = (v: unknown) => (Array.isArray(v) ? v.join(", ") || "—" : v === null || v === undefined || v === "" ? "—" : String(v));
 
-function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (sid: string) => void }) {
-  const [sel, setSel] = useState<number | null>(runs.find((r) => r.status !== "skipped")?.id ?? null);
+function History({ runs, initialRun, ro, onOpenSession, onOpenIncident }: {
+  runs: AgentRun[]; initialRun?: number | null; ro: boolean;
+  onOpenSession?: (sid: string) => void; onOpenIncident?: (id: number) => void;
+}) {
+  const [sel, setSel] = useState<number | null>(
+    (initialRun && runs.some((r) => r.id === initialRun) ? initialRun : null)
+    ?? runs.find((r) => !["skipped", "running", "queued"].includes(r.status))?.id
+    ?? runs.find((r) => r.status !== "skipped")?.id ?? null);
   const [transcript, setTranscript] = useState(false);
+  const [card, setCard] = useState<number | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  useEffect(() => { fetchTags().then(setTags).catch(() => {}); }, []);
+  // the runs arrive after the first render: follow the deep link once they are there
+  useEffect(() => { if (initialRun && runs.some((r) => r.id === initialRun)) setSel((s) => s ?? initialRun); }, [initialRun, runs]);
   const run = runs.find((r) => r.id === sel) || null;
   if (runs.length === 0) return <div className="p-4 text-[12.5px] text-mut">No run yet.</div>;
   return (
@@ -452,13 +516,29 @@ function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (s
             {run.error && <div className="mb-2 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[12px] text-red-300">{run.error}</div>}
             {Object.keys(run.outputs || {}).length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5 text-[10.5px]">
-                {Object.entries(run.outputs).map(([k, v]) => (
+                {Object.entries(run.outputs).map(([k, v]) => k === "card" && typeof v === "number" ? (
+                  <button key={k} onClick={() => setCard(v)} title="open the card on the board"
+                    className="rounded border border-sea/40 bg-sea/10 px-1.5 py-px text-sea hover:border-sea">board card #{v} →</button>
+                ) : k === "incident" && typeof v === "number" ? (
+                  <button key={k} onClick={() => onOpenIncident?.(v)} disabled={!onOpenIncident} title="this failure opened an incident in Operate"
+                    className="rounded border border-red-500/40 bg-red-500/10 px-1.5 py-px text-red-300 hover:border-red-400">🚨 incident #{v} →</button>
+                ) : (
                   <span key={k} className="rounded bg-panel2 px-1.5 py-px text-slate-300">{k === "card" ? `board card #${v}` : k === "memory" ? `memory note ${v}` : k === "memory_quarantined" ? "⚠ quarantined" : k === "file" ? `file ${String(v).split("/").slice(-2).join("/")}` : k === "notify" ? "notified" : `${k}: ${v}`}</span>
                 ))}
               </div>
             )}
+            {typeof run.context?.incident === "number" && (
+              <div className="mb-2 text-[11.5px] text-mut">
+                triggered by{" "}
+                <button onClick={() => onOpenIncident?.(run.context.incident as number)} disabled={!onOpenIncident}
+                  className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-amber-200 hover:border-amber-400">
+                  incident #{String(run.context.incident)}{run.context.alertname ? ` · ${String(run.context.alertname)}` : ""} →
+                </button>
+              </div>
+            )}
             {typeof run.outputs?.memory === "string" && run.outputs?.memory_quarantined === true && (
-              <div className="mb-2"><QuarantineReview name={run.outputs.memory as string} /></div>
+              ro ? <div className="mb-2 text-[11.5px] text-mut">The note waits in quarantine for a reviewer (dev+); its content is not shown here.</div>
+                : <div className="mb-2"><QuarantineReview name={run.outputs.memory as string} /></div>
             )}
             {transcript && run.session_id ? (
               <div className="flex h-[52vh] flex-col"><AgentChatPane sid={run.session_id} title={`run #${run.id}`} tag="agent" /></div>
@@ -469,6 +549,51 @@ function History({ runs, onOpenSession }: { runs: AgentRun[]; onOpenSession?: (s
             ) : <div className="text-[12px] text-mut">No deliverable.</div>}
           </>
         )}
+      </div>
+      {card !== null && (
+        <CardModal cardId={card} tags={tags} onClose={() => setCard(null)} onChanged={() => {}}
+          onOpenSession={(sid) => { setCard(null); onOpenSession?.(sid); }} />
+      )}
+    </div>
+  );
+}
+
+// ---- simulated run (public demo only, SOKKAN_DEMO_CREW=1) -------------------
+type SimStep = { at: number; kind: "recall" | "tool" | "text"; text?: string; tool?: string; input?: string; result?: string };
+const isSimulated = (r: AgentRun) => !!(r.context && (r.context as { simulated?: boolean }).simulated);
+
+function SimulatedLive({ run }: { run: AgentRun }) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now() / 1000), 1000); return () => clearInterval(iv); }, []);
+  const ctx = run.context as { steps?: SimStep[]; duration_s?: number };
+  const total = ctx.duration_s || 150;
+  const el = Math.max(0, now - (run.started_at || now));
+  const shown = (ctx.steps || []).filter((s) => s.at <= el);
+  const end = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [shown.length]);
+  return (
+    <div className="rounded-lg border border-line bg-ink/60">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-mut">
+        <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 text-amber-200">simulated</span>
+        <span>This public demo replays a recorded run — no model is called, nothing is changed.</span>
+        <span className="ml-auto tabular-nums">{Math.min(100, Math.round((el / total) * 100))}%</span>
+      </div>
+      <div className="h-0.5 bg-panel2"><div className="crew-c-running crew-dot h-0.5 transition-[width] duration-1000" style={{ width: `${Math.min(100, (el / total) * 100)}%` }} /></div>
+      <div className="max-h-[46vh] space-y-2 overflow-y-auto p-3 text-[12.5px]">
+        {shown.map((s, i) => s.kind === "tool" ? (
+          <div key={i} className="rounded-md border border-line bg-panel2/50 px-2 py-1.5">
+            <div className="font-mono text-[11.5px] text-slate-200"><span className="text-sea">⚙ {s.tool}</span> {s.input}</div>
+            {s.result && <div className="mt-0.5 font-mono text-[11px] text-mut">→ {s.result}</div>}
+          </div>
+        ) : s.kind === "recall" ? (
+          <div key={i} className="rounded-md border border-sea/30 bg-sea/5 px-2 py-1.5 text-[11.5px] text-sea">🧠 {s.text}</div>
+        ) : (
+          <div key={i} className="text-slate-200">{s.text}</div>
+        ))}
+        <div className="crew-c-running crew-fg flex items-center gap-1.5 text-[11.5px]">
+          <span className="crew-dot crew-live-dot h-1.5 w-1.5 rounded-full" aria-hidden />working…
+        </div>
+        <div ref={end} />
       </div>
     </div>
   );
@@ -482,8 +607,8 @@ const EMPTY: Partial<Agent> = {
   notify_on: ["failure", "timeout", "budget", "approval"], playbook: "",
 };
 
-function Settings({ a, meta, onSaved, onError }: {
-  a: Agent | null; meta: AgentsMeta; onSaved: (a: Agent) => void; onError: (m: string) => void;
+function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
+  a: Agent | null; meta: AgentsMeta; readOnlyRole?: boolean; onSaved: (a: Agent) => void; onError: (m: string) => void;
 }) {
   const [f, setF] = useState<Partial<Agent>>(() => (a ? { ...a } : { ...EMPTY, tools: meta.default_tools }));
   const [activate, setActivate] = useState(true);
@@ -494,7 +619,9 @@ function Settings({ a, meta, onSaved, onError }: {
   const set = <K extends keyof Agent>(k: K, v: Agent[K]) => { setDirty(true); setF((x) => ({ ...x, [k]: v })); };
   const toggle = (k: "tools" | "mcp" | "secrets" | "outputs" | "notify_on", v: string) =>
     set(k, ((f[k] as string[]) || []).includes(v) ? ((f[k] as string[]) || []).filter((x) => x !== v) : [...((f[k] as string[]) || []), v]);
-  const readOnly = a?.status === "archived";
+  const readOnly = a?.status === "archived" || !!readOnlyRole;
+  // names only: the agent's own secret names, plus the vault's (never a value)
+  const secretNames = Array.from(new Set([...(meta.secrets || []), ...((f.secrets as string[]) || [])]));
 
   const save = async () => {
     setSaving(true); onError("");
@@ -533,7 +660,7 @@ function Settings({ a, meta, onSaved, onError }: {
         <div><label className={lbl}>Expected deliverable</label>
           <textarea className={`${inp} h-16`} value={f.deliverable || ""} onChange={(e) => set("deliverable", e.target.value)} placeholder="A table: package, version, CVE, severity, fixed version, upgrade command." /></div>
         <div><label className={lbl}>Done when</label>
-          <input className={inp} value={f.done_criteria || ""} onChange={(e) => set("done_criteria", e.target.value)} placeholder="every direct dependency has been checked" /></div>
+          <textarea className={`${inp} h-14`} value={f.done_criteria || ""} onChange={(e) => set("done_criteria", e.target.value)} placeholder="every direct dependency has been checked" /></div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Model</label>
             <select className={inp} value={meta.models.includes(f.model || "") ? f.model : "__custom"} onChange={(e) => set("model", e.target.value === "__custom" ? (f.model || "") : e.target.value)}>
@@ -588,8 +715,8 @@ function Settings({ a, meta, onSaved, onError }: {
               {m === "sokkan-memory" ? "sokkan-memory · CortHeXis (always)" : m}
             </button>))}</div></div>
         <div><label className={lbl}>Secrets from the vault — by name, never the value</label>
-          {meta.secrets.length === 0 ? <div className="text-[11.5px] text-mut">The vault is empty — an admin adds secrets in Profile → Secrets.</div> :
-            <div className="flex flex-wrap gap-1.5">{meta.secrets.map((s) => <button type="button" key={s} className={chip((f.secrets || []).includes(s))} onClick={() => toggle("secrets", s)}>🔑 {s}</button>)}</div>}</div>
+          {secretNames.length === 0 ? <div className="text-[11.5px] text-mut">The vault is empty — an admin adds secrets in Profile → Secrets.</div> :
+            <div className="flex flex-wrap gap-1.5">{secretNames.map((s) => <button type="button" key={s} className={chip((f.secrets || []).includes(s))} onClick={() => toggle("secrets", s)}>🔑 {s}</button>)}</div>}</div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Budget per run (USD)</label>
             <input type="number" min={0} step={0.1} className={inp} value={f.budget_usd ?? 0} onChange={(e) => set("budget_usd", Number(e.target.value))} /></div>

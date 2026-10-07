@@ -21,11 +21,11 @@ export default function Tabs({
   const visible = TABS.filter(
     (t) => (t !== "Preview" || feats.preview) && (t !== "Infra" || feats.infra)
       && (t !== "Operate" || feats.observe) && (t !== "Magnitude" || feats.magnitude)
-      && (t !== "Crew" || (feats.agents && canDev))
+      && (t !== "Crew" || (feats.agents && (canDev || !!feats.agents_viewer_readonly)))
   );
   return (
     <>
-    {feats.demo && <DemoBanner onChange={onChange} />}
+    {feats.demo && <DemoBanner onChange={onChange} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}
     <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line bg-panel px-2 md:overflow-visible md:px-4">
       <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
       <span className="mr-2 md:mr-8" />
@@ -59,7 +59,7 @@ export default function Tabs({
 /** Guided banner for the public read-only demo (SOKKAN_DEMO_BANNER=1) : says
  *  where the visitor is, walks the 4 signature moves, links out. Dismissable
  *  per browser (localStorage) — never shown on regular instances. */
-function DemoBanner({ onChange }: { onChange: (t: Tab) => void }) {
+function DemoBanner({ onChange, crew }: { onChange: (t: Tab) => void; crew: boolean }) {
   const [hidden, setHidden] = useState(true);
   useEffect(() => {
     try { setHidden(localStorage.getItem("sokkan_demo_banner") === "off"); } catch { setHidden(false); }
@@ -73,7 +73,8 @@ function DemoBanner({ onChange }: { onChange: (t: Tab) => void }) {
       Try the tour: <a href="#" onClick={go("Sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (the memory recall sits at the top of each one) →{" "}
       <a href="#" onClick={go("Board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (cards spawn sessions) →{" "}
       <a href="#" onClick={go("CortHeXis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> →{" "}
-      <a href="#" onClick={go("Costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a>.{" "}
+      <a href="#" onClick={go("Costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a>
+      {crew && <> → <a href="#" onClick={go("Crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents (Crew)</a></>}.{" "}
       Want yours? <a href="https://app.sokkan.ch" target="_blank" rel="noopener" className="font-semibold underline decoration-amber-400 hover:text-white">14-day trial</a> ·{" "}
       <a href="https://sokkan.ch/install.sh" className="underline decoration-amber-400/60 hover:text-white">self-host free</a>
       <button onClick={() => { try { localStorage.setItem("sokkan_demo_banner", "off"); } catch { /* private mode */ } setHidden(true); }}

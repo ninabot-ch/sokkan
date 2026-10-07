@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useCan } from "@/lib/me";
 import { obsStatus, obsDashboards, obsIncidentSet, runbooksList, runbookRun, type ObsStatus, type Dashboard, type Incident, type Runbook } from "@/lib/api";
 
 const SEV: Record<string, string> = {
@@ -18,8 +19,21 @@ const ago = (ts: number) => {
 // « Operate » — opérer la prod depuis le cockpit : les dashboards Grafana de ta
 // flotte, et le fil d'incidents. Chaque alerte a spawné une session de
 // diagnostic (l'agent a la mémoire du projet) que tu peux ouvrir en un clic.
-export default function Operate({ onOpenSession }: { onOpenSession?: (sid: string) => void }) {
+export default function Operate({ onOpenSession, onOpenAgent }: {
+  onOpenSession?: (sid: string) => void;
+  /** open Crew on an agent, History on a run (3.1.1 — links incident ⇄ agent run) */
+  onOpenAgent?: (agentId: number, runId?: number) => void;
+}) {
+  const canWrite = useCan("dev");
   const [st, setSt] = useState<ObsStatus | null>(null);
+  // lien profond : /?tab=operate&incident=12 (depuis Crew → History, ou une notification)
+  const [focus, setFocus] = useState<number | null>(null);
+  const focused = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("incident");
+    if (v && /^\d+$/.test(v)) setFocus(+v);
+  }, []);
+  useEffect(() => { if (focus && st) focused.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [focus, st]);
   const [dashes, setDashes] = useState<Dashboard[]>([]);
   const [runbooks, setRunbooks] = useState<Runbook[]>([]);
   const reload = () => {
@@ -76,9 +90,12 @@ export default function Operate({ onOpenSession }: { onOpenSession?: (sid: strin
           <div className="space-y-1.5">
             {incidents.length === 0 && <div className="text-[12px] text-mut">No incidents. Alerts fired in production land here, each with a diagnosis session already started.</div>}
             {incidents.map((i: Incident) => (
-              <div key={i.id} className={`rounded-lg border p-2 text-[12px] ${SEV[i.severity] || "border-line bg-panel2/50"}`}>
+              <div key={i.id} id={`incident-${i.id}`} ref={focus === i.id ? focused : undefined}
+                className={`rounded-lg border p-2 text-[12px] ${SEV[i.severity] || "border-line bg-panel2/50"} ${focus === i.id ? "ring-2 ring-sea" : ""}`}>
                 <div className="flex items-center gap-2">
+                  <span className="text-[10.5px] text-mut">#{i.id}</span>
                   <span className="font-medium text-slate-100">{i.title}</span>
+                  {(i.occurrences || 1) > 1 && <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut" title="failures of this agent while the incident is open">×{i.occurrences}</span>}
                   <span className="rounded border border-line px-1.5 py-px text-[10px] text-mut">{i.severity}</span>
                   <span className="text-[10.5px] text-mut">{ago(i.ts)}</span>
                   <span className={`ml-auto text-[11px] ${i.status === "resolved" ? "text-emerald-400" : "text-amber-300"}`}>{i.status}</span>
@@ -89,7 +106,21 @@ export default function Operate({ onOpenSession }: { onOpenSession?: (sid: strin
                     <button onClick={() => onOpenSession(i.session_id)}
                       className="rounded border border-sea/40 bg-sea/10 px-2 py-0.5 text-[10.5px] text-sea hover:border-sea">open diagnosis session →</button>
                   )}
-                  {i.status !== "resolved" && (
+                  {i.agent_id && i.agent_visible && (i.runs || []).length > 0 && (
+                    <button onClick={() => onOpenAgent?.(i.agent_id as number, (i.runs as number[])[(i.runs as number[]).length - 1])}
+                      title="the agent whose run failed — opens Crew on that run"
+                      className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10.5px] text-red-200 hover:border-red-400">
+                      ✕ agent {i.agent_name} · run #{(i.runs as number[])[(i.runs as number[]).length - 1]} →
+                    </button>
+                  )}
+                  {(i.agent_runs || []).map((r) => (
+                    <button key={r.id} onClick={() => onOpenAgent?.(r.agent_id, r.id)}
+                      title="an agent started by this alert — opens Crew on that run"
+                      className="rounded border border-orange-400/40 bg-orange-400/10 px-2 py-0.5 text-[10.5px] text-orange-200 hover:border-orange-300">
+                      ▶ agent {r.agent_name} · run #{r.id} →
+                    </button>
+                  ))}
+                  {i.status !== "resolved" && canWrite && (
                     <button onClick={() => obsIncidentSet(i.id, "resolved").then(reload)}
                       className="rounded border border-line px-2 py-0.5 text-[10.5px] text-mut hover:text-emerald-300">mark resolved</button>
                   )}
