@@ -41,6 +41,24 @@ Notable changes, newest first. Versions: semver + release hash (see
   secret unless you pick them, and sessions opened before the upgrade get none after a
   restart; set `SOKKAN_SESSION_SECRETS=all` to keep the 3.1 behaviour (a start-up message
   says so when the vault is not empty). An unknown value means `named`.
+- **Several projects on one instance** (lot 3) — a project is a perimeter: its sessions,
+  board, agents, memory and quarantine. The cockpit gets a project selector (hidden while
+  there is one project) and every call is answered for the selected project with your role
+  in it; an object of another project does not exist for you (404), through the API, the
+  session's MCP servers (memory, board, agents) or the WebSocket. Teams come from the SSO
+  `groups` claim at each login; instance admins manage projects, grants (a person or a team)
+  and the ops team in Profile → Projects & teams — and see no project content until they
+  add themselves, which the journal records. A `shared` project, read by everyone, is
+  recalled with every project. Note names are unique per project (memory migration `0012`),
+  each project has its own memory directory, indexer and agent quarantine, and a session of
+  another project works in its own workspace. Operate and Infra are for the ops team (an SSO
+  group) and the instance admins. Until per-project vaults (next step), sessions of other
+  projects receive no secret; the CortHeXis review runs for the default project only.
+- **Managed instances always give sessions secrets by name** — on SOKKAN Cloud
+  (`SOKKAN_TIER` set) `SOKKAN_SESSION_SECRETS=all` is ignored; elsewhere the cockpit shows a
+  warning banner while an instance runs in `all`.
+- **Failed agent runs open an Operate incident by default** when Operate is active
+  (`SOKKAN_AGENTS_INCIDENTS` unset); `0` turns it off.
 - **Cockpit sessions last 8 hours** (was 24) — `SOKKAN_SESSION_TTL_S`, 5 min to 24 h. The
   limit counts from when the cookie was issued, so a 24 h cookie from 3.1 does not outlive
   it after the upgrade: expect to log in again.

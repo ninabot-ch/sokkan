@@ -1,9 +1,11 @@
 # Multi-user — spec (3.2)
 
 Status: **3.2 in progress.** Lot 1 (data model, "default project" migration, memory recall
-scoped by project) and lot 2 (scheduler guard, secrets by name by default, 8 h cockpit
-sessions) are implemented on branch `v3.2-multiuser`; everything else on this page is the
-design the next lots implement. Nick's decisions of 07.10.2026 are folded in (see the end). This page is the contract: when code and page disagree,
+scoped by project), lot 2 (scheduler guard, secrets by name by default, 8 h cockpit
+sessions) and lot 3 (projects turned on: every route scoped, SSO teams, admin screens,
+selector, per-project memory, `shared`, ops team — see "Lot 3: what shipped") are
+implemented on branch `v3.2-multiuser`; everything else on this page is the design the next
+lots implement. Nick's decisions of 07.10.2026 are folded in (see the end). This page is the contract: when code and page disagree,
 fix one of them.
 
 ## Why
@@ -208,14 +210,48 @@ read, ack, resolve, alert routing — without any project content.
 | 3 | Same hooks for terminal sessions: `POST /api/memory/hook` (scope from the session id) and the in-process fallback (`CORTHEXIS_RECALL_PROJECTS`, else `CORTHEXIS_RECALL_REQUIRE_SCOPE=1` → nothing) | **lot 1** |
 | 4 | MCP `memory_search` / `memory_get` / `memory_links` / `memory_write` (scope = `SOKKAN_SESSION_PROJECT`, set by the API) | **lot 1** |
 | 5 | A quoted note name (the recall forces a note whose name is in the message) | **lot 1** — a name of another project is never forced |
-| 6 | Cockpit: `/api/memory/search` (lot 1, `?project=` + access check), notes list, note body, graph, CortHeXis review pairs, recall log, quarantine, runbooks, Nina's context (lot 1: default project) | **lot 3** for the rest |
-| 7 | File system: Claude Code loads `MEMORY.md` of the workspace, and `Read`/`Bash` can open any note file the API user can read | **lot 3** per-project workspace + memory directory; **lot 8** sandbox (per-project uid / container) for a hard boundary |
-| 8 | Agent deliverables (note `agent-<name>-latest`, quarantine) | **lot 3** — written to the agent's project directory |
+| 6 | Cockpit: memory search, notes list, note body, stats, recall log, runbooks, quarantine, CortHeXis graph / note, Nina's context | **lot 3** — the selected project (+ shared); recall log = the project's own notes |
+| 6b | CortHeXis review, proposals, curation (near-duplicate pairs, drift…) | **lot 3** — the review source reads ONE project (`PgSource(project=…)`): no pair across projects; the review itself runs for `default` only for now, other projects get an empty one |
+| 7 | File system: Claude Code loads `CLAUDE.md` / `MEMORY.md` / `.mcp.json` of its working directory; `Read`/`Bash` can open any file the API user can read | **lot 3**: a session of another project works in `$SOKKAN_DATA_DIR/projects/<slug>/work` (nothing of `default` is loaded); raw terminals stay in `default`; agent runs may not Write/Edit under `$SOKKAN_DATA_DIR/projects`. **Lot 8** sandbox (per-project uid / container) for a hard boundary against `Read`/`Bash` |
+| 8 | Agent deliverables (note `agent-<name>-latest`, quarantine) | **lot 3** — quarantine per project, approval into the agent's project directory |
 | 9 | IDF statistics (`lex_df`) are instance-wide | accepted: a word's document frequency, not content |
 
-Until lot 3 ships, **no second project can be created through the API or the UI**
-(`projects.create` is reachable from Python only): every unscoped surface of row 6-8 then
-only ever serves the `default` project, so lot 1 opens no hole.
+Lots 1 and 2 kept project creation out of the API; lot 3 exposes it (admin screen) now that
+every surface above is scoped.
+
+### Lot 3: what shipped
+
+* **One gate for every request** (`backend/projectgate.py`, called by the auth middleware): a
+  route that names an object (session, card, agent, run) is about that object's project; a
+  list or a creation is about the selected project (`x-sokkan-project` header, sent by the
+  cockpit with every call); tmux / send / preview are `default`; Operate and Infra are for
+  the ops team and instance admins. The person's role **in that project** replaces their
+  instance role for the request (viewer → viewer, dev → dev, maintainer → admin, admin →
+  admin), so every 3.1 check (`require("dev")`, Crew ownership, board rules) applies per
+  project. No role there = 404. WebSockets take the role in the session's project.
+* **MCP servers** get `SOKKAN_SESSION_PROJECT` (+ `SOKKAN_SESSION_SCOPE` = project,shared):
+  memory (read the scope, write the project's directory), board (list / search / every card
+  tool / links), agents (the project's agents only, role there).
+* **Memory**: names unique per project (migration `0012`), one directory and one indexer
+  per project, `shared` recalled with every project, quarantine per project.
+* **Teams**: the OIDC `groups` claim (`SOKKAN_OIDC_GROUPS_CLAIM`, default `groups`; add the
+  `groups` scope / Entra "groups claim" on the IdP side) replaces the person's SSO teams at
+  each login. With `SOKKAN_DEFAULT_ROLE=none`, someone the instance does not list gets in
+  only through a project grant.
+* **Admin** (Profile → Projects & teams, `/api/admin/*`): projects, grants to a person or a
+  team, ops group, teams seen; an instance admin sees no content until they grant themself
+  (`project.grant.self` in the journal). **Selector** in the header (hidden with one project).
+* **Not yet per project, fail-closed meanwhile**: the vault (other projects get no secret
+  until lot 4), the CortHeXis review / proposals (default only), cost totals (instance-wide;
+  the session list is filtered), the journal (instance admins only once there are several
+  projects), agent names (still unique per instance: a name collision tells that an agent of
+  that name exists elsewhere — low; to fix with lot 4's agents table rebuild).
+* **Tests**: `tests/test_project_isolation.py` drives the real middleware with three people
+  (dev of default, dev of radio through an SSO team, instance admin without grant): sessions,
+  spawn, board (+ MCP), agents (+ MCP, a maintainer included), quarantine, memory routes,
+  CortHeXis, usage, journal, Operate, admin, selector, WebSocket, workspace. Each filter was
+  removed once and the suite went red (gate, session list, board, agents, memory notes,
+  memory search, board MCP, quarantine, CortHeXis graph, usage list, review pairs).
 
 ### How the recall filters (lot 1)
 
@@ -386,7 +422,7 @@ in points (1 point ≈ one focused session of work with its tests).
 |---|---|---|---|---|
 | **1 ✅** | Data model (`projects.db`, `project` columns), "default project" migration, memory recall + MCP scoped by project, spawn with `project` (dev+ check), tests | low: dormant (one project) | 3 | unit + Postgres suites; behaviour identical on a 3.1 data dir |
 | **2 ✅** | Scheduler guard (explicit credentials, no boot catch-up), `SOKKAN_SESSION_SECRETS=named` default, session cookie TTL 8 h | low | 1.5 | restart an instance with a queued run and no credentials → nothing runs |
-| 3 | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
+| **3 ✅** | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
 | 4 | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
 | 5 | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
 | 6 | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |

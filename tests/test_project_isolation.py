@@ -336,3 +336,10 @@ def test_me_is_the_person_in_the_selected_project(world):
     assert me["role"] == "none" and me["project_role"] is None   # the UI switches project
     me = world["as"]("bob@x").get("/api/me").json()
     assert (me["project"], me["role"], me["instance_role"]) == ("default", "dev", "dev")
+
+
+def test_a_session_of_another_project_works_in_its_own_workspace(world):
+    import agentchat
+    assert agentchat.project_cwd(RADIO_SID) == str(world["tmp"] / "projects" / "radio" / "work")
+    assert agentchat.project_cwd(DEFAULT_SID) == agentchat.CWD
+    assert agentchat.project_cwd("z" * 32).endswith("/projects/_no-project/work")

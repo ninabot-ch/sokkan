@@ -6,6 +6,7 @@ import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import Profile from "./Profile";
 import ProjectSelector from "./ProjectSelector";
+import { currentProject } from "@/lib/project";
 
 const TABS = ["Board", "Sessions", "Crew", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
@@ -21,7 +22,9 @@ export default function Tabs({
   const canDev = useCan("dev");
   const me = useMe();
   const visible = TABS.filter(
-    (t) => (t !== "Preview" || feats.preview) && (t !== "Infra" || feats.infra)
+    // 3.2 : Preview (dépôts de l'instance) et Infra n'existent que dans le projet par défaut / pour l'ops
+    (t) => (t !== "Preview" || (feats.preview && currentProject() === "default"))
+      && (t !== "Infra" || (feats.infra && (!me || me.ops !== false)))
       // 3.2 : Operate = l'équipe ops (groupe SSO) + les admins de l'instance
       && (t !== "Operate" || (feats.observe && (!me || me.ops !== false)))
       && (t !== "Magnitude" || feats.magnitude)

@@ -281,7 +281,10 @@ Sessions spawned by the server (Operate alerts, runbooks) get none in `named` mo
 * Approve / reject a proposal: per `SOKKAN_AGENTS_APPROVAL` (above).
 * Runs execute with the owner's identity for metering (`AgentSession.user`).
 
-## Incidents — `SOKKAN_AGENTS_INCIDENTS` (3.1.1, off by default)
+## Incidents — `SOKKAN_AGENTS_INCIDENTS` (3.1.1; 3.2: on by default when Operate is active)
+
+3.2: unset or empty = on when Operate is active on the instance (Prometheus or Grafana
+configured), off otherwise; `0` turns it off, `1` forces it on.
 
 * A run that ends `failed`, `timeout` or `budget` opens the agent's incident in Operate
   (`incidents.agent_id`, `agent_name`, `runs`, `occurrences`), linked to the agent and the

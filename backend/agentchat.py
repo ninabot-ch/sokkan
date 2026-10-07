@@ -79,6 +79,26 @@ def session_project(sid: str) -> str:
         return ""
 
 
+def project_cwd(sid: str) -> str:
+    """Working directory of a session (3.2 lot 3): the instance's workspace for the default
+    project (unchanged); for another project its own workspace
+    $SOKKAN_DATA_DIR/projects/<slug>/work — so Claude Code does not load the default
+    project's CLAUDE.md / MEMORY.md / .mcp.json into it. (Not a sandbox: Read/Bash can
+    still reach other paths the API user can read — lot 8.)"""
+    p = session_project(sid)
+    if p == "default":
+        return CWD
+    # no project (unknown session on a multi-project instance): an empty neutral workspace,
+    # never the default project's
+    d = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))
+             ) / "projects" / (p or "_no-project") / "work"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return CWD
+    return str(d)
+
+
 def session_scope_env(project: str) -> str:
     """Comma list handed to the MCP servers: the project + shared (lot 3), or "" = none."""
     import projects
@@ -721,8 +741,8 @@ def get_or_create(sid: str, resume: str | None = None, user: str = "",
     if s is None:
         # après un restart de sokkan-api : reprendre le claude_session_id persisté
         resume = resume or (board.get_claude_session_id(sid) or None)
-        s = AgentSession(sid, resume=resume, user=user, model=model or MODEL, policy=policy,
-                         secrets=secrets)
+        s = AgentSession(sid, cwd=project_cwd(sid), resume=resume, user=user,
+                         model=model or MODEL, policy=policy, secrets=secrets)
         if not policy:
             # a finished agent run reopened from Crew → History / Live: mask its secrets
             try:
