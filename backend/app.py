@@ -52,6 +52,8 @@ import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
 import iam
 import infra
 import oidc
+import revocation  # 3.2 lot 6: SCIM, « Revoke now », owner checks
+import sandbox  # 3.2 lot 8: per-project confinement of sessions
 import agentchat
 import agentcost
 import agents
@@ -192,6 +194,8 @@ async def _lifespan(_app: FastAPI):
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
     features.startup_report()  # a switch asked for but not honoured: logged, feature OFF
+    sandbox.detect()  # 3.2 lot 8: off | hooks-only | bwrap, probed once
+    revocation.bind_loop(asyncio.get_running_loop())  # 3.2 lot 6: closes from sync routes
     rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
     yield
     if rt:
@@ -1353,6 +1357,10 @@ def features_flags() -> dict:
         # 3.1.1 : runs simulés de la démo publique (aucune inférence)
         "demo_crew": agents_runtime.demo_mode(),
         "multi_project": on("multi_project"),
+        # 3.2 lot 8: how sessions of a project other than `default` are confined
+        "sandbox": sandbox.mode(),
+        # 3.2 lot 6: SCIM endpoint + « Revoke now »
+        "revocation": on("revocation"),
         "registry": features.as_api(),
     }
 
@@ -1457,7 +1465,17 @@ async def term_ws(websocket: WebSocket):
     if not features.enabled("tmux") or not _origin_ok(websocket):
         await websocket.close(code=4403)
         return
-    await termproxy.ws(websocket, "ws")
+    try:  # 3.2 lot 6 : « Revoke now » ferme aussi les terminaux ouverts
+        who = auth.resolve_email(websocket)  # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001 — termproxy refuses it itself
+        who = ""
+    if who:
+        revocation.track(who, websocket)
+    try:
+        await termproxy.ws(websocket, "ws")
+    finally:
+        if who:
+            revocation.untrack(who, websocket)
 
 
 @app.api_route("/term", methods=["GET"])
@@ -1511,6 +1529,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
         await websocket.close(code=4404)
         return
     await websocket.accept()
+    revocation.track(wsu["email"], websocket)  # 3.2 lot 6 : fermé par « Revoke now »
     resume = websocket.query_params.get("resume") or None
     session = agentchat.get_or_create(sid, resume=resume, user=wsu["email"])
     queue = session.subscribe()
@@ -1529,6 +1548,9 @@ async def agent_ws(websocket: WebSocket, sid: str):
         while True:
             msg = await websocket.receive_json()
             t = msg.get("type")
+            if revocation.is_disabled(wsu["email"]):  # révoqué pendant la connexion
+                await websocket.close(code=4401)
+                break
             if not can_drive:
                 # viewer : flux en lecture seule — aucune mutation acceptée
                 if t == "user":
@@ -1557,6 +1579,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
     finally:
         pump_task.cancel()
         session.unsubscribe(queue)
+        revocation.untrack(wsu["email"], websocket)
 
 
 # --- flow OIDC (login → Authentik → callback → session cookie) ---
@@ -1595,11 +1618,16 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(401, f"OIDC exchange failed: {e}")
     email = (claims.get("email") or "").lower()
+    if email and revocation.is_disabled(email):  # 3.2 lot 6 : compte révoqué / désactivé (SCIM)
+        audit.log(email, "auth.login.refused", "account disabled", "")
+        raise HTTPException(403, "account disabled on this instance")
     try:  # 3.2 lot 3 : équipes = groupes de l'IdP (claim `groups`), resynchronisées au login
         groups = claims.get(os.environ.get("SOKKAN_OIDC_GROUPS_CLAIM", "groups")) or []
         if email and isinstance(groups, list) and features.enabled("sso_teams"):
             projects.sync_sso_groups(email, [str(g) for g in groups])
             audit.log(email, "team.sync", ",".join(str(g) for g in groups)[:300], "")
+            # 3.2 lot 6 : attributions perdues → sessions fermées, agents en pause
+            revocation.run_soon(revocation.reconcile(email, by=f"login:{email}"))
     except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur la synchro d'équipes
         print(f"[sokkan] SSO groups sync failed for {email}: {e!r}", file=sys.stderr)
     if not email:
@@ -1622,7 +1650,8 @@ def auth_oidc_logout():
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
               "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
-              "/api/memory/hook")  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              "/api/scim/")  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)
 
 
 @app.middleware("http")
@@ -1653,6 +1682,9 @@ def _transcripts() -> list[Path]:
         reverse=True,
     )
 
+
+# 3.2 lot 6 : SCIM 2.0 (Users, Groups) + « Revoke now » (admin)
+app.include_router(revocation.router(require))
 
 # banc de recall (CortHeXis → Banc) + carte « Mémoire » de Magnitude (profil, licence)
 app.include_router(memeval.router(require, feature_magnitude, _transcripts))

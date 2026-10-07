@@ -19,6 +19,10 @@ export interface Features {
   demo_crew?: boolean;
   /** 3.2 : projects (feature `multi_project`) */
   multi_project?: boolean;
+  /** 3.2 lot 8 : how sessions of a project other than `default` are confined */
+  sandbox?: "off" | "hooks-only" | "bwrap" | "pod";
+  /** 3.2 lot 6 : SCIM endpoint + « Revoke now » (feature `revocation`) */
+  revocation?: boolean;
   /** 3.2 : the feature registry (backend/features.py) — effective state and why */
   registry?: FeatureRegistry;
 }

@@ -159,6 +159,42 @@ effective_role(person, project) =
 | Removed from the GitLab project / user blocked | next forge read fails or returns no access → `access_cache` negative, live sessions of that project closed; token refresh fails → `forge_links.revoked_at`, token erased | ≤ 10 min (cache) |
 | Admin "Revoke now" (lot 6) | close the person's sessions, pause their agents (an agent never outlives its owner's access: the scheduler checks the owner's role before each run), erase forge tokens, purge `access_cache` | immediate |
 
+### Lot 6: what shipped (feature `revocation`)
+
+* `backend/revocation.py`, state in `$SOKKAN_DATA_DIR/identity.db` (`account_state`,
+  `scim_users`, `scim_groups`, `scim_group_members`; the file exists only once someone was
+  provisioned or revoked).
+* **One effect, four entry points.** `revoke(email)`: account disabled; every cockpit cookie
+  issued before now refused (`session.email_from_request` → `cookie_ok`, and
+  `auth.instance_user` answers 403 for a disabled account, whatever the auth mode); the
+  person's WebSockets (chat panes, terminal) closed with 4401, and a message on a pane opened
+  before is refused; agents they own paused, their queued / running runs cancelled, a
+  notification sent; their live interactive SDK sessions interrupted then closed; forge tokens
+  blanked (`forge_links.revoked_at`; revoked at the forge first when the lot-5 provider offers
+  `forge.revoke_link`); `access_cache` purged; SSO team memberships removed; audit
+  `user.revoke` with the counts. Entry points: SCIM `active=false` / DELETE, admin
+  **Revoke now** (`POST /api/admin/users/{email}/revoke`, not on yourself nor the owner),
+  `reinstate` (agents stay paused on purpose).
+* **SCIM 2.0** at `/api/scim/v2` (bearer `SOKKAN_SCIM_TOKEN`, constant-time compare; 404 when
+  the feature is off or no token is set): Users create / get / filter `userName|externalId eq`
+  / PUT / PATCH (`active` as boolean or the string `"False"` Entra sends, path-less value
+  objects) / DELETE; Groups create / filter `displayName eq` / PUT / PATCH add-remove members
+  (`members[value eq "…"]`) / DELETE; `ServiceProviderConfig`, `ResourceTypes`, `Schemas`.
+  A SCIM group is the team `sso:<displayName>` (`SOKKAN_SCIM_GROUP_KEY=externalId` for an
+  Entra claim made of object ids); a member removed → `reconcile`. Renaming a group is refused
+  (the name carries grants).
+* **SSO login**: after the `groups` claim re-sync, `reconcile(email)` closes the person's live
+  sessions in projects they no longer reach and pauses the agents they may no longer run; a
+  disabled account gets 403 at the callback (`auth.login.refused`).
+* **Scheduler**: before a run starts, `owner_may_run` — owner not disabled and `dev`+ in the
+  agent's project — else the run is cancelled ("not started: …"), the agent paused, a
+  notification sent. (Feature off: the 3.1 behaviour.)
+* Tests: `tests/test_revocation.py` (each path on the real middleware; mutations — removing the
+  403, the cookie check, the scheduler check, the login reconcile, the session stop or the
+  group reconcile — each turn a test red).
+* Not in lot 6: OIDC back-channel logout (the IdP's logout token) — SCIM covers deprovisioning;
+  the forge-side token revocation waits for lot 5's provider.
+
 ## Role × action matrix
 
 Project roles; "inst. admin" = instance `admin`/`owner` acting on the instance, not on a
@@ -276,6 +312,49 @@ every surface above is scoped.
    ignore the scope), `tests/test_recall_scope_pg.py` (real Postgres: exact, HNSW and
    lexical-only paths, quoted names, recall log, migration 0011, a note moving between
    projects). Both go red when the filters are removed (checked).
+
+### Lot 8: what shipped (feature `sandbox`)
+
+A session or an agent run of any project except `default` reaches only its project's space:
+`$SOKKAN_DATA_DIR/projects/<slug>/work` read-write (its working directory), the rest of
+`projects/<slug>` and `projects/shared` read-only, plus the CLI's own files for that working
+directory. `backend/sandbox.py`, wired in `agentchat.AgentSession.ensure_started`.
+
+1. **SDK options**: `cwd` = the project workspace (lot 3), `add_dirs=[]`.
+2. **PreToolUse hook** (matcher `Read|Glob|Grep|LS|NotebookRead|Write|Edit|MultiEdit|NotebookEdit|Bash`):
+   it runs before every allow rule (SAFE_TOOLS, user settings, an agent's `auto_approve`). Paths
+   (`file_path`, `notebook_path`, `path`, the static part of a Glob `pattern` / Grep `glob`) are
+   made absolute against the workspace, `..` collapsed and symlinks resolved (`realpath`), then
+   checked against the roots; a refusal is a `deny` with the reason, logged (stderr + audit
+   `sandbox.deny`).
+3. **Bash**: mode detected at start (`sandbox.detect`, exposed as `GET /api/features` →
+   `sandbox`): `pod` when sessions run in their own pod (`SOKKAN_RUNNER=kubernetes`, the
+   session runner — **the reference isolation** on Kubernetes / OpenShift restricted SCC, where
+   bubblewrap cannot run), else `bwrap` when bubblewrap is present and a probe run works
+   (opportunistic, compose / k3s host), else `hooks-only`.
+   * `pod` → Bash runs in the pod unwrapped (the pod is the boundary); the hook still checks
+     file tools.
+   * `hooks-only` → Bash refused outside `default`.
+   * `bwrap` → the hook rewrites the command to `<wrapper> '<command>'`; the wrapper
+     (`$DATA/sandbox/sessions/<sid>.sh`, outside every mount) execs `bwrap --unshare-all
+     [--share-net if SOKKAN_SANDBOX_NETWORK=1] --die-with-parent --new-session --clearenv`,
+     /usr (+ /bin, /lib… links, a short list of /etc files) read-only, `--proc`, `--dev`,
+     private `/tmp`, the project memory and `shared` read-only, the workspace read-write,
+     `HOME` = workspace, env = PATH/LANG/TERM/TZ/USER (+ the session's vault names, values read
+     at run time, never on a command line). A human still approves (`ask`); an agent's
+     `Bash(x:*)` rule still approves (`allow`) when the command has no shell operator.
+   * The permission callback re-checks / re-wraps the input that will really run (an edited
+     approval cannot unwrap it), also in bypass mode.
+4. Raw terminal: `default` only (decision 6, unchanged).
+5. Tests: `tests/test_sandbox.py` (paths, symlinks, logging, bwrap: other project's file absent,
+   shared read-only, no env secret, loopback only; `default` and feature-off unchanged) and
+   `tests/test_sandbox_e2e_cli.py` (real CLI: an agent run's Read and `cat` of another project
+   fail in both modes; the CLI runs the hook-rewritten command; `default` reads it).
+   Mutations (no path check, no symlink resolution, no rewrite by both hook and callback) → red.
+* **Limits**: outside `pod` mode, same uid as the API (no per-project uid / container); MCP servers run outside the
+  sandbox (they are project-scoped since lot 3); in `bwrap` the shell sees /usr and a few /etc
+  files; Docker's default seccomp refuses user namespaces → `hooks-only` in the stock compose
+  (see docs/enterprise/OPERATIONS.md § 4.1).
 
 ## Secrets, budgets, board, agents
 

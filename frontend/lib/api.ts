@@ -96,6 +96,15 @@ export const adminRevoke = (slug: string, kind: string, principal: string) =>
   mutateDetail<{ grants: AdminGrant[] }>(`/api/admin/projects/${slug}/grants/${kind}/${encodeURIComponent(principal)}`, "DELETE");
 export const adminOpsGroup = (group: string) => mutateDetail<{ ops_group: string }>("/api/admin/ops-group", "PUT", { group });
 export const iamUsers = () => getJSON<IamUser[]>("/api/iam/users");
+// 3.2 lot 6 : révocation (« Revoke now », comptes désactivés, SCIM)
+export interface RevokedAccount { email: string; disabled_at: number; disabled_by: string; reason: string }
+export interface RevocationState { disabled: RevokedAccount[]; scim: { enabled: boolean; url: string } }
+export interface RevokeResult { email: string; sessions_stopped: number; agents_paused: number; forge_tokens_erased: number; sockets_closed: number }
+export const adminRevocation = () => getJSON<RevocationState>("/api/admin/revocation");
+export const adminRevokeNow = (email: string, reason = "") =>
+  mutateDetail<RevokeResult>(`/api/admin/users/${encodeURIComponent(email)}/revoke`, "POST", { reason });
+export const adminReinstate = (email: string) =>
+  mutateDetail<{ email: string; disabled: boolean }>(`/api/admin/users/${encodeURIComponent(email)}/reinstate`, "POST", {});
 export const iamUpsert = (email: string, role: string, name = "") =>
   mutate<IamUser>("/api/iam/users", "POST", { email, role, name });
 export const iamDelete = (email: string) =>

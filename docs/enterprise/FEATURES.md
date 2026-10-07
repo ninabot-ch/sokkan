@@ -43,9 +43,9 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`cortex`](#cortex) CortHeXis link | stable | integration | if configured | if configured | — | — | `SOKKAN_CORTEX_URL` |
 | [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | planned (3.2) | planned | off | off | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
 | [`gitlab`](#gitlab) GitLab projects | planned (3.2) | planned | off | off | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
-| [`revocation`](#revocation) Revocation | planned (3.2) | planned | off | off | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
+| [`revocation`](#revocation) Revocation | beta | toggle | off | on | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
 | [`byok_admin`](#byok_admin) BYOK admin screen | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
-| [`sandbox`](#sandbox) Project sandbox | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
+| [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
 | [`shared_review`](#shared_review) Shared session / preview for review | planned (3.2) | planned | off | off | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
 | [`helm`](#helm) Helm | planned (3.3) | planned | off | off | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
 | [`classification`](#classification) Classification and clearances | planned (3.4) | planned | off | off | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
@@ -123,7 +123,7 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class project_vault_budgets,gitlab,revocation,byok_admin,sandbox,shared_review,helm,classification,teams,connect_ai planned;
+  class project_vault_budgets,gitlab,byok_admin,shared_review,helm,classification,teams,connect_ai planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -413,11 +413,11 @@ Project access from GitLab roles (OAuth PKCE), credential helper, push and merge
 
 ### revocation
 
-**Revocation** — planned for 3.2, planned.
+**Revocation** — beta, toggle.
 
-SCIM, « Revoke now », back-channel logout (lot 6).
+SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: cockpit sessions invalidated, live sessions stopped, owned agents paused, forge tokens erased; teams recomputed at each SSO login; an agent never outlives its owner's access (lot 6).
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `sso_teams`
 - Switch: `SOKKAN_FEATURE_REVOCATION`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
@@ -435,11 +435,11 @@ Client admin screen for bring-your-own-key model credentials (lot 7).
 
 ### sandbox
 
-**Project sandbox** — planned for 3.2, planned.
+**Project sandbox** — beta, toggle.
 
-Sensitive project sessions in their own uid / container: a session cannot read another project's files (lot 8).
+A session or an agent run of a project (not `default`) reaches only its project's space: file tools checked by a hook (paths resolved, symlinks followed), Bash inside bubblewrap when the host has it, refused otherwise (lot 8).
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`
 - Switch: `SOKKAN_FEATURE_SANDBOX`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)

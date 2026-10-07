@@ -63,12 +63,64 @@ SOKKAN_OPS_GROUP=sokkan-ops           # bootstrap value; then Admin → Projects
   **check the release notes of your version before relying on it (TBD)**.
 * Instance admins (`admin` / `owner`) administer the instance; they **do not** see a project's
   content until they grant themselves a role there (logged as `project.grant.self`).
-* Cockpit session lifetime: 8 h (`SOKKAN_SESSION_TTL_S`, 5 min … 24 h). Without SCIM (lot 6,
-  planned) a person disabled in the IdP keeps the cockpit until the cookie expires.
+* Cockpit session lifetime: 8 h (`SOKKAN_SESSION_TTL_S`, 5 min … 24 h). Without SCIM (§ 2.1)
+  a person disabled in the IdP keeps the cockpit until the cookie expires — or until an admin
+  presses **Revoke now**.
 
 Verify: log in with a test account of each profile; `GET /api/me` shows the role in the
 selected project; Admin → Projects & teams → "why" (`GET /api/admin/explain?email=…&project=…`)
 explains each access.
+
+### 2.1 Revocation and SCIM (feature `revocation`, lot 6)
+
+```dotenv
+SOKKAN_FEATURE_REVOCATION=1            # on by default in the enterprise edition; needs sso_teams
+SOKKAN_SCIM_TOKEN=<openssl rand -hex 32>   # the bearer token the IdP sends; unset = SCIM closed
+SOKKAN_SCIM_GROUP_KEY=displayName      # or externalId (Entra ID sending object ids in `groups`)
+```
+
+**What a revocation does** — the same effect for SCIM deactivate / delete and the admin
+button (Profile → Members → **Revoke now**, or `POST /api/admin/users/<email>/revoke`):
+
+```
+account disabled ─┬─ every cockpit cookie issued before now refused (next request: 401/403)
+                  ├─ open chat panes and terminals of the person closed (WebSocket 4401)
+                  ├─ agents they own paused, their queued/running runs cancelled, notification
+                  ├─ their live SDK sessions interrupted then closed
+                  ├─ forge tokens erased (forge_links blanked, revoked_at) + access cache purged
+                  ├─ SSO team memberships removed
+                  └─ audit: user.revoke (counts), agent.pause.owner_access, scim.*
+```
+
+Reinstate: Profile → Members → *reinstate* (or SCIM `active=true`). Paused agents stay paused:
+someone with access resumes or takes them over on purpose. The instance `owner` and yourself
+cannot be revoked from the button (SCIM can disable anyone).
+
+**SCIM endpoint**: `https://<public host>/api/scim/v2` — Users (create, get, filter
+`userName eq`, PUT, PATCH, DELETE) and Groups (create, filter `displayName eq`, PUT, PATCH
+add/remove members, DELETE), `ServiceProviderConfig`, `ResourceTypes`. No bulk, no sort, no
+etag. A SCIM group **is** the SOKKAN team `sso:<displayName>`: a member removed from it loses
+the projects that team granted at once (live sessions there closed, agents paused).
+
+* **Entra ID** — Enterprise application → Provisioning → Automatic. Tenant URL
+  `https://<host>/api/scim/v2`, Secret token = `SOKKAN_SCIM_TOKEN`, *Test connection*. Mappings:
+  `userPrincipalName` (or `mail`) → `userName`, `mail` → `emails[type eq "work"].value`,
+  `Switch([IsSoftDeleted]…)` → `active` (default mapping), groups → `displayName`. Entra sends
+  `active` as the string `"False"`: accepted. If the OIDC `groups` claim carries object ids,
+  set `SOKKAN_SCIM_GROUP_KEY=externalId` and map `objectId` → `externalId`.
+* **Authentik** — Applications → Providers → *SCIM provider*: URL `https://<host>/api/scim/v2`,
+  Token = `SOKKAN_SCIM_TOKEN`; bind it to the SOKKAN application as backchannel provider; group
+  filter = the groups used for project grants. Authentik PUTs whole users and groups: handled.
+
+Check: `curl -s -H "Authorization: Bearer $SOKKAN_SCIM_TOKEN" https://<host>/api/scim/v2/Users`
+→ a `ListResponse`; deactivate a test account in the IdP → within the provisioning cycle its
+cockpit answers 403 and `GET /api/audit?q=user.revoke` shows the entry. **Delay**: SOKKAN acts
+within a second of the call; the IdP decides when it calls (Entra ID: a cycle every ~40 min,
+or *Provision on demand*; Authentik: on save). For an immediate cut, press Revoke now.
+
+At each SSO login the teams are recomputed from the `groups` claim and access that was lost is
+withdrawn (sessions in projects no longer reachable closed, agents the person may no longer run
+paused). Before each run, the scheduler checks the owner still has `dev` in the agent's project.
 
 ## 3. Model credentials and the scheduler guard
 
@@ -95,11 +147,53 @@ switch to `0` and restart `api`.
 | 5. Projects | `multi_project`, `sso_teams` | `SOKKAN_FEATURE_MULTI_PROJECT=1`; create projects and grants in Admin → Projects & teams (`POST /api/admin/projects`, `…/grants`) | two people, two projects: neither sees the other's sessions, cards, agents or notes; `GET /api/audit?q=memory.scope_violation` stays empty | ◐ |
 | 6. Vault and budgets per project | `project_vault_budgets` | per registry | secrets of X never in a session of Y; budget stop per project | ○ lot 4 |
 | 7. GitLab | `gitlab` | per registry | Reporter cannot push; Developer pushes a branch and opens an MR | ○ lot 5 |
-| 8. Revocation | `revocation` | SCIM endpoint in the IdP | SCIM delete → sessions closed, agents paused | ○ lot 6 |
+| 8. Revocation | `revocation` | § 2.1 (`SOKKAN_SCIM_TOKEN`, IdP provisioning) | SCIM deactivate → 403 at once, sessions closed, agents paused | ◐ lot 6 |
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | per registry | per feature spec | ○ |
 | 10. Helm, classification, Teams | `helm`, `classification`, `teams` | — | — | ○ 3.3 / 3.4 |
 
 Planned features cannot be switched on: asking for one is reported, never honoured.
+
+### 4.1 Project sandbox (feature `sandbox`, lot 8)
+
+```dotenv
+SOKKAN_FEATURE_SANDBOX=1               # on by default in the enterprise edition; needs multi_project
+SOKKAN_SANDBOX_BWRAP=                  # path to bwrap; empty = the one on PATH
+SOKKAN_SANDBOX_NETWORK=0               # 1 = a sandboxed shell may reach the network
+SOKKAN_SANDBOX_RO_PATHS=               # extra read-only mounts for the shell (a:b), e.g. /opt/tools
+SOKKAN_SANDBOX_READ_PATHS=             # extra paths file tools may read (a:b)
+```
+
+Every project except `default` is confined; `default` keeps the 3.1 behaviour. **The reference
+isolation of SOKKAN Enterprise is the pod**: on Kubernetes (SKS) / OpenShift restricted SCC —
+no root, arbitrary uid, no privileged pod, no user namespaces, hence no bubblewrap — each
+session / run executes in its own pod through the session runner (`SOKKAN_RUNNER=kubernetes`),
+with only its project's volume mounted. bubblewrap is an opportunistic extra for a compose / k3s
+host. Mode, detected at start (`[sandbox] mode …` in the API log, `GET /api/features` →
+`sandbox`):
+
+| Mode | When | File tools | Bash |
+|---|---|---|---|
+| `pod` | session runner on Kubernetes (`SOKKAN_RUNNER=kubernetes`) | hook as a second layer | runs in the session's pod (the boundary) |
+| `bwrap` | bubblewrap installed **and** a probe run succeeds | own workspace (write), project + `shared` (read) | inside bubblewrap: workspace rw, project memory + `shared` ro, /usr ro, private /tmp, no network, empty env |
+| `hooks-only` | no usable bubblewrap | same | **refused** outside `default` |
+| `off` | feature off | lot 3 behaviour (own working directory, not a boundary) | allowed |
+
+**Prerequisites for `bwrap`** (compose / k3s host only — never available under restricted SCC): package `bubblewrap` (in the API image since 3.2) and user
+namespaces. On a host install (systemd) as root: works as is. In Docker the default seccomp
+profile refuses the namespaces → the probe fails → `hooks-only` (safe). To get `bwrap` in a
+container, run the API with a seccomp profile that allows `unshare`/`clone` of user, mount, pid,
+net namespaces (or `security_opt: [seccomp=unconfined]` on a dedicated host — your security
+officer's call). Ubuntu 24.04 hosts with `kernel.apparmor_restrict_unprivileged_userns=1` need
+the API to run as root or an AppArmor profile for bwrap.
+
+**Limits** (say them to the client): the hook confines the CLI's built-in tools; MCP servers are
+scoped by project (lot 3) but run outside the sandbox; the raw terminal stays `default`-only;
+in `bwrap` the shell reads /usr and a few /etc files of the host; a session of a project still
+runs under the API's uid outside `pod` mode (no per-project uid: a kernel escape is out of scope); refusals are in
+the audit log (`sandbox.deny`).
+
+Check: in a project other than `default`, ask the session to `Read` and to `cat` a file of
+another project → both refused (`GET /api/audit?q=sandbox.deny`); the same in `default` works.
 
 ## 5. Backup and restore
 
