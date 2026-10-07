@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 880" width="1280" height="880" role="img" aria-label="SOKKAN Enterprise high-level design">
+<title>SOKKAN Enterprise high-level design</title>
+<style>
+svg{--bg:#ffffff;--panel:#f6f8fa;--tile:#ffffff;--ink:#1f2328;--muted:#59636e;--line:#d1d9e0;
+--edge:#59636e;--acc:#6639ba;--accbg:#f3eeff;--ok:#1a7f37;--wip:#9a6700;--plan:#6e7781}
+@media (prefers-color-scheme:dark){svg{--bg:#0d1117;--panel:#151b23;--tile:#0d1117;--ink:#e6edf3;
+--muted:#9198a1;--line:#3d444d;--edge:#9198a1;--acc:#a371f7;--accbg:#1e1534;--ok:#3fb950;--wip:#d29922;--plan:#9198a1}}
+text{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:var(--ink)}
+.bg{fill:var(--bg)} .panel{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.tile{fill:var(--tile);stroke:var(--line);stroke-width:1}
+.acc{fill:var(--accbg);stroke:var(--acc);stroke-width:1.4}
+.planned{stroke-dasharray:6 4;stroke:var(--plan)}
+.h1{font-size:22px;font-weight:700} .h2{font-size:15px;font-weight:700} .h3{font-size:13px;font-weight:700}
+.t{font-size:12.5px} .s{font-size:11.5px;fill:var(--muted)} .k{font-size:11px;font-weight:700;fill:var(--acc);letter-spacing:.06em}
+.ok{fill:var(--ok)} .wip{fill:var(--wip)} .plan{fill:var(--plan)}
+.edge{stroke:var(--edge);stroke-width:1.6;fill:none} .edged{stroke:var(--edge);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+.ah{fill:var(--edge)} .lbl{font-size:11.5px;fill:var(--muted);font-style:italic} .lblbg{fill:var(--bg)}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+<rect class="bg" width="1280" height="880"/>
+<text x="24" y="38" class="h1" text-anchor="start">SOKKAN Enterprise — high-level design</text>
+<text x="24" y="60" class="s" text-anchor="start">One open-source app; enterprise features switched on one by one. Self-hosted or SOKKAN Cloud.</text>
+<circle cx="805" cy="31.5" r="4.6" class="ok"/><text x="815" y="36" class="s" text-anchor="start">shipped (3.1.x)</text>
+<circle cx="930" cy="31.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M930 27.599999999999998 A3.8999999999999995 3.8999999999999995 0 0 0 930 35.4 Z" class="wip"/><text x="940" y="36" class="s" text-anchor="start">in progress (3.2 branch)</text>
+<circle cx="1095" cy="31.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="1105" y="36" class="s" text-anchor="start">planned (3.2+ · 3.3 · 3.4)</text>
+<rect x="24" y="90" width="176" height="196" rx="10" class="panel"/>
+<text x="38" y="110" class="k" text-anchor="start">WHO</text>
+<text x="38" y="128" class="h2" text-anchor="start">People</text>
+<text x="38" y="150" class="t" text-anchor="start">Developers</text>
+<text x="38" y="169" class="t" text-anchor="start">DevOps · system eng.</text>
+<text x="38" y="188" class="t" text-anchor="start">DBAs · QA</text>
+<text x="38" y="207" class="t" text-anchor="start">Managers</text>
+<text x="38" y="226" class="t" text-anchor="start">Instance admins</text>
+<text x="38" y="245" class="t" text-anchor="start">Ops team (SSO group)</text>
+<rect x="24" y="306" width="176" height="196" rx="10" class="panel"/>
+<text x="38" y="326" class="k" text-anchor="start">SSO</text>
+<text x="38" y="344" class="h2" text-anchor="start">Identity</text>
+<circle cx="43" cy="361.5" r="4.6" class="ok"/><text x="53" y="366" class="t" text-anchor="start">OIDC single sign-on</text>
+<circle cx="43" cy="381.5" r="4.6" class="ok"/><text x="53" y="386" class="t" text-anchor="start">any OIDC IdP</text>
+<circle cx="43" cy="401.5" r="4.6" class="ok"/><text x="53" y="406" class="t" text-anchor="start">DEFAULT_ROLE=none</text>
+<circle cx="43" cy="421.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M43 417.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 43 425.40000000000003 Z" class="wip"/><text x="53" y="426" class="t" text-anchor="start">groups → teams</text>
+<circle cx="43" cy="441.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M43 437.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 43 445.40000000000003 Z" class="wip"/><text x="53" y="446" class="t" text-anchor="start">roles per project</text>
+<circle cx="43" cy="461.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="53" y="466" class="t" text-anchor="start">SCIM · revoke now</text>
+<rect x="24" y="522" width="176" height="138" rx="10" class="panel"/>
+<text x="38" y="542" class="k" text-anchor="start">CLIENTS</text>
+<text x="38" y="560" class="h2" text-anchor="start">Where they work</text>
+<circle cx="43" cy="577.5" r="4.6" class="ok"/><text x="53" y="582" class="t" text-anchor="start">Cockpit (browser)</text>
+<circle cx="43" cy="596.5" r="4.6" class="ok"/><text x="53" y="601" class="t" text-anchor="start">VS Code + Claude Code</text>
+<circle cx="43" cy="615.5" r="4.6" class="ok"/><text x="53" y="620" class="t" text-anchor="start">terminal / CLI</text>
+<rect x="220" y="90" width="566" height="320" rx="10" class="acc"/>
+<text x="234" y="110" class="k" text-anchor="start">CONTROL PLANE</text>
+<text x="234" y="128" class="h2" text-anchor="start">SOKKAN cockpit — one app, Apache-2.0</text>
+<rect x="234" y="140" width="128" height="54" rx="8" class="tile"/>
+<circle cx="249" cy="157.5" r="4.6" class="ok"/><text x="259" y="162" class="h3" text-anchor="start">Board</text>
+<text x="244" y="182" class="s" text-anchor="start">kanban, MCP-driven</text>
+<rect x="370" y="140" width="128" height="54" rx="8" class="tile"/>
+<circle cx="385" cy="157.5" r="4.6" class="ok"/><text x="395" y="162" class="h3" text-anchor="start">Sessions</text>
+<text x="380" y="182" class="s" text-anchor="start">parallel Claude Code</text>
+<rect x="506" y="140" width="128" height="54" rx="8" class="tile"/>
+<circle cx="521" cy="157.5" r="4.6" class="ok"/><text x="531" y="162" class="h3" text-anchor="start">Crew</text>
+<text x="516" y="182" class="s" text-anchor="start">governed agents</text>
+<rect x="642" y="140" width="128" height="54" rx="8" class="tile"/>
+<circle cx="657" cy="157.5" r="4.6" class="ok"/><text x="667" y="162" class="h3" text-anchor="start">Preview</text>
+<text x="652" y="182" class="s" text-anchor="start">see the change live</text>
+<rect x="234" y="202" width="128" height="54" rx="8" class="tile"/>
+<circle cx="249" cy="219.5" r="4.6" class="ok"/><text x="259" y="224" class="h3" text-anchor="start">CortHeXis</text>
+<text x="244" y="244" class="s" text-anchor="start">team memory</text>
+<rect x="370" y="202" width="128" height="54" rx="8" class="tile"/>
+<circle cx="385" cy="219.5" r="4.6" class="ok"/><text x="395" y="224" class="h3" text-anchor="start">Operate</text>
+<text x="380" y="244" class="s" text-anchor="start">event-driven ops</text>
+<rect x="506" y="202" width="128" height="54" rx="8" class="tile"/>
+<circle cx="521" cy="219.5" r="4.6" class="ok"/><text x="531" y="224" class="h3" text-anchor="start">Costs</text>
+<text x="516" y="244" class="s" text-anchor="start">spend · budgets</text>
+<rect x="642" y="202" width="128" height="54" rx="8" class="tile"/>
+<circle cx="657" cy="219.5" r="4.6" class="ok"/><text x="667" y="224" class="h3" text-anchor="start">Magnitude</text>
+<text x="652" y="244" class="s" text-anchor="start">your own GPUs</text>
+<rect x="234" y="264" width="128" height="54" rx="8" class="tile"/>
+<circle cx="249" cy="281.5" r="4.6" class="ok"/><text x="259" y="286" class="h3" text-anchor="start">Nina</text>
+<text x="244" y="306" class="s" text-anchor="start">built-in assistant</text>
+<rect x="370" y="264" width="128" height="54" rx="8" class="tile"/>
+<circle cx="385" cy="281.5" r="4.6" class="ok"/><text x="395" y="286" class="h3" text-anchor="start">Journal</text>
+<text x="380" y="306" class="s" text-anchor="start">audit trail</text>
+<rect x="506" y="264" width="128" height="54" rx="8" class="tile"/>
+<circle cx="521" cy="281.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M521 277.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 521 285.40000000000003 Z" class="wip"/><text x="531" y="286" class="h3" text-anchor="start">Admin</text>
+<text x="516" y="306" class="s" text-anchor="start">projects &amp; teams</text>
+<rect x="642" y="264" width="128" height="54" rx="8" class="tile planned"/>
+<circle cx="657" cy="281.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="667" y="286" class="h3" text-anchor="start">Helm</text>
+<text x="652" y="306" class="s" text-anchor="start">manager view (3.3)</text>
+<rect x="234" y="330" width="538" height="30" rx="6" class="tile"/>
+<circle cx="251" cy="345.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M251 341.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 251 349.40000000000003 Z" class="wip"/><text x="261" y="350" class="t" text-anchor="start">Project gate — every route, MCP server, WebSocket scoped; role = role in that project</text>
+<rect x="234" y="368" width="538" height="30" rx="6" class="tile"/>
+<circle cx="251" cy="383.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M251 379.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 251 387.40000000000003 Z" class="wip"/><text x="261" y="388" class="t" text-anchor="start">Feature registry — each enterprise feature on/off, dependencies checked</text>
+<rect x="220" y="450" width="276" height="210" rx="10" class="panel"/>
+<text x="234" y="470" class="k" text-anchor="start">EXECUTION</text>
+<text x="234" y="488" class="h2" text-anchor="start">Sessions &amp; agent runs</text>
+<circle cx="239" cy="505.5" r="4.6" class="ok"/><text x="249" y="510" class="t" text-anchor="start">Claude Agent SDK / CLI</text>
+<circle cx="239" cy="525.5" r="4.6" class="ok"/><text x="249" y="530" class="t" text-anchor="start">human go on every mutating call</text>
+<circle cx="239" cy="545.5" r="4.6" class="ok"/><text x="249" y="550" class="t" text-anchor="start">four-eyes approval of agents</text>
+<circle cx="239" cy="565.5" r="4.6" class="ok"/><text x="249" y="570" class="t" text-anchor="start">secrets by name, redacted</text>
+<circle cx="239" cy="585.5" r="4.6" class="ok"/><text x="249" y="590" class="t" text-anchor="start">budget per session / run</text>
+<circle cx="239" cy="605.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M239 601.6 A3.8999999999999995 3.8999999999999995 0 0 0 239 609.4 Z" class="wip"/><text x="249" y="610" class="t" text-anchor="start">workspace per project</text>
+<circle cx="239" cy="625.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="249" y="630" class="t" text-anchor="start">sandbox per sensitive project</text>
+<rect x="510" y="450" width="276" height="210" rx="10" class="panel"/>
+<text x="524" y="470" class="k" text-anchor="start">TOOLS</text>
+<text x="524" y="488" class="h2" text-anchor="start">Embedded MCP servers</text>
+<circle cx="529" cy="505.5" r="4.6" class="ok"/><text x="539" y="510" class="t" text-anchor="start">sokkan-memory  search · get · write</text>
+<circle cx="529" cy="525.5" r="4.6" class="ok"/><text x="539" y="530" class="t" text-anchor="start">sokkan-board  drive the kanban</text>
+<circle cx="529" cy="545.5" r="4.6" class="ok"/><text x="539" y="550" class="t" text-anchor="start">sokkan-agents  propose agents</text>
+<circle cx="529" cy="565.5" r="4.6" class="ok"/><text x="539" y="570" class="t" text-anchor="start">observability  query · dashboards</text>
+<circle cx="529" cy="585.5" r="4.6" class="ok"/><text x="539" y="590" class="t" text-anchor="start">preview  publish a preview</text>
+<circle cx="529" cy="605.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M529 601.6 A3.8999999999999995 3.8999999999999995 0 0 0 529 609.4 Z" class="wip"/><text x="539" y="610" class="t" text-anchor="start">scope = the session's project</text>
+<rect x="808" y="90" width="448" height="320" rx="10" class="panel"/>
+<text x="822" y="110" class="k" text-anchor="start">INFERENCE (OPERATED SERVICE)</text>
+<text x="822" y="128" class="h2" text-anchor="start">SOKKAN Inference — tiered gateway</text>
+<circle cx="827" cy="145.5" r="4.6" class="ok"/><text x="837" y="150" class="t" text-anchor="start">Anthropic Messages API (ANTHROPIC_BASE_URL)</text>
+<circle cx="827" cy="165.5" r="4.6" class="ok"/><text x="837" y="170" class="t" text-anchor="start">scrubber: secrets blocked, PII masked</text>
+<circle cx="827" cy="185.5" r="4.6" class="ok"/><text x="837" y="190" class="t" text-anchor="start">prepaid balance; refused before a billed tier</text>
+<rect x="822" y="214" width="128" height="54" rx="8" class="tile"/>
+<circle cx="837" cy="231.5" r="4.6" class="ok"/><text x="847" y="236" class="h3" text-anchor="start">Ship</text>
+<text x="832" y="256" class="s" text-anchor="start">fast open model</text>
+<rect x="966" y="214" width="128" height="54" rx="8" class="tile"/>
+<circle cx="981" cy="231.5" r="4.6" class="ok"/><text x="991" y="236" class="h3" text-anchor="start">Deep</text>
+<text x="976" y="256" class="s" text-anchor="start">large open model</text>
+<rect x="1110" y="214" width="128" height="54" rx="8" class="tile"/>
+<circle cx="1125" cy="231.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M1125 227.6 A3.8999999999999995 3.8999999999999995 0 0 0 1125 235.4 Z" class="wip"/><text x="1135" y="236" class="h3" text-anchor="start">Claude</text>
+<text x="1120" y="256" class="s" text-anchor="start">customer's key</text>
+<path d="M950 241 L964 241" class="edge" marker-end="url(#a)"/>
+<path d="M1094 241 L1108 241" class="edge" marker-end="url(#a)"/>
+<circle cx="827" cy="287.5" r="4.6" class="ok"/><text x="837" y="292" class="t" text-anchor="start">escalation: keywords · &lt;&lt;ESCALATE&gt;&gt; · upstream failure</text>
+<circle cx="827" cy="307.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M827 303.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 827 311.40000000000003 Z" class="wip"/><text x="837" y="312" class="t" text-anchor="start">tier held for one human turn, then decided again</text>
+<circle cx="827" cy="327.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M827 323.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 827 331.40000000000003 Z" class="wip"/><text x="837" y="332" class="t" text-anchor="start">prompt cache billed at the cache rate</text>
+<circle cx="827" cy="347.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M827 343.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 827 351.40000000000003 Z" class="wip"/><text x="837" y="352" class="t" text-anchor="start">“avoided Claude cost” report: day · month · user · tier</text>
+<circle cx="827" cy="367.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M827 363.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 827 371.40000000000003 Z" class="wip"/><text x="837" y="372" class="t" text-anchor="start">Claude tier = customer's key, passthrough, not billed</text>
+<circle cx="827" cy="387.5" r="4.6" class="ok"/><text x="837" y="392" class="t" text-anchor="start">no sticky routing: every turn can come back down</text>
+<rect x="808" y="450" width="448" height="210" rx="10" class="panel"/>
+<text x="822" y="470" class="k" text-anchor="start">WHERE MODELS RUN</text>
+<text x="822" y="488" class="h2" text-anchor="start">Compute</text>
+<circle cx="827" cy="505.5" r="4.6" class="ok"/><text x="837" y="510" class="t" text-anchor="start">EU GPU endpoints — current Ship / Deep upstreams</text>
+<circle cx="827" cy="526.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="837" y="531" class="t" text-anchor="start">dedicated Swiss GPUs (Exoscale) — primary</text>
+<circle cx="827" cy="547.5" r="4.6" class="ok"/><text x="837" y="552" class="t" text-anchor="start">Magnitude nodes: your GPUs, multi-node, 1 GPU/node</text>
+<circle cx="827" cy="568.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="837" y="573" class="t" text-anchor="start">small 10–20B model on a customer VM</text>
+<circle cx="827" cy="589.5" r="4.6" class="ok"/><text x="837" y="594" class="t" text-anchor="start">local embeddings for the memory (CPU or GPU)</text>
+<rect x="220" y="690" width="380" height="168" rx="10" class="panel"/>
+<text x="234" y="710" class="k" text-anchor="start">KNOWLEDGE</text>
+<text x="234" y="728" class="h2" text-anchor="start">CortHeXis — team memory</text>
+<circle cx="239" cy="745.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M239 741.6 A3.8999999999999995 3.8999999999999995 0 0 0 239 749.4 Z" class="wip"/><text x="249" y="750" class="t" text-anchor="start">one memory per project + read-only “shared”</text>
+<circle cx="239" cy="766.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M239 762.6 A3.8999999999999995 3.8999999999999995 0 0 0 239 770.4 Z" class="wip"/><text x="249" y="771" class="t" text-anchor="start">recall filtered at every step, fail-closed</text>
+<circle cx="239" cy="787.5" r="4.6" class="ok"/><text x="249" y="792" class="t" text-anchor="start">agent writes → quarantine → human review</text>
+<circle cx="239" cy="808.5" r="4.6" class="ok"/><text x="249" y="813" class="t" text-anchor="start">Postgres + pgvector, local embeddings</text>
+<rect x="620" y="690" width="200" height="168" rx="10" class="panel planned"/>
+<text x="634" y="710" class="k" text-anchor="start">CODE</text>
+<text x="634" y="728" class="h2" text-anchor="start">GitLab (forge)</text>
+<circle cx="639" cy="745.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="649" y="750" class="t" text-anchor="start">OAuth link per person</text>
+<circle cx="639" cy="766.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="649" y="771" class="t" text-anchor="start">push with their token</text>
+<circle cx="639" cy="787.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="649" y="792" class="t" text-anchor="start">merge requests</text>
+<circle cx="639" cy="808.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="649" y="813" class="t" text-anchor="start">role = access level</text>
+<rect x="838" y="690" width="200" height="168" rx="10" class="panel planned"/>
+<text x="852" y="710" class="k" text-anchor="start">3.4</text>
+<text x="852" y="728" class="h2" text-anchor="start">Microsoft Teams</text>
+<circle cx="857" cy="745.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="867" y="750" class="t" text-anchor="start">@Nina in channels</text>
+<circle cx="857" cy="766.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="867" y="771" class="t" text-anchor="start">HITL approval cards</text>
+<circle cx="857" cy="787.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="867" y="792" class="t" text-anchor="start">decisions from a thread</text>
+<circle cx="857" cy="808.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="867" y="813" class="t" text-anchor="start">calendar · presence</text>
+<rect x="1056" y="690" width="200" height="168" rx="10" class="panel"/>
+<text x="1070" y="710" class="k" text-anchor="start">OPERATE</text>
+<text x="1070" y="728" class="h2" text-anchor="start">Observability</text>
+<circle cx="1075" cy="745.5" r="4.6" class="ok"/><text x="1085" y="750" class="t" text-anchor="start">Prometheus · Grafana</text>
+<circle cx="1075" cy="766.5" r="4.6" class="ok"/><text x="1085" y="771" class="t" text-anchor="start">Loki logs</text>
+<circle cx="1075" cy="787.5" r="4.6" class="ok"/><text x="1085" y="792" class="t" text-anchor="start">alert → incident</text>
+<circle cx="1075" cy="808.5" r="4.6" class="ok"/><text x="1085" y="813" class="t" text-anchor="start">alert = untrusted input</text>
+<rect x="24" y="690" width="176" height="168" rx="10" class="panel"/>
+<text x="38" y="710" class="k" text-anchor="start">TRACE</text>
+<text x="38" y="728" class="h2" text-anchor="start">Audit</text>
+<circle cx="43" cy="745.5" r="4.6" class="ok"/><text x="53" y="750" class="t" text-anchor="start">journal of actions</text>
+<circle cx="43" cy="766.5" r="4.6" class="ok"/><text x="53" y="771" class="t" text-anchor="start">agent.* · approvals</text>
+<circle cx="43" cy="787.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M43 783.6 A3.8999999999999995 3.8999999999999995 0 0 0 43 791.4 Z" class="wip"/><text x="53" y="792" class="t" text-anchor="start">project.grant / revoke</text>
+<circle cx="43" cy="808.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M43 804.6 A3.8999999999999995 3.8999999999999995 0 0 0 43 812.4 Z" class="wip"/><text x="53" y="813" class="t" text-anchor="start">scope violations = 0</text>
+<path d="M112 286 L112 306" class="edge" marker-end="url(#a)"/>
+<path d="M200 400 L220 400" class="edge" marker-end="url(#a)"/>
+<path d="M200 590 L220 590" class="edge" marker-end="url(#a)"/>
+<path d="M358 410 L358 450" class="edge" marker-end="url(#a)"/>
+<path d="M648 410 L648 450" class="edge" marker-end="url(#a)"/>
+<path d="M496 520 L510 520" class="edge" marker-end="url(#a)"/>
+<path d="M420 660 L420 690" class="edge" marker-end="url(#a)"/>
+<rect x="423" y="668" width="96.8" height="16" class="lblbg"/>
+<text x="428" y="680" class="lbl" text-anchor="start">recall · write</text>
+<path d="M700 660 L700 690" class="edged" marker-end="url(#a)"/>
+<path d="M1032 410 L1032 450" class="edge" marker-end="url(#a)"/>
+<rect x="1035" y="422" width="78.2" height="16" class="lblbg"/>
+<text x="1040" y="434" class="lbl" text-anchor="start">model calls</text>
+<path d="M786 300 L808 300" class="edge" marker-end="url(#a)"/>
+</svg>

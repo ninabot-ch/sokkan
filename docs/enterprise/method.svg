@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 500" width="1280" height="500" role="img" aria-label="SOKKAN Enterprise working method">
+<title>SOKKAN Enterprise working method</title>
+<style>
+svg{--bg:#ffffff;--panel:#f6f8fa;--tile:#ffffff;--ink:#1f2328;--muted:#59636e;--line:#d1d9e0;
+--edge:#59636e;--acc:#6639ba;--accbg:#f3eeff;--ok:#1a7f37;--wip:#9a6700;--plan:#6e7781}
+@media (prefers-color-scheme:dark){svg{--bg:#0d1117;--panel:#151b23;--tile:#0d1117;--ink:#e6edf3;
+--muted:#9198a1;--line:#3d444d;--edge:#9198a1;--acc:#a371f7;--accbg:#1e1534;--ok:#3fb950;--wip:#d29922;--plan:#9198a1}}
+text{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:var(--ink)}
+.bg{fill:var(--bg)} .panel{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.tile{fill:var(--tile);stroke:var(--line);stroke-width:1}
+.acc{fill:var(--accbg);stroke:var(--acc);stroke-width:1.4}
+.planned{stroke-dasharray:6 4;stroke:var(--plan)}
+.h1{font-size:22px;font-weight:700} .h2{font-size:15px;font-weight:700} .h3{font-size:13px;font-weight:700}
+.t{font-size:12.5px} .s{font-size:11.5px;fill:var(--muted)} .k{font-size:11px;font-weight:700;fill:var(--acc);letter-spacing:.06em}
+.ok{fill:var(--ok)} .wip{fill:var(--wip)} .plan{fill:var(--plan)}
+.edge{stroke:var(--edge);stroke-width:1.6;fill:none} .edged{stroke:var(--edge);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+.ah{fill:var(--edge)} .lbl{font-size:11.5px;fill:var(--muted);font-style:italic} .lblbg{fill:var(--bg)}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+<rect class="bg" width="1280" height="500"/>
+<text x="24" y="38" class="h1" text-anchor="start">SOKKAN Enterprise — the working method</text>
+<text x="24" y="60" class="s" text-anchor="start">From a manager's card to production, with a human go at every gate and every decision kept in memory.</text>
+<circle cx="805" cy="31.5" r="4.6" class="ok"/><text x="815" y="36" class="s" text-anchor="start">shipped (3.1.x)</text>
+<circle cx="930" cy="31.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M930 27.599999999999998 A3.8999999999999995 3.8999999999999995 0 0 0 930 35.4 Z" class="wip"/><text x="940" y="36" class="s" text-anchor="start">in progress (3.2 branch)</text>
+<circle cx="1095" cy="31.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="1105" y="36" class="s" text-anchor="start">planned (3.2+ · 3.3 · 3.4)</text>
+<rect x="40" y="96" width="270" height="120" rx="10" class="panel planned"/>
+<circle cx="62" cy="120" r="13" class="tile"/>
+<text x="62" y="125" class="h3" text-anchor="middle">1</text>
+<text x="84" y="118" class="k" text-anchor="start">MANAGER</text>
+<text x="84" y="136" class="h3" text-anchor="start">Project card</text>
+<text x="54" y="164" class="t" text-anchor="start">the manager writes the goal,</text>
+<text x="54" y="182" class="t" text-anchor="start">Nina asks the right questions</text>
+<circle cx="59" cy="201.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="69" y="206" class="s" text-anchor="start">3.3 Helm</text>
+<rect x="350" y="96" width="270" height="120" rx="10" class="panel planned"/>
+<circle cx="372" cy="120" r="13" class="tile"/>
+<text x="372" y="125" class="h3" text-anchor="middle">2</text>
+<text x="394" y="118" class="k" text-anchor="start">NINA + MANAGER</text>
+<text x="394" y="136" class="h3" text-anchor="start">Engineer kanban</text>
+<text x="364" y="164" class="t" text-anchor="start">the card splits into engineer</text>
+<text x="364" y="182" class="t" text-anchor="start">cards; context flows down</text>
+<circle cx="369" cy="201.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="379" y="206" class="s" text-anchor="start">3.3 Helm</text>
+<rect x="660" y="96" width="270" height="120" rx="10" class="acc"/>
+<circle cx="682" cy="120" r="13" class="tile"/>
+<text x="682" y="125" class="h3" text-anchor="middle">3</text>
+<text x="704" y="118" class="k" text-anchor="start">ENGINEER</text>
+<text x="704" y="136" class="h3" text-anchor="start">▶ Spawn a session</text>
+<text x="674" y="164" class="t" text-anchor="start">the project memory is injected;</text>
+<text x="674" y="182" class="t" text-anchor="start">plan first, then the human go</text>
+<circle cx="679" cy="201.5" r="4.6" class="ok"/><text x="689" y="206" class="s" text-anchor="start">shipped</text>
+<rect x="970" y="96" width="270" height="120" rx="10" class="acc"/>
+<circle cx="992" cy="120" r="13" class="tile"/>
+<text x="992" y="125" class="h3" text-anchor="middle">4</text>
+<text x="1014" y="118" class="k" text-anchor="start">CREW</text>
+<text x="1014" y="136" class="h3" text-anchor="start">Agents do the routine</text>
+<text x="984" y="164" class="t" text-anchor="start">recurring or one-shot agents,</text>
+<text x="984" y="182" class="t" text-anchor="start">approved, budgeted, audited</text>
+<circle cx="989" cy="201.5" r="4.6" class="ok"/><text x="999" y="206" class="s" text-anchor="start">shipped</text>
+<rect x="40" y="300" width="220" height="120" rx="10" class="acc"/>
+<circle cx="62" cy="324" r="13" class="tile"/>
+<text x="62" y="329" class="h3" text-anchor="middle">5</text>
+<text x="84" y="322" class="k" text-anchor="start">REVIEWER</text>
+<text x="84" y="340" class="h3" text-anchor="start">Preview = validation</text>
+<text x="54" y="368" class="t" text-anchor="start">see the change running;</text>
+<text x="54" y="386" class="t" text-anchor="start">share read / read-write</text>
+<circle cx="59" cy="405.5" r="3.8999999999999995" fill="none" stroke="var(--wip)" stroke-width="1.4"/><path d="M59 401.59999999999997 A3.8999999999999995 3.8999999999999995 0 0 0 59 409.40000000000003 Z" class="wip"/><text x="69" y="410" class="s" text-anchor="start">share: 3.2</text>
+<rect x="285" y="300" width="220" height="120" rx="10" class="acc"/>
+<circle cx="307" cy="324" r="13" class="tile"/>
+<text x="307" y="329" class="h3" text-anchor="middle">6</text>
+<text x="329" y="322" class="k" text-anchor="start">REVIEWER</text>
+<text x="329" y="340" class="h3" text-anchor="start">Human approval</text>
+<text x="299" y="368" class="t" text-anchor="start">HITL on mutating calls,</text>
+<text x="299" y="386" class="t" text-anchor="start">four-eyes for agents</text>
+<circle cx="304" cy="405.5" r="4.6" class="ok"/><text x="314" y="410" class="s" text-anchor="start">shipped</text>
+<rect x="530" y="300" width="220" height="120" rx="10" class="panel planned"/>
+<circle cx="552" cy="324" r="13" class="tile"/>
+<text x="552" y="329" class="h3" text-anchor="middle">7</text>
+<text x="574" y="322" class="k" text-anchor="start">ENGINEER</text>
+<text x="574" y="340" class="h3" text-anchor="start">Merge request</text>
+<text x="544" y="368" class="t" text-anchor="start">pushed with the person's</text>
+<text x="544" y="386" class="t" text-anchor="start">own forge token</text>
+<circle cx="549" cy="405.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="559" y="410" class="s" text-anchor="start">3.2 lot 5</text>
+<rect x="775" y="300" width="220" height="120" rx="10" class="acc"/>
+<circle cx="797" cy="324" r="13" class="tile"/>
+<text x="797" y="329" class="h3" text-anchor="middle">8</text>
+<text x="819" y="322" class="k" text-anchor="start">OPS TEAM</text>
+<text x="819" y="340" class="h3" text-anchor="start">Operate</text>
+<text x="789" y="368" class="t" text-anchor="start">alert → incident + diagnosis</text>
+<text x="789" y="386" class="t" text-anchor="start">session, runbooks</text>
+<circle cx="794" cy="405.5" r="4.6" class="ok"/><text x="804" y="410" class="s" text-anchor="start">shipped</text>
+<rect x="1020" y="300" width="220" height="120" rx="10" class="acc"/>
+<circle cx="1042" cy="324" r="13" class="tile"/>
+<text x="1042" y="329" class="h3" text-anchor="middle">9</text>
+<text x="1064" y="322" class="k" text-anchor="start">EVERYONE</text>
+<text x="1064" y="340" class="h3" text-anchor="start">Decisions → CortHeXis</text>
+<text x="1034" y="368" class="t" text-anchor="start">one fact per note, reviewed;</text>
+<text x="1034" y="386" class="t" text-anchor="start">agent notes via quarantine</text>
+<circle cx="1039" cy="405.5" r="4.6" class="ok"/><text x="1049" y="410" class="s" text-anchor="start">shipped</text>
+<path d="M310 156 L350 156" class="edge" marker-end="url(#a)"/>
+<path d="M620 156 L660 156" class="edge" marker-end="url(#a)"/>
+<path d="M930 156 L970 156" class="edge" marker-end="url(#a)"/>
+<path d="M1105 216 L1105 258 L150 258 L150 300" class="edge" marker-end="url(#a)"/>
+<path d="M260 360 L285 360" class="edge" marker-end="url(#a)"/>
+<path d="M505 360 L530 360" class="edge" marker-end="url(#a)"/>
+<path d="M750 360 L775 360" class="edge" marker-end="url(#a)"/>
+<path d="M995 360 L1020 360" class="edge" marker-end="url(#a)"/>
+<path d="M1150 420 L1150 462 L20 462 L20 156 L40 156" class="edged" marker-end="url(#a)"/>
+<rect x="300" y="452" width="560" height="20" class="lblbg"/>
+<circle cx="315" cy="462.5" r="3.8999999999999995" fill="none" stroke="var(--plan)" stroke-width="1.4"/><text x="325" y="467" class="lbl" text-anchor="start">progress rolls up to the manager automatically — Helm direction view, morning brief (3.3)</text>
+</svg>
