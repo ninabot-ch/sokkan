@@ -105,6 +105,9 @@ SAFE_TOOLS = [
 ]
 # modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
 VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
+# outils intégrés de Claude Code qu'un run d'agent n'a QUE s'ils sont dans sa liste
+_BUILTIN_TOOLS = ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep",
+                  "WebFetch", "WebSearch", "Task", "Agent", "Skill"]
 # outils traités comme « édition de fichier » par le mode acceptEdits
 _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
@@ -211,6 +214,10 @@ class AgentSession:
                                             only=pol.get("mcp") if pol else None,
                                             agent_run=bool(pol)),
             )
+            if pol:
+                # défense en profondeur : une règle « allow » des settings utilisateur ou
+                # projet court-circuite can_use_tool ; disallowed_tools l'emporte toujours
+                opts_kwargs["disallowed_tools"] = self._disallowed_tools()
             if pol and pol.get("budget_usd") and "max_budget_usd" in _OPTION_FIELDS:
                 opts_kwargs["max_budget_usd"] = float(pol["budget_usd"])
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
@@ -255,6 +262,13 @@ class AgentSession:
             return SAFE_TOOLS
         safe = [t for t in SAFE_TOOLS if self._tool_permitted(t)]
         return safe + [r for r in pol.get("auto_approve") or [] if r not in safe]
+
+    def _disallowed_tools(self) -> list[str]:
+        """Outils intégrés retirés d'un run d'agent : tous ceux hors de sa liste."""
+        allowed = {t.split("(", 1)[0] for t in (self.policy or {}).get("tools") or []}
+        if "Task" in allowed or "Agent" in allowed:
+            allowed |= {"Task", "Agent"}
+        return [t for t in _BUILTIN_TOOLS if t not in allowed]
 
     def _tool_permitted(self, tool_name: str) -> bool:
         pol = self.policy

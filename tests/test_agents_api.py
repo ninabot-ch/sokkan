@@ -220,3 +220,5 @@ def test_session_policy_denies_tools_outside_the_list():
     assert "mcp__sokkan-memory__memory_search" in allowed
     assert "mcp__sokkan-board__list_board" not in allowed  # board server not granted
     assert "Glob" not in allowed  # safe, but not in this agent's tools
+    dis = s._disallowed_tools()
+    assert "Write" in dis and "Glob" in dis and "Bash" not in dis and "Read" not in dis

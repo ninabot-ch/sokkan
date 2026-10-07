@@ -77,6 +77,12 @@ def create_agent(name: str, purpose: str, deliverable: str, done_criteria: str =
                  notify_on: list[str] | None = None, playbook: str = "") -> dict:
     """Propose a new SOKKAN agent (a recurring or one-shot unattended job).
 
+    Before calling: unless the user already gave everything, interview them ONE
+    question at a time (purpose, deliverable + done criteria, trigger, model tier,
+    tools/MCP, vault secret names, budget, what may run without approval, where the
+    deliverable goes), recap the card and get their OK. The `new-agent` playbook
+    describes the interview.
+
     The agent is created as a PENDING proposal: it never runs until a human
     approves it in the cockpit's Crew tab. Tell the user so.
 
