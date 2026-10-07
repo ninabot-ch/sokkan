@@ -21,7 +21,20 @@ if not SECRET:  # self-host : secret généré au 1er boot et persisté dans le 
             f.write(SECRET)
         os.chmod(_sf, 0o600)
 COOKIE = "sokkan_session"
-TTL = 24 * 3600
+
+
+def _ttl() -> int:
+    """Durée de vie d'une session de cockpit : 8 h par défaut depuis 3.2 (24 h avant) —
+    un compte désactivé dans l'IdP perd l'accès au plus tard à la fin de sa journée.
+    SOKKAN_SESSION_TTL_S, borné à [5 min, 24 h]."""
+    try:
+        v = int(os.environ.get("SOKKAN_SESSION_TTL_S") or 8 * 3600)
+    except ValueError:
+        v = 8 * 3600
+    return max(300, min(v, 24 * 3600))
+
+
+TTL = _ttl()
 
 
 def make(email: str, name: str = "") -> str:
@@ -37,6 +50,11 @@ def email_from_request(request: Request) -> str | None:
     if not tok or not SECRET:
         return None
     try:
-        return (jwt.decode(tok, SECRET, algorithms=["HS256"]).get("email") or "").lower() or None
+        claims = jwt.decode(tok, SECRET, algorithms=["HS256"])
     except Exception:  # noqa: BLE001 — cookie absent/expiré/altéré
         return None
+    # 3.2 : la durée se compte depuis l'émission avec la TTL EN VIGUEUR — un cookie de 24 h
+    # émis par une 3.1 ne survit pas à la mise à jour au-delà de la nouvelle limite
+    if int(time.time()) - int(claims.get("iat") or 0) > TTL:
+        return None
+    return (claims.get("email") or "").lower() or None

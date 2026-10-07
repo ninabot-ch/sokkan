@@ -148,6 +148,11 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
             <div className="text-[10.5px] text-mut">agents that run on their own — one card each, human-gated</div>
           </div>
           {ro && <span title={tip} className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[10.5px] text-mut">👁 read-only</span>}
+          {data?.scheduler?.held && (
+            <span role="status" title={data.scheduler.reason || ""} className="rounded-lg border border-red-400/40 bg-red-500/10 px-2 py-1 text-[11.5px] text-red-300">
+              ⏸ Scheduler stopped: no model credentials configured for this instance — nothing runs until they are set (Profile → Model).
+            </span>
+          )}
           {pendingCount > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-brass/40 bg-brass/10 px-2 py-1 text-[11.5px] text-brass">
               <b>{pendingCount} waiting for {ro ? "an approval" : "you"}:</b>

@@ -24,3 +24,12 @@ def _isolated_projects_db(tmp_path, monkeypatch):
     monkeypatch.setattr(projects, "DB", tmp_path / "projects-isolated.db")
     monkeypatch.setattr(projects, "_initialized_for", None)
     yield
+
+
+@pytest.fixture()
+def model_credentials(monkeypatch):
+    """An instance WITH model credentials explicitly configured (3.2 scheduler guard).
+    Tests that drive the scheduler as a working instance use it; the guard itself is
+    tested without it (test_scheduler_guard.py)."""
+    monkeypatch.setenv("SOKKAN_AGENTS_USE_CLI_LOGIN", "1")
+    yield

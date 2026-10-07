@@ -33,6 +33,7 @@ import agents
 import audit
 import board
 import cronexpr
+import llm
 import notify
 import observability
 import playbooks
@@ -49,6 +50,20 @@ _DELIVERY_RE = re.compile(r"^\s*\**DELIVERY\**\s*:\s*\**\s*(done|incomplete)\b[\
 
 def enabled() -> bool:
     return os.environ.get("SOKKAN_FEATURE_AGENTS", "1") != "0"
+
+
+NO_CREDENTIALS = ("no model credentials configured for this instance (cockpit model "
+                  "settings, or a key in the API environment; a CLI login only with "
+                  "SOKKAN_AGENTS_USE_CLI_LOGIN=1)")
+
+
+def credentials_ok() -> bool:
+    """3.2 scheduler guard: an unattended run only with credentials explicitly configured
+    for THIS instance (llm.unattended_credentials)."""
+    try:
+        return llm.unattended_credentials() is not None
+    except Exception:  # noqa: BLE001 — unreadable config = not configured
+        return False
 
 
 INCIDENT_STATUSES = ("failed", "timeout", "budget")
@@ -164,11 +179,16 @@ class Runtime:
         self._loop_task: asyncio.Task | None = None
         self._cancelled: set[int] = set()
         self._stopping = False
+        self._held_logged = False
+        self.boot_at = time.time()
 
     # ---- lifecycle ------------------------------------------------------------
     def start(self) -> None:
         self._wake = asyncio.Event()
+        self.boot_at = time.time()
         self.recover()
+        if not credentials_ok():
+            self.drop_boot_backlog(self.boot_at)
         self._loop_task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -195,6 +215,42 @@ class Runtime:
                 audit.log(f"agent:{a['name']}", "agent.run.interrupted", f"run #{r['id']}", "")
                 self._notify(a, r, "interrupted", "The API restarted during this run.")
 
+    def drop_boot_backlog(self, boot_at: float) -> int:
+        """3.2 guard, at boot WITHOUT credentials: runs left queued by a previous process
+        (or by the data directory this instance was started on) never start later by
+        surprise — they are marked skipped. Overdue schedules are handled by `tick`
+        (moved forward, no catch-up)."""
+        n = 0
+        for r in agents.runs_with_status("queued"):
+            if (r.get("created_at") or 0) < boot_at:
+                agents.update_run(r["id"], status="skipped",
+                                  error="queued before the restart; " + NO_CREDENTIALS)
+                n += 1
+        if n:
+            print(f"[agents] {n} queued run(s) skipped at boot: {NO_CREDENTIALS}",
+                  file=sys.stderr)
+        return n
+
+    def hold(self, now: float) -> None:
+        """Scheduler held (no credentials): due schedules move to their next occurrence
+        with ONE skipped run recorded per occurrence (visible in History) — when
+        credentials arrive, nothing that fell due meanwhile is caught up."""
+        if not self._held_logged:
+            print(f"[agents] scheduler held: {NO_CREDENTIALS}", file=sys.stderr)
+            self._held_logged = True
+        for a in agents.due_agents(now):
+            occ = _cron_latest_due(a, now) if a["trigger"] == "cron" else a["next_run_at"]
+            if occ is not None:
+                agents.enqueue_run(a["id"], "schedule", "scheduler", scheduled_for=occ,
+                                   status="skipped", error=NO_CREDENTIALS)
+            nxt = None if a["trigger"] == "once" else agents.next_fire(a, now)
+            agents.set_next_run(a["id"], nxt, last_run_at=now)
+
+    def state(self) -> dict:
+        ok = credentials_ok()
+        return {"running": ok, "held": not ok, "reason": None if ok else NO_CREDENTIALS,
+                "credentials": llm.unattended_credentials() if ok else None}
+
     async def _loop(self) -> None:
         while True:
             try:
@@ -212,6 +268,11 @@ class Runtime:
     # ---- one tick -------------------------------------------------------------
     async def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        if not credentials_ok():          # 3.2 guard: nothing starts, nothing piles up
+            self.hold(now)
+            await self.watchdog(time.time())
+            return
+        self._held_logged = False
         self.schedule_due(now)
         self.start_queued()
         await self.watchdog(time.time())  # started_at is wall-clock: never a fake `now`
@@ -237,6 +298,8 @@ class Runtime:
             agents.set_next_run(a["id"], nxt, last_run_at=now)
 
     def start_queued(self) -> None:
+        if not credentials_ok():          # defence in depth: whoever calls this
+            return
         live_agents = {r["agent_id"] for r in agents.runs_with_status("running")}
         for r in agents.runs_with_status("queued"):
             if len(self.tasks) >= MAX_CONCURRENT:
@@ -283,6 +346,10 @@ class Runtime:
         for a in agents.event_agents(kind):
             pat = a["event"].split(":", 1)[1] if ":" in a["event"] else "*"
             if not fnmatch.fnmatch(name or "", pat):
+                continue
+            if not credentials_ok():
+                agents.enqueue_run(a["id"], "event", f"event:{kind}", context=context,
+                                   status="skipped", error=NO_CREDENTIALS)
                 continue
             if agents.active_run(a["id"]):
                 agents.enqueue_run(a["id"], "event", f"event:{kind}", context=context,

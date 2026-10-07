@@ -87,6 +87,20 @@ def configured() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
 
 
+def unattended_credentials() -> str | None:
+    """3.2 — model credentials EXPLICITLY configured for this instance, the only ones an
+    unattended agent run may use: the cockpit's model settings (llm.json), the provisioned
+    included inference, or a key/token in the API's own environment. A Claude CLI login
+    found under CLAUDE_CONFIG_DIR does NOT count (two runs started that way on 07.10.2026 —
+    a copied data dir picking up the host's login) unless the operator says so with
+    SOKKAN_AGENTS_USE_CLI_LOGIN=1. Returns the source, or None."""
+    if configured():
+        return (load().get("mode") or "env")
+    if (os.environ.get("SOKKAN_AGENTS_USE_CLI_LOGIN") or "").strip() == "1":
+        return "cli-login"
+    return None
+
+
 def status() -> dict:
     """Résumé non-sensible pour l'UI (jamais la clé)."""
     c = load()

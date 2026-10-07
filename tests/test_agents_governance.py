@@ -234,12 +234,21 @@ def vaulted(tmp_path, monkeypatch):
     return vault
 
 
-def test_session_secrets_all_is_the_31_default(vaulted, monkeypatch):
+def test_session_secrets_named_is_the_32_default_and_all_stays_available(vaulted, monkeypatch):
     import agentchat
 
     monkeypatch.delenv("SOKKAN_SESSION_SECRETS", raising=False)
+    assert vaulted.session_mode() == "named"
     s = agentchat.AgentSession("s1", cwd="/tmp")
-    assert s._secret_names() is None  # = the whole vault, as before
+    assert s._secret_names() == []      # nothing chosen → nothing, not the whole vault
+    assert vaulted.session_env(s._secret_names()) == {}
+    assert "SOKKAN_SESSION_SECRETS=all" in vaulted.upgrade_notice()
+    monkeypatch.setenv("SOKKAN_SESSION_SECRETS", "bogus")
+    assert vaulted.session_mode() == "named"      # unknown value: the restrictive mode
+    monkeypatch.setenv("SOKKAN_SESSION_SECRETS", "all")   # the 3.1 behaviour, explicit
+    assert vaulted.upgrade_notice() is None
+    s = agentchat.AgentSession("s1b", cwd="/tmp")
+    assert s._secret_names() is None
     assert set(vaulted.session_env(s._secret_names())) == {"GITHUB_TOKEN", "PROD_DB"}
 
 

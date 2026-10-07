@@ -108,7 +108,7 @@ services:
       # qui approuve un agent : owner | admin | four_eyes
       SOKKAN_AGENTS_APPROVAL: ${SOKKAN_AGENTS_APPROVAL:-owner}
       # secrets des sessions humaines : all (défaut 3.1) | named (défaut prévu en 3.2)
-      SOKKAN_SESSION_SECRETS: ${SOKKAN_SESSION_SECRETS:-all}
+      SOKKAN_SESSION_SECRETS: ${SOKKAN_SESSION_SECRETS:-named}
       # 3.1.1 : un run d'agent en échec / timeout / budget ouvre son incident dans Operate
       SOKKAN_AGENTS_INCIDENTS: ${SOKKAN_AGENTS_INCIDENTS:-0}
       # 3.1.1 : Crew visible en LECTURE SEULE pour un viewer (démo publique)

@@ -4,6 +4,8 @@ import pytest
 
 from test_agents_runtime import DEV, _agent, _drain, _run, env  # noqa: F401 — fixture
 
+pytestmark = pytest.mark.usefixtures("model_credentials")  # 3.2: a configured instance
+
 
 @pytest.fixture()
 def obs(tmp_path, monkeypatch):

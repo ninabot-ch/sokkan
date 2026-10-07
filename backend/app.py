@@ -130,6 +130,9 @@ def _reindex_loop() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    notice = vault.upgrade_notice()   # 3.2 : secrets nommés par défaut — le dire au démarrage
+    if notice:
+        print(f"[sokkan] {notice}", file=sys.stderr)
     # 3.2 multi-user : tables projets + projet « default » (idempotent, rien n'est déplacé)
     try:
         projects.init()
@@ -711,7 +714,21 @@ def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
     items = [agents.public(a) | {k: a.get(k) for k in ("deck", "needs_approval",
                                                        "waiting_for_human")}
              for a in agents.list_agents(u, include_archived=archived)]
-    return {"agents": items, "pending": agents.pending_approvals(u)}
+    return {"agents": items, "pending": agents.pending_approvals(u),
+            "scheduler": _scheduler_state()}
+
+
+def _scheduler_state() -> dict:
+    """3.2: is the scheduler really starting runs? Held = no model credentials explicitly
+    configured for this instance (the Crew tab says so instead of a silent idle deck)."""
+    rt = agents_runtime.get_runtime()
+    if rt is None:
+        return {"running": False, "held": False, "reason": "agents scheduler not started"}
+    if not hasattr(rt, "state"):          # public demo: the simulator, no model
+        return {"running": True, "held": False, "reason": None, "simulated": True}
+    st = rt.state()
+    st.pop("credentials", None)           # the source of the credentials is not for the UI
+    return st
 
 
 @app.post("/api/agents")

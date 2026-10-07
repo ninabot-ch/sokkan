@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("model_credentials")  # 3.2: a configured instance
+
 ZH = ZoneInfo("Europe/Zurich")
 OWNER = {"email": "owner@localhost", "role": "owner"}
 DEV = {"email": "dev@x.ch", "role": "dev"}

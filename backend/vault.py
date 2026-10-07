@@ -57,12 +57,23 @@ def _save(d: dict) -> None:
 
 
 def session_mode() -> str:
-    """SOKKAN_SESSION_SECRETS (3.1) : `all` (défaut 3.1, comportement historique —
-    toute session humaine reçoit tout le coffre) ou `named` (une session ne reçoit
-    que les secrets choisis à son ouverture ou par son playbook). `named` deviendra
-    le défaut en 3.2."""
-    m = (os.environ.get("SOKKAN_SESSION_SECRETS") or "all").strip().lower()
-    return m if m in ("all", "named") else "all"
+    """SOKKAN_SESSION_SECRETS : `named` (DÉFAUT depuis 3.2 — une session humaine ne
+    reçoit que les secrets choisis à son ouverture ou par son playbook, rien sinon) ou
+    `all` (comportement 3.1, à poser explicitement : toute session reçoit tout le coffre).
+    Une valeur inconnue = `named` (le choix le plus restrictif, jamais « tout »)."""
+    m = (os.environ.get("SOKKAN_SESSION_SECRETS") or "named").strip().lower()
+    return m if m in ("all", "named") else "named"
+
+
+def upgrade_notice() -> str | None:
+    """Message de démarrage pour une installation 3.1 qui passe en 3.2 sans avoir choisi :
+    le coffre n'est pas vide et SOKKAN_SESSION_SECRETS n'est pas posé."""
+    if os.environ.get("SOKKAN_SESSION_SECRETS") or not names():
+        return None
+    return ("3.2: sessions now receive only the vault secrets picked when they are opened "
+            "(SOKKAN_SESSION_SECRETS=named, the new default). Sessions opened before the "
+            "upgrade get none after a restart. Set SOKKAN_SESSION_SECRETS=all to keep the "
+            "3.1 behaviour.")
 
 
 def valid_name(name: str) -> bool:

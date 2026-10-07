@@ -694,7 +694,20 @@ def request_run(user: dict, agent_id: int, trigger: str = "manual",
         raise AgentError(f"agent is {a['status']} — only an active (approved) agent runs")
     if active_run(a["id"]):
         raise AgentError("a run of this agent is already queued or running")
+    _require_credentials()
     return enqueue_run(a["id"], trigger, requested_by or user["email"], context=context)
+
+
+def _require_credentials() -> None:
+    """3.2 scheduler guard: a run asked for by hand is refused up front (instead of
+    queueing a run that would never start) when the instance has no model credentials
+    explicitly configured. The public demo's simulator never calls a model."""
+    import demo_crew
+    if demo_crew.enabled():
+        return
+    import agents_runtime
+    if not agents_runtime.credentials_ok():
+        raise AgentError("cannot run: " + agents_runtime.NO_CREDENTIALS)
 
 
 def active_run(agent_id: int) -> dict | None:

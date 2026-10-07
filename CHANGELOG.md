@@ -25,9 +25,25 @@ Notable changes, newest first. Versions: semver + release hash (see
 - **Tests never touch a real instance** — the test suite now runs on a throw-away
   `SOKKAN_DATA_DIR`: some modules used to resolve `~/.local/share/sokkan` before a test
   module set its own directory.
-- Planned for 3.2 (spec, not in this build): `SOKKAN_SESSION_SECRETS=named` becomes the
-  default; the agent scheduler no longer starts a run at boot on an instance without
-  model credentials explicitly configured for it.
+- **No agent run without model credentials configured for the instance** — the
+  scheduler now runs only with credentials explicitly set for this instance: the cockpit's
+  model settings, the provisioned inference, or a key in the API's environment. A Claude CLI
+  login found on the host no longer counts (twice on 07.10 a test instance started on a
+  copied data directory ran a queued run with it); an instance that really runs on a CLI
+  login says so with `SOKKAN_AGENTS_USE_CLI_LOGIN=1`. Without credentials: runs queued
+  before the boot are marked skipped, nothing is caught up, due schedules move on with one
+  skipped run each, alerts and "Run now" start nothing (refused with the reason), and the
+  Crew tab shows "Scheduler stopped". When credentials arrive, the schedule resumes from the
+  next occurrence.
+- **Secrets by name is the default** — `SOKKAN_SESSION_SECRETS` now defaults to `named`:
+  a session receives only the vault secrets picked when it is opened (or listed by its
+  playbook). **Upgrading:** if you did not set the variable, sessions you open now get no
+  secret unless you pick them, and sessions opened before the upgrade get none after a
+  restart; set `SOKKAN_SESSION_SECRETS=all` to keep the 3.1 behaviour (a start-up message
+  says so when the vault is not empty). An unknown value means `named`.
+- **Cockpit sessions last 8 hours** (was 24) — `SOKKAN_SESSION_TTL_S`, 5 min to 24 h. The
+  limit counts from when the cookie was issued, so a 24 h cookie from 3.1 does not outlive
+  it after the upgrade: expect to log in again.
 - **The board, driven from a session** — the embedded `sokkan-board` MCP server
   gains `get_card` (fields, comments, history, links), `search_cards` (text in title,
   description and comments; tag, column, assignee), `update_card` (title,

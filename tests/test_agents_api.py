@@ -4,6 +4,8 @@ import tempfile
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("model_credentials")  # 3.2: a configured instance
+
 _TMP = tempfile.mkdtemp()
 os.environ.update(
     SOKKAN_DATA_DIR=_TMP, CLAUDE_CONFIG_DIR=f"{_TMP}/claude",

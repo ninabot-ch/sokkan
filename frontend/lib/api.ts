@@ -38,7 +38,7 @@ export const spawnSession = (tag: string, prompt = "", title = "", kind: "sdk" |
   mutate<{ session_id: string; tag: string; window: string; title: string; kind?: string }>(
     "/api/spawn", "POST", { tag, prompt, title, kind, playbook, ...(secrets ? { secrets } : {}) }
   );
-// SOKKAN_SESSION_SECRETS (3.1) : « all » = toute session reçoit le coffre ; « named » = seulement les noms choisis
+// SOKKAN_SESSION_SECRETS : « named » (défaut 3.2) = seulement les noms choisis ; « all » (3.1) = tout le coffre
 export const vaultSession = () => getJSON<{ mode: "all" | "named"; names: string[] }>("/api/vault/session");
 
 export const deleteSession = (id: string) =>
@@ -438,7 +438,11 @@ export interface AgentsMeta {
   /** viewer with SOKKAN_CREW_VIEWER_READONLY=1 : sees everything, changes nothing */
   read_only?: boolean;
 }
-export interface AgentsList { agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] } }
+export interface AgentsList {
+  agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] };
+  /** 3.2: held = no model credentials explicitly configured, nothing runs */
+  scheduler?: { running: boolean; held: boolean; reason: string | null; simulated?: boolean };
+}
 
 async function mutateDetail<T>(url: string, method: string, body?: unknown): Promise<T> {
   // comme mutate, mais remonte le message de validation de l'API (detail)
