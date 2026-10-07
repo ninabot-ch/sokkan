@@ -296,16 +296,26 @@ REGISTRY: tuple[Feature, ...] = (
                     "SOKKAN_GITLAB_REDIRECT_URI", "SOKKAN_GITLAB_CA_BUNDLE"),
             check=_gitlab_check, doc=M),
     Feature("revocation", "Revocation",
-            "SCIM, « Revoke now », back-channel logout (lot 6).", status="planned", kind="planned",
-            target="3.2", requires=("sso_teams",), vars=_t("revocation"), doc=M),
+            "SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: "
+            "cockpit sessions invalidated, live sessions stopped, owned agents paused, forge "
+            "tokens erased; teams recomputed at each SSO login; an agent never outlives its "
+            "owner's access (lot 6).", status="beta", defaults=_ed(False, True),
+            requires=("sso_teams",), vars=_t("revocation"),
+            config=("SOKKAN_SCIM_TOKEN", "SOKKAN_SCIM_GROUP_KEY"), doc=M,
+            check=lambda: __import__("revocation").readiness()),
     Feature("byok_admin", "BYOK admin screen",
             "Client admin screen for bring-your-own-key model credentials (lot 7).",
             status="planned", kind="planned", target="3.2", requires=("multi_project",),
             vars=_t("byok_admin"), doc=M),
     Feature("sandbox", "Project sandbox",
-            "Sensitive project sessions in their own uid / container: a session cannot read "
-            "another project's files (lot 8).", status="planned", kind="planned", target="3.2",
-            requires=("multi_project",), vars=_t("sandbox"), doc=M),
+            "A session or an agent run of a project (not `default`) reaches only its project's "
+            "space: file tools checked by a hook (paths resolved, symlinks followed), Bash "
+            "inside bubblewrap when the host has it, refused otherwise (lot 8).",
+            status="beta", defaults=_ed(False, True), requires=("multi_project",),
+            vars=_t("sandbox"),
+            config=("SOKKAN_SANDBOX_BWRAP", "SOKKAN_SANDBOX_NETWORK", "SOKKAN_SANDBOX_RO_PATHS",
+                    "SOKKAN_SANDBOX_READ_PATHS"), doc=M,
+            check=lambda: __import__("sandbox").readiness()),
     Feature("shared_review", "Shared session / preview for review",
             "Share a session or a preview, read or read-write, so someone validates the work "
             "(Preview = the place of validation).", status="planned", kind="planned", target="3.2",

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
   instanceBudgets, instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
+  adminRevocation, adminRevokeNow, adminReinstate, type RevocationState,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom, llmTiers, llmSetTier, type LlmTier,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
@@ -114,14 +115,57 @@ function Org() {
   );
 }
 
+// ---------- Révocation (3.2 lot 6) ----------
+function RevokePanel({ st, msg, onRevoke, onReinstate }: {
+  st: RevocationState | null; msg: string; onRevoke: (email: string) => void; onReinstate: (email: string) => void;
+}) {
+  const [who, setWho] = useState("");
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-red-500/30 bg-red-500/5 p-2">
+      <div className="text-[11.5px] font-medium text-red-200">Revoke access</div>
+      <div className="text-[10.5px] text-mut">Also for people who come in through an SSO team and are not listed above.
+        {st?.scim.enabled ? <> SCIM provisioning is on (<code className="text-slate-300">{st.scim.url}</code>).</> : <> SCIM is off (SOKKAN_SCIM_TOKEN).</>}</div>
+      <div className="flex items-center gap-2">
+        <input value={who} onChange={(e) => setWho(e.target.value)} placeholder="email@…"
+          className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-red-400/50" />
+        <button onClick={() => { if (who.trim()) onRevoke(who.trim()); }}
+          className="rounded bg-red-600/80 px-3 py-1 text-[12px] font-medium text-white hover:bg-red-600">Revoke now</button>
+      </div>
+      {msg && <div className="text-[11px] text-slate-300">{msg}</div>}
+      {(st?.disabled ?? []).map((d) => (
+        <div key={d.email} className="flex items-center gap-2 text-[11px]">
+          <span className="truncate text-slate-200">{d.email}</span>
+          <span className="truncate text-mut">disabled {new Date(d.disabled_at * 1000).toLocaleString()} · {d.reason}</span>
+          <button onClick={() => onReinstate(d.email)} className="ml-auto rounded px-1.5 text-sea hover:underline">reinstate</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- Membres (IAM) ----------
 function Members() {
   const isAdmin = useCan("admin");
   const [users, setUsers] = useState<IamUser[]>([]);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("dev");
-  const reload = () => iamUsers().then(setUsers).catch(() => setUsers([]));
-  useEffect(() => { if (isAdmin) reload(); }, [isAdmin]);
+  // 3.2 lot 6 : « Revoke now » (feature `revocation`)
+  const revocation = !!useFeatures().revocation;
+  const [rev, setRev] = useState<RevocationState | null>(null);
+  const [revMsg, setRevMsg] = useState("");
+  const reload = () => {
+    iamUsers().then(setUsers).catch(() => setUsers([]));
+    if (revocation) adminRevocation().then(setRev).catch(() => setRev(null));
+  };
+  const revokeNow = (who: string) => {
+    if (!window.confirm(`Revoke ${who} now? Their cockpit sessions end, live sessions stop, agents they own are paused, forge tokens are erased.`)) return;
+    adminRevokeNow(who).then((r) => {
+      setRevMsg(`${r.email}: ${r.sessions_stopped} session(s) stopped, ${r.agents_paused} agent(s) paused, ${r.forge_tokens_erased} forge token(s) erased.`);
+      reload();
+    }).catch((x) => setRevMsg(String(x)));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (isAdmin) reload(); }, [isAdmin, revocation]);
   if (!isAdmin) return <div className="text-[12px] text-mut">Member management is restricted to administrators.</div>;
   return (
     <div className="space-y-2">
@@ -133,10 +177,16 @@ function Members() {
           <select value={u.role} disabled={u.role === "owner"} onChange={(e) => iamUpsert(u.email, e.target.value, u.name).then(reload)}
             className="ml-auto rounded border border-line bg-panel2 px-1.5 py-0.5 text-[11.5px] text-slate-200 disabled:opacity-50">
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+          {revocation && u.role !== "owner" && (
+            <button onClick={() => revokeNow(u.email)}
+              className="rounded border border-red-500/40 px-1.5 py-0.5 text-[10.5px] text-red-300 hover:bg-red-500/10"
+              title="Revoke now: sessions closed, agents paused, forge tokens erased">revoke now</button>)}
           <button disabled={u.role === "owner"} onClick={() => iamDelete(u.email).then(reload)}
             className="rounded px-1 text-mut hover:text-red-400 disabled:opacity-30" title="remove">✕</button>
         </div>
       ))}
+      {revocation && <RevokePanel st={rev} msg={revMsg} onRevoke={revokeNow}
+        onReinstate={(e) => adminReinstate(e).then(reload).catch((x) => setRevMsg(String(x)))} />}
       <div className="flex items-center gap-2 pt-1">
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@…"
           className="min-w-0 flex-1 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />

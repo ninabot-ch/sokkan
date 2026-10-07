@@ -359,6 +359,13 @@ class Runtime:
                 agents.update_run(r["id"], status="cancelled",
                                   error=f"agent is {a['status'] if a else 'gone'}")
                 continue
+            # 3.2 lot 6 : un agent ne survit pas à la perte d'accès de son propriétaire
+            import revocation
+            ok, why = revocation.owner_may_run(a)
+            if not ok:
+                agents.update_run(r["id"], status="cancelled", error=f"not started: {why}")
+                revocation.pause_agent(a, why)
+                continue
             if not agents.claim_run(r["id"], self.runner_id):
                 continue  # someone else took it
             live_agents.add(r["agent_id"])

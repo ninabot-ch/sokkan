@@ -149,6 +149,30 @@ Notable changes, newest first. Versions: semver + release hash (see
   implemented; GitHub and Gitea/Forgejo skeletons). Variables `SOKKAN_GITLAB_URL`,
   `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`, `_CA_BUNDLE` (operator guide:
   `docs/enterprise/OPERATIONS.md` § 2b).
+### Lots 6 and 8
+- **Revocation** (lot 6, feature `revocation`, requires `sso_teams`; on in the enterprise
+  edition). One effect for every path: account disabled, cockpit cookies issued before now
+  refused, open chat panes / terminals closed, live SDK sessions interrupted and closed,
+  owned agents paused (runs cancelled, notification), forge tokens erased, access cache
+  purged, SSO team memberships removed, audit `user.revoke`. Paths: a **SCIM 2.0** endpoint
+  `/api/scim/v2` (Users create / deactivate / delete, Groups membership = SOKKAN teams;
+  bearer `SOKKAN_SCIM_TOKEN`; Entra ID and Authentik shapes), the admin **Revoke now** button
+  (Profile → Members; `POST /api/admin/users/{email}/revoke`, `…/reinstate`), each SSO login
+  (teams recomputed, lost access withdrawn), and the scheduler (an agent never outlives its
+  owner's access: paused + notification). New variables: `SOKKAN_FEATURE_REVOCATION`,
+  `SOKKAN_SCIM_TOKEN`, `SOKKAN_SCIM_GROUP_KEY`.
+- **Project sandbox** (lot 8, feature `sandbox`, requires `multi_project`; on in the
+  enterprise edition). A session or an agent run of a project other than `default` reaches
+  only its project's space: file tools checked by a PreToolUse hook (paths normalised,
+  symlinks resolved, refusals in the audit log as `sandbox.deny`), no extra directory for the
+  CLI, and Bash either run inside **bubblewrap** (workspace read-write, nothing of another
+  project mounted, no network unless `SOKKAN_SANDBOX_NETWORK=1`, empty environment) or, when
+  bubblewrap is absent or unusable, refused. Mode detected at start, served by
+  `GET /api/features` (`sandbox`: off | hooks-only | bwrap | pod — `pod` = sessions in their
+  own pod through the session runner, the reference isolation on Kubernetes / OpenShift
+  restricted SCC; bubblewrap is opportunistic). `default` is unchanged; the raw
+  terminal stays `default`-only. The API image installs `bubblewrap` (Docker's default
+  seccomp profile keeps it in hooks-only mode — docs/enterprise/OPERATIONS.md § 4.1).
 
 ## 3.1.2 — 2026-10-07 — "Crew up"
 Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:

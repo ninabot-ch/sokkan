@@ -112,7 +112,11 @@ def _forge_onboarding(request: Request) -> bool:
 
 def instance_user(request: Request) -> dict:
     """The person with their INSTANCE role (iam.py), whatever the request's project."""
-    user = iam.get_user(resolve_email(request))
+    email = resolve_email(request)
+    import revocation  # 3.2 lot 6: a revoked / SCIM-deactivated account is refused at once
+    if revocation.is_disabled(email):
+        raise HTTPException(403, "account disabled on this instance")
+    user = iam.get_user(email)
     if not user["known"] and iam.DEFAULT_ROLE == "none":
         # 3.2: someone the instance does not list may still be a member of a project
         # through an SSO team or a grant — let them in, with no instance role

@@ -57,4 +57,9 @@ def email_from_request(request: Request) -> str | None:
     # émis par une 3.1 ne survit pas à la mise à jour au-delà de la nouvelle limite
     if int(time.time()) - int(claims.get("iat") or 0) > TTL:
         return None
-    return (claims.get("email") or "").lower() or None
+    email = (claims.get("email") or "").lower() or None
+    # 3.2 lot 6 : « Revoke now » / SCIM — un cookie émis avant la révocation ne vaut plus rien
+    import revocation
+    if email and not revocation.cookie_ok(email, claims.get("iat") or 0):
+        return None
+    return email
