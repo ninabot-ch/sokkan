@@ -75,6 +75,7 @@ the standard `ANTHROPIC_BASE_URL` setting.
 | [HLD.md](HLD.md) | architecture, component by component, with status |
 | [METHOD.md](METHOD.md) | how a team works with SOKKAN, from the manager's card to production |
 | [PIPELINE.md](PIPELINE.md) | the path of one model call; the release pipeline |
+| [FEATURES.md](FEATURES.md) | feature registry: every switch, its default per edition, dependencies (generated from `backend/features.py`) |
 | [OPERATIONS.md](OPERATIONS.md) | runbook: install, SSO, features, backup, upgrade, monitoring, incidents, secrets, go-live checklist |
 | [SECURITY.md](SECURITY.md) | security model and the classification roadmap |
 | [hld-overview.html](hld-overview.html) · [PNG](hld-overview.png) · [PDF](hld-overview.pdf) | one-page overview for decision-makers (French) |

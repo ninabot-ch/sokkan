@@ -113,28 +113,102 @@ What holds state:
 | `.env` | configuration and secrets (0600) | critical, store in your secrets manager |
 | volume `corthexis-models` | embedding model files (re-downloadable) | low |
 
-Procedure (no bundled backup script yet — **TBD `scripts/backup.sh`**; test the restore on a
-staging copy before relying on it):
+Scripts: `scripts/backup.sh` and `scripts/restore.sh` (POSIX sh). The backup runs **while the
+API runs**: SQLite databases are copied with the SQLite online backup API (`sqlite3 .backup`,
+or Python's `sqlite3` when the CLI is absent — the case inside the `api` image), never by
+copying the file.
+
+### Backup
 
 ```bash
 cd sokkan
-docker compose exec -T db pg_dump -U sokkan -Fc sokkan > sokkan-pg-$(date +%F).dump
-docker compose stop api            # consistent SQLite copy; short interruption
-docker compose run --rm -T --no-deps --entrypoint tar api czf - -C /data . > sokkan-data-$(date +%F).tgz
-docker compose start api
+SOKKAN_BACKUP_KEY_PASSFILE=/root/.sokkan-backup-pass ./scripts/backup.sh /srv/backups/sokkan
 ```
 
-Restore (on a stopped stack, same release as the backup):
+One set per run, `OUTPUT_DIR/sokkan-backup-<UTC stamp>/` (directory 0700, files 0600; written
+as a hidden `.partial` directory and renamed at the end, so a failed run leaves no half set):
+
+| File | Content |
+|---|---|
+| `pg.dump` | `pg_dump -Fc` of the CortHeXis store (absent on a SQLite-only install) |
+| `data.tgz` | the whole data directory (`/data`) **except `vault.key`** |
+| `vault.key.enc` | `vault.key`, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase |
+| `VAULT_KEY_NOT_INCLUDED.txt` | instead of the above when no passphrase is given: back `vault.key` up separately |
+| `MANIFEST` | SOKKAN version, UTC date, mode, SQLite databases found, sha256 of every file |
+
+| Variable / option | Meaning |
+|---|---|
+| `OUTPUT_DIR` argument, else `SOKKAN_BACKUP_DIR` | where the sets go (default `./backups`) |
+| `SOKKAN_BACKUP_KEY_PASSFILE` / `SOKKAN_BACKUP_KEY_PASSPHRASE` | encrypts `vault.key` into the set (file preferred: not visible in `ps` or the environment) |
+| `--include-plain-key` | copies `vault.key` **in clear** (0600) — only for a destination as protected as the vault itself |
+| `SOKKAN_BACKUP_KEEP` | number of sets kept in `OUTPUT_DIR` (default 14, `0` = all); only `sokkan-backup-*` directories are ever deleted |
+| `SOKKAN_BACKUP_MODE` | `compose` or `local` (auto: `compose` when `docker-compose.yml` is here and `api` or `db` runs) |
+
+**Compose mode** (the standard install): the dump runs in the `db` service
+(`docker compose exec -T db pg_dump -U ${POSTGRES_USER:-sokkan} -Fc ${POSTGRES_DB:-sokkan}`), the
+data is read from the `sokkan-data` volume through the `api` service (`exec`, or
+`run --rm --no-deps` when `api` is stopped). An external Postgres (`CORTHEXIS_DATABASE_URL`
+pointing outside the stack) is not dumped in this mode: back it up with your DBA tooling, or
+use local mode.
+
+**Local mode** (no Docker, or an external Postgres):
 
 ```bash
-docker compose stop api web
-docker compose run --rm -T --no-deps --entrypoint sh api -c 'cd /data && tar xzf -' < sokkan-data-YYYY-MM-DD.tgz
-docker compose exec -T db pg_restore -U sokkan -d sokkan --clean --if-exists < sokkan-pg-YYYY-MM-DD.dump
-docker compose up -d
+SOKKAN_BACKUP_MODE=local SOKKAN_DATA_DIR=/var/lib/sokkan \
+SOKKAN_BACKUP_PG_DSN=postgresql://sokkan:…@db.example.org/sokkan \
+SOKKAN_BACKUP_KEY_PASSFILE=/root/.sokkan-backup-pass ./scripts/backup.sh /srv/backups/sokkan
 ```
 
-Frequency, retention and off-site copy: **TBD with the customer's backup policy** (recommended
-starting point: daily, 30 days, encrypted off-site; always one before an upgrade).
+The DSN falls back to `CORTHEXIS_DATABASE_URL`, then `SOKKAN_DATABASE_URL`; none = SQLite-only
+install, the dump is skipped with a message. Host tools: `python3`, `tar`, `openssl` (with a
+passphrase), `pg_dump` (same major version as the server or newer).
+
+**`vault.key`** is the only key to `vault.json`. Whatever the mode, keep **one copy outside the
+backup storage** (secrets manager or offline), and keep the passphrase file apart from the
+backups: a set plus its passphrase opens every secret.
+
+Daily at 02:30, 14 sets kept (`/etc/cron.d/sokkan-backup`):
+
+```cron
+30 2 * * * root cd /srv/sokkan && SOKKAN_BACKUP_KEEP=14 SOKKAN_BACKUP_KEY_PASSFILE=/root/.sokkan-backup-pass ./scripts/backup.sh /srv/backups/sokkan >>/var/log/sokkan-backup.log 2>&1
+```
+
+Then copy the sets off-site (encrypted) per the customer's policy; always run one before an
+upgrade (§ 6).
+
+### Restore
+
+Destructive: it **replaces** the data directory and the memory database. Nothing is touched
+until every check passes: sha256 of every file against the `MANIFEST` (and no unlisted file),
+same SOKKAN version as `VERSION` in this folder (else install that release first, or
+`--force-version`), vault key decryptable.
+
+```bash
+cd sokkan
+SOKKAN_BACKUP_KEY_PASSFILE=/root/.sokkan-backup-pass \
+  ./scripts/restore.sh /srv/backups/sokkan/sokkan-backup-20261007T023000Z --yes
+```
+
+* Compose mode: `docker compose stop api web`, `/data` emptied and replaced, `vault.key` written
+  (0600, uid 1000), `pg_restore --clean --if-exists --no-owner` in `db`, `docker compose up -d`.
+* Local mode: stop the API first; `SOKKAN_DATA_DIR` emptied and replaced; `pg_restore` to
+  `SOKKAN_BACKUP_PG_DSN` (the database must exist).
+* Vault key, first found: `--vault-key FILE` (your separate copy), `vault.key.enc` + passphrase,
+  a clear `vault.key` in the set. None: the current `vault.key` is kept and a warning says the
+  secrets are unreadable unless it is the original key.
+* `--yes` (or `SOKKAN_RESTORE_YES=1`) is required.
+
+After a restore: `./scripts/doctor.sh`, then log in and open a secret, a board card and a memory
+note.
+
+### Verifying that restores work
+
+* Automated: `python -m pytest tests/test_backup_restore.py` (backup, wipe, restore and compare
+  SQLite contents, files, vault key and a secret; with `SOKKAN_TEST_PG_DSN` set, also a
+  throw-away Postgres database; retention; corrupted `MANIFEST` refused without touching
+  anything).
+* On the customer's side: restore the latest set on a **staging** copy of the instance (other
+  VM, same release) at go-live and then every quarter; log in, open a secret, search memory.
 
 ## 6. Upgrade and roll back
 
@@ -147,7 +221,9 @@ starting point: daily, 30 days, encrypted off-site; always one before an upgrade
 
 Roll back: `./scripts/rollback.sh <hash>` (keeps `.env`, workspace, volumes). **Going back from
 3.2 to 3.1 after the memory migrations `0011`/`0012` (notes keyed by project): not validated —
-TBD; restore the Postgres dump taken before the upgrade.**
+TBD; restore the Postgres dump taken before the upgrade.** The 3.2 vault (lot 4) is namespaced
+per project: before running 3.1 again, put `/data/vault.json.v1.bak` back as `vault.json`
+(secrets added after the upgrade are lost) — or restore the pre-upgrade backup (`restore.sh`).
 
 3.1 → 3.2 specifics: the instance becomes project `default` with the same rights;
 `SOKKAN_SESSION_SECRETS` becomes `named` (set `all` to keep 3.1 behaviour); 3.1 cookies
@@ -206,7 +282,7 @@ Rotation calendar: **TBD with the customer's policy**.
 - [ ] Explicit model credentials; scheduler not held; budgets set
 - [ ] Projects, grants and the ops group set; two-person isolation test passed
 - [ ] Workspace mounts only what sessions should touch
-- [ ] Backup taken **and restored once** on a staging copy; `vault.key` stored separately
+- [ ] `scripts/backup.sh` scheduled daily (cron), sets copied off-site; one set **restored once** on a staging copy with `scripts/restore.sh`; `vault.key` and the backup passphrase stored separately from the sets
 - [ ] Monitoring signals of § 7 wired to the customer's alerting
 - [ ] Incident contacts and rotation calendar agreed (TBD items closed)
 - [ ] Data location of each inference tier agreed with the customer (DPA)
