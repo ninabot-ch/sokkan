@@ -219,6 +219,7 @@ READ_MCP_TOOLS = frozenset({
     "mcp__sokkan-memory__memory_links",
     "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
     "mcp__sokkan-board__get_card", "mcp__sokkan-board__search_cards",  # 3.2 board reads
+    "mcp__sokkan-board__get_card_tree", "mcp__sokkan-board__morning_brief",  # 3.3 Helm reads
     "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs",
     "mcp__sokkan-observability__list_dashboards",
     "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent",

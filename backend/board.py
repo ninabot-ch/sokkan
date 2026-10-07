@@ -21,6 +21,7 @@ liens vers session / agent / run / incident (`card_links`), recherche, et chaque
 from __future__ import annotations
 
 import json
+import re
 import os
 import sqlite3
 import shlex
@@ -56,6 +57,14 @@ _CARD_MIGRATIONS = {
     "closed_by": "TEXT DEFAULT ''",
     # 3.2 multi-user : chaque carte appartient à un projet ; l'existant → 'default'
     "project": "TEXT NOT NULL DEFAULT 'default'",
+    # 3.3 Helm : hiérarchie (carte projet du manager → cartes de l'ingénieur → sous-tâches)
+    # et contexte qui DESCEND aux sessions des cartes filles. Existant : racine, kind task.
+    "parent_id": "INTEGER DEFAULT NULL",
+    "kind": "TEXT NOT NULL DEFAULT 'task'",
+    "intent": "TEXT DEFAULT ''",
+    "constraints": "TEXT DEFAULT ''",
+    "decisions": "TEXT DEFAULT '[]'",
+    "baseline_at": "REAL",
 }
 # 3.2 : d'où vient un événement (session SOKKAN, canal web / mcp / run d'agent)
 _EVENT_MIGRATIONS = {
@@ -63,7 +72,29 @@ _EVENT_MIGRATIONS = {
     "session_tag": "TEXT DEFAULT ''",
     "via": "TEXT DEFAULT ''",
 }
-LINK_KINDS = ("session", "agent", "run", "incident")
+LINK_KINDS = ("session", "agent", "run", "incident", "mr")
+# 3.3 Helm : project = carte de pilotage (manager) ; task = travail ; reframe = recadrage
+# approuvé par un manager (né d'une suggestion de Helm, jamais créé seul)
+CARD_KINDS = ("task", "project", "reframe")
+MAX_DEPTH = 6          # project → card → sub-task … : assez profond, jamais infini
+_MR_RE = re.compile(r"^https?://[^\s/]+/\S{1,500}$")
+
+# 3.3 Helm : qui veut savoir qu'une carte a bougé (recalcul de l'avancement des parents).
+# Appelé APRÈS le commit, hors transaction ; une erreur d'un abonné ne casse jamais le board.
+_ON_CHANGE: list = []
+
+
+def on_change(fn) -> None:
+    if fn not in _ON_CHANGE:
+        _ON_CHANGE.append(fn)
+
+
+def _changed(card_id: int | None, parent_id: int | None = None) -> None:
+    for fn in list(_ON_CHANGE):
+        try:
+            fn(card_id, parent_id)
+        except Exception:  # noqa: BLE001 — l'avancement suit, le board ne dépend pas de lui
+            pass
 
 
 _init_lock = threading.Lock()
@@ -131,6 +162,7 @@ def init(force: bool = False) -> None:
             con.execute("ALTER TABLE sessions ADD COLUMN secrets TEXT DEFAULT NULL")
         if "project" not in scols:  # 3.2 : projet de la session (périmètre du rappel mémoire)
             con.execute("ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_cards_parent ON cards(parent_id)")
         con.commit()
         con.close()
         _initialized = True
@@ -158,10 +190,11 @@ def _event(con: sqlite3.Connection, card_id: int, user: str, action: str, detail
 
 def _card_out(row: sqlite3.Row | dict) -> dict:
     c = dict(row)
-    try:
-        c["checklist"] = json.loads(c.get("checklist") or "[]")
-    except (TypeError, json.JSONDecodeError):
-        c["checklist"] = []
+    for k in ("checklist", "decisions"):
+        try:
+            c[k] = json.loads(c.get(k) or "[]")
+        except (TypeError, json.JSONDecodeError):
+            c[k] = []
     return c
 
 
@@ -385,23 +418,40 @@ def list_cards(include_archived: bool = False, project: str | None = None) -> di
 
 def add_card(title: str, description: str = "", tag: str = "backend",
              bucket: str = "Backlog", priority: int = 2, due: str = "",
-             user: str = "", origin: dict | None = None, project: str = "default") -> dict:
+             user: str = "", origin: dict | None = None, project: str = "default",
+             parent_id: int | None = None, kind: str = "task", intent: str = "",
+             constraints: str = "", decisions: list[str] | None = None,
+             assignee: str = "") -> dict:
     if bucket not in BUCKETS:
         bucket = "Backlog"
+    if kind not in CARD_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(CARD_KINDS)}")
+    project = project or "default"
+    if parent_id is not None:
+        check_parent(None, parent_id, project)
     title = (title.strip() or description.strip()[:60] or "tâche")
     now = time.time()
     con = _con()
     cur = con.execute(
         "INSERT INTO cards(title, description, tag, bucket, created_at, sort, priority, due, updated_at,"
-        " closed_at, closed_by, project) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        " closed_at, closed_by, project, parent_id, kind, intent, constraints, decisions, assignee,"
+        " baseline_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (title, description.strip(), tag, bucket, now, now, int(priority), due, now,
          now if bucket == "Done" else None, (user or "") if bucket == "Done" else "",
-         project or "default"),
+         project, parent_id, kind, (intent or "").strip(), (constraints or "").strip(),
+         json.dumps(clean_decisions(decisions or []), ensure_ascii=False), assignee or "",
+         now if kind == "project" else None),
     )
-    _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}", origin)
+    detail = f"\u201c{title}\u201d in {bucket}" + (f" under #{parent_id}" if parent_id else "")
+    _event(con, cur.lastrowid, user, "created", detail, origin)
+    for d in clean_decisions(decisions or []):
+        _event(con, cur.lastrowid, user, "decision recorded", d, origin)
+    if parent_id is not None:
+        _event(con, parent_id, user, "child added", f"#{cur.lastrowid} \u201c{title}\u201d", origin)
     con.commit()
     row = _card_out(con.execute("SELECT * FROM cards WHERE id=?", (cur.lastrowid,)).fetchone())
     con.close()
+    _changed(row["id"], parent_id)
     return row
 
 
@@ -438,7 +488,8 @@ def _describe_change(field: str, old, new) -> str:
 def update_card(card_id: int, user: str = "", origin: dict | None = None,
                 **fields) -> dict | None:
     allowed = {"title", "description", "tag", "bucket", "session_id", "window",
-               "sort", "priority", "due", "checklist", "archived", "assignee"}
+               "sort", "priority", "due", "checklist", "archived", "assignee",
+               "kind", "intent", "constraints", "decisions"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return get_card(card_id)
@@ -447,6 +498,12 @@ def update_card(card_id: int, user: str = "", origin: dict | None = None,
         return None
     if "checklist" in sets and not isinstance(sets["checklist"], str):
         sets["checklist"] = json.dumps(sets["checklist"], ensure_ascii=False)
+    if "kind" in sets and sets["kind"] not in CARD_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(CARD_KINDS)}")
+    if "kind" in sets and sets["kind"] == "project" and not old.get("baseline_at"):
+        sets["baseline_at"] = time.time()
+    if "decisions" in sets:
+        sets["decisions"] = json.dumps(clean_decisions(sets["decisions"]), ensure_ascii=False)
     now = time.time()
     sets["updated_at"] = now
     # Done = clos : la clôture suit la colonne, quel que soit le chemin (web, MCP)
@@ -461,14 +518,24 @@ def update_card(card_id: int, user: str = "", origin: dict | None = None,
         (*sets.values(), card_id),
     )
     for k, v in sets.items():
-        if k in ("updated_at", "session_id", "window", "closed_at", "closed_by"):
+        if k in ("updated_at", "session_id", "window", "closed_at", "closed_by", "baseline_at"):
             continue
-        ov = json.dumps(old.get(k), ensure_ascii=False) if k == "checklist" else old.get(k)
+        ov = json.dumps(old.get(k), ensure_ascii=False) if k in ("checklist", "decisions") \
+            else old.get(k)
         if ov != v:
             if k == "bucket":
                 _event(con, card_id, user, "moved", f"{old['bucket']} \u2192 {v}", origin)
             elif k == "archived":
                 _event(con, card_id, user, "archived" if v else "restored", "", origin)
+            elif k == "decisions":
+                was = old.get("decisions") or []
+                now_ = json.loads(v)
+                for d in now_:
+                    if d not in was:
+                        _event(con, card_id, user, "decision recorded", d, origin)
+                for d in was:
+                    if d not in now_:
+                        _event(con, card_id, user, "decision withdrawn", d, origin)
             elif k == "assignee":
                 _event(con, card_id, user, "assigned", f"{old.get(k) or '\u2014'} \u2192 {v or '\u2014'}",
                        origin)
@@ -476,17 +543,28 @@ def update_card(card_id: int, user: str = "", origin: dict | None = None,
                 _event(con, card_id, user, "edited", _describe_change(k, old.get(k), v), origin)
     con.commit()
     con.close()
+    _changed(card_id, old.get("parent_id"))
     return get_card(card_id)
 
 
 def delete_card(card_id: int, user: str = "") -> None:
+    """Supprime une carte. Ses filles (3.3) remontent d'un cran — vers le parent de la
+    carte supprimée — au lieu de disparaître ou de pointer dans le vide."""
+    old = get_card(card_id)
     con = _con()
+    parent = (old or {}).get("parent_id")
+    for r in con.execute("SELECT id FROM cards WHERE parent_id=?", (card_id,)).fetchall():
+        con.execute("UPDATE cards SET parent_id=? WHERE id=?", (parent, r["id"]))
+        _event(con, r["id"], user, "parent changed",
+               f"#{card_id} deleted \u2192 " + (f"#{parent}" if parent else "top level"))
     con.execute("DELETE FROM cards WHERE id=?", (card_id,))
     con.execute("DELETE FROM card_events WHERE card_id=?", (card_id,))
     con.execute("DELETE FROM card_comments WHERE card_id=?", (card_id,))
     con.execute("DELETE FROM card_links WHERE card_id=?", (card_id,))
     con.commit()
     con.close()
+    if old:
+        _changed(None, parent)
 
 
 def spawn_card(card_id: int, user: str = "") -> dict:
@@ -521,6 +599,7 @@ def close_card(card_id: int, user: str = "", resolution: str = "",
     _event(con, card_id, user, "closed", detail, origin)
     con.commit()
     con.close()
+    _changed(card_id, old.get("parent_id"))
     return get_card(card_id)
 
 
@@ -542,6 +621,7 @@ def reopen_card(card_id: int, user: str = "", bucket: str = "Backlog", reason: s
     _event(con, card_id, user, "reopened", detail, origin)
     con.commit()
     con.close()
+    _changed(card_id, old.get("parent_id"))
     return get_card(card_id)
 
 
@@ -559,6 +639,7 @@ def archive_card(card_id: int, user: str = "", reason: str = "",
     _event(con, card_id, user, "archived", reason.strip()[:300], origin)
     con.commit()
     con.close()
+    _changed(card_id, old.get("parent_id"))
     return get_card(card_id)
 
 
@@ -586,6 +667,7 @@ def add_comment(card_id: int, body: str, author: str = "",
     con.commit()
     row = dict(con.execute("SELECT * FROM card_comments WHERE id=?", (cur.lastrowid,)).fetchone())
     con.close()
+    _changed(card_id)
     return row
 
 
@@ -607,6 +689,14 @@ def resolve_link(kind: str, ref, project: str | None = None) -> dict | None:
         return project is not None and (obj_project or "default") != project
     if kind not in LINK_KINDS or not ref:
         return None
+    if kind == "mr":
+        # 3.3 : une merge request / pull request = une URL http(s) de la forge (lot 5
+        # vérifiera qu'elle existe ; ici seulement sa forme)
+        if not _MR_RE.match(ref):
+            return None
+        tail = ref.rstrip("/").rsplit("/", 2)
+        return {"kind": kind, "ref": ref, "label": "MR " + "/".join(tail[-2:]), "status": "",
+                "href": ref}
     try:
         if kind == "session":
             s = next((x for x in list_sessions() if x["session_id"] == ref), None)
@@ -672,6 +762,7 @@ def link_card(card_id: int, kind: str, ref, user: str = "", remove: bool = False
             _event(con, card_id, user, "unlinked", f"{kind} {ref}", origin)
         con.commit()
         con.close()
+        _changed(card_id)
         return {"card_id": card_id, "removed": bool(cur.rowcount)}
     target = resolve_link(kind, ref, project)
     if target is None:
@@ -683,6 +774,7 @@ def link_card(card_id: int, kind: str, ref, user: str = "", remove: bool = False
         _event(con, card_id, user, "linked", f"{kind} {target['label']}", origin)
     con.commit()
     con.close()
+    _changed(card_id)
     return {"card_id": card_id, **target, "added": bool(cur.rowcount)}
 
 
@@ -709,8 +801,135 @@ def card_detail(card_id: int) -> dict | None:
     c = get_card(card_id)
     if not c:
         return None
+    kids = children(card_id)
     return {**c, "events": card_events(card_id), "comments": card_comments(card_id),
-            "links": card_links(card_id)}
+            "links": card_links(card_id),
+            "breadcrumb": [{"id": a["id"], "title": a["title"], "kind": a["kind"]}
+                           for a in ancestors(card_id)],
+            "children": [{"id": k["id"], "title": k["title"], "bucket": k["bucket"],
+                          "assignee": k.get("assignee") or "", "kind": k["kind"]} for k in kids]}
+
+
+# ---------- 3.3 Helm : hiérarchie ----------
+
+DECISIONS_MAX = 50
+
+
+def clean_decisions(v) -> list[str]:
+    """Décisions consignées d'une carte : liste de phrases courtes, sans doublon."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except json.JSONDecodeError:
+            v = [x for x in v.splitlines()]
+    out: list[str] = []
+    for x in v or []:
+        t = " ".join(str(x).split())[:500]
+        if t and t not in out:
+            out.append(t)
+    return out[:DECISIONS_MAX]
+
+
+def children(card_id: int, include_archived: bool = False) -> list[dict]:
+    con = _con()
+    rows = [_card_out(r) for r in con.execute(
+        "SELECT * FROM cards WHERE parent_id=?" + ("" if include_archived else " AND archived=0")
+        + " ORDER BY sort, id", (card_id,))]
+    con.close()
+    return rows
+
+
+def ancestors(card_id: int) -> list[dict]:
+    """Chaîne des parents, de la racine à la mère directe (fil d'Ariane)."""
+    out: list[dict] = []
+    seen = {card_id}
+    c = get_card(card_id)
+    while c and c.get("parent_id") and len(out) < MAX_DEPTH + 1:
+        pid = c["parent_id"]
+        if pid in seen:            # garde-fou : un cycle hérité ne boucle jamais
+            break
+        seen.add(pid)
+        c = get_card(pid)
+        if c:
+            out.append(c)
+    return list(reversed(out))
+
+
+def descendants(card_id: int, include_archived: bool = False) -> list[dict]:
+    """Toutes les cartes sous `card_id` (largeur d'abord, cycle-safe)."""
+    out: list[dict] = []
+    seen = {card_id}
+    frontier = [card_id]
+    depth = 0
+    while frontier and depth <= MAX_DEPTH:
+        nxt = []
+        for pid in frontier:
+            for k in children(pid, include_archived):
+                if k["id"] not in seen:
+                    seen.add(k["id"])
+                    out.append(k)
+                    nxt.append(k["id"])
+        frontier, depth = nxt, depth + 1
+    return out
+
+
+def check_parent(card_id: int | None, parent_id: int, project: str) -> dict:
+    """La carte `card_id` (None = nouvelle) peut-elle aller sous `parent_id` ? Même projet,
+    pas de cycle, profondeur bornée. Renvoie le parent ; ValueError sinon."""
+    parent = get_card(int(parent_id))
+    if parent is None or (parent.get("project") or "default") != (project or "default"):
+        raise ValueError(f"parent card {parent_id} not found")
+    if card_id is not None:
+        if int(parent_id) == int(card_id):
+            raise ValueError("a card cannot be its own parent")
+        if any(d["id"] == int(parent_id) for d in descendants(card_id, include_archived=True)):
+            raise ValueError("cycle: the parent is under this card")
+    depth = len(ancestors(int(parent_id))) + 2      # level of the card once moved (root = 1)
+    sub = 0
+    if card_id is not None:
+        sub = _subtree_height(card_id)
+    if depth + sub > MAX_DEPTH:
+        raise ValueError(f"too deep: {MAX_DEPTH} levels at most")
+    return parent
+
+
+def _subtree_height(card_id: int) -> int:
+    h, frontier, seen = 0, [card_id], {card_id}
+    while frontier and h <= MAX_DEPTH:
+        nxt = [k["id"] for pid in frontier for k in children(pid, True) if k["id"] not in seen]
+        seen.update(nxt)
+        if nxt:
+            h += 1
+        frontier = nxt
+    return h
+
+
+def set_parent(card_id: int, parent_id: int | None, user: str = "",
+               origin: dict | None = None) -> dict | None:
+    """Rattache une carte sous une autre (ou la remet à la racine avec None)."""
+    c = get_card(card_id)
+    if c is None:
+        return None
+    old = c.get("parent_id")
+    if parent_id is not None:
+        parent_id = int(parent_id)
+        check_parent(card_id, parent_id, c.get("project") or "default")
+    if old == parent_id:
+        return c
+    con = _con()
+    con.execute("UPDATE cards SET parent_id=?, updated_at=? WHERE id=?",
+                (parent_id, time.time(), card_id))
+    _event(con, card_id, user, "parent changed",
+           (f"#{old}" if old else "top level") + " \u2192 " + (f"#{parent_id}" if parent_id else "top level"),
+           origin)
+    if parent_id:
+        _event(con, parent_id, user, "child added", f"#{card_id} \u201c{c['title']}\u201d", origin)
+    if old:
+        _event(con, old, user, "child removed", f"#{card_id} \u201c{c['title']}\u201d", origin)
+    con.commit()
+    con.close()
+    _changed(card_id, old)
+    return get_card(card_id)
 
 
 def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str = "",

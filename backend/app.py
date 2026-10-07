@@ -77,6 +77,8 @@ import preview
 import previewenv
 import projectgate
 import projects
+import helm  # 3.3 Helm : hiérarchie, avancement, suggestions, brief
+import helm_api
 import provision
 import transcript as T
 import updatecheck
@@ -193,7 +195,13 @@ async def _lifespan(_app: FastAPI):
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
     features.startup_report()  # a switch asked for but not honoured: logged, feature OFF
     rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
+    # 3.3 Helm : avancement + suggestions de recadrage (job périodique, SOKKAN_HELM_TICK_S)
+    helm_stop = asyncio.Event()
+    helm_task = asyncio.create_task(helm.loop(helm_stop)) if features.enabled("helm") else None
     yield
+    helm_stop.set()
+    if helm_task:
+        helm_task.cancel()
     if rt:
         await rt.stop()
 
@@ -1353,6 +1361,8 @@ def features_flags() -> dict:
         # 3.1.1 : runs simulés de la démo publique (aucune inférence)
         "demo_crew": agents_runtime.demo_mode(),
         "multi_project": on("multi_project"),
+        # 3.3 Helm (onglet réservé aux managers : /api/helm/access le dit par personne)
+        "helm": on("helm"),
         "registry": features.as_api(),
     }
 
@@ -1792,7 +1802,8 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
 
 
 def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
-               secrets: list[str] | None = None, project: str = "default") -> dict:
+               secrets: list[str] | None = None, project: str = "default",
+               context: str = "") -> dict:
     """Session SDK : enregistrée dans le store + AgentSession créée ; le seed
     (sujet + mémoire pré-injectée + HITL) part en tâche de fond — les events
     sont bufferisés et rejoués quand le pane se connecte."""
@@ -1814,6 +1825,8 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
     if prompt.strip():
         recall = _memory_preseed(f"{title} {prompt}".strip() if title else prompt,
                                  session_id=sid)
+        if context:  # 3.3 Helm : le contexte des cartes mères DESCEND, avant le rappel mémoire
+            recall = f"{context}\n\n{recall}".strip()
         _bg(session.handle_user(board.seed_text(prompt, recall)))
     return s
 
@@ -2411,6 +2424,12 @@ class CardCreate(BaseModel):
     bucket: str = "Backlog"
     priority: int = 2
     due: str = ""
+    # 3.3 Helm (feature `helm`) : hiérarchie et contexte qui descend
+    parent_id: int | None = None
+    kind: str = "task"
+    intent: str = ""
+    constraints: str = ""
+    decisions: list[str] = []
 
 
 class ChecklistItem(BaseModel):
@@ -2429,6 +2448,35 @@ class CardPatch(BaseModel):
     checklist: list[ChecklistItem] | None = None
     archived: int | None = None
     assignee: str | None = None
+    # 3.3 Helm : parent_id 0 = remettre à la racine
+    parent_id: int | None = None
+    kind: str | None = None
+    intent: str | None = None
+    constraints: str | None = None
+    decisions: list[str] | None = None
+
+
+_HELM_FIELDS = ("parent_id", "kind", "intent", "constraints", "decisions")
+_CONTEXT_FIELDS = ("title", "intent", "constraints", "decisions", "kind")
+
+
+def _helm_fields_allowed(fields: dict) -> None:
+    if any(k in fields for k in _HELM_FIELDS) and not features.enabled("helm"):
+        raise HTTPException(400, "card hierarchy and context need the Helm feature (SOKKAN_FEATURE_HELM)")
+
+
+def _helm_note(card_id: int) -> None:
+    """The card's context → project memory note `helm-card-<id>` (card:<id>), and its
+    parent's (the list of cards under it changed)."""
+    if not features.enabled("helm"):
+        return
+    try:
+        c = board.get_card(card_id) or {}
+        helm.write_context_note(card_id)
+        if c.get("parent_id"):
+            helm.write_context_note(c["parent_id"])
+    except Exception as e:  # noqa: BLE001 — the note is a copy; the card is the truth
+        print(f"[helm] context note of card #{card_id}: {e!r}", file=sys.stderr)
 
 
 class CardComment(BaseModel):
@@ -2465,9 +2513,17 @@ def board_card_detail(card_id: int) -> dict:
 def board_add(body: CardCreate, u: dict = Depends(require("dev"))) -> dict:
     if not body.title.strip() and not body.description.strip():
         raise HTTPException(400, "title or prompt required")
-    c = board.add_card(body.title, body.description, body.tag, body.bucket,
-                       priority=body.priority, due=body.due, user=u["email"], origin=_WEB,
-                       project=_ctx_project())
+    extra = {k: v for k, v in body.model_dump().items()
+             if k in _HELM_FIELDS and v not in (None, "", [], "task")}
+    _helm_fields_allowed(extra)
+    try:
+        c = board.add_card(body.title, body.description, body.tag, body.bucket,
+                           priority=body.priority, due=body.due, user=u["email"], origin=_WEB,
+                           project=_ctx_project(), **extra)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if extra:
+        _helm_note(c["id"])
     audit.log(u["email"], "board.card.create", f"card #{c['id']}", c["title"])
     return c
 
@@ -2482,9 +2538,19 @@ def board_patch(card_id: int, body: CardPatch, u: dict = Depends(require("dev"))
             fields["assignee"] = board.validate_assignee(fields["assignee"])
         except ValueError as e:
             raise HTTPException(400, str(e))
-    c = board.update_card(card_id, user=u["email"], origin=_WEB, **fields)
+    _helm_fields_allowed(fields)
+    if board.get_card(card_id) is None:
+        raise HTTPException(404, "card not found")
+    try:
+        if "parent_id" in fields:
+            board.set_parent(card_id, fields.pop("parent_id") or None, user=u["email"], origin=_WEB)
+        c = board.update_card(card_id, user=u["email"], origin=_WEB, **fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not c:
         raise HTTPException(404, "card not found")
+    if any(k in body.model_fields_set for k in _CONTEXT_FIELDS + ("parent_id",)):
+        _helm_note(card_id)
     changed = ", ".join(k for k in fields)
     audit.log(u["email"], "board.card.update", f"card #{card_id}", changed)
     return c
@@ -2538,8 +2604,15 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     card = board.get_card(card_id)
     if not card:
         raise HTTPException(404, "card not found")
-    s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"],
-                   project=card.get("project") or projects.DEFAULT_PROJECT)
+    context = ""
+    if features.enabled("helm") and card.get("parent_id"):
+        try:  # 3.3 : intention, contraintes, décisions et liens des cartes mères
+            context = helm.spawn_context(card_id)
+        except Exception as e:  # noqa: BLE001 — a session always starts
+            print(f"[helm] context of card #{card_id}: {e!r}", file=sys.stderr)
+    s = _spawn_sdk(card["tag"], prompt=card["description"] or (card["title"] if context else ""),
+                   title=card["title"], user=u["email"],
+                   project=card.get("project") or projects.DEFAULT_PROJECT, context=context)
     board.update_card(card_id, user=u["email"], origin={**_WEB, "session_id": s["session_id"],
                                                          "session_tag": s.get("tag", "")},
                       session_id=s["session_id"], window="", bucket="Doing")
@@ -2563,3 +2636,7 @@ def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict
     out["sessions"] = [x for x in out.get("sessions") or []
                        if x["session_id"] in mine or keep_unknown]
     return out
+
+
+# --- 3.3 Helm : routes /api/helm/* (+ modèles d'agents) — backend/helm_api.py ----------
+helm_api.install(app, current_user, require)
