@@ -24,8 +24,11 @@ COPY --from=cli /claude /usr/local/bin/claude
 COPY backend/runner/pod/supervisor.py /usr/local/bin/sokkan-session-supervisor
 COPY backend/runner/pod/mcp_relay.py /usr/local/bin/sokkan-mcp-relay
 COPY backend/runner/pod/egress_proxy.py /usr/local/bin/sokkan-egress-proxy
+# git credential helper of forge projects (3.2 lot 5): asks through the relay, never stores
+COPY backend/forge/git_credential_helper.py /usr/local/bin/sokkan-git-credential
 RUN sed -i '1s|.*|#!/usr/bin/python3|' /usr/local/bin/sokkan-session-supervisor \
       /usr/local/bin/sokkan-mcp-relay /usr/local/bin/sokkan-egress-proxy \
+      /usr/local/bin/sokkan-git-credential \
  && chmod 0755 /usr/local/bin/sokkan-* \
  && useradd -u 1000 -g 0 -d /home/session -s /bin/bash -M session \
  && mkdir -p /home/session/.claude /workspace \

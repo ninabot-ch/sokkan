@@ -64,6 +64,16 @@ dropped, `RuntimeDefault` seccomp, read-only root filesystem (HOME and /tmp are 
 any binding), no host namespaces, no hostPath, CPU / memory requests and limits, only two
 subPath mounts of the data volume (its working directory, its transcript directory).
 
+**git push in the person's name** (GitLab projects, lot 5): the session's git credential
+helper (`sokkan-git-credential`, in the session image) cannot reach the api's loopback from
+a pod; it asks through the **same authenticated relay as MCP** (`SOKKAN_RELAY_ADDR`,
+`SOKKAN_RELAY_TOKEN`, port 8098 already allowed by the NetworkPolicy). The api knows which
+session a relay token belongs to; the HMAC ticket in the session env must name that same
+session and its live person, or nothing is answered. The token is returned to git on stdout
+only — never in the pod's env, its Secret, a file, or the transcript. The git traffic itself
+goes through the egress gateway: put the GitLab host in `runner.egress.allow` (and its CA in
+`SOKKAN_GITLAB_CA_BUNDLE`, on the data volume, for an internal CA).
+
 What it does **not** do yet: a session of project A and a session of project B on the same
 node share the kernel (no gVisor / Kata — use a `runtimeClassName` policy if you need it);
 the api's ServiceAccount can read Secrets in the release namespace (it creates one per
@@ -260,6 +270,7 @@ workspace path).
 | Test | What it proves |
 |---|---|
 | `tests/test_runner.py` (29) | selection, env filtering, mounts, supervisor (relay, buffer + reattach, exit, idle), the SDK over a runner with Allow / Deny, MCP relay identity, egress allowlist, docker and kubernetes runners against fake APIs (adopt, stop, reconcile, restricted pod) |
+| `tests/test_forge_push_runners.py` | git push through the relay: simulated pod (always) and a real docker container on its own bridge network (api loopback unreachable, relay + fake GitLab on the gateway; SKIPPED without a daemon or `SOKKAN_TEST_GIT_IMAGE`); a ticket replayed on another session's relay channel, without a relay token, forged, or after the session ended → refused; token absent from env, output and disk |
 | `tests/test_runner_docker_integration.py` | the real CLI in a real session container (mock model): a turn, MCP relay `connected`, transcript in the api's dir, reattach after a dropped api connection, cleanup — SKIPPED without a Docker daemon or the session image |
 | `tests/test_helm_chart.py` (15) | `helm lint --strict` and `helm template` for default / SKS / OpenShift / k3d / everything-on; no root, no privileged, limits everywhere, dedicated SAs, minimal Role, session NetworkPolicy, OpenShift overlay without uid — SKIPPED without `helm` |
 | [`deploy/helm/sokkan/ci/k3d-test.sh`](../../deploy/helm/sokkan/ci/k3d-test.sh) | real cluster (k3s in Docker): install, api health, a cockpit session through `agentchat` starts a pod, survives the api process, is reattached, then pod and Secret are deleted; measures the pod |

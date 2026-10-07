@@ -314,17 +314,31 @@ class AgentSession:
             env_extra.update(eng_env)
             # 3.2 lot 5: a forge project's session pushes with the PERSON's token, through
             # a credential helper — the env holds a ticket, never the token (forge.gitcred)
-            forge_env = self._forge_env()
+            # — reached through the runner relay (session container / pod) or, for Bash
+            # inside bubblewrap, a per-session Unix socket bound into the sandbox
+            import runner
+            import sandbox
+            forge_socket = None
+            if runner.get_runner().remote:
+                transport = "relay"
+            elif sandbox.applies(proj) and sandbox.mode() == sandbox.BWRAP:
+                transport = "socket"
+            else:
+                transport = "loopback"
+            forge_env = self._forge_env(transport)
+            if forge_env and transport == "socket":
+                from forge import gitcred
+                forge_socket = await gitcred.open_socket(self.sid)
             env_extra.update(forge_env)
             # 3.2 lot 8: a session of another project reaches only its project's space —
             # file tools checked by a PreToolUse hook (runs before any allow rule), Bash
             # inside bubblewrap or refused; no extra directory handed to the CLI
-            import sandbox
             if sandbox.applies(proj):
                 sb = sandbox.sdk_hooks(sid=self.sid, user=self.user, project=proj,
                                        cwd=self.cwd,
                                        auto_rules=(pol or {}).get("auto_approve") or [],
-                                       env_names=sorted({*secret_env, *forge_env}))
+                                       env_names=sorted({*secret_env, *forge_env}),
+                                       forge_socket=forge_socket)
                 for ev, matchers in sb.items():
                     hooks = dict(hooks or {})
                     hooks[ev] = [*matchers, *(hooks.get(ev) or [])]
@@ -342,7 +356,6 @@ class AgentSession:
                 opts_kwargs["resume"] = self.resume
             # runner (SOKKAN_RUNNER): local = the SDK spawns the CLI here, as always;
             # docker / kubernetes = the CLI runs in a session container / pod (backend/runner)
-            import runner
             options, transport = runner.client_args(
                 self.sid, opts_kwargs, user=self.user, project=session_project(self.sid),
                 kind="run" if pol else "session")
@@ -360,11 +373,19 @@ class AgentSession:
             except Exception:  # noqa: BLE001
                 pass
             self.client = None
-
-    def _forge_env(self) -> dict[str, str]:
         try:
             from forge import gitcred
-            return gitcred.session_env(self.sid, self.user, session_project(self.sid))
+            await gitcred.close_socket(self.sid)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _forge_env(self, transport: str = "loopback") -> dict[str, str]:
+        try:
+            import sandbox
+            from forge import gitcred
+            return gitcred.session_env(self.sid, self.user, session_project(self.sid),
+                                       transport=transport,
+                                       network=sandbox.network_allowed())
         except Exception as e:  # noqa: BLE001 — no credentials = the push fails, says so
             print(f"[sokkan] forge credentials of {self.sid} unavailable ({type(e).__name__})",
                   file=sys.stderr)

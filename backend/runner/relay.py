@@ -7,6 +7,12 @@ api registered for that session (agentchat.mcp_servers_for: user, project, agent
 the container can only reach its own session's servers, as itself. Bytes are piped both ways
 until either side closes.
 
+The same channel answers the git credential helper of a session container
+(``{"token", "op": "git-credential", "request": {ticket, action, protocol, host, path}}``,
+one JSON line back): the relay token says WHICH session is asking (fixed by the api), the
+HMAC ticket must name that same session and its live person (forge.gitcred.answer) — a
+ticket replayed from another session, or without a relay token, gets nothing.
+
 Listens on SOKKAN_RUNNER_RELAY_BIND (default 0.0.0.0:8098) — only for remote runners; the
 NetworkPolicy (kubernetes) / internal network (docker) limit who can connect.
 """
@@ -61,6 +67,9 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
         writer.close()
         return
     entry = lookup(str(hdr.get("token") or ""))
+    if hdr.get("op") == "git-credential":
+        await _git_credential(entry, hdr.get("request"), writer)
+        return
     name = str(hdr.get("server") or "")
     cfg = (entry or {}).get("servers", {}).get(name)
     if not entry or not cfg or "command" not in cfg:
@@ -84,6 +93,26 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             await asyncio.wait_for(proc.wait(), 5)
         except asyncio.TimeoutError:
             proc.kill()
+
+
+async def _git_credential(entry: dict | None, req, writer: asyncio.StreamWriter) -> None:
+    if entry is None or not isinstance(req, dict):
+        ans = {"reason": "unknown relay token"}
+    else:
+        try:
+            import features
+            from forge import gitcred
+            if not features.enabled("gitlab"):
+                ans = {"reason": "feature gitlab is off"}
+            else:
+                ans = await asyncio.to_thread(gitcred.answer, req, bound_sid=entry["sid"])
+        except Exception as e:  # noqa: BLE001 — never a token in an error
+            ans = {"reason": f"credential lookup failed ({type(e).__name__})"}
+    try:
+        writer.write((json.dumps(ans) + "\n").encode())
+        await writer.drain()
+    finally:
+        writer.close()
 
 
 async def ensure_started() -> tuple[str, int] | None:

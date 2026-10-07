@@ -261,8 +261,10 @@ def _root_links() -> list[str]:
     return out
 
 
-def bwrap_argv(project: str, cwd: str) -> list[str]:
-    """The bubblewrap command line (without the shell part)."""
+def bwrap_argv(project: str, cwd: str, forge_socket: str | None = None) -> list[str]:
+    """The bubblewrap command line (without the shell part). ``forge_socket`` = the
+    session's forge Unix socket (forge.gitcred.open_socket): bound with the credential
+    helper under /run/sokkan — the only way out of a sandbox without network."""
     work = os.path.realpath(cwd)
     pdir = project_dir(project)
     a = [bwrap_path(), "--unshare-all"]
@@ -281,11 +283,15 @@ def bwrap_argv(project: str, cwd: str) -> list[str]:
     a += ["--bind", work, work, "--chdir", work,
           "--setenv", "HOME", work, "--setenv", "SOKKAN_SANDBOX", "bwrap",
           "--setenv", "SOKKAN_SESSION_PROJECT", project or ""]
+    if forge_socket:
+        from forge import gitcred
+        a += ["--bind", forge_socket, gitcred.SANDBOX_SOCKET,
+              "--ro-bind", gitcred.HELPER, gitcred.SANDBOX_HELPER]
     return a
 
 
-def wrapper_script(sid: str, project: str, cwd: str, env_names: list[str] | tuple = ()
-                   ) -> str:
+def wrapper_script(sid: str, project: str, cwd: str, env_names: list[str] | tuple = (),
+                   forge_socket: str | None = None) -> str:
     """Write the session's wrapper (outside every sandbox mount) and return its path. The
     model's command becomes `<wrapper> '<command>'`: short in the transcript and the
     permission prompt, and the values of the environment never appear on a command line."""
@@ -293,13 +299,22 @@ def wrapper_script(sid: str, project: str, cwd: str, env_names: list[str] | tupl
     d.mkdir(parents=True, exist_ok=True)
     os.chmod(d.parent, 0o700)
     path = d / f"{sid}.sh"
-    argv = bwrap_argv(project, cwd)
+    argv = bwrap_argv(project, cwd, forge_socket)
     lines = ["#!/bin/bash", "# SOKKAN sandbox wrapper (lot 8) — generated, do not edit", "set -u",
              "args=(" + " ".join(shlex.quote(x) for x in argv) + ")"]
     for name in (*ENV_PASS, *env_names):
         if name.replace("_", "").isalnum():
             lines.append(f'[ -n "${{{name}+x}}" ] && args+=(--setenv {name} "${name}")')
-    lines.append('exec "${args[@]}" -- /bin/bash -c "$1"')
+    if forge_socket and not network_allowed():
+        # git reaches the project's forge through the session socket: a forwarder on the
+        # sandbox's own loopback (private network namespace), started before the command
+        from forge import gitcred
+        fwd = (f"{gitcred._sandbox_python()} {gitcred.SANDBOX_HELPER} --forward "
+               f"{gitcred.SANDBOX_FORWARD_PORT} {gitcred.SANDBOX_SOCKET}")
+        lines.append('exec "${args[@]}" -- /bin/bash -c '
+                     + shlex.quote(fwd + ' && exec /bin/bash -c "$1"') + ' sokkan "$1"')
+    else:
+        lines.append('exec "${args[@]}" -- /bin/bash -c "$1"')
     tmp = path.with_suffix(".tmp")
     tmp.write_text("\n".join(lines) + "\n")
     os.chmod(tmp, 0o700)
@@ -396,13 +411,14 @@ def decide(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str,
 
 
 def sdk_hooks(*, sid: str, user: str, project: str, cwd: str,
-              auto_rules: list[str] | None = None, env_names: list[str] | tuple = ()
-              ) -> dict:
+              auto_rules: list[str] | None = None, env_names: list[str] | tuple = (),
+              forge_socket: str | None = None) -> dict:
     """`ClaudeAgentOptions.hooks` entries confining one session ({} when not applicable)."""
     if not applies(project):
         return {}
     from claude_agent_sdk import HookMatcher  # type: ignore
-    script = wrapper_script(sid, project, cwd, env_names) if mode() == BWRAP else None
+    script = (wrapper_script(sid, project, cwd, env_names, forge_socket)
+              if mode() == BWRAP else None)
 
     async def pre_tool(payload, _tool_use_id, _context):
         try:

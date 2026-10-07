@@ -170,6 +170,17 @@ back: rolling back = `scripts/restore.sh` of that backup (or the `.bak` files be
   helpers bypassed) that asks the API on the loopback for the person's current token;
   `git push -o merge_request.create` opens the merge request. No linked account → the push
   fails at once and says why.
+- **Push from a session container / pod or from Bash inside bubblewrap**: the helper no
+  longer depends on the api's loopback, which a docker / kubernetes session or a sandbox
+  without network cannot reach. In a session container it asks through the runner's
+  authenticated relay (`sokkan-git-credential` in the session image; the relay token fixes
+  which session asks, the HMAC ticket must name that same session and its live person — a
+  ticket replayed on another session's channel or after the session ended gets nothing).
+  Under bubblewrap it uses a per-session Unix socket of the api bound into the sandbox
+  (`/run/sokkan/forge.sock`, 0600), which also tunnels git — and only git to the project's
+  forge hosts — through a forwarder on the sandbox's private loopback: no general network is
+  opened. The token still never touches the disk or the environment. Pods reach GitLab
+  through the egress gateway: add its host to `runner.egress.allow`.
 - Admin → Projects & teams: access source "GitLab roles" and the project's repositories
   (`/api/admin/projects/<slug>/repos`). `backend/forge/`: one `Provider` interface (GitLab
   implemented; GitHub and Gitea/Forgejo skeletons). Variables `SOKKAN_GITLAB_URL`,

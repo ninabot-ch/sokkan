@@ -41,7 +41,8 @@ exit 0
 
 
 class FakeGitLab:
-    def __init__(self, repos_dir: Path, client_id: str = "cid", client_secret: str = "csecret"):
+    def __init__(self, repos_dir: Path, client_id: str = "cid", client_secret: str = "csecret",
+                 host: str = "127.0.0.1"):
         self.repos_dir = Path(repos_dir)
         self.client_id, self.client_secret = client_id, client_secret
         self.users: dict[str, dict] = {}          # uid → {username, state}
@@ -79,8 +80,8 @@ class FakeGitLab:
             def do_POST(self):
                 fake._handle(self, "POST")
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.server = ThreadingHTTPServer((host, 0), H)
+        self.url = f"http://{host}:{self.server.server_address[1]}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     # ---- lifecycle / setup --------------------------------------------------------------

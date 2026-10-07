@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 import features
 import projects
-from forge import ForgeError, ForgeUnauthorized, gitcred, links
+from forge import ForgeError, gitcred, links
 from forge import access as faccess
 
 TX_COOKIE = "sokkan_forge_tx"
@@ -76,6 +76,7 @@ def router(current_user: Callable, require: Callable,
     ``close_sessions(email)`` = coroutine closing that person's live sessions of forge
     projects (unlink = immediate revocation)."""
     r = APIRouter()
+    gitcred.LIVE_USER = live_user   # the runner relay and the sandbox socket ask it too
 
     @r.get("/api/forge/status")
     def status(user: dict = Depends(current_user)) -> dict:
@@ -207,20 +208,7 @@ def router(current_user: Callable, require: Callable,
             return JSONResponse({"reason": "feature gitlab is off"}, status_code=404)
         if not is_loopback(request):
             return JSONResponse({"reason": "loopback only"}, status_code=403)
-        if body.action == "erase":
-            try:
-                gitcred.erase(body.ticket)
-            except ForgeError:
-                pass
-            return {"ok": True}
-        try:
-            cred, reason = gitcred.credential(body.ticket, body.protocol, body.host, body.path,
-                                              live_user=live_user)
-        except ForgeUnauthorized:
-            cred, reason = {}, "forge refused the token"
-        except ForgeError as e:
-            cred, reason = {}, f"forge unavailable ({type(e).__name__})"
-        return cred or {"reason": reason}
+        return gitcred.answer(body.model_dump(), live_user=live_user)
 
     return r
 

@@ -5,6 +5,7 @@ FROM python:3.12-slim
 COPY backend/runner/pod/supervisor.py /usr/local/bin/sokkan-session-supervisor
 COPY backend/runner/pod/mcp_relay.py /usr/local/bin/sokkan-mcp-relay
 COPY backend/runner/pod/egress_proxy.py /usr/local/bin/sokkan-egress-proxy
+COPY backend/forge/git_credential_helper.py /usr/local/bin/sokkan-git-credential
 COPY tests/fixtures/fake_claude_cli.py /usr/local/bin/claude
 COPY backend/runner /opt/sokkan/runner
 COPY deploy/helm/sokkan/ci/runner-smoke-driver.py /opt/sokkan/driver.py

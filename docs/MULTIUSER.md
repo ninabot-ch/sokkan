@@ -471,6 +471,21 @@ the new limit after the upgrade. A person disabled in the IdP loses the cockpit 
   person can, for at most the token's life (GitLab: 2 h). Prompt-injection exfiltration of
   that token is the residual risk (documented; mitigations: short life, minimal scopes,
   the sandbox of lot 8, egress filtering).
+* **Where the helper asks** (3.2.0, `forge.gitcred` transports, chosen by `agentchat` per
+  session):
+
+  | Session runs… | Channel | Who is asking (fixed by the api) |
+  |---|---|---|
+  | in the api (local runner) | `POST /api/forge/git-credential`, loopback only | ticket + live session |
+  | in a session container / pod (docker / kubernetes runner) | the runner's MCP relay (`{"op": "git-credential"}` on `:8098`), helper `sokkan-git-credential` of the session image | the relay token's session — the ticket must name the same one |
+  | Bash inside bubblewrap (lot 8) | a per-session Unix socket of the api (0600, private 0700 directory) bound at `/run/sokkan/forge.sock`, helper bound read-only at `/run/sokkan/git-credential-helper` | the socket's session — the ticket must name the same one |
+
+  Without `SOKKAN_SANDBOX_NETWORK=1` the sandbox has no network: the same socket also
+  carries git, through a forwarder the wrapper starts on the sandbox's private loopback
+  (`127.0.0.1:47391`, `http.<forge>.proxy`), and tunnels only to the forge hosts of the
+  session's project (`CONNECT` or absolute-form `http://`; anything else → 403). Nothing
+  else leaves the sandbox. A ticket replayed on another session's channel, or after its
+  session ended, gets nothing. Proof: `tests/test_forge_push_runners.py`.
 * No forge account linked → the session works on a clone that cannot push, and says so.
 * An agent run pushes with its **owner's** token; if the owner's link is revoked or their
   access dropped, the run is skipped.
