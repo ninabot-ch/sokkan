@@ -429,6 +429,10 @@ class Indexer:
 
     def run(self, *, rebuild: bool = False) -> IndexReport:
         cfg, store = self.cfg, self.store
+        if not valid_project(cfg.project):
+            raise ValueError(f"invalid project name for the memory directory: {cfg.project!r}")
+        if hasattr(store, "for_project"):   # 3.2: names, history and links are per project
+            store = store.for_project(cfg.project)
         mem_dir = Path(cfg.memory_dir)
         if not mem_dir.is_dir():
             raise FileNotFoundError(f"memory dir not found: {mem_dir}")
@@ -450,8 +454,6 @@ class Indexer:
         gen, building = self._target_generation(rebuild)
         rep.generation, rep.built_generation = gen.id, building
         rep.bootstrap = store.seen_count() == 0
-        if not valid_project(cfg.project):
-            raise ValueError(f"invalid project name for the memory directory: {cfg.project!r}")
         indexed = store.note_names(gen.id, project=cfg.project)
 
         files = sorted(p for p in mem_dir.glob("*.md") if p.name != cfg.index_filename)

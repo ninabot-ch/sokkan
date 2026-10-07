@@ -326,11 +326,28 @@ def memory_get(note_name: str, projects=None) -> str | None:
 
     scope = _scope.normalize(projects)
     st = get_store()
-    name = note_name if st.get_note(note_name) else st.find_note_by_path(note_name)
-    note = st.get_note(name) if name else None
+    note = _resolve(st, note_name, scope)
+    if note is None:
+        name = _find_by_path(st, note_name, scope)
+        note = _resolve(st, name, scope) if name else None
     if note is None or not _scope.visible(note, scope):
         return None
     return age_header(note.name, note.modified, note.modified_source) + "\n\n" + (note.body or "")
+
+
+def _resolve(st, name, scope):
+    """The note as a caller with ``scope`` sees it (3.2: names are unique per project; a
+    store without projects = the one note of that name)."""
+    if hasattr(st, "resolve_note"):
+        return st.resolve_note(name, scope)
+    return st.get_note(name)
+
+
+def _find_by_path(st, stem, scope):
+    try:
+        return st.find_note_by_path(stem, scope)
+    except TypeError:          # a store without the project scope
+        return st.find_note_by_path(stem)
 
 
 def memory_links(note_name: str, projects=None) -> dict:
@@ -338,10 +355,11 @@ def memory_links(note_name: str, projects=None) -> dict:
 
     scope = _scope.normalize(projects)
     st = get_store()
-    note = st.get_note(note_name)
+    note = _resolve(st, note_name, scope)
     if note is None or not _scope.visible(note, scope):
         return {"error": f"note not found: {note_name}"}
-    out = st.links(note_name)
+    out = (st.links(note_name, _scope.project_of(note)) if hasattr(st, "resolve_note")
+           else st.links(note_name))
     if scope is not None:  # links / backlinks to notes outside the scope are not shown
         visible = st.existing_names([r["name"] for r in out["links"] + out["backlinks"]],
                                     projects=scope)

@@ -35,8 +35,12 @@ class InMemoryStore:
             self.notes.pop(name, None)
             self.links.pop(name, None)
 
-    def get_note(self, name):
+    def get_note(self, name, project=None):
+        # names are unique in this reference store (one project per store in its tests);
+        # ``project`` is accepted for the Postgres signature and checked when given
         n = self.notes.get(name)
+        if n is not None and project is not None and project_of(n) != project:
+            return None
         return copy.deepcopy(n) if n else None
 
     def note_names(self, generation, *, project=None):

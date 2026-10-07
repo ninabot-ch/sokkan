@@ -343,8 +343,9 @@ def test_a_directory_is_one_project_and_never_prunes_another(tmp_path):
     ind_tv, _ = make(tv, store=st, project="tv", write_index=False)
     ind_tv.run()
     gen = st.active_generation()
-    assert st.get_note("tv-rundown").project == "tv"
-    assert st.get_note("oven-schedule").project == "radio"
+    assert st.get_note("tv-rundown", "tv").project == "tv"
+    assert st.get_note("oven-schedule", "radio").project == "radio"
+    assert st.get_note("oven-schedule", "tv") is None
     assert st.note_names(gen.id) == {"oven-schedule", "flour-supplier",
                                      "feedback-wash-hands", "tv-rundown"}
     ind.run()                                   # radio again: tv-rundown is not pruned
@@ -361,4 +362,4 @@ def test_default_project_when_not_configured(tmp_path, monkeypatch):
     clean_corpus(tmp_path)
     ind, st = make(tmp_path)
     ind.run()
-    assert st.get_note("oven-schedule").project == "default"
+    assert st.get_note("oven-schedule", "default").project == "default"

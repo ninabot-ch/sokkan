@@ -111,7 +111,8 @@ def test_quoted_names_and_lookups_are_scoped(store):
     assert store.existing_names([radio_name, tv_name], projects=["radio"]) == {radio_name}
     assert store.existing_names([radio_name, tv_name], projects=[]) == set()
     assert store.existing_names([radio_name, tv_name]) == {radio_name, tv_name}
-    assert store.get_note(tv_name).project == "tv"
+    assert store.get_note(tv_name, "tv").project == "tv"
+    assert store.get_note(tv_name) is None        # default project: no such note
     gen = store.active_generation()
     assert store.note_names(gen.id, project="tv") == {n for n, p in owner.items() if p == "tv"}
 
@@ -142,13 +143,63 @@ def test_recaller_on_postgres_stays_in_the_session_project(store):
     assert logged and {owner[n] for n in logged} == {"radio"}
 
 
-def test_reindex_moves_a_note_between_projects(store):
+def test_same_name_in_two_projects_are_two_notes(store):
+    """Migration 0012: names are unique PER PROJECT — a collision never merges, overwrites
+    or reveals the other project's note."""
     g = store.create_generation("t@4", 4)
-    rec = NoteRecord("moving", "d", "project", 0, "/m/moving.md", None, "indexed", "b", "radio")
-    store.upsert_note(rec, [ChunkRecord(0, "moving body words", [1.0, 0, 0, 0])], g.id)
+    radio = NoteRecord("runbook", "radio runbook", "project", 0, "/r/runbook.md", None,
+                       "indexed", "radio body", "radio")
+    tv = _with_project(radio, "tv")
+    tv = NoteRecord(tv.name, "tv runbook", tv.type, 0, "/t/runbook.md", None, "indexed",
+                    "tv body", "tv")
+    store.upsert_note(radio, [ChunkRecord(0, "radio words", [1.0, 0, 0, 0])], g.id)
+    store.upsert_note(tv, [ChunkRecord(0, "tv words", [1.0, 0, 0, 0])], g.id)
     store.activate_generation(g.id)
-    assert [h.note_name for h in store.search([1.0, 0, 0, 0], "moving", 5,
-                                              projects=["radio"])] == ["moving"]
-    store.upsert_note(_with_project(rec, "tv"), None, g.id)    # metadata-only upsert
-    assert store.search([1.0, 0, 0, 0], "moving", 5, projects=["radio"]) == []
-    assert store.get_note("moving").project == "tv"
+    assert store.get_note("runbook", "radio").body == "radio body"
+    assert store.get_note("runbook", "tv").body == "tv body"
+    hits = store.search([1.0, 0, 0, 0], "runbook", 5, projects=["radio"])
+    assert [(h.note_name, h.project, h.description) for h in hits] == [
+        ("runbook", "radio", "radio runbook")]
+    assert {(h.project) for h in store.search([1.0, 0, 0, 0], "runbook", 5)} == {"radio", "tv"}
+    # links and history are per project
+    rv = store.for_project("radio")
+    rv.set_links("runbook", ["other"])
+    assert store.links("runbook", "tv")["links"] == []
+    assert [r["name"] for r in store.links("runbook", "radio")["links"]] == ["other"]
+    # resolution: own project first, then shared, never another project
+    assert store.resolve_note("runbook", ["tv"]).body == "tv body"
+    assert store.resolve_note("runbook", ["default"]) is None
+    store.delete_note("runbook", project="radio")
+    assert store.get_note("runbook", "tv") is not None
+    assert store.search([1.0, 0, 0, 0], "runbook", 5, projects=["radio"]) == []
+
+
+def test_shared_project_resolution_order(store):
+    g = store.create_generation("t@4", 4)
+    for proj, body in (("shared", "shared conventions"), ("radio", "radio conventions")):
+        store.upsert_note(NoteRecord("conventions", body, "project", 0, f"/{proj}/c.md",
+                                     None, "indexed", body, proj),
+                          [ChunkRecord(0, body, [1.0, 0, 0, 0])], g.id)
+    store.activate_generation(g.id)
+    assert store.resolve_note("conventions", ["radio", "shared"]).body == "radio conventions"
+    assert store.resolve_note("conventions", ["tv", "shared"]).body == "shared conventions"
+
+
+def test_migration_0012_from_an_0011_index(store):
+    with store.pool.connection() as con:   # back to the 0011 shape, with data
+        con.execute("DELETE FROM schema_migrations WHERE version = 12")
+        con.execute("DROP INDEX notes_project_name")
+        con.execute("ALTER TABLE notes ADD CONSTRAINT notes_name_key UNIQUE (name)")
+        con.execute("ALTER TABLE links DROP CONSTRAINT links_pkey")
+        con.execute("ALTER TABLE links DROP COLUMN project")
+        con.execute("ALTER TABLE links ADD PRIMARY KEY (src, dst)")
+        con.execute("ALTER TABLE note_versions DROP COLUMN project")
+        con.execute("ALTER TABLE recall_log DROP COLUMN project")
+        con.execute("INSERT INTO notes(name, description, body) VALUES ('old', 'd', 'b')")
+        con.execute("INSERT INTO links(src, dst) VALUES ('old', 'x')")
+    assert store.migrate() == [12]
+    assert store.get_note("old", "default") is not None
+    assert [r["name"] for r in store.links("old", "default")["links"]] == ["x"]
+    with store.pool.connection() as con:
+        con.execute("INSERT INTO notes(name, description, body, project) "
+                    "VALUES ('old', 'd', 'b', 'radio')")   # same name, other project: OK

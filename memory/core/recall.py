@@ -331,7 +331,8 @@ class Recaller:
             found = (self.store.existing_names(quoted, projects=scope) if scope is not None
                      else self.store.existing_names(quoted))
             for name in sorted(found - have):
-                note = self.store.get_note(name)
+                note = (self.store.resolve_note(name, scope)
+                        if hasattr(self.store, "resolve_note") else self.store.get_note(name))
                 # a note of another project "does not exist" for this caller, even quoted
                 if note is None or not _scope.visible(note, scope):
                     continue
