@@ -299,6 +299,9 @@ class AgentSession:
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
             env_extra = {**vault.session_env(self._secret_names()),
                          **llm.session_env(self.user)}
+            # 3.2 lot 5: a forge project's session pushes with the PERSON's token, through
+            # a credential helper — the env holds a ticket, never the token (forge.gitcred)
+            env_extra.update(self._forge_env())
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = self.model or llm.session_model()
@@ -321,6 +324,15 @@ class AgentSession:
             except Exception:  # noqa: BLE001
                 pass
             self.client = None
+
+    def _forge_env(self) -> dict[str, str]:
+        try:
+            from forge import gitcred
+            return gitcred.session_env(self.sid, self.user, session_project(self.sid))
+        except Exception as e:  # noqa: BLE001 — no credentials = the push fails, says so
+            print(f"[sokkan] forge credentials of {self.sid} unavailable ({type(e).__name__})",
+                  file=sys.stderr)
+            return {}
 
     def _recall_scope(self) -> tuple[str, ...]:
         """Memory scope of this session (3.2): its project + shared (see session_project)."""

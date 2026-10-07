@@ -180,12 +180,13 @@ def test_a_default_on_feature_with_a_dependency_off_is_not_a_problem(clean_env):
 def test_conflict_and_planned(clean_env):
     clean_env.setenv("SOKKAN_FEATURE_FOUR_EYES", "1")
     clean_env.setenv("SOKKAN_FEATURE_ADMIN_APPROVAL", "1")
-    clean_env.setenv("SOKKAN_FEATURE_GITLAB", "1")
+    clean_env.setenv("SOKKAN_FEATURE_REVOCATION", "1")
     st = F.resolve()
     assert st["four_eyes"].enabled and not st["admin_approval"].enabled
     assert "conflicts with `four_eyes`" in st["admin_approval"].reason
-    assert not st["gitlab"].enabled and st["gitlab"].problem and "planned" in st["gitlab"].reason
-    assert {s.id for s in F.problems()} == {"admin_approval", "gitlab"}
+    assert not st["revocation"].enabled and st["revocation"].problem and \
+        "planned" in st["revocation"].reason
+    assert {s.id for s in F.problems()} == {"admin_approval", "revocation"}
 
 
 def test_unknown_feature_id_is_a_programming_error():

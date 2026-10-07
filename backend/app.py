@@ -77,6 +77,7 @@ import preview
 import previewenv
 import projectgate
 import projects
+import forge.routes as forge_routes
 import provision
 import transcript as T
 import updatecheck
@@ -1622,7 +1623,8 @@ def auth_oidc_logout():
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
               "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
-              "/api/memory/hook")  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              forge_routes.CRED_PATH)  # 3.2 lot 5 : ticket de session + loopback seulement
 
 
 @app.middleware("http")
@@ -2282,6 +2284,29 @@ def memory_migration_approve(body: MigrationApproval,
     audit.log(u["email"], "memory.migration.approve", body.what)
     return {"approved": doc}
 
+
+# 3.2 lot 5 — GitLab : comptes liés, droits lus avec le jeton de la personne, credential
+# helper des sessions (backend/forge/)
+def _forge_live_user(sid: str) -> str | None:
+    s = agentchat.peek(sid)
+    return s.user if s is not None else None
+
+
+async def _forge_close_sessions(email: str) -> int:
+    """Unlink = immediate revocation: close the person's live sessions of forge projects."""
+    n = 0
+    for sid, s in list(agentchat._registry.items()):
+        if (s.user or "").lower() != email:
+            continue
+        p = projects.get(agentchat.session_project(sid) or "")
+        if p and p["access_source"] == "forge":
+            await agentchat.drop(sid)
+            n += 1
+    return n
+
+
+app.include_router(forge_routes.router(current_user, require, _forge_live_user,
+                                       _forge_close_sessions))
 
 # onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
 app.include_router(corthexis.router)
