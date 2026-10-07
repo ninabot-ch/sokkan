@@ -74,6 +74,7 @@ class ParsedNote:
     priority: int = 0
     modified: str | None = None          # metadata.modified, ISO string
     modified_source: str | None = None   # metadata.modified_source
+    level: int | None = None             # 3.4: `classification:` (core.levels); None = not set
     body: str = ""                       # stripped; text found above the frontmatter is prepended
     fm: dict | None = None               # None = no frontmatter at all
     yaml_ok: bool = False
@@ -122,6 +123,8 @@ def parse_note(text: str, filename: str) -> ParsedNote:
     note.type = str(meta.get("type") or meta.get("node_type") or "unknown")
     raw_prio = fm.get("priority", meta.get("priority", ""))
     note.priority = 1 if str(raw_prio).lower() in ("high", "true", "1") else 0
+    from . import levels as _lv
+    note.level = _lv.parse(fm.get("classification", meta.get("classification")))
     note.modified = _as_str_date(meta.get("modified"))
     note.modified_source = (str(meta.get("modified_source") or "").strip()) or None
     if not note.description:

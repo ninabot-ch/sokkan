@@ -242,7 +242,7 @@ def test_stream_falls_back_before_first_byte(monkeypatch):
     """Le repli n'est possible qu'AVANT le 1er octet — après, le flux est engagé."""
     monkeypatch.setattr(assistant, "_primary_down_until", 0.0)
     monkeypatch.setattr(assistant, "_prepare",
-                        lambda u, m: ({"url": "xpu"}, {"url": "gw"}, "S", []))
+                        lambda u, m, **kw: ({"url": "xpu"}, {"url": "gw"}, "S", []))
     monkeypatch.setattr(assistant, "_persist", lambda *a: None)
 
     def fake_stream(cfg, system, msgs, user_email):

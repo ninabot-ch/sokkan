@@ -76,7 +76,7 @@ the standard `ANTHROPIC_BASE_URL` setting.
 | [METHOD.md](METHOD.md) | how a team works with SOKKAN, from the manager's card to production |
 | [PIPELINE.md](PIPELINE.md) | the path of one model call; the release pipeline |
 | [OPERATIONS.md](OPERATIONS.md) | runbook: install, SSO, features, backup, upgrade, monitoring, incidents, secrets, go-live checklist |
-| [SECURITY.md](SECURITY.md) | security model and the classification roadmap |
+| [SECURITY.md](SECURITY.md) | security model; classification and clearances (§ 8, 3.4) |
 | [hld-overview.html](hld-overview.html) · [PNG](hld-overview.png) · [PDF](hld-overview.pdf) | one-page overview for decision-makers (French) |
 | [../MULTIUSER.md](../MULTIUSER.md), [../AGENTS.md](../AGENTS.md), [../OPERATE.md](../OPERATE.md), [../UPGRADE.md](../UPGRADE.md), [../RELEASING.md](../RELEASING.md) | the contractual specs these pages summarise |
 

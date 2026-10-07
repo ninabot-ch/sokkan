@@ -75,22 +75,103 @@ overrides ●; `project.create|archive|grant|revoke`, `project.grant.self`, `tea
 `memory.scope_violation` ◐; `forge.*`, `byok.*`, `revoke.now` ○. With several projects the
 journal is for instance admins only ◐.
 
-## 8. Roadmap — classification and clearances (3.4)
+## 8. Classification and clearances (3.4) ◐
 
-Goal: a note, a card or a document carries a **classification level**, a person carries
-**clearances**, and nothing reaches a person above their clearance — including through Nina.
+A note, a decision, a card or an agent deliverable carries a **level**; a person carries a
+**clearance** per project; nothing reaches a person above their clearance — including
+through Nina, an agent or Teams. Feature `classification` (requires `multi_project` and
+`sso_teams`; on by default in the enterprise edition). Code: `memory/core/levels.py`,
+`memory/core/scope.py`, `backend/classification.py`, `backend/classification_api.py`.
 
-| Rule | Meaning |
-|---|---|
-| Levels | an ordered scale set by the customer (e.g. public < internal < confidential < restricted) — **TBD with the customer** |
-| Clearance | per person, from IdP groups (same mechanism as teams) |
-| **The derived inherits the highest level** | a summary, digest, card or deliverable built from several sources is classified at the highest level among them, automatically |
-| **Nina acts on behalf of the user** | the assistant (cockpit, Teams) sees exactly what the person in front of it may see — never a service account's view |
-| Audited recall | every recall of a classified note is logged (who, which note, which session) |
-| Fail-closed | an unclassified source in a classified project takes the project's default level |
+### Levels
 
-Dependencies (registry): `classification` requires `multi_project` and `sso_teams`; `teams`
-(Microsoft Teams) requires `classification`. Status: ○ planned 3.4. Design document: **TBD**.
+`public < team < project < confidential < restricted` — five fixed ids (API, frontmatter,
+database rank 0-4), relabelled to the customer's grid with `SOKKAN_CLASSIFICATION_LABELS`
+(five labels in that order, e.g. `Public,Interne,Projet,Confidentiel,Secret`).
+
+| Object | Where the level lives | Default |
+|---|---|---|
+| Note / decision | frontmatter `classification: <id or label>` → `notes.level` (migration `0013`) | `project` |
+| Card | `cards.level` | `project` (selector at creation) |
+| Agent deliverable | quarantined note (`classification:` + provenance), run card | highest level its run obtained |
+| Session / run | computed: highest level of the notes it obtained (`note_access`) | — |
+
+Fail-closed: a value that is set but not understood is `restricted`; a note without the key
+is `project`; the migration puts every existing note at `project` (nothing changes on screen).
+
+### Clearance
+
+clearance(person, project) = max( level of their **project role** (default: every role reads
+up to `project`; `SOKKAN_CLEARANCE_ROLES=viewer=team,…` or Profile → Classification), level
+mapped to any of their **SSO groups** for that project or for every project
+(`clearance_groups`, Profile → Classification, `PUT /api/admin/classification/groups`) ).
+No role in the project = no clearance (the project does not exist for them).
+
+A **scope** is `(project@clearance, shared@clearance)`. The memory engine applies it at every
+stage of every search (dense HNSW, lexical, final guard — SQL), in `resolve_note`,
+`existing_names`, `list_notes`, `recall_log`, and re-checks in Python (`scope.filter_hits`,
+`scope.visible`): a store that ignored the scope still could not leak. An entry that lost
+its clearance on the way (`radio` instead of `radio@3`) reads up to `project` only — a
+lost clearance only narrows.
+
+### Who acts for whom — there is no service view
+
+| Surface | Whose clearance | Check |
+|---|---|---|
+| Spawn pre-seed, per-turn and sub-agent recall | the session's **owner** (`sessions.owner`) | `classification.session_scope` |
+| MCP `memory_search` / `memory_get` / `memory_links` | the owner (`SOKKAN_SESSION_SCOPE` with clearances, set by the API) | `memory_search_server._scope` |
+| MCP board (`list_board`, `search_cards`, `get_card`…) | the owner | `board_mcp._cap` |
+| Agent run | the agent's **owner** | `agents_runtime` → `owner` |
+| Cockpit (memory, CortHeXis graph/note/review/proposals, board, quarantine, sessions, runs) | the person logged in | `projectgate` → `pu["clearance"]` |
+| Nina (cockpit) | the person who asks | `assistant._memory_scope` |
+| Nina (Teams), approvals, decisions | the Teams user linked to their SSO account | `backend/teams/` |
+
+Object routes (`/api/sessions/{id}`, `/api/board/card/{id}`, `/api/agents/runs/{id}`, the
+session WebSocket) answer **404** when the object is above the person's clearance — the same
+answer as for an object that does not exist. Run lists keep the row and withhold the
+deliverable (`classified: <level>`).
+
+### The derived inherits the highest level
+
+* A note written by a session (`memory_write`) = max(requested, highest level the session
+  obtained); a floor is recorded at once (`note_level_floor`).
+* An agent deliverable (quarantined note, run card) = highest level its run obtained; at
+  approval the floor is recorded.
+* A card created from a session (board MCP) inherits likewise.
+* A Nina answer reports `level` = highest level of the notes it was built from.
+* A decision captured in Teams = max(level of the channel's project default, the thread).
+
+**Never lowered by an edit**: an upsert of the index keeps `greatest(file level, stored
+level, floor)`. Lowering = `POST /api/memory/note/{name}/level` or
+`/api/board/card/{id}/level` by a **maintainer/admin of the project cleared for the current
+level, with a reason** — journaled (`classification.note.lower`, `classification.card.lower`).
+Raising: any dev cleared for the current level.
+
+### Audited recall
+
+Every note handed out is a row of `note_access` (Postgres): `at, via, actor, session_id,
+project, note_name, level, query`. `via` = `spawn` | `prompt` | `subagent` | `mcp` |
+`cockpit` | `nina` | `teams` | `brief`. Rows of sessions name their actor through the
+session's owner. `GET /api/classification/audit` (project **admins**; `?format=csv` exports;
+filters actor, note, session, days) — entries about notes above the reader's own clearance
+are left out; each read is journaled (`classification.audit.read`).
+
+### Off
+
+`classification` off: every scope is the 3.2 one, which reads up to `project` — a note or a
+card classified above it stays out of reach of everyone (turning the feature off never opens
+data); badges and selectors are hidden.
+
+### Limits (3.4)
+
+* Not a hard boundary against `Read`/`Bash` in a session: a classified note is a file in the
+  project's memory directory (channel 7 of MULTIUSER.md) — lot 8 sandbox.
+* A session's scope is computed at its start (owner's clearance then); a clearance removed
+  later applies to new sessions (revocation, lot 6, closes the running ones).
+* The CortHeXis Telegram digest is instance-level: keep it off on classified instances.
+* No per-paragraph classification; the level is per object.
+* Session transcripts (`*.jsonl`) are files of the instance: protected by the gate (404), not
+  encrypted per level.
 
 ## 9. Out of scope today
 

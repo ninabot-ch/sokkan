@@ -56,6 +56,8 @@ _CARD_MIGRATIONS = {
     "closed_by": "TEXT DEFAULT ''",
     # 3.2 multi-user : chaque carte appartient à un projet ; l'existant → 'default'
     "project": "TEXT NOT NULL DEFAULT 'default'",
+    # 3.4 classification : rang du niveau (core/levels.py) ; 2 = project, le défaut
+    "level": "INTEGER NOT NULL DEFAULT 2",
 }
 # 3.2 : d'où vient un événement (session SOKKAN, canal web / mcp / run d'agent)
 _EVENT_MIGRATIONS = {
@@ -131,6 +133,8 @@ def init(force: bool = False) -> None:
             con.execute("ALTER TABLE sessions ADD COLUMN secrets TEXT DEFAULT NULL")
         if "project" not in scols:  # 3.2 : projet de la session (périmètre du rappel mémoire)
             con.execute("ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
+        if "owner" not in scols:  # 3.4 : qui l'a ouverte (habilitation du rappel)
+            con.execute("ALTER TABLE sessions ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
         con.commit()
         con.close()
         _initialized = True
@@ -308,7 +312,8 @@ def _uniquify_sdk(tag: str) -> str:
 
 
 def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "",
-                    secrets: list[str] | None = None, project: str = "default") -> dict:
+                    secrets: list[str] | None = None, project: str = "default",
+                    owner: str = "") -> dict:
     """Enregistre une session SDK possédée par SOKKAN (le chat vit dans l'API,
     l'historique dans le transcript du claude_session_id, persisté plus tard)."""
     tag = (tag or "session").strip().replace(" ", "-")[:24]
@@ -317,9 +322,10 @@ def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "",
     con = _con()
     con.execute(
         "INSERT INTO sessions(session_id, tag, window, title, prompt, created_at, kind, secrets,"
-        " project) VALUES(?,?,?,?,?,?, 'sdk', ?, ?)",
+        " project, owner) VALUES(?,?,?,?,?,?, 'sdk', ?, ?, ?)",
         (sid, name, "", title, prompt, time.time(),
-         None if secrets is None else json.dumps(list(secrets)), project or "default"),
+         None if secrets is None else json.dumps(list(secrets)), project or "default",
+         (owner or "").lower().strip()),
     )
     con.commit()
     con.close()
@@ -349,6 +355,14 @@ def get_session_project(sid: str) -> str | None:
     return (r["project"] or "default") if r else None
 
 
+def get_session_owner(sid: str) -> str:
+    """Who opened a SOKKAN session (3.4: whose clearance its recall uses); '' = unknown."""
+    con = _con()
+    r = con.execute("SELECT owner FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    con.close()
+    return (r["owner"] or "") if r else ""
+
+
 def get_session_secrets(sid: str) -> list[str] | None:
     """Secrets choisis à l'ouverture de la session (None = aucun choix enregistré)."""
     con = _con()
@@ -369,13 +383,18 @@ def seed_text(prompt: str, recall: str = "") -> str:
 
 # ---------- cartes ----------
 
-def list_cards(include_archived: bool = False, project: str | None = None) -> dict:
-    """Cards per column; ``project`` (3.2) = that project's board only."""
+def list_cards(include_archived: bool = False, project: str | None = None,
+               max_level: int | None = None) -> dict:
+    """Cards per column; ``project`` (3.2) = that project's board only; ``max_level``
+    (3.4) = only the cards at or below that classification."""
     con = _con()
     conds, args = ([] if include_archived else ["archived=0"]), []
     if project is not None:
         conds.append("project=?")
         args.append(project)
+    if max_level is not None:
+        conds.append("COALESCE(level, 2)<=?")
+        args.append(int(max_level))
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     rows = [_card_out(r) for r in con.execute(f"SELECT * FROM cards {where} ORDER BY sort, id",
                                               args)]
@@ -385,7 +404,8 @@ def list_cards(include_archived: bool = False, project: str | None = None) -> di
 
 def add_card(title: str, description: str = "", tag: str = "backend",
              bucket: str = "Backlog", priority: int = 2, due: str = "",
-             user: str = "", origin: dict | None = None, project: str = "default") -> dict:
+             user: str = "", origin: dict | None = None, project: str = "default",
+             level: int = 2) -> dict:
     if bucket not in BUCKETS:
         bucket = "Backlog"
     title = (title.strip() or description.strip()[:60] or "tâche")
@@ -393,10 +413,10 @@ def add_card(title: str, description: str = "", tag: str = "backend",
     con = _con()
     cur = con.execute(
         "INSERT INTO cards(title, description, tag, bucket, created_at, sort, priority, due, updated_at,"
-        " closed_at, closed_by, project) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        " closed_at, closed_by, project, level) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (title, description.strip(), tag, bucket, now, now, int(priority), due, now,
          now if bucket == "Done" else None, (user or "") if bucket == "Done" else "",
-         project or "default"),
+         project or "default", max(0, min(int(level), 4))),
     )
     _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}", origin)
     con.commit()
@@ -410,6 +430,25 @@ def get_card(card_id: int) -> dict | None:
     r = con.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
     con.close()
     return _card_out(r) if r else None
+
+
+def set_card_level(card_id: int, level: int, user: str = "", reason: str = "",
+                   origin: dict | None = None) -> dict:
+    """3.4 : change le niveau d'une carte (l'appelant a vérifié qu'un abaissement vient
+    d'un humain habilité) ; tracé dans l'historique de la carte."""
+    level = max(0, min(int(level), 4))
+    con = _con()
+    r = con.execute("SELECT level FROM cards WHERE id=?", (card_id,)).fetchone()
+    if r is None:
+        con.close()
+        raise KeyError(card_id)
+    con.execute("UPDATE cards SET level=?, updated_at=? WHERE id=?", (level, time.time(), card_id))
+    _event(con, card_id, user, "classified",
+           f"level {r['level'] if r['level'] is not None else 2} → {level}"
+           + (f" — {reason}" if reason else ""), origin)
+    con.commit()
+    con.close()
+    return get_card(card_id)
 
 
 def card_events(card_id: int, limit: int = 50) -> list[dict]:
@@ -715,13 +754,16 @@ def card_detail(card_id: int) -> dict | None:
 
 def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str = "",
                  include_archived: bool = False, limit: int = 50,
-                 project: str | None = None) -> list[dict]:
+                 project: str | None = None, max_level: int | None = None) -> list[dict]:
     """Recherche plein texte simple (titre, description, commentaires) + filtres ;
-    `project` (3.2) = le board de ce projet seulement."""
+    `project` (3.2) = le board de ce projet seulement ; `max_level` (3.4) = habilitation."""
     where, args = [], []
     if project is not None:
         where.append("c.project=?")
         args.append(project)
+    if max_level is not None:
+        where.append("COALESCE(c.level, 2)<=?")
+        args.append(int(max_level))
     if not include_archived:
         where.append("c.archived=0")
     if tag:

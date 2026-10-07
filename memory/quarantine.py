@@ -64,18 +64,30 @@ def _split(text: str) -> tuple[dict, str]:
     return {}, text
 
 
+def _level(prov: dict) -> int:
+    from core import levels
+    return levels.clamp(prov.get("level", levels.DEFAULT))
+
+
 def write(name: str, description: str, body: str, provenance: dict,
-          project: str | None = "default") -> dict:
-    """Store a note in quarantine (a newer version of the same name replaces it)."""
+          project: str | None = "default", level: int | None = None) -> dict:
+    """Store a note in quarantine (a newer version of the same name replaces it).
+    ``level`` (3.4): the deliverable's classification — the highest level the run obtained
+    (computed by the caller); it travels with the note into the memory at approval."""
     name = (name or "").strip().removesuffix(".md")
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, 2-64 chars"}
     if not (description or "").strip() or not (body or "").strip():
         return {"ok": False, "error": "description and body are required"}
-    prov = {**provenance, "quarantined_at": time.time(), "project": _proj(project)}
+    from core import levels
+    lvl = levels.DEFAULT if level is None else levels.clamp(level)
+    prov = {**provenance, "quarantined_at": time.time(), "project": _proj(project),
+            "level": lvl}
     fm = ["---", f"name: {name}",
-          f"description: {json.dumps(' '.join(description.split()), ensure_ascii=False)}",
-          "metadata:", "  type: project",
+          f"description: {json.dumps(' '.join(description.split()), ensure_ascii=False)}"]
+    if lvl != levels.DEFAULT:
+        fm.append(f"classification: {levels.ident(lvl)}")
+    fm += ["metadata:", "  type: project",
           f"  provenance: {json.dumps(_prov_line(prov), ensure_ascii=False)}", "---", ""]
     note = "\n".join(fm) + body.strip() + "\n"
     d = qdir(project)
@@ -98,7 +110,8 @@ def _prov_line(p: dict) -> str:
     return " · ".join(bits)
 
 
-def list_notes(project: str | None = "default") -> list[dict]:
+def list_notes(project: str | None = "default", max_level: int | None = None) -> list[dict]:
+    """Quarantined notes of a project; ``max_level`` (3.4) = only those at or below it."""
     d = qdir(project)
     if not d.is_dir():
         return []
@@ -111,26 +124,34 @@ def list_notes(project: str | None = "default") -> list[dict]:
             desc = json.loads(desc) if desc.startswith('"') else desc
         except ValueError:
             pass
+        if max_level is not None and _level(prov) > max_level:
+            continue
+        from core import levels
         out.append({"name": f.stem, "description": desc, "provenance": prov,
+                    "level": levels.ident(_level(prov)),
                     "exists_in_memory": (memory_dir(project) / f.name).exists()})
     return out
 
 
-def get(name: str, project: str | None = "default") -> dict | None:
+def get(name: str, project: str | None = "default", max_level: int | None = None
+        ) -> dict | None:
     if not NAME_RE.match(name or ""):
         return None
     f = qdir(project) / f"{name}.md"
     if not f.exists():
         return None
     prov, rest = _split(f.read_text(encoding="utf-8", errors="replace"))
-    return {"name": name, "provenance": prov, "text": rest,
+    if max_level is not None and _level(prov) > max_level:
+        return None               # 3.4: above the reader's clearance = does not exist
+    return {"name": name, "provenance": prov, "text": rest, "level": _level(prov),
             "exists_in_memory": (memory_dir(project) / f.name).exists()}
 
 
-def approve(name: str, user: str, project: str | None = "default") -> dict:
+def approve(name: str, user: str, project: str | None = "default",
+            max_level: int | None = None) -> dict:
     """Human-read and approved → into the memory directory (replaces a previous
     version), provenance kept in the frontmatter, plus who approved it."""
-    q = get(name, project)
+    q = get(name, project, max_level)
     if q is None:
         raise KeyError(name)
     text = q["text"].replace(
@@ -143,7 +164,7 @@ def approve(name: str, user: str, project: str | None = "default") -> dict:
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(dest)
     (qdir(project) / f"{name}.md").unlink()
-    return {"ok": True, "note": name, "path": str(dest)}
+    return {"ok": True, "note": name, "path": str(dest), "level": q["level"]}
 
 
 def reject(name: str, user: str, delete: bool = False,

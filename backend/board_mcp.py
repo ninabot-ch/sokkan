@@ -124,15 +124,49 @@ def _project() -> str:
     return "" if projects.multi_project() else projects.DEFAULT_PROJECT
 
 
+def _cap() -> int | None:
+    """3.4: the clearance of the person this session acts for in its project (from
+    SOKKAN_SESSION_SCOPE, set by the API); a session outside SOKKAN = no filter; an entry
+    without a clearance = the default level."""
+    if os.environ.get("SOKKAN_SESSION_PROJECT") is None:
+        return None
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "memory"))
+    from core import scope as _sc
+    raw = [e.strip() for e in (os.environ.get("SOKKAN_SESSION_SCOPE") or "").split(",")]
+    caps = _sc.caps(_sc.normalize(raw)) or {}
+    return caps.get(_project(), 2)
+
+
 def _foreign(card_id: int) -> bool:
-    """A card of another project (or none at all): "not found" for this session."""
+    """A card of another project (or none at all, or above the clearance — 3.4):
+    "not found" for this session."""
     c = board.get_card(card_id)
-    return c is None or (c.get("project") or "default") != _project()
+    if c is None or (c.get("project") or "default") != _project():
+        return True
+    cap = _cap()
+    return cap is not None and int(c.get("level") if c.get("level") is not None else 2) > cap
+
+
+def _inherited_level(requested: str = "") -> int:
+    """3.4: a card written by a session inherits the highest level the session obtained."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "memory"))
+    from core import levels as _lv
+    req = _lv.parse(requested)
+    lvl = _lv.DEFAULT if req is None else req
+    sid = os.environ.get("SOKKAN_SESSION_ID")
+    if sid:
+        try:
+            import classification
+            got = classification.session_level(sid)
+        except Exception:  # noqa: BLE001
+            got = None
+        lvl = max(lvl, got or 0)
+    return lvl
 
 
 @mcp.tool()
 def create_card(title: str, tag: str = "backend", description: str = "",
-                bucket: str = "Backlog", priority: int = 2) -> dict:
+                bucket: str = "Backlog", priority: int = 2, classification: str = "") -> dict:
     """Crée une carte sur le board SOKKAN (apparaît dans l'onglet Board).
 
     Utiliser pour transformer une stratégie / un plan en tâches actionnables.
@@ -144,6 +178,8 @@ def create_card(title: str, tag: str = "backend", description: str = "",
         description: le détail / prompt de la tâche (servira de seed au spawn).
         bucket: colonne (Backlog par défaut ; Doing/Review/Done possibles).
         priority: 0=urgente, 1=haute, 2=normale (défaut), 3=basse.
+        classification: public | team | project (défaut) | confidential | restricted —
+            la carte hérite au moins du niveau le plus élevé obtenu par la session.
     """
     denied = _write_denied()
     if denied:
@@ -153,7 +189,7 @@ def create_card(title: str, tag: str = "backend", description: str = "",
         return {"error": "this session has no project: no board"}
     card = board.add_card(title=title, description=description, tag=tag,
                           bucket=bucket, priority=priority, user=who, origin=origin,
-                          project=_project())
+                          project=_project(), level=_inherited_level(classification))
     _audit(who, origin, "board.card.create", card["id"], title)
     return card
 
@@ -218,7 +254,7 @@ def list_tags() -> list[str]:
 @mcp.tool()
 def list_board() -> dict:
     """Retourne les cartes du board groupées par colonne (Backlog/Doing/Review/Done)."""
-    return board.list_cards(project=_project())
+    return board.list_cards(project=_project(), max_level=_cap())
 
 
 @mcp.tool()
@@ -254,7 +290,7 @@ def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str
         return {"error": f"unknown bucket: {bucket} (valid: {board.BUCKETS})"}
     rows = board.search_cards(query, tag=tag, bucket=bucket, assignee=assignee,
                               include_archived=include_archived, limit=limit,
-                              project=_project())
+                              project=_project(), max_level=_cap())
     keep = ("id", "title", "tag", "bucket", "priority", "due", "assignee", "archived",
             "closed_at", "session_id", "updated_at")
     cards = [{**{k: c.get(k) for k in keep},

@@ -97,7 +97,8 @@ switch to `0` and restart `api`.
 | 7. GitLab | `gitlab` | per registry | Reporter cannot push; Developer pushes a branch and opens an MR | ○ lot 5 |
 | 8. Revocation | `revocation` | SCIM endpoint in the IdP | SCIM delete → sessions closed, agents paused | ○ lot 6 |
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | per registry | per feature spec | ○ |
-| 10. Helm, classification, Teams | `helm`, `classification`, `teams` | — | — | ○ 3.3 / 3.4 |
+| 10. Helm | `helm` | — | — | ○ 3.3 |
+| 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Profile → Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
 
 Planned features cannot be switched on: asking for one is reported, never honoured.
 

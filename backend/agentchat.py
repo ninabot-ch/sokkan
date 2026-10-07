@@ -99,10 +99,11 @@ def project_cwd(sid: str) -> str:
     return str(d)
 
 
-def session_scope_env(project: str) -> str:
-    """Comma list handed to the MCP servers: the project + shared (lot 3), or "" = none."""
-    import projects
-    return ",".join(projects.recall_scope(project)) if project else ""
+def session_scope_env(project: str, user: str = "") -> str:
+    """Comma list handed to the MCP servers: the project + shared (lot 3), or "" = none.
+    3.4: each entry carries the clearance of the person the session acts for."""
+    import classification
+    return ",".join(classification.scope_for_email(user, project)) if project else ""
 MCP_SERVERS = {
     "sokkan-memory": {"command": _PY, "args": [os.path.abspath(_MEM_SRV)]},
     "sokkan-board": {"command": _PY, "args": [os.path.abspath(_BOARD_SRV)]},
@@ -125,7 +126,7 @@ def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
     who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or "",
            "SOKKAN_SESSION_PROJECT": project,
            # what the session may READ: its project + shared (writes: its project only)
-           "SOKKAN_SESSION_SCOPE": session_scope_env(project)}
+           "SOKKAN_SESSION_SCOPE": session_scope_env(project, user)}
     if agent_run:
         who["SOKKAN_AGENT_RUN"] = "1"  # agents MCP read-only, memory writes quarantined
         if isinstance(agent_run, dict):
@@ -324,9 +325,9 @@ class AgentSession:
 
     def _recall_scope(self) -> tuple[str, ...]:
         """Memory scope of this session (3.2): its project + shared (see session_project)."""
-        import projects
+        import classification
         p = session_project(self.sid)
-        return projects.recall_scope(p) if p else ()
+        return classification.scope_for_email(self.user, p) if p else ()
 
     def _secret_names(self) -> list[str] | None:
         """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;

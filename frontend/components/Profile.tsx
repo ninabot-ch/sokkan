@@ -11,11 +11,12 @@ import {
 import type { IamUser } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
 import FeaturesAdmin from "./FeaturesAdmin";
+import ClassificationAdmin from "./ClassificationAdmin";
 import { useFeatures } from "@/lib/features";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "notify" | "secrets";
+type Section = "account" | "org" | "members" | "projects" | "features" | "classification" | "model" | "notify" | "secrets";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -431,6 +432,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
   const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"],
     ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
     ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
+    ["classification", "Classification"],
     ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
@@ -451,7 +453,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "classification" ? <ClassificationAdmin instanceAdmin={instAdmin} /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

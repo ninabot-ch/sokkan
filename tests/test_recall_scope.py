@@ -179,7 +179,8 @@ def test_mcp_server_reads_its_scope_from_the_api_environment(monkeypatch):
     monkeypatch.setattr(store_backend, "enabled", lambda: True)
     monkeypatch.setattr(store_backend, "memory_search",
                         lambda q, k, f, label, **kw: calls.setdefault("search", kw) and [])
-    monkeypatch.setattr(store_backend, "memory_get",
+    # 3.4: the MCP tool reads the record (its level goes to the access log)
+    monkeypatch.setattr(store_backend, "memory_get_record",
                         lambda n, projects=None: calls.setdefault("get", projects) and None)
     monkeypatch.delenv("SOKKAN_SESSION_PROJECT", raising=False)
     mem.memory_search("deploy the player")

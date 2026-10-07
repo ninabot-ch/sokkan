@@ -75,6 +75,7 @@ import memeval
 import panestate
 import preview
 import previewenv
+import classification
 import projectgate
 import projects
 import provision
@@ -776,8 +777,13 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
     """Spawn une session qui exécute le runbook pas à pas (HITL sur l'irréversible)."""
     if "/" in name or ".." in name or not name.startswith("runbook-"):
         raise HTTPException(400, "invalid runbook")
-    body = (store_backend.memory_get(name, projects=_ctx_scope()) if store_backend.enabled()
-            else (mem.memory_get(name) if projects.DEFAULT_PROJECT in _ctx_scope() else None))
+    from core import scope as _sc
+    rec = (store_backend.memory_get_record(name, projects=_ctx_scope())
+           if store_backend.enabled() else None)
+    body = (store_backend.render_note(rec) if rec is not None else None) if \
+        store_backend.enabled() else (mem.memory_get(name)
+                                      if _sc.allows(_ctx_scope(), projects.DEFAULT_PROJECT)
+                                      else None)
     if not body or body.startswith("note not found"):
         raise HTTPException(404, "runbook introuvable")
     prompt = (
@@ -787,6 +793,9 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
         "anything irreversible. If a step fails, diagnose before continuing.")
     s = _spawn_sdk("ops", prompt=prompt, title=f"runbook: {name.removeprefix('runbook-')}",
                    user=u["email"], project=_ctx_project())
+    if rec is not None:  # 3.4: the session inherits the runbook's level (audited)
+        classification.log_access("cockpit", [rec], actor=u["email"],
+                                  session_id=s["session_id"])
     audit.log(u["email"], "runbook.run", name, s["session_id"])
     return s
 
@@ -935,7 +944,8 @@ def agents_propose(body: AgentBody, u: dict = Depends(require("dev")),
 @app.get("/api/agents/runs/{run_id}")
 def agents_run(run_id: int, u: dict = Depends(crew_reader),
                _f: None = Depends(feature_agents)) -> dict:
-    return _agent_http(agents.get_run_for, u, run_id)
+    return classification.redact_run(_agent_http(agents.get_run_for, u, run_id),
+                                      classification.ctx_clearance())
 
 
 @app.post("/api/agents/runs/{run_id}/cancel")
@@ -1009,7 +1019,8 @@ def agents_action(aid: int, action: str, override_alert_writes: bool = False,
 @app.get("/api/agents/{aid}/runs")
 def agents_runs(aid: int, limit: int = 50, u: dict = Depends(crew_reader),
                 _f: None = Depends(feature_agents)) -> list[dict]:
-    return _agent_http(agents.list_runs, u, aid, limit)
+    cap = classification.ctx_clearance()
+    return [classification.redact_run(r, cap) for r in _agent_http(agents.list_runs, u, aid, limit)]
 
 
 # --- quarantaine mémoire (3.1) : notes écrites par des runs d'agent ------------
@@ -1020,12 +1031,12 @@ import quarantine  # noqa: E402 — memory/ est sur le path (cf. imports du haut
 def memory_quarantine(_u: dict = Depends(require("dev"))) -> list[dict]:
     """Notes écrites par des runs d'agent, en attente de relecture humaine. Elles ne
     sont PAS dans le dossier mémoire : aucun rappel (spawn, recherche, hooks)."""
-    return quarantine.list_notes(_ctx_project())
+    return quarantine.list_notes(_ctx_project(), classification.ctx_clearance())
 
 
 @app.get("/api/memory/quarantine/{name}")
 def memory_quarantine_get(name: str, _u: dict = Depends(require("dev"))) -> dict:
-    q = quarantine.get(name, _ctx_project())
+    q = quarantine.get(name, _ctx_project(), classification.ctx_clearance())
     if q is None:
         raise HTTPException(404, "not in quarantine")
     return q
@@ -1038,9 +1049,16 @@ class QuarantineDecision(BaseModel):
 @app.post("/api/memory/quarantine/{name}/approve")
 def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> dict:
     try:
-        out = quarantine.approve(name, u["email"], _ctx_project())
+        out = quarantine.approve(name, u["email"], _ctx_project(),
+                                 classification.ctx_clearance())
     except KeyError:
         raise HTTPException(404, "not in quarantine")
+    if out.get("level", 2) > 2 and store_backend.enabled():
+        try:  # 3.4: the deliverable keeps its inherited level whatever its file says later
+            store_backend.get_store().set_level(name, out["level"], project=_ctx_project(),
+                                                by=u["email"], reason="agent deliverable")
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] level floor of {name} not recorded: {e!r}", file=sys.stderr)
     audit.log(u["email"], "memory.quarantine.approve", name, "")
     return out
 
@@ -1048,6 +1066,8 @@ def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> d
 @app.post("/api/memory/quarantine/{name}/reject")
 def memory_quarantine_reject(name: str, body: QuarantineDecision | None = None,
                              u: dict = Depends(require("dev"))) -> dict:
+    if quarantine.get(name, _ctx_project(), classification.ctx_clearance()) is None:
+        raise HTTPException(404, "not in quarantine")
     try:
         out = quarantine.reject(name, u["email"], delete=bool(body and body.delete),
                                 project=_ctx_project())
@@ -1506,7 +1526,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
         return
     # 3.2 lot 3 : la personne telle que la voit le PROJET de la session (rôle de ce projet) ;
     # aucun rôle dans ce projet = la session n'existe pas pour elle
-    wsu = projectgate.ws_user(wsu, board.get_session_project(sid))
+    wsu = projectgate.ws_user(wsu, board.get_session_project(sid), sid)
     if wsu is None:
         await websocket.close(code=4404)
         return
@@ -1681,9 +1701,12 @@ def sessions() -> list[dict]:
     now = time.time()
     live = _live_targets()
     out: list[dict] = []
+    _clr = classification.ctx_clearance()
     for s in board.list_sessions():
         if not _in_ctx(s):            # 3.2 : les sessions du projet sélectionné seulement
             continue
+        if _clr is not None and (classification.session_level(s["session_id"]) or 0) > _clr:
+            continue                  # 3.4 : au-dessus de l'habilitation = n'existe pas
         if s.get("kind") == "sdk":
             csid = s.get("claude_session_id") or ""
             p = PROJECT_DIR / f"{csid}.jsonl" if csid else None
@@ -1749,10 +1772,10 @@ def _in_ctx(row: dict) -> bool:
 
 
 def _session_scope(session_id: str | None) -> tuple[str, ...]:
-    """Périmètre mémoire d'une session (3.2) : son projet seulement — fail-closed."""
+    """Périmètre mémoire d'une session (3.2) : son projet seulement — fail-closed.
+    3.4 : avec l'habilitation de la personne qui l'a ouverte."""
     try:
-        return projects.session_scope(board.get_session_project(session_id)
-                                      if session_id else None)
+        return classification.session_scope(session_id)
     except Exception:  # noqa: BLE001
         return ()
 
@@ -1798,7 +1821,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
     sont bufferisés et rejoués quand le pane se connecte."""
     sid = agentchat.new_sid()
     s = board.add_sdk_session(sid, tag, title=title, prompt=prompt, secrets=secrets,
-                              project=project)
+                              project=project, owner=user if "@" in (user or "") else "")
     session = agentchat.get_or_create(sid, user=user, secrets=secrets)
     day_budget = instance.budgets().get("budget_day_usd", 0.0)
     if day_budget:
@@ -2139,8 +2162,9 @@ def infra_targets() -> list[dict]:
 
 
 def _ctx_scope() -> tuple[str, ...]:
-    """Memory the request's project may read: itself + shared (3.2)."""
-    return projects.recall_scope(_ctx_project())
+    """Memory the request's project may read: itself + shared (3.2), up to the person's
+    clearance in each (3.4)."""
+    return classification.ctx_scope()
 
 
 @app.get("/api/memory/stats")
@@ -2164,7 +2188,10 @@ def memory_search(q: str, k: int = 8, deep: bool = False) -> list[dict]:
     3.2 : le projet sélectionné (+ shared) ; projectgate a vérifié l'accès."""
     scope = _ctx_scope()
     if store_backend.enabled():
-        return store_backend.memory_search(q, max(1, min(k, 50)), deep=deep, projects=scope)
+        out = store_backend.memory_search(q, max(1, min(k, 50)), deep=deep, projects=scope)
+        classification.log_access("cockpit", [h for h in out if h.get("note_name")],
+                                  actor=(projectgate.current() or {}).get("email"), query=q)
+        return out
     return mem.search_scoped(q, k, scope)
 
 
@@ -2248,7 +2275,9 @@ def memory_recall_log(session: str = "", note: str = "", limit: int = 200) -> di
     # 3.2 : les injections de notes du projet sélectionné seulement (son projet, pas shared :
     # le journal dit QUELLE session a reçu quoi — des sessions d'autres projets lisent shared)
     return {"entries": st.recall_log(session_id=session or None, note=note or None,
-                                     limit=limit, projects=[_ctx_project()]),
+                                     limit=limit,
+                                     projects=classification.own_entry(_ctx_scope(),
+                                                                       _ctx_project())),
             "summary": st.recall_summary() if not projects.multi_project() else {}}
 
 
@@ -2256,8 +2285,18 @@ def memory_recall_log(session: str = "", note: str = "", limit: int = 200) -> di
 def memory_note(name: str) -> dict:
     if "/" in name or ".." in name:
         raise HTTPException(400, "invalid name")
-    body = (store_backend.memory_get(name, projects=_ctx_scope()) if store_backend.enabled()
-            else (mem.memory_get(name) if projects.DEFAULT_PROJECT in _ctx_scope() else None))
+    from core import levels as _lv
+    from core import scope as _sc
+    if store_backend.enabled():
+        rec = store_backend.memory_get_record(name, projects=_ctx_scope())
+        if rec is None:
+            return {"name": name, "body": None}
+        classification.log_access("cockpit", [rec],
+                                  actor=(projectgate.current() or {}).get("email"))
+        return {"name": name, "body": store_backend.render_note(rec),
+                "project": rec.project, "level": _lv.ident(getattr(rec, "level", 2))}
+    body = (mem.memory_get(name) if _sc.allows(_ctx_scope(), projects.DEFAULT_PROJECT)
+            else None)
     return {"name": name, "body": body}
 
 
@@ -2282,6 +2321,10 @@ def memory_migration_approve(body: MigrationApproval,
     audit.log(u["email"], "memory.migration.approve", body.what)
     return {"approved": doc}
 
+
+# 3.4 classification : niveaux, habilitations, rappel audité (backend/classification_api.py)
+import classification_api  # noqa: E402
+app.include_router(classification_api.router)
 
 # onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
 app.include_router(corthexis.router)
@@ -2411,6 +2454,7 @@ class CardCreate(BaseModel):
     bucket: str = "Backlog"
     priority: int = 2
     due: str = ""
+    classification: str = ""   # 3.4: level of the card (default: project)
 
 
 class ChecklistItem(BaseModel):
@@ -2449,8 +2493,9 @@ _WEB = {"via": "web"}
 
 @app.get("/api/board")
 def board_list(archived: int = 0) -> dict:
-    return {"buckets": board.BUCKETS, "cards": board.list_cards(include_archived=bool(archived),
-                                                               project=_ctx_project())}
+    return {"buckets": board.BUCKETS, "cards": board.list_cards(
+        include_archived=bool(archived), project=_ctx_project(),
+        max_level=classification.ctx_clearance())}
 
 
 @app.get("/api/board/card/{card_id}")
@@ -2465,9 +2510,15 @@ def board_card_detail(card_id: int) -> dict:
 def board_add(body: CardCreate, u: dict = Depends(require("dev"))) -> dict:
     if not body.title.strip() and not body.description.strip():
         raise HTTPException(400, "title or prompt required")
+    level = 2
+    if body.classification:
+        try:
+            level = classification._parse_strict(body.classification)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
     c = board.add_card(body.title, body.description, body.tag, body.bucket,
                        priority=body.priority, due=body.due, user=u["email"], origin=_WEB,
-                       project=_ctx_project())
+                       project=_ctx_project(), level=level)
     audit.log(u["email"], "board.card.create", f"card #{c['id']}", c["title"])
     return c
 

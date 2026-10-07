@@ -40,6 +40,7 @@ export interface CxNote {
   modified: string | null; age: number | null; date_source: string; chunks: number | null;
   indexed: boolean; warnings: string[]; body: string; in: string[];
   out: { target: string; resolved: string | null }[]; flags: CxNoteFlag[];
+  classification?: string;   // 3.4 level id (public … restricted)
 }
 export interface CxChange { path: string; before: string | null; after: string | null; diff: string }
 export interface CxProposal {

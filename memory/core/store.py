@@ -33,6 +33,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from . import levels as _lv
 from . import scope as _scope
 from . import search as rk
 from .config import env, env_int
@@ -156,6 +157,20 @@ def tsvector_words(tsv: str) -> list[str]:
 def _project(note) -> str:
     """Project column of a note record (fail-closed: unknown or invalid = default)."""
     return _scope.project_of(note)
+
+
+def _level(note) -> int:
+    return _lv.of(note)
+
+
+def _scope_cond(scope: tuple[str, ...], alias: str = "", level: str = "level"
+                ) -> tuple[str, list]:
+    """SQL condition (positional %s) keeping the rows of the scope's projects whose level is
+    within the clearance of that project (3.4). ``level`` = the level expression."""
+    a = f"{alias}." if alias else ""
+    ps, cs = _scope.sql_args(scope)
+    return (f"({a}project = ANY(%s::text[]) AND {level.replace('@', a)} <= "
+            f"(%s::int[])[array_position(%s::text[], {a}project)])", [ps, cs, ps])
 
 
 def _iso(v) -> str | None:
@@ -490,21 +505,27 @@ class Store:
             rows[key] = (note.name, note.description or "", note.type,
                                int(note.priority or 0), note.source_path, _iso(note.modified),
                                note.modified_source, note.body or "", " ".join(head),
-                               " ".join(lex), _project(note))
+                               " ".join(lex), _project(note), _level(note))
         cols = list(zip(*[rows[n] for n in sorted(rows)]))
         ids = {(r["project"], r["name"]): r["id"] for r in con.execute(
             "INSERT INTO notes(name, description, type, priority, source_path, modified,"
-            " modified_source, body, head_tokens, lex_tokens, project, updated_at)"
+            " modified_source, body, head_tokens, lex_tokens, project, level, updated_at)"
             " SELECT n, d, ty, p, sp, m, ms, b, string_to_array(h, ' '), string_to_array(l, ' '),"
-            " pr, now() FROM unnest(%s::text[], %s::text[], %s::text[], %s::int[], %s::text[],"
-            " %s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::text[])"
-            " AS x(n, d, ty, p, sp, m, ms, b, h, l, pr)"
+            # 3.4: a note never goes below its floor (inherited / set by a cleared human)
+            " pr, greatest(lv, coalesce((SELECT f.level FROM note_level_floor f"
+            "  WHERE f.project = pr AND f.name = n), 0)), now()"
+            " FROM unnest(%s::text[], %s::text[], %s::text[], %s::int[], %s::text[],"
+            " %s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::int[])"
+            " AS x(n, d, ty, p, sp, m, ms, b, h, l, pr, lv)"
             " ON CONFLICT (project, name) DO UPDATE SET description = excluded.description,"
             " type = excluded.type, priority = excluded.priority,"
             " source_path = excluded.source_path, modified = excluded.modified,"
             " modified_source = excluded.modified_source, body = excluded.body,"
             " head_tokens = excluded.head_tokens, lex_tokens = excluded.lex_tokens,"
-            " updated_at = now() RETURNING id, name, project",
+            # 3.4: an upsert never LOWERS a level (only Store.set_level, the cleared-human
+            # path, does): an edit of the file cannot declassify a note
+            " level = greatest(excluded.level, notes.level), updated_at = now()"
+            " RETURNING id, name, project",
             [list(c) for c in cols]).fetchall()}
         self._apply_df(con, delta)
         return ids
@@ -562,7 +583,7 @@ class Store:
             con.execute("DELETE FROM lex_df WHERE token = ANY(%s) AND df <= 0", (neg,))
 
     _NOTE_COLS = ("name, description, type, priority, source_path, modified, "
-                  "modified_source, body, project")
+                  "modified_source, body, project, level")
 
     def get_note(self, name: str, project: str = DEFAULT_PROJECT) -> NoteRecord | None:
         """The note ``name`` of ``project`` (names are unique per project, 3.2)."""
@@ -582,8 +603,9 @@ class Store:
         sql = f"SELECT {self._NOTE_COLS} FROM notes WHERE name = %s"
         args: list = [name]
         if scope is not None:
-            sql += " AND project = ANY(%s)"
-            args.append(list(scope))
+            cond, cargs = _scope_cond(scope, level="@level")
+            sql += " AND " + cond
+            args += cargs
         sql += (" ORDER BY (project = 'shared'), (project <> %s), project LIMIT 1")
         args.append(DEFAULT_PROJECT)
         with self.pool.connection() as con:
@@ -601,7 +623,10 @@ class Store:
         scope = _scope.normalize(projects)
         if scope == ():
             return None
-        extra, args = ("", []) if scope is None else (" AND project = ANY(%s)", [list(scope)])
+        extra, args = ("", [])
+        if scope is not None:
+            cond, args = _scope_cond(scope, level="@level")
+            extra = " AND " + cond
         with self.pool.connection() as con:
             for like in (f"%/{stem}.md", f"%/{stem.replace('-', '_')}.md"):
                 r = con.execute("SELECT name FROM notes WHERE source_path LIKE %s" + extra
@@ -740,14 +765,125 @@ class Store:
             with con.cursor() as cur:
                 cur.executemany(
                     "INSERT INTO recall_log(channel, session_id, agent_id, query, note_name,"
-                    " rank, score, rerank, content_hash, generation_id, project)"
+                    " rank, score, rerank, content_hash, generation_id, project, level)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,"
                     " (SELECT content_hash FROM note_versions WHERE note_name = %s"
-                    "  AND project = %s ORDER BY id DESC LIMIT 1), %s, %s)",
+                    "  AND project = %s ORDER BY id DESC LIMIT 1), %s, %s, %s)",
                     [(channel, session_id, agent_id, query, h.note_name, i + 1, h.score,
                       h.rerank, h.note_name, _scope.project_of(h), h.generation,
-                      _scope.project_of(h)) for i, h in enumerate(hits)])
+                      _scope.project_of(h), self._hit_level(con, h))
+                     for i, h in enumerate(hits)])
+                # 3.4 audited recall: every injection is also an access (who = the
+                # session's owner, resolved by the app that reads the log)
+                self._insert_access(cur, channel, None, session_id, query, hits, con)
         return len(hits)
+
+    # ------------------------------------------------------------------ 3.4 audit / levels
+    def _hit_level(self, con, h) -> int:
+        """Level of a hit: the one it carries, else the note's current level."""
+        if getattr(h, "level", None) is not None:
+            return _lv.clamp(h.level)
+        r = con.execute("SELECT level FROM notes WHERE name = %s AND project = %s",
+                        (h.note_name, _scope.project_of(h))).fetchone()
+        return int(r["level"]) if r else _lv.DEFAULT
+
+    def _insert_access(self, cur, via, actor, session_id, query, hits, con) -> None:
+        cur.executemany(
+            "INSERT INTO note_access(via, actor, session_id, project, note_name, level, query)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            [(via, actor, session_id, _scope.project_of(h), h.note_name,
+              self._hit_level(con, h), (query or "")[:500] or None) for h in hits])
+
+    def log_access(self, via: str, notes: Sequence, *, actor: str | None = None,
+                   session_id: str | None = None, query: str | None = None) -> int:
+        """Record that ``actor`` obtained these notes (hits, NoteRecords or dicts with
+        note_name/name + project + level) through ``via`` (mcp, cockpit, nina, brief,
+        teams…). The audited recall of 3.4: who got which note, by which path."""
+        rows = []
+        for n in notes or ():
+            name = (n.get("note_name") or n.get("name")) if isinstance(n, dict) else (
+                getattr(n, "note_name", None) or getattr(n, "name", None))
+            if not name:
+                continue
+            rows.append(Hit(note_name=name, score=0.0, cosine=None, lexical=0.0, rerank=None,
+                            snippet="", age_days=None, date_source="",
+                            project=_scope.project_of(n),
+                            level=(_lv.of(n) if (n.get("level") if isinstance(n, dict)
+                                                 else getattr(n, "level", None)) is not None
+                                   else None)))
+        if not rows:
+            return 0
+        with self.pool.connection() as con, con.transaction():
+            with con.cursor() as cur:
+                self._insert_access(cur, via, actor, session_id, query, rows, con)
+        return len(rows)
+
+    def access_log(self, *, projects: Iterable[str] | None = None, actor: str | None = None,
+                   session_id: str | None = None, note: str | None = None,
+                   since: datetime.datetime | None = None, limit: int = 500) -> list[dict]:
+        """The audited recall, newest first: who obtained which note through which path."""
+        where, args = [], []
+        if projects is not None:
+            where.append("project = ANY(%s)")
+            args.append(sorted(set(projects)))
+        for col, v in (("actor", actor), ("session_id", session_id), ("note_name", note)):
+            if v:
+                where.append(f"{col} = %s")
+                args.append(v)
+        if since is not None:
+            where.append("at >= %s")
+            args.append(since)
+        sql = ("SELECT id, at, via, actor, session_id, project, note_name, level, query"
+               " FROM note_access" + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY id DESC LIMIT %s")
+        with self.pool.connection() as con:
+            rows = con.execute(sql, (*args, max(1, min(int(limit), 100000)))).fetchall()
+        for r in rows:
+            r["at"] = _iso(r["at"])
+        return rows
+
+    def session_level(self, session_id: str) -> int | None:
+        """Highest level a session has obtained (None = nothing classified obtained): what
+        it writes or hands back inherits it (3.4)."""
+        if not session_id:
+            return None
+        with self.pool.connection() as con:
+            r = con.execute("SELECT max(level) AS m FROM note_access WHERE session_id = %s",
+                            (session_id,)).fetchone()
+        return None if r is None or r["m"] is None else int(r["m"])
+
+    def note_level(self, name: str, project: str = DEFAULT_PROJECT) -> int | None:
+        with self.pool.connection() as con:
+            r = con.execute("SELECT level FROM notes WHERE name = %s AND project = %s",
+                            (name, project)).fetchone()
+        return None if r is None else int(r["level"])
+
+    def levels(self, project: str) -> dict[str, int]:
+        """{note name: level} of one project (graph / file views of the cockpit)."""
+        with self.pool.connection() as con:
+            return {r["name"]: int(r["level"]) for r in con.execute(
+                "SELECT name, level FROM notes WHERE project = %s", (project,)).fetchall()}
+
+    def level_floor(self, name: str, project: str = DEFAULT_PROJECT) -> int | None:
+        with self.pool.connection() as con:
+            r = con.execute("SELECT level FROM note_level_floor WHERE name = %s AND "
+                            "project = %s", (name, project)).fetchone()
+        return None if r is None else int(r["level"])
+
+    def set_level(self, name: str, level: int, *, project: str = DEFAULT_PROJECT,
+                  by: str = "", reason: str = "") -> None:
+        """Set a note's level AND its floor (what the file can no longer go below). Only the
+        app's declassification path (a cleared human, journaled) and the derived-content
+        writers call it; an edit of the file alone never lowers a level."""
+        level = _lv.clamp(level)
+        with self.pool.connection() as con, con.transaction():
+            con.execute(
+                "INSERT INTO note_level_floor(project, name, level, reason, set_by)"
+                " VALUES (%s,%s,%s,%s,%s) ON CONFLICT (project, name) DO UPDATE SET"
+                " level = excluded.level, reason = excluded.reason, set_by = excluded.set_by,"
+                " set_at = now()", (project, name, level, reason[:500], by[:200]))
+            con.execute("UPDATE notes SET level = %s WHERE name = %s AND project = %s",
+                        (level, name, project))
 
     def recalled_notes(self, session_id: str, *, agent_id: str | None = None,
                        channels: Sequence[str] = ("prompt", "spawn")) -> set[str]:
@@ -772,7 +908,8 @@ class Store:
             return set()
         sql, args = "SELECT name FROM notes WHERE name = ANY(%s)", [names]
         if scope is not None:
-            sql, args = sql + " AND project = ANY(%s)", [names, list(scope)]
+            cond, cargs = _scope_cond(scope, level="@level")
+            sql, args = sql + " AND " + cond, [names, *cargs]
         with self.pool.connection() as con:
             return {r["name"] for r in con.execute(sql, args).fetchall()}
 
@@ -803,8 +940,11 @@ class Store:
         if scope == ():
             return []
         if scope is not None:
-            where.append("coalesce(project, 'default') = ANY(%s)")
-            args.append(list(scope))
+            ps, cs = _scope.sql_args(scope)
+            where.append("coalesce(project, 'default') = ANY(%s::text[]) AND coalesce(level, 2)"
+                         " <= (%s::int[])[array_position(%s::text[], coalesce(project,"
+                         " 'default'))]")
+            args += [ps, cs, ps]
         if session_id:
             where.append("session_id = %s")
             args.append(session_id)
@@ -812,8 +952,8 @@ class Store:
             where.append("note_name = %s")
             args.append(note)
         sql = ("SELECT id, at, channel, session_id, agent_id, query, note_name, rank, score,"
-               " rerank, content_hash, generation_id, coalesce(project, 'default') AS project"
-               " FROM recall_log"
+               " rerank, content_hash, generation_id, coalesce(project, 'default') AS project,"
+               " coalesce(level, 2) AS level FROM recall_log"
                + (" WHERE " + " AND ".join(where) if where else "")
                + " ORDER BY id DESC LIMIT %s")
         with self.pool.connection() as con:
@@ -853,7 +993,12 @@ class Store:
         if scope == ():
             return []
         g = self.active_generation()
-        where, args = ("", []) if scope is None else (" WHERE project = ANY(%s)", [list(scope)])
+        where, args = ("", [])
+        lwhere, largs = ("", [])
+        if scope is not None:
+            cond, args = _scope_cond(scope, level="@level")
+            where = " WHERE " + cond
+            lwhere, largs = " WHERE project = ANY(%s)", [list(_scope.projects_of(scope))]
         with self.pool.connection() as con:
             counts = {}
             if g is not None:
@@ -861,17 +1006,20 @@ class Store:
                     f"SELECT note_id, count(*) AS n FROM {g.table} GROUP BY note_id")}
             rows = con.execute(
                 "SELECT id, name, description, type, priority, source_path, modified,"
-                " modified_source, project FROM notes" + where + " ORDER BY name, project",
-                args).fetchall()
-            links = con.execute("SELECT project, src, dst FROM links" + where
-                                + " ORDER BY dst", args).fetchall()
+                " modified_source, project, level FROM notes" + where
+                + " ORDER BY name, project", args).fetchall()
+            links = con.execute("SELECT project, src, dst FROM links" + lwhere
+                                + " ORDER BY dst", largs).fetchall()
         out_l: dict[tuple, list[str]] = {}
         back: dict[tuple, set[str]] = {}
+        seen = {(r["project"], r["name"]) for r in rows}
         for r in links:
+            if scope is not None and (r["project"], r["src"]) not in seen:
+                continue          # 3.4: a link FROM a note above the clearance is not shown
             out_l.setdefault((r["project"], r["src"]), []).append(r["dst"])
             back.setdefault((r["project"], r["dst"]), set()).add(r["src"])
         return [{"name": r["name"], "description": r["description"], "type": r["type"],
-                 "project": r["project"],
+                 "project": r["project"], "level": _lv.ident(r["level"]),
                  "modified": r["modified"], "date_source": r["modified_source"],
                  "mtime": (_to_dt(r["modified"]).timestamp() if _to_dt(r["modified"])
                            else None),
@@ -931,7 +1079,8 @@ class Store:
                   "cap_abs": 2**31 - 1 if exact else int(cfg.lexical_filter_min_df),
                   "cap_rel": cfg.lexical_filter_df,
                   "cap_fallback": cfg.lexical_fallback_max_df if qv is not None else 2**31 - 1,
-                  "proj": list(scope) if scope is not None else None}
+                  "proj": _scope.sql_args(scope)[0] if scope is not None else None,
+                  "cap": _scope.sql_args(scope)[1] if scope is not None else None}
         scoped = scope is not None
         with self.pool.connection() as con:
             if qv is not None:
@@ -948,7 +1097,8 @@ class Store:
                 note_name=r["name"], description=r["description"], best_chunk=r["body"],
                 cosine=r.get("cos"), chunk_overlap=r.get("ov") or 0.0, priority=r["priority"],
                 modified=r["modified"], modified_source=r["modified_source"],
-                source_path=r["source_path"], chunk_idx=r["idx"], project=r.get("project")))
+                source_path=r["source_path"], chunk_idx=r["idx"], project=r.get("project"),
+                level=r.get("level")))
         degraded = None if qv is not None else (
             "embedding unavailable: lexical-only scoring, degraded recall (no cross-lingual)")
         lw = cfg.lexical_weight if cfg.lexical_weight is not None \
@@ -1036,24 +1186,28 @@ class Store:
 
     _HEAD = "coalesce((SELECT sum(q.w) FROM q WHERE q.t = ANY(n.head_tokens)), 0)"
 
-    _SCOPE_NOTES = "SELECT id FROM notes WHERE project = ANY(%(proj)s::text[])"
+    # 3.4: the scope is (project, clearance) pairs — a note above its project's clearance
+    # is not a candidate either, at any stage
+    _IN_SCOPE = ("{a}project = ANY(%(proj)s::text[]) AND {a}level <= "
+                 "(%(cap)s::int[])[array_position(%(proj)s::text[], {a}project)]")
+    _SCOPE_NOTES = "SELECT id FROM notes WHERE " + _IN_SCOPE.format(a="")
 
     def _lexc_cte(self, limit: bool, scoped: bool = False) -> str:
         """Lexical candidates: best notes on the picked words (body + head)."""
-        restrict = "WHERE n.project = ANY(%(proj)s::text[])" if scoped else ""
+        restrict = "WHERE " + self._IN_SCOPE.format(a="n.") if scoped else ""
         return (self._body_lex_cte("lexp", "pick", restrict) + ", "
                 f"lexc AS (SELECT n.id AS note_id FROM lexp JOIN notes n ON n.id = lexp.id "
                 f"ORDER BY (1 - %(hs)s) * lexp.s + %(hs)s * {self._HEAD} DESC, n.name"
                 + (" LIMIT %(nl)s)" if limit else ")"))
 
     _META = ("n.name, n.description, n.priority, n.modified, n.modified_source, "
-             "n.source_path, n.project")
+             "n.source_path, n.project, n.level")
 
     def _final(self, g: Generation, best_select: str, scoped: bool = False) -> str:
         # LATERAL: one index lookup per candidate note instead of a hash join that would
         # scan the whole notes table. With a project scope, a row of another project is
         # dropped HERE whatever the stages above let through (the definitive check).
-        guard = " AND nn.project = ANY(%(proj)s::text[])" if scoped else ""
+        guard = " AND " + self._IN_SCOPE.format(a="nn.") if scoped else ""
         return (f"best AS ({best_select}) "
                 f"SELECT b.*, n.* FROM best b, LATERAL (SELECT {self._META.replace('n.', 'nn.')}, "
                 f"((1 - %(hs)s) * coalesce((SELECT lb.s FROM lexb lb WHERE lb.id = nn.id), 0)"

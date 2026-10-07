@@ -18,6 +18,8 @@ import {
   type CxProposalIn, type Severity,
 } from "@/lib/corthexis";
 import type { MemSearchResult } from "@/lib/types";
+import LevelBadge from "./LevelBadge";
+import { setNoteLevel, useClassification } from "@/lib/classification";
 
 const SEV: Record<Severity, { label: string; dot: string; ring: string; text: string }> = {
   crit: { label: "critical", dot: "bg-[#ff5c6c]", ring: "border-[#ff5c6c]/50", text: "text-[#ff8a96]" },
@@ -378,6 +380,7 @@ function NotePanel({ note, ghost, sel, openNote, canAct, busy, propose, curate }
     <article>
       <h2 className="font-mono text-[15px] font-semibold text-slate-100">{note.priority && <span className="text-brass" title="pinned: boosted at recall">★ </span>}{note.id}</h2>
       <div className="mt-1.5 flex flex-wrap gap-1 text-[10.5px]">
+        <NoteLevel name={note.id} level={note.classification} />
         <span className="rounded-full border border-line px-2 py-0.5" style={{ color: TYPE_COLORS[note.type] || TYPE_COLORS.unknown }}>{note.type === "feedback" ? "rule" : note.type}</span>
         <span className="rounded-full border border-line px-2 py-0.5 text-slate-300">{fmt(note.words)} words</span>
         <span className={`rounded-full border px-2 py-0.5 ${note.indexed ? "border-line text-slate-300" : "border-[#ffb454]/50 text-[#ffc98a]"}`}>
@@ -589,5 +592,31 @@ function ProposalModal({ p, canAct, busy, close, decide, swap }: {
         </div>
       </div>
     </div>
+  );
+}
+
+
+/** 3.4 — the note's classification, and (dev+) reclassify it: raising is free, lowering
+ *  needs a maintainer cleared for the current level and a reason (journaled). */
+function NoteLevel({ name, level }: { name: string; level?: string }) {
+  const info = useClassification();
+  const [cur, setCur] = useState(level);
+  const [err, setErr] = useState("");
+  useEffect(() => { setCur(level); setErr(""); }, [name, level]);
+  if (!info?.enabled || !cur) return null;
+  const change = (v: string) => {
+    const rank = (id: string) => info.scale.find((l) => l.id === id)?.rank ?? 2;
+    const reason = rank(v) < rank(cur) ? window.prompt("Reason for lowering the level (journaled)") || "" : "";
+    setNoteLevel(name, v, reason).then(() => { setCur(v); setErr(""); }).catch((e) => setErr(String(e.message || e)));
+  };
+  return (
+    <span className="flex items-center gap-1">
+      <LevelBadge level={cur} />
+      <select aria-label="Reclassify" value={cur} onChange={(e) => change(e.target.value)}
+        className="rounded border border-line bg-panel2 px-1 text-[10.5px] text-slate-300">
+        {info.scale.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+      </select>
+      {err && <span className="text-red-300">{err}</span>}
+    </span>
   );
 }

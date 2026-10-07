@@ -35,7 +35,8 @@ def list_notes(projects=None) -> list[dict]:
     st = _store()
     if st is not None:
         return st.list_notes(projects)
-    if projects is not None and "default" not in projects:
+    from core import scope as _sc
+    if projects is not None and not _sc.allows(_sc.normalize(projects), "default"):
         return []
     if not MEM_DB.exists():
         return []

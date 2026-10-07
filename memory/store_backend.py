@@ -334,10 +334,9 @@ def age_header(name: str, modified, source) -> str:
     return head + "]"
 
 
-def memory_get(note_name: str, projects=None) -> str | None:
-    """Full note body prefixed with its age and date provenance; None = not in the store,
-    or (3.2) not in the caller's project scope — the same answer, so that a scoped caller
-    cannot even learn that a note of another project exists."""
+def memory_get_record(note_name: str, projects=None):
+    """The NoteRecord a caller with this scope may read, None = not found / not visible
+    (the same answer: a scoped caller cannot learn that a note it may not read exists)."""
     from core import scope as _scope
 
     scope = _scope.normalize(projects)
@@ -348,7 +347,20 @@ def memory_get(note_name: str, projects=None) -> str | None:
         note = _resolve(st, name, scope) if name else None
     if note is None or not _scope.visible(note, scope):
         return None
+    return note
+
+
+def render_note(note) -> str:
     return age_header(note.name, note.modified, note.modified_source) + "\n\n" + (note.body or "")
+
+
+def memory_get(note_name: str, projects=None) -> str | None:
+    """Full note body prefixed with its age and date provenance; None = not in the store,
+    or (3.2) not in the caller's project scope — the same answer, so that a scoped caller
+    cannot even learn that a note of another project exists. 3.4: nor a note above the
+    caller's clearance."""
+    note = memory_get_record(note_name, projects)
+    return None if note is None else render_note(note)
 
 
 def _resolve(st, name, scope):
