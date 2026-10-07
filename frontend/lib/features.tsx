@@ -17,6 +17,39 @@ export interface Features {
   agents_viewer_readonly?: boolean;
   /** 3.1.1 : simulated agent runs of the public demo (SOKKAN_DEMO_CREW=1) */
   demo_crew?: boolean;
+  /** 3.2 : projects (feature `multi_project`) */
+  multi_project?: boolean;
+  /** 3.2 : the feature registry (backend/features.py) — effective state and why */
+  registry?: FeatureRegistry;
+}
+
+export interface FeatureItem {
+  id: string;
+  title: string;
+  description: string;
+  status: "stable" | "beta" | "experimental" | "planned";
+  kind: "toggle" | "integration" | "invariant" | "planned";
+  enabled: boolean;
+  source: string;
+  reason: string;
+  /** asked for explicitly but not honoured (missing dependency, conflict, planned) */
+  problem: boolean;
+  note: string;
+  legacy_var: string;
+  requires: string[];
+  conflicts: string[];
+  required_by: string[];
+  env: string[];
+  config: string[];
+  defaults: { community: boolean | "auto"; enterprise: boolean | "auto" };
+  target: string;
+  doc: string;
+}
+
+export interface FeatureRegistry {
+  edition: "community" | "enterprise";
+  items: FeatureItem[];
+  problems: string[];
 }
 
 const DEFAULTS: Features = { infra: true, infra_topo: true, fleet: false, observe: false, preview: true, tmux: true, assistant: false, missions_link: true, magnitude: true, demo: false, agents: true };

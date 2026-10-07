@@ -280,8 +280,10 @@ def test_usage_lists_only_the_project_sessions_and_audit_is_for_admins(world, mo
     assert world["as"]("admin@x").get("/api/audit").status_code == 200
 
 
-def test_operate_is_for_the_ops_team_and_admins(world):
+def test_operate_is_for_the_ops_team_and_admins(world, monkeypatch):
     import projects
+    # feature `ops_team` requires `sso_teams` requires `sso`: teams only exist with an IdP
+    monkeypatch.setenv("SOKKAN_AUTH_MODE", "oidc")
     assert world["as"]("alice@x").get("/api/observability").status_code == 403
     assert world["as"]("bob@x").get("/api/infra/nodes").status_code == 403
     assert world["as"]("admin@x").get("/api/observability").status_code == 200
@@ -290,6 +292,9 @@ def test_operate_is_for_the_ops_team_and_admins(world):
     assert world["as"]("alice@x").get("/api/observability").status_code == 200
     me = world["as"]("alice@x").get("/api/me").json()
     assert me["ops"] is True
+    # turned off: the ops team is gone (admins only), whatever the stored group says
+    monkeypatch.setenv("SOKKAN_FEATURE_OPS_TEAM", "0")
+    assert world["as"]("alice@x").get("/api/observability").status_code == 403
 
 
 def test_instance_admin_sees_no_content_until_they_add_themselves(world):

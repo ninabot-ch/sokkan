@@ -455,8 +455,8 @@ def viewer_readonly() -> bool:
     """SOKKAN_CREW_VIEWER_READONLY=1 : a viewer SEES the whole Crew (deck, settings,
     runs, deliverables — secret NAMES, never values) and changes nothing. Off by
     default: a viewer sees nothing of Crew. Meant for the public read-only demo."""
-    return (os.environ.get("SOKKAN_CREW_VIEWER_READONLY") or "0").strip().lower() in (
-        "1", "true", "yes", "on")
+    import features
+    return features.enabled("crew_viewer_readonly")
 
 
 def _other_project(user: dict, a: dict) -> bool:
@@ -493,8 +493,10 @@ def approval_mode() -> str:
     """SOKKAN_AGENTS_APPROVAL : qui active un agent ou une modification d'agent approuvé.
     owner (défaut) = son propriétaire (dev+) ou un admin ; admin = un admin seulement ;
     four_eyes = une AUTRE personne que celle qui l'a proposé et que son propriétaire."""
-    m = (os.environ.get("SOKKAN_AGENTS_APPROVAL") or "owner").strip().lower()
-    return m if m in APPROVAL_MODES else "owner"
+    import features  # registry: `four_eyes` (enterprise default) / `admin_approval`
+    if features.enabled("four_eyes"):
+        return "four_eyes"
+    return "admin" if features.enabled("admin_approval") else "owner"
 
 
 def _is_admin(user: dict) -> bool:

@@ -45,6 +45,7 @@ from pydantic import BaseModel
 
 import assistant
 import audit
+import features
 import auth
 import board
 import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
@@ -190,6 +191,7 @@ async def _lifespan(_app: FastAPI):
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
+    features.startup_report()  # a switch asked for but not honoured: logged, feature OFF
     rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
     yield
     if rt:
@@ -242,20 +244,22 @@ def require(min_role: str):
     return dep
 
 
-def _feature(env_var: str, default: str = "1"):
-    """Server-side feature flag: the route 404s when the feature is disabled.
-    /api/features is only a UI hint — enforcement happens here."""
+def _feature(fid: str):
+    """Server-side feature gate (registry: backend/features.py): the route 404s when the
+    feature is off. /api/features is only a UI hint — enforcement happens here."""
+    features.BY_ID[fid]  # unknown id = error at import, not at the first request
+
     def dep() -> None:
-        if os.environ.get(env_var, default) == "0":
+        if not features.enabled(fid):
             raise HTTPException(404, "feature disabled on this instance")
     return dep
 
 
-feature_preview = _feature("SOKKAN_FEATURE_PREVIEW")
-feature_tmux = _feature("SOKKAN_FEATURE_TMUX")
+feature_preview = _feature("preview")
+feature_tmux = _feature("tmux")
 # Nina : OFF par défaut (cloud-only v1 — le provisioner pose le flag + les creds LLM)
-feature_assistant = _feature("SOKKAN_FEATURE_ASSISTANT", "0")
-feature_magnitude = _feature("SOKKAN_FEATURE_MAGNITUDE")
+feature_assistant = _feature("assistant")
+feature_magnitude = _feature("magnitude")
 
 # référence forte sur les tâches fire-and-forget (asyncio ne garde qu'une weakref :
 # sans ça, un tour d'agent peut être garbage-collecté en plein vol)
@@ -338,7 +342,10 @@ def admin_projects(_u: dict = Depends(require("admin"))) -> dict:
 
 @app.post("/api/admin/projects")
 def admin_project_create(body: ProjectIn, u: dict = Depends(require("admin"))) -> dict:
-    if body.access_source == "forge":
+    if not features.enabled("multi_project"):
+        raise HTTPException(409, "feature `multi_project` is off on this instance "
+                                 "(SOKKAN_FEATURE_MULTI_PROJECT=1, see Profile → Features)")
+    if body.access_source == "forge" and not features.enabled("gitlab"):
         raise HTTPException(400, "forge access arrives with lot 5 (GitLab); use sso_group")
     try:
         p = projects.create(body.slug, body.name or body.slug, access_source=body.access_source,
@@ -821,7 +828,7 @@ def vault_delete(name: str, u: dict = Depends(require("admin"))) -> dict:
 
 
 # --- agents (3.1 « Crew up ») — spec docs/AGENTS.md --------------------------
-feature_agents = _feature("SOKKAN_FEATURE_AGENTS")
+feature_agents = _feature("agents")
 
 
 def crew_reader(user: dict = Depends(current_user)) -> dict:
@@ -1314,8 +1321,11 @@ def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
 
 
 @app.get("/api/features")
-def features() -> dict:
-    """Onglets/capacités actifs sur cette instance — le front masque le reste."""
+def features_flags() -> dict:
+    """Onglets/capacités actifs sur cette instance — le front masque le reste. The flat
+    keys are kept for the UI (and older front-ends); `registry` = every feature of
+    backend/features.py with its effective state and WHY (Profile → Features)."""
+    on = features.enabled
     return {
         # l'onglet Infra existe dès qu'il a quelque chose à montrer : topologie
         # (Prometheus) et/ou flotte managée (SOKKAN_FLEET_*, VMs clients).
@@ -1324,25 +1334,26 @@ def features() -> dict:
         "fleet": fleet.ENABLED,
         # onglet Operate : dès qu'une stack d'observabilité est branchée
         "observe": observability.ENABLED,
-        "preview": os.environ.get("SOKKAN_FEATURE_PREVIEW", "1") != "0",
-        "tmux": os.environ.get("SOKKAN_FEATURE_TMUX", "1") != "0",
+        "preview": on("preview"),
+        "tmux": on("tmux"),
         # Nina (agente d'assistance) : flag serveur + un LLM joignable
-        "assistant": (os.environ.get("SOKKAN_FEATURE_ASSISTANT", "0") != "0"
-                      and assistant.configured()),
+        "assistant": on("assistant") and assistant.configured(),
         # SOKKAN Missions link in the header. The counter is fetched by this
         # instance, not by the browser (backend/missions.py), and cached 6 h.
         # Opt out of link and fetch alike: SOKKAN_FEATURE_MISSIONS_LINK=0
-        "missions_link": os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0",
+        "missions_link": on("missions_link"),
         # Magnitude : LLM local (profil hardware + bench + serve llama.cpp)
-        "magnitude": os.environ.get("SOKKAN_FEATURE_MAGNITUDE", "1") != "0",
+        "magnitude": on("magnitude"),
         # bannière de visite guidée (instance de démo publique read-only)
-        "demo": os.environ.get("SOKKAN_DEMO_BANNER", "0") != "0",
+        "demo": on("demo_banner"),
         # onglet Crew (agents, 3.1)
         "agents": agents_runtime.enabled(),
         # 3.1.1 : Crew visible en lecture seule pour un viewer (démo publique)
         "agents_viewer_readonly": agents.viewer_readonly(),
         # 3.1.1 : runs simulés de la démo publique (aucune inférence)
         "demo_crew": agents_runtime.demo_mode(),
+        "multi_project": on("multi_project"),
+        "registry": features.as_api(),
     }
 
 
@@ -1443,7 +1454,7 @@ def auth_local(body: LocalLogin, request: Request):
 # Gate feature = tmux (le shell brut est la même famille) : 404 si désactivé.
 @app.websocket("/term/ws")
 async def term_ws(websocket: WebSocket):
-    if os.environ.get("SOKKAN_FEATURE_TMUX", "1") == "0" or not _origin_ok(websocket):
+    if not features.enabled("tmux") or not _origin_ok(websocket):
         await websocket.close(code=4403)
         return
     await termproxy.ws(websocket, "ws")
@@ -1586,7 +1597,7 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
     email = (claims.get("email") or "").lower()
     try:  # 3.2 lot 3 : équipes = groupes de l'IdP (claim `groups`), resynchronisées au login
         groups = claims.get(os.environ.get("SOKKAN_OIDC_GROUPS_CLAIM", "groups")) or []
-        if email and isinstance(groups, list):
+        if email and isinstance(groups, list) and features.enabled("sso_teams"):
             projects.sync_sso_groups(email, [str(g) for g in groups])
             audit.log(email, "team.sync", ",".join(str(g) for g in groups)[:300], "")
     except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur la synchro d'équipes

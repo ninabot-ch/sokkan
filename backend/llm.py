@@ -96,7 +96,8 @@ def unattended_credentials() -> str | None:
     SOKKAN_AGENTS_USE_CLI_LOGIN=1. Returns the source, or None."""
     if configured():
         return (load().get("mode") or "env")
-    if (os.environ.get("SOKKAN_AGENTS_USE_CLI_LOGIN") or "").strip() == "1":
+    import features
+    if features.enabled("agents_cli_login"):
         return "cli-login"
     return None
 

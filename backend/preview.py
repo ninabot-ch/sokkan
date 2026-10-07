@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+
+import features
 import socket
 import subprocess
 from pathlib import Path
@@ -31,7 +33,7 @@ DIFF_MAX = 200_000  # octets
 # SSRF policy: by default the screenshot target must resolve to a public address.
 # Set SOKKAN_PREVIEW_ALLOW_PRIVATE=1 to allow private/loopback targets (legitimate
 # when previewing a local dev-server) — see .env.example.
-ALLOW_PRIVATE = os.environ.get("SOKKAN_PREVIEW_ALLOW_PRIVATE", "0") == "1"
+ALLOW_PRIVATE = features.enabled("preview_private_targets")
 
 
 def _git(path: str, *args: str) -> str:

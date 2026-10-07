@@ -50,7 +50,8 @@ _DELIVERY_RE = re.compile(r"^\s*\**DELIVERY\**\s*:\s*\**\s*(done|incomplete)\b[\
 
 
 def enabled() -> bool:
-    return os.environ.get("SOKKAN_FEATURE_AGENTS", "1") != "0"
+    import features
+    return features.enabled("agents")
 
 
 NO_CREDENTIALS = ("no model credentials configured for this instance (cockpit model "
@@ -75,15 +76,8 @@ def incidents_enabled() -> bool:
     the agent's incident in Operate. 3.2 (hardening B2): ON by default when Operate is
     active on the instance (Prometheus or Grafana configured), off otherwise; `0` turns it
     off, `1` forces it on."""
-    raw = (os.environ.get("SOKKAN_AGENTS_INCIDENTS") or "").strip().lower()
-    if raw in ("1", "true", "yes", "on"):
-        return True
-    if raw in ("0", "false", "no", "off"):
-        return False
-    try:
-        return bool(observability.ENABLED)
-    except Exception:  # noqa: BLE001
-        return False
+    import features  # registry: feature `agent_incidents` (default auto = Operate configured)
+    return features.enabled("agent_incidents")
 
 
 def demo_mode() -> bool:

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import random
 import sqlite3
 import sys
@@ -37,13 +36,16 @@ DEFAULT_LIVE_S = 150
 
 
 def requested() -> bool:
-    return (os.environ.get("SOKKAN_DEMO_CREW") or "0").strip().lower() in ("1", "true", "yes", "on")
+    """Asked for in the environment (whatever its dependencies say)."""
+    import features
+    return bool(features.requested("demo_crew"))
 
 
 def enabled() -> bool:
     """Demo crew = asked for (SOKKAN_DEMO_CREW=1) AND on the demo instance (banner on).
     One without the other is a misconfiguration: the real scheduler runs."""
-    return requested() and os.environ.get("SOKKAN_DEMO_BANNER", "0") not in ("", "0")
+    import features  # registry: `demo_crew` requires `agents` and `demo_banner`
+    return features.enabled("demo_crew")
 
 
 # ---- per-agent demo config (live script, loop) ---------------------------------

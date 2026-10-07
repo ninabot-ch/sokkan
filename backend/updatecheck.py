@@ -10,6 +10,8 @@ Désactivation : `SOKKAN_UPDATE_CHECK=0` dans `.env`.
 from __future__ import annotations
 
 import os
+
+import features
 import sys
 import threading
 import time
@@ -17,8 +19,7 @@ import urllib.request
 
 BASE = os.environ.get("SOKKAN_DIST_BASE", "https://sokkan.ch").rstrip("/")
 LOCAL = os.environ.get("SOKKAN_VERSION", "dev")
-ENABLED = os.environ.get("SOKKAN_UPDATE_CHECK", "1").strip().lower() not in (
-    "0", "false", "no", "off")
+ENABLED = features.enabled("update_check")
 INTERVAL_S = 24 * 3600
 
 _state: dict = {"latest": None, "update_available": False, "checked_at": None}

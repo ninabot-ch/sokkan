@@ -383,7 +383,8 @@ def is_ops(user: dict) -> bool:
     """Instance admin/owner, or member of the ops team (SSO group)."""
     if user.get("role") in ("admin", "owner"):
         return True
-    g = ops_group()
+    import features  # registry: `ops_team` (requires `sso_teams`); off = admins only
+    g = ops_group() if features.enabled("ops_team") else ""
     return bool(g) and f"sso:{g}" in team_ids(user.get("email") or "")
 
 

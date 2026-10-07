@@ -10,10 +10,12 @@ import {
 } from "@/lib/api";
 import type { IamUser } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
+import FeaturesAdmin from "./FeaturesAdmin";
+import { useFeatures } from "@/lib/features";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "model" | "notify" | "secrets";
+type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "notify" | "secrets";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -424,9 +426,11 @@ function Secrets() {
 export default function Profile({ onClose }: { onClose: () => void }) {
   const [sec, setSec] = useState<Section>("account");
   const me = useMe();
+  const featProblems = useFeatures().registry?.problems.length ?? 0;
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
   const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"],
     ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
+    ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
     ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
@@ -435,7 +439,10 @@ export default function Profile({ onClose }: { onClose: () => void }) {
           <div className="px-2 py-1.5 text-[13px] font-semibold text-slate-100">Profile & organization</div>
           {nav.map(([k, label]) => (
             <button key={k} onClick={() => setSec(k)}
-              className={`block w-full rounded-md px-2 py-1.5 text-left text-[12.5px] ${sec === k ? "bg-panel text-slate-100" : "text-mut hover:text-slate-200"}`}>{label}</button>
+              className={`block w-full rounded-md px-2 py-1.5 text-left text-[12.5px] ${sec === k ? "bg-panel text-slate-100" : "text-mut hover:text-slate-200"}`}>{label}
+              {k === "features" && featProblems > 0 && (
+                <span title="features asked for but off" className="ml-1.5 rounded-full bg-red-500/80 px-1.5 text-[10px] text-white">{featProblems}</span>
+              )}</button>
           ))}
         </div>
         <div className="min-w-0 flex-1">
@@ -444,7 +451,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

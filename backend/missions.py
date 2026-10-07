@@ -15,13 +15,15 @@ Disable the feature entirely (link and fetch) with SOKKAN_FEATURE_MISSIONS_LINK=
 from __future__ import annotations
 
 import os
+
+import features
 import threading
 import time
 import urllib.request
 
 URL = os.environ.get("SOKKAN_MISSIONS_STATS_URL",
                      "https://app.sokkan.ch/missions/stats.json")
-ENABLED = os.environ.get("SOKKAN_FEATURE_MISSIONS_LINK", "1") != "0"
+ENABLED = features.enabled("missions_link")
 TTL_S = 6 * 3600
 
 _lock = threading.Lock()
