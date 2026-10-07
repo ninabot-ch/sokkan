@@ -101,6 +101,10 @@ services:
       # budgets de coût estimé en USD (0 = off ; modifiables aussi dans Profil)
       SOKKAN_BUDGET_SESSION_USD: ${SOKKAN_BUDGET_SESSION_USD:-0}
       SOKKAN_BUDGET_DAY_USD: ${SOKKAN_BUDGET_DAY_USD:-0}
+      # agents — onglet Crew (3.1) : ordonnanceur, concurrence, rattrapage
+      SOKKAN_FEATURE_AGENTS: ${SOKKAN_FEATURE_AGENTS:-1}
+      SOKKAN_AGENTS_MAX_CONCURRENT: ${SOKKAN_AGENTS_MAX_CONCURRENT:-2}
+      SOKKAN_AGENTS_MISFIRE_S: ${SOKKAN_AGENTS_MISFIRE_S:-21600}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

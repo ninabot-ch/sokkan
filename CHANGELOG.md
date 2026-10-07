@@ -3,6 +3,42 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.1.0 — unreleased — "Crew up"
+- **Agents, in a new Crew tab.** An agent is a named, owned job: model, purpose,
+  expected deliverable and when it is done, trigger (manual, one-shot, cron in
+  Europe/Zurich wall-clock time, or an Operate alert), allowed tools and MCP servers,
+  vault secrets by name, budget and time limit per run, what may run without asking,
+  and where the deliverable goes (board card in Review, memory note, file,
+  notification). Spec: `docs/AGENTS.md`.
+- **The deck.** One card per agent, in four columns that are its state: idle (blue),
+  armed (green), running (orange — the card breathes; a static ring under
+  `prefers-reduced-motion`), error (red). Labels and icons, never colour alone. A click
+  opens the agent above the deck: Settings (everything editable, approve/reject),
+  Live (the running session, approve a waiting tool call right there), History (status,
+  cost, tokens, duration, deliverable, transcript).
+- **Built in a chat.** "New agent → Build it in a chat" opens a session (`new-agent`
+  playbook) that asks one question at a time, recaps, then creates the card. Nina does
+  the same in her chat and hands back a card you create in one click. The form is still
+  there.
+- **`sokkan-agents` MCP, in every session**: create_agent, update_agent, list_agents,
+  get_agent, run_agent_now, pause/resume/archive_agent, list_runs, get_run. A session
+  only proposes: a new agent, or a change to an approved one, waits for a human in Crew.
+  Inside a run the server is read-only (agents do not breed agents).
+- **A run is an ordinary session**: memory recalled at spawn, the agent's policy (tools
+  outside its list are not even offered, `auto_approve` rules in Claude Code syntax,
+  only the vault secrets it names, `max_budget_usd`), the HITL ping when a call waits
+  for you. The deliverable is stored with every secret value replaced by
+  `[secret:NAME]`; cost, tokens and turns come from the SDK result.
+- **Scheduler**: no double run (a scheduled occurrence is unique per agent, a run starts
+  through an atomic claim), one live run per agent, `SOKKAN_AGENTS_MAX_CONCURRENT`
+  (default 2), runs cut by a restart become `interrupted` and notify, occurrences missed
+  while the API was down get one catch-up run if younger than `SOKKAN_AGENTS_MISFIRE_S`
+  (6 h). DST: a time in the spring-forward gap is skipped, the repeated autumn hour runs
+  once. `SOKKAN_FEATURE_AGENTS=0` turns it all off.
+- **Owner and access**: every agent has an owner; a dev sees and manages their own, an
+  admin all of them; viewers do not see Crew yet. Approving takes the owner or an admin.
+- No existing API changes; `POST /api/observability/alert` also returns `agent_runs`.
+
 ## 3.0.2 — 2026-10-07 — "One memory"
 - **Magnitude: images reach vision models.** Images — including the ones Claude Code
   gets back from reading a .png — used to be dropped by the local shim. With
