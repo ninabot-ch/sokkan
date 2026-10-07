@@ -56,6 +56,15 @@ def _save(d: dict) -> None:
     os.chmod(STORE, 0o600)
 
 
+def session_mode() -> str:
+    """SOKKAN_SESSION_SECRETS (3.1) : `all` (défaut 3.1, comportement historique —
+    toute session humaine reçoit tout le coffre) ou `named` (une session ne reçoit
+    que les secrets choisis à son ouverture ou par son playbook). `named` deviendra
+    le défaut en 3.2."""
+    m = (os.environ.get("SOKKAN_SESSION_SECRETS") or "all").strip().lower()
+    return m if m in ("all", "named") else "all"
+
+
 def valid_name(name: str) -> bool:
     return bool(_NAME_RE.match(name))
 

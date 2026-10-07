@@ -72,13 +72,16 @@ MCP_SERVERS = {
 
 
 def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
-                    agent_run: bool = False) -> dict:
+                    agent_run: bool | dict = False) -> dict:
     """MCP servers of ONE session: same commands, plus who is calling (the API
     sets it, the model cannot) so a server can attribute and gate its writes.
     `only` restricts the set (agent runs get the servers their agent lists)."""
     who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or ""}
     if agent_run:
-        who["SOKKAN_AGENT_RUN"] = "1"  # the agents MCP is read-only inside a run
+        who["SOKKAN_AGENT_RUN"] = "1"  # agents MCP read-only, memory writes quarantined
+        if isinstance(agent_run, dict):
+            who["SOKKAN_AGENT_NAME"] = str(agent_run.get("agent") or "")
+            who["SOKKAN_AGENT_RUN_ID"] = str(agent_run.get("run") or "")
     out = {}
     for name, cfg in MCP_SERVERS.items():
         if only is not None and name not in only:
@@ -151,7 +154,8 @@ class AgentSession:
     """Une session de chat SDK : un ClaudeSDKClient long-vivant + diffusion d'events."""
 
     def __init__(self, sid: str, cwd: str = CWD, resume: str | None = None,
-                 model: str | None = MODEL, user: str = "", policy: dict | None = None):
+                 model: str | None = MODEL, user: str = "", policy: dict | None = None,
+                 secrets: list[str] | None = None):
         self.sid = sid
         self.cwd = cwd
         self.resume = resume
@@ -175,6 +179,8 @@ class AgentSession:
         # autorisés), auto_approve (règles Claude Code), secrets (noms du coffre),
         # budget_usd, mcp (serveurs), on_wait(bool) (une approbation attend ou non)
         self.policy = policy
+        # secrets nommés à l'ouverture (SOKKAN_SESSION_SECRETS=named) ; None = relire le store
+        self.secrets = secrets
         self.tokens_in = 0
         self.tokens_out = 0
         self.num_turns = 0
@@ -212,7 +218,9 @@ class AgentSession:
                 setting_sources=["user", "project", "local"],
                 mcp_servers=mcp_servers_for(self.sid, self.user,
                                             only=pol.get("mcp") if pol else None,
-                                            agent_run=bool(pol)),
+                                            agent_run=({"agent": pol.get("agent"),
+                                                        "run": pol.get("run")}
+                                                       if pol else False)),
             )
             if pol:
                 # défense en profondeur : une règle « allow » des settings utilisateur ou
@@ -227,7 +235,7 @@ class AgentSession:
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
-            env_extra = {**vault.session_env(pol.get("secrets") if pol else None),
+            env_extra = {**vault.session_env(self._secret_names()),
                          **llm.session_env(self.user)}
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
@@ -251,6 +259,21 @@ class AgentSession:
             except Exception:  # noqa: BLE001
                 pass
             self.client = None
+
+    def _secret_names(self) -> list[str] | None:
+        """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;
+        pour une session humaine, tout (mode `all`) ou ceux choisis à son ouverture
+        (mode `named`, rien si rien n'a été choisi)."""
+        if self.policy:
+            return list(self.policy.get("secrets") or [])
+        if vault.session_mode() == "all":
+            return None
+        if self.secrets is not None:
+            return list(self.secrets)
+        try:
+            return board.get_session_secrets(self.sid) or []
+        except Exception:  # noqa: BLE001
+            return []
 
     # ---- politique d'agent (3.1) ----------------------------------------------
     def _allowed_tools(self) -> list[str]:
@@ -304,6 +327,12 @@ class AgentSession:
                 return PermissionResultDeny(message=(
                     f"{tool_name} is not in this agent's allowed tools. Do without it, or say "
                     "in your deliverable that the agent needs it."))
+            if tool_name in _EDIT_TOOLS and _in_memory_dirs(
+                    str(input_data.get("file_path") or input_data.get("notebook_path") or "")):
+                return PermissionResultDeny(message=(
+                    "An agent run does not write memory files directly: use "
+                    "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
+                    "approves it)."))
 
         # AskUserQuestion : on rend les choix en boutons, on injecte la réponse
         if tool_name == "AskUserQuestion":
@@ -537,6 +566,22 @@ except Exception:  # noqa: BLE001
     _OPTION_FIELDS = set()
 
 
+def _in_memory_dirs(path: str) -> bool:
+    """Le chemin vise-t-il le dossier mémoire ou la quarantaine ? (runs d'agent)"""
+    if not path:
+        return False
+    try:
+        import quarantine
+        p = Path(path).expanduser().resolve()
+        for d in (quarantine.memory_dir(), quarantine.qdir()):
+            d = d.expanduser().resolve()
+            if p == d or d in p.parents:
+                return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 # ---- registry (1 AgentSession par sid, en mémoire) --------------------------
 _registry: dict[str, AgentSession] = {}
 
@@ -588,12 +633,14 @@ def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
 
 
 def get_or_create(sid: str, resume: str | None = None, user: str = "",
-                  model: str | None = None, policy: dict | None = None) -> AgentSession:
+                  model: str | None = None, policy: dict | None = None,
+                  secrets: list[str] | None = None) -> AgentSession:
     s = _registry.get(sid)
     if s is None:
         # après un restart de sokkan-api : reprendre le claude_session_id persisté
         resume = resume or (board.get_claude_session_id(sid) or None)
-        s = AgentSession(sid, resume=resume, user=user, model=model or MODEL, policy=policy)
+        s = AgentSession(sid, resume=resume, user=user, model=model or MODEL, policy=policy,
+                         secrets=secrets)
         if resume:
             _seed_ring_from_transcript(s, resume)
         _registry[sid] = s

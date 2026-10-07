@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { deleteSession, fetchPlaybooks, fetchSessions, fetchTags, spawnSession } from "@/lib/api";
+import { deleteSession, fetchPlaybooks, fetchSessions, fetchTags, spawnSession, vaultSession } from "@/lib/api";
 import type { Playbook } from "@/lib/api";
 import type { SessionSummary } from "@/lib/types";
 import { useCan } from "@/lib/me";
@@ -31,6 +31,8 @@ export default function SessionRail({
   const [adding, setAdding] = useState(false);
   const [asTmux, setAsTmux] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [vault, setVault] = useState<{ mode: "all" | "named"; names: string[] } | null>(null);
+  const [secrets, setSecrets] = useState<string[]>([]);
   const canWrite = useCan("dev");
   const feats = useFeatures();
 
@@ -41,6 +43,7 @@ export default function SessionRail({
     reload();
     fetchTags().then(setTags).catch(() => {});
     fetchPlaybooks().then(setPlaybooks).catch(() => {});
+    vaultSession().then(setVault).catch(() => {});
     const iv = setInterval(reload, 5000);
     return () => clearInterval(iv);
   }, []);
@@ -55,8 +58,9 @@ export default function SessionRail({
     setBusy(true);
     try {
       const kind = asTmux ? "tmux" as const : "sdk" as const;
-      const s = await spawnSession(tag, prompt, "", kind, playbook);
-      setPrompt(""); setAdding(false);
+      const named = vault?.mode === "named" && kind === "sdk";
+      const s = await spawnSession(tag, prompt, "", kind, playbook, named ? secrets : null);
+      setPrompt(""); setAdding(false); setSecrets([]);
       onOpen({ session_id: s.session_id, kind, title: s.title, tag: s.tag });
       reload();
     } finally {
@@ -103,6 +107,19 @@ export default function SessionRail({
             placeholder={playbook ? (playbooks.find((p) => p.id === playbook)?.subject_optional ? "subject (optional for this playbook)…" : "subject — what should this playbook work on?…") : "initial prompt (optional)…"}
             className="w-full resize-y rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50"
           />
+          {vault?.mode === "named" && !asTmux && (
+            <div>
+              <div className="mb-1 text-[10.5px] text-mut">secrets this session gets (by name) — none by default</div>
+              {vault.names.length === 0 ? <div className="text-[10.5px] text-mut/70">vault empty</div> : (
+                <div className="flex flex-wrap gap-1">
+                  {vault.names.map((n) => (
+                    <button key={n} type="button" onClick={() => setSecrets((cur) => cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n])}
+                      className={`rounded border px-1.5 py-px text-[10.5px] ${secrets.includes(n) ? "border-sea/60 bg-sea/15 text-sea" : "border-line text-mut hover:text-slate-200"}`}>🔑 {n}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {feats.tmux && (
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-mut">
             <input type="checkbox" checked={asTmux} onChange={(e) => setAsTmux(e.target.checked)} className="accent-slate-500" />

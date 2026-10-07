@@ -35,6 +35,7 @@ import board
 import cronexpr
 import notify
 import playbooks
+import quarantine
 import vault
 
 TICK_S = float(os.environ.get("SOKKAN_AGENTS_TICK_S", "15"))
@@ -137,11 +138,9 @@ def _cron_latest_due(a: dict, now: float) -> float | None:
 
 
 class Runtime:
-    def __init__(self, recall: Callable[[str, str], str] | None = None,
-                 write_note: Callable[..., dict] | None = None):
+    def __init__(self, recall: Callable[[str, str], str] | None = None):
         self.runner_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self.recall = recall
-        self.write_note = write_note
         self.tasks: dict[int, asyncio.Task] = {}
         self.sessions: dict[int, agentchat.AgentSession] = {}
         self._wake: asyncio.Event | None = None
@@ -310,6 +309,7 @@ class Runtime:
             agents.update_run(rid, waiting_approval=int(waiting))
 
         policy = {
+            "agent": a["name"], "run": rid,
             "tools": a.get("tools") or [],
             "auto_approve": a.get("auto_approve") or [],
             "secrets": a.get("secrets") or [],
@@ -391,6 +391,10 @@ class Runtime:
         body = _DELIVERY_RE.sub("", text or "").strip()
         return body[:500] + ("…" if len(body) > 500 else "")
 
+    @staticmethod
+    def _summary_full(text: str) -> str:
+        return _DELIVERY_RE.sub("", text or "").strip()[:20000]
+
     def _file(self, a: dict, run: dict, sid: str, deliverable: str, status: str) -> dict:
         out: dict = {}
         stamp = datetime.now(ZoneInfo(a.get("timezone") or cronexpr.DEFAULT_TZ)).strftime(
@@ -406,16 +410,20 @@ class Runtime:
                         tag="devops", bucket="Review", priority=2,
                         user=f"agent:{a['name']}")
                     out["card"] = c["id"]
-                elif kind == "memory" and self.write_note:
+                elif kind == "memory":
+                    # QUARANTAINE : la note n'est rappelée qu'après relecture humaine
                     name = f"agent-{a['name']}-latest"[:64]
                     first = self._summary(deliverable).splitlines()[0][:160] if deliverable else ""
-                    r = self.write_note(
-                        name=name,
-                        description=f"Latest deliverable of the agent {a['name']} "
-                                    f"({stamp}, run #{run['id']}): {first}",
-                        body=deliverable[:20000], overwrite=True)
+                    r = quarantine.write(
+                        name,
+                        f"Latest deliverable of the agent {a['name']} "
+                        f"({stamp}, run #{run['id']}): {first}",
+                        self._summary_full(deliverable),
+                        {"agent": a["name"], "run": run["id"], "session": sid,
+                         "via": "output"})
                     if r.get("ok"):
                         out["memory"] = name
+                        out["memory_quarantined"] = True
                     else:
                         out["memory_error"] = r.get("error", "")
                 elif kind == "file":
@@ -452,11 +460,11 @@ class Runtime:
 _runtime: Runtime | None = None
 
 
-def start(recall=None, write_note=None) -> Runtime | None:
+def start(recall=None) -> Runtime | None:
     global _runtime
     if not enabled():
         return None
-    _runtime = Runtime(recall=recall, write_note=write_note)
+    _runtime = Runtime(recall=recall)
     _runtime.start()
     return _runtime
 

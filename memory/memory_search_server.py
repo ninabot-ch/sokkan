@@ -267,6 +267,14 @@ def memory_write(name: str, description: str, body: str,
     L'index et les embeddings suivent tout seuls (réindexation du backend).
     """
     name = (name or "").strip().removesuffix(".md")
+    if os.environ.get("SOKKAN_AGENT_RUN") == "1":
+        # 3.1 : une note écrite par un run d'agent part en QUARANTAINE (hors du dossier
+        # indexé) — jamais rappelée tant qu'un humain ne l'a pas relue et validée
+        import quarantine
+        return quarantine.write(name, description, body, {
+            "agent": os.environ.get("SOKKAN_AGENT_NAME", ""),
+            "run": os.environ.get("SOKKAN_AGENT_RUN_ID", ""),
+            "session": os.environ.get("SOKKAN_SESSION_ID", ""), "via": "memory_write"})
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
                                       "2-64 chars, no path separator (e.g. 'decision-delete-404')"}

@@ -93,6 +93,8 @@ def init(force: bool = False) -> None:
         if "kind" not in scols:
             con.execute("ALTER TABLE sessions ADD COLUMN kind TEXT DEFAULT 'tmux'")
             con.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT DEFAULT ''")
+        if "secrets" not in scols:  # 3.1 : secrets nommés à l'ouverture (JSON, NULL = non choisi)
+            con.execute("ALTER TABLE sessions ADD COLUMN secrets TEXT DEFAULT NULL")
         con.commit()
         con.close()
         _initialized = True
@@ -263,7 +265,8 @@ def _uniquify_sdk(tag: str) -> str:
     return f"{tag}-{n}"
 
 
-def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "") -> dict:
+def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "",
+                    secrets: list[str] | None = None) -> dict:
     """Enregistre une session SDK possédée par SOKKAN (le chat vit dans l'API,
     l'historique dans le transcript du claude_session_id, persisté plus tard)."""
     tag = (tag or "session").strip().replace(" ", "-")[:24]
@@ -271,9 +274,10 @@ def add_sdk_session(sid: str, tag: str, title: str = "", prompt: str = "") -> di
     title = (title or prompt or tag).strip().splitlines()[0][:60] or tag
     con = _con()
     con.execute(
-        "INSERT INTO sessions(session_id, tag, window, title, prompt, created_at, kind)"
-        " VALUES(?,?,?,?,?,?, 'sdk')",
-        (sid, name, "", title, prompt, time.time()),
+        "INSERT INTO sessions(session_id, tag, window, title, prompt, created_at, kind, secrets)"
+        " VALUES(?,?,?,?,?,?, 'sdk', ?)",
+        (sid, name, "", title, prompt, time.time(),
+         None if secrets is None else json.dumps(list(secrets))),
     )
     con.commit()
     con.close()
@@ -292,6 +296,20 @@ def get_claude_session_id(sid: str) -> str:
     r = con.execute("SELECT claude_session_id FROM sessions WHERE session_id=?", (sid,)).fetchone()
     con.close()
     return (r["claude_session_id"] if r else "") or ""
+
+
+def get_session_secrets(sid: str) -> list[str] | None:
+    """Secrets choisis à l'ouverture de la session (None = aucun choix enregistré)."""
+    con = _con()
+    r = con.execute("SELECT secrets FROM sessions WHERE session_id=?", (sid,)).fetchone()
+    con.close()
+    if not r or r["secrets"] is None:
+        return None
+    try:
+        v = json.loads(r["secrets"])
+        return [x for x in v if isinstance(x, str)]
+    except ValueError:
+        return []
 
 
 def seed_text(prompt: str, recall: str = "") -> str:

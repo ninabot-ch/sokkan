@@ -33,10 +33,13 @@ export const fetchBindings = () => getJSON<Binding[]>("/api/bindings");
 export interface Playbook { id: string; label: string; description: string; tag: string; subject_optional: boolean }
 export const fetchPlaybooks = () => getJSON<Playbook[]>("/api/playbooks");
 
-export const spawnSession = (tag: string, prompt = "", title = "", kind: "sdk" | "tmux" = "sdk", playbook = "") =>
+export const spawnSession = (tag: string, prompt = "", title = "", kind: "sdk" | "tmux" = "sdk", playbook = "",
+  secrets: string[] | null = null) =>
   mutate<{ session_id: string; tag: string; window: string; title: string; kind?: string }>(
-    "/api/spawn", "POST", { tag, prompt, title, kind, playbook }
+    "/api/spawn", "POST", { tag, prompt, title, kind, playbook, ...(secrets ? { secrets } : {}) }
   );
+// SOKKAN_SESSION_SECRETS (3.1) : « all » = toute session reçoit le coffre ; « named » = seulement les noms choisis
+export const vaultSession = () => getJSON<{ mode: "all" | "named"; names: string[] }>("/api/vault/session");
 
 export const deleteSession = (id: string) =>
   mutate<{ ok: boolean }>(`/api/sessions/${id}`, "DELETE");

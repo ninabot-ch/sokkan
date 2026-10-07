@@ -142,9 +142,7 @@ async def _lifespan(_app: FastAPI):
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
-    rt = agents_runtime.start(
-        recall=lambda q, sid: _memory_preseed(q, session_id=sid),
-        write_note=mem.memory_write)
+    rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
     yield
     if rt:
         await rt.stop()
@@ -600,6 +598,13 @@ def runbook_run(name: str, u: dict = Depends(require("dev"))) -> dict:
 
 
 # --- coffre de secrets (injectés en env des sessions) -----------------------
+@app.get("/api/vault/session")
+def vault_session(_u: dict = Depends(require("dev"))) -> dict:
+    """Pour le formulaire d'ouverture de session : le mode et les NOMS du coffre
+    (jamais les valeurs) — un dev choisit ce que sa session reçoit."""
+    return {"mode": vault.session_mode(), "names": vault.names()}
+
+
 @app.get("/api/vault")
 def vault_list(_u: dict = Depends(require("admin"))) -> dict:
     """Noms des secrets (JAMAIS les valeurs)."""
@@ -648,7 +653,8 @@ def _agent_full(u: dict, aid: int) -> dict:
     full = next((x for x in agents.list_agents(u, include_archived=True) if x["id"] == a["id"]), a)
     return agents.public(full) | {k: full.get(k) for k in ("deck", "needs_approval",
                                                            "waiting_for_human", "created_at",
-                                                           "updated_at")}
+                                                           "updated_at")} | {
+        "approval_mode": agents.approval_mode()}
 
 
 class AgentBody(BaseModel):
@@ -664,7 +670,8 @@ def agents_meta(_u: dict = Depends(require("dev")), _f: None = Depends(feature_a
             "outputs": list(agents.OUTPUTS), "notify_on": list(agents.NOTIFY_ON),
             "models": ["", "haiku", "sonnet", "opus"], "triggers": list(agents.TRIGGERS),
             "playbooks": [p for p in playbooks.catalog() if p["id"] != "new-agent"],
-            "timezone": "Europe/Zurich"}
+            "timezone": "Europe/Zurich", "approval_mode": agents.approval_mode(),
+            "self_activation": agents.self_activation_allowed(_u)}
 
 
 @app.get("/api/agents")
@@ -757,6 +764,51 @@ def agents_action(aid: int, action: str, u: dict = Depends(require("dev")),
 def agents_runs(aid: int, limit: int = 50, u: dict = Depends(require("dev")),
                 _f: None = Depends(feature_agents)) -> list[dict]:
     return _agent_http(agents.list_runs, u, aid, limit)
+
+
+# --- quarantaine mémoire (3.1) : notes écrites par des runs d'agent ------------
+import quarantine  # noqa: E402 — memory/ est sur le path (cf. imports du haut)
+
+
+@app.get("/api/memory/quarantine")
+def memory_quarantine(_u: dict = Depends(require("dev"))) -> list[dict]:
+    """Notes écrites par des runs d'agent, en attente de relecture humaine. Elles ne
+    sont PAS dans le dossier mémoire : aucun rappel (spawn, recherche, hooks)."""
+    return quarantine.list_notes()
+
+
+@app.get("/api/memory/quarantine/{name}")
+def memory_quarantine_get(name: str, _u: dict = Depends(require("dev"))) -> dict:
+    q = quarantine.get(name)
+    if q is None:
+        raise HTTPException(404, "not in quarantine")
+    return q
+
+
+class QuarantineDecision(BaseModel):
+    delete: bool = False
+
+
+@app.post("/api/memory/quarantine/{name}/approve")
+def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> dict:
+    try:
+        out = quarantine.approve(name, u["email"])
+    except KeyError:
+        raise HTTPException(404, "not in quarantine")
+    audit.log(u["email"], "memory.quarantine.approve", name, "")
+    return out
+
+
+@app.post("/api/memory/quarantine/{name}/reject")
+def memory_quarantine_reject(name: str, body: QuarantineDecision | None = None,
+                             u: dict = Depends(require("dev"))) -> dict:
+    try:
+        out = quarantine.reject(name, u["email"], delete=bool(body and body.delete))
+    except KeyError:
+        raise HTTPException(404, "not in quarantine")
+    audit.log(u["email"], "memory.quarantine.reject", name,
+              "deleted" if body and body.delete else "archived")
+    return out
 
 
 @app.get("/api/edge/ask")
@@ -1393,6 +1445,9 @@ class SpawnBody(BaseModel):
     title: str = ""
     kind: str = "sdk"  # 'sdk' (chat SDK, défaut) | 'tmux' (terminal power-user)
     playbook: str = ""  # id d'un template de session (GET /api/playbooks) — optionnel
+    # secrets du coffre (NOMS) pour cette session — pris en compte si
+    # SOKKAN_SESSION_SECRETS=named ; None = ceux du playbook, sinon aucun
+    secrets: list[str] | None = None
 
 
 def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
@@ -1428,13 +1483,14 @@ def _memory_preseed(query: str, top_k: int = 5, max_chars: int = 2400,
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
-def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "") -> dict:
+def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
+               secrets: list[str] | None = None) -> dict:
     """Session SDK : enregistrée dans le store + AgentSession créée ; le seed
     (sujet + mémoire pré-injectée + HITL) part en tâche de fond — les events
     sont bufferisés et rejoués quand le pane se connecte."""
     sid = agentchat.new_sid()
-    s = board.add_sdk_session(sid, tag, title=title, prompt=prompt)
-    session = agentchat.get_or_create(sid, user=user)
+    s = board.add_sdk_session(sid, tag, title=title, prompt=prompt, secrets=secrets)
+    session = agentchat.get_or_create(sid, user=user, secrets=secrets)
     day_budget = instance.budgets().get("budget_day_usd", 0.0)
     if day_budget:
         try:  # avertissement (pas un blocage) — le jour est déjà bien entamé ?
@@ -1463,6 +1519,12 @@ def playbooks_list(_u: dict = Depends(current_user)) -> list[dict]:
 async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> dict:
     """Crée une session SOKKAN — chat SDK par défaut, fenêtre tmux si kind='tmux'.
     `playbook` applique un template (prompt façonné + tag par défaut) au sujet tapé."""
+    if body.secrets is not None:
+        unknown = [n for n in body.secrets if n not in vault.names()]
+        if unknown:
+            raise HTTPException(400, f"secrets not in the vault: {', '.join(unknown)}")
+    if body.playbook and body.secrets is None:
+        body.secrets = (playbooks.get(body.playbook) or {}).get("secrets")
     if body.playbook:
         rendered = playbooks.render(body.playbook, body.prompt)
         if rendered is None:
@@ -1483,9 +1545,11 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
     if body.kind == "tmux":
         s = board.spawn(body.tag, prompt=body.prompt, title=body.title)
     else:
-        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title, user=u["email"])
+        extra = {"secrets": body.secrets} if body.secrets is not None else {}
+        s = _spawn_sdk(body.tag, prompt=body.prompt, title=body.title, user=u["email"], **extra)
     audit.log(u["email"], "session.spawn", s.get("window") or s["session_id"],
-              f"{s['title']} ({body.kind})")
+              f"{s['title']} ({body.kind})"
+              + (f" · secrets: {', '.join(body.secrets)}" if body.secrets else ""))
     return s
 
 

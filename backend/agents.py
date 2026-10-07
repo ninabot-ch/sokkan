@@ -131,6 +131,10 @@ def init(force: bool = False) -> None:
         DB.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(DB)
         con.executescript(_SCHEMA)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(agents)")}
+        for col in ("proposed_by", "pending_change_by"):  # 3.1 : qui a proposé (4 yeux)
+            if col not in cols:
+                con.execute(f"ALTER TABLE agents ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         con.commit()
         con.close()
         _initialized_for = str(DB)
@@ -362,6 +366,42 @@ def can_manage(user: dict, a: dict) -> bool:
     return can_read(user, a)
 
 
+APPROVAL_MODES = ("owner", "admin", "four_eyes")
+
+
+def approval_mode() -> str:
+    """SOKKAN_AGENTS_APPROVAL : qui active un agent ou une modification d'agent approuvé.
+    owner (défaut) = son propriétaire (dev+) ou un admin ; admin = un admin seulement ;
+    four_eyes = une AUTRE personne que celle qui l'a proposé et que son propriétaire."""
+    m = (os.environ.get("SOKKAN_AGENTS_APPROVAL") or "owner").strip().lower()
+    return m if m in APPROVAL_MODES else "owner"
+
+
+def _is_admin(user: dict) -> bool:
+    return iam.rank(user.get("role", "")) >= iam.rank("admin")
+
+
+def approval_check(user: dict, a: dict) -> tuple[bool, str]:
+    """(peut approuver ?, pourquoi pas) pour ce qui attend sur l'agent `a`."""
+    if not can_read(user, a):
+        return False, "not visible to you"
+    mode = approval_mode()
+    if mode == "admin" and not _is_admin(user):
+        return False, "needs an admin"
+    if mode == "four_eyes":
+        proposer = (a.get("pending_change_by") if a.get("pending_change")
+                    else a.get("proposed_by")) or a["owner"]
+        if user.get("email") in {a["owner"], proposer}:
+            return False, "needs a second approver"
+    return True, ""
+
+
+def self_activation_allowed(user: dict) -> bool:
+    """Un humain peut-il activer / modifier directement, sans second regard ?"""
+    mode = approval_mode()
+    return mode == "owner" or (mode == "admin" and _is_admin(user))
+
+
 def _need(user: dict, a: dict | None) -> dict:
     if a is None:
         raise NotFound("agent not found")
@@ -422,6 +462,11 @@ def list_agents(user: dict, include_archived: bool = False) -> list[dict]:
                       "live": s.get("live") or 0, "waiting": s.get("waiting") or 0}
         a["last_run"] = last.get(a["id"])
         a.update(deck_state(a))
+        if a["needs_approval"]:
+            ok, why = approval_check(user, a)
+            a["approval"] = {"mode": approval_mode(), "can_approve": ok, "reason": why}
+        else:
+            a["approval"] = None
         out.append(a)
     return out
 
@@ -468,9 +513,11 @@ def create(user: dict, fields: dict, created_by: str = "", activate: bool = Fals
     if get_by_name(v["name"]):
         raise AgentError(f"an agent named {v['name']!r} already exists")
     now = time.time()
+    if activate and not proposal and not self_activation_allowed(user):
+        proposal = True  # admin / four_eyes : l'activation passe par un autre regard
     status = "pending" if proposal else ("active" if activate else "draft")
     v.update(owner=user["email"], status=status, created_by=created_by or f"user:{user['email']}",
-             created_at=now, updated_at=now)
+             proposed_by=user["email"], created_at=now, updated_at=now)
     if status == "active":
         v.update(approved_by=user["email"], approved_at=now)
     v["next_run_at"] = next_fire(v, now)
@@ -522,12 +569,16 @@ def update(user: dict, agent_id: int, fields: dict, from_session: bool = False,
         raise AgentError(f"an agent named {v['name']!r} already exists")
     merged = {**a, **v}
     _check_trigger(merged)
-    if from_session and a["status"] in ("active", "paused"):
+    reviewed = from_session or not self_activation_allowed(user)
+    if reviewed and a["status"] in ("active", "paused"):
         pc = {**(a.get("pending_change") or {}), **v}
-        return _write(a["id"], pending_change=pc)
+        return _write(a["id"], pending_change=pc, pending_change_by=user["email"])
     new_status = a["status"]
     if from_session and a["status"] == "draft":
         new_status = "pending"
+    if a["status"] == "pending":
+        # modifier une proposition, c'est la (re)proposer : le 4-yeux suit l'auteur
+        return _write(a["id"], **v, proposed_by=user["email"], next_run_at=None)
     merged["status"] = new_status
     return _write(a["id"], **v, status=new_status, next_run_at=next_fire(merged))
 
@@ -535,13 +586,16 @@ def update(user: dict, agent_id: int, fields: dict, from_session: bool = False,
 def approve(user: dict, agent_id: int) -> dict:
     """Activate a pending agent, or apply a pending change. Owner (dev+) or admin."""
     a = _need(user, get(agent_id))
+    ok, why = approval_check(user, a)
+    if not ok:
+        raise Forbidden(f"{why} (approval mode: {approval_mode()})")
     now = time.time()
     if a.get("pending_change"):
         merged = {**a, **a["pending_change"]}
         _check_trigger(merged)
         cols = {k: merged[k] for k in a["pending_change"]}
-        return _write(a["id"], **cols, pending_change=None, approved_by=user["email"],
-                      approved_at=now, next_run_at=next_fire(merged))
+        return _write(a["id"], **cols, pending_change=None, pending_change_by="",
+                      approved_by=user["email"], approved_at=now, next_run_at=next_fire(merged))
     if a["status"] not in ("pending", "draft"):
         raise AgentError(f"nothing to approve (status {a['status']})")
     merged = {**a, "status": "active"}
@@ -553,7 +607,7 @@ def approve(user: dict, agent_id: int) -> dict:
 def reject(user: dict, agent_id: int) -> dict:
     a = _need(user, get(agent_id))
     if a.get("pending_change"):
-        return _write(a["id"], pending_change=None)
+        return _write(a["id"], pending_change=None, pending_change_by="")
     if a["status"] != "pending":
         raise AgentError(f"nothing to reject (status {a['status']})")
     return _write(a["id"], status="draft")
@@ -751,5 +805,6 @@ def public(a: dict) -> dict:
             "playbook", "trigger", "schedule", "timezone", "once_at", "event", "tools", "mcp",
             "auto_approve", "secrets", "budget_usd", "max_minutes", "outputs", "notify_on",
             "status", "pending_change", "created_by", "approved_by", "approved_at",
-            "next_run_at", "last_run_at", "stats", "last_run")
+            "next_run_at", "last_run_at", "stats", "last_run", "proposed_by",
+            "pending_change_by", "approval")
     return {k: a[k] for k in keep if k in a}

@@ -77,8 +77,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(agentchat, "get_or_create", fake_goc)
     monkeypatch.setattr(agentchat, "drop", fake_drop)
     notes = []
-    rt = agents_runtime.Runtime(recall=lambda q, sid: "=== Project memory (auto-recalled) ===\n- [x]",
-                                write_note=lambda **kw: notes.append(kw) or {"ok": True})
+    monkeypatch.setenv("SOKKAN_MEMORY_DIR", str(tmp_path / "memory"))
+    monkeypatch.setenv("SOKKAN_MEMORY_QUARANTINE_DIR", str(tmp_path / "quarantine"))
+    rt = agents_runtime.Runtime(recall=lambda q, sid: "=== Project memory (auto-recalled) ===\n- [x]")
     return {"agents": agents, "rt": rt, "sent": sent, "script": script, "notes": notes,
             "board": board, "vault": vault, "tmp": tmp_path}
 
@@ -273,7 +274,11 @@ def test_outputs_memory_file_and_notify(env):
     _run(go())
     run = ag.list_runs(DEV, a["id"])[0]
     assert run["outputs"]["memory"] == "agent-weekly-report-latest"
-    assert env["notes"][0]["overwrite"] is True
+    assert run["outputs"]["memory_quarantined"] is True
+    # quarantined: NOT in the memory dir (never indexed, never recalled)
+    assert not (env["tmp"] / "memory" / "agent-weekly-report-latest.md").exists()
+    q = (env["tmp"] / "quarantine" / "agent-weekly-report-latest.md").read_text()
+    assert '"agent": "weekly-report"' in q and "DELIVERY" not in q
     assert open(run["outputs"]["file"]).read().startswith("# Weekly ops report")
     assert len(env["sent"]) == 1 and "succeeded" in env["sent"][0][0]
 
