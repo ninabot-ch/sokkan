@@ -70,6 +70,74 @@ Verify: log in with a test account of each profile; `GET /api/me` shows the role
 selected project; Admin → Projects & teams → "why" (`GET /api/admin/explain?email=…&project=…`)
 explains each access.
 
+## 2b. GitLab: OAuth application, scopes, redirect URI, variables
+
+Feature `gitlab` (lot 5, beta; requires `multi_project` + `sso`). A project whose access
+source is **GitLab roles** gives each person the **lowest** GitLab level they have over the
+project's repositories (Guest/Reporter → viewer, Developer → dev, Maintainer → maintainer,
+Owner → admin), read with **their own** GitLab account; their sessions push with **their**
+token. There is no technical GitLab account anywhere.
+
+**1. Create the OAuth application in GitLab** (self-hosted: Admin → Applications for an
+instance-wide application, or a group's Settings → Applications; gitlab.com: a group's
+Settings → Applications):
+
+| Field | Value |
+|---|---|
+| Name | `SOKKAN <instance>` |
+| Redirect URI | `https://<SOKKAN_PUBLIC_URL host>/api/forge/gitlab/callback` (exactly; override with `SOKKAN_GITLAB_REDIRECT_URI`) |
+| Confidential | yes (SOKKAN keeps the secret server-side; PKCE S256 is used as well). A non-confidential application works with an empty secret. |
+| Trusted | no — each person consents once |
+| Scopes | `read_user`, `read_api`, `read_repository`, `write_repository` — **nothing else**, never `api` (a merge request is opened by `git push -o merge_request.create`) |
+
+**2. Variables** (`.env`, mode 0600; passed by the compose `# lot 5` block):
+
+```dotenv
+SOKKAN_FEATURE_GITLAB=1                 # on by default in the enterprise edition
+SOKKAN_GITLAB_URL=https://gitlab.example.org   # default https://gitlab.com; a path prefix is fine
+SOKKAN_GITLAB_CLIENT_ID=…               # "Application ID"
+SOKKAN_GITLAB_CLIENT_SECRET=…           # "Secret"; never in git
+SOKKAN_GITLAB_REDIRECT_URI=             # only if it differs from $SOKKAN_PUBLIC_URL/api/forge/gitlab/callback
+SOKKAN_GITLAB_CA_BUNDLE=/data/gitlab-ca.pem    # internal CA of a self-hosted GitLab (API and git)
+```
+
+`docker compose up -d api`; Profile → Features shows `gitlab` on with no "problem" and no note
+"no GitLab OAuth application".
+
+**3. Projects.** Admin → Projects & teams → new project, access "GitLab roles"; add its
+repositories (`group/subgroup/repo`; `POST /api/admin/projects/<slug>/repos`). Grants still
+apply on top (explicit overrides). Changing the repositories clears the project's cached
+decisions.
+
+**4. People.** Each person: Profile → **Linked accounts** → "Link GitLab" → consent on GitLab.
+The screen shows the linked account, scopes, token expiry (GitLab: 2 h, renewed server-side),
+and the role GitLab gives in each project ("Refresh my access" re-reads at once). Someone whose
+only access comes through GitLab can log in before linking: until then only `/api/forge/*`,
+`/api/me`, `/api/projects` and `/api/features` answer them.
+
+**Behaviour to know**
+
+* Cache: an access is re-read after 10 min, a refusal after 2 min; GitLab unreachable → the
+  last decision until it expires, then **no access** (fail-closed).
+* Revocation: "Unlink" revokes the token at GitLab, erases it, withdraws the access and closes
+  the person's live sessions of GitLab projects at once. A `401` from GitLab (token revoked,
+  user blocked, refresh refused) erases the link and withdraws access at the next read.
+  Journal: `forge.link`, `forge.unlink`, `forge.revoked`, `forge.refresh_failed`,
+  `forge.access_changed`, `project.repo.add|remove`.
+* Sessions of a GitLab project get a git **credential helper**, not a token: git asks the API
+  (loopback only, session-bound ticket) for the person's current token at each push; nothing is
+  stored on disk, the user's own `credential.helper` (store/cache) is bypassed for that host.
+  `git push -o merge_request.create -o merge_request.target=main origin <branch>` opens the MR.
+  No linked account → the push fails at once with "no gitlab account linked".
+* Residual risk: a session can still print the person's own token with `git credential fill`
+  (≤ 2 h, those scopes, that person's rights). The sandbox (lot 8) and egress filtering reduce it.
+* Keys: tokens are Fernet-encrypted with `/data/forge.key` (0600, separate from `vault.key`).
+  Losing it = everyone links again; nothing else is lost.
+
+Check (step 7 of § 4): with three test accounts — Reporter cannot push; Developer pushes a
+branch and opens an MR, is refused on the protected branch; Maintainer pushes the protected
+branch; unlinking removes the project from the selector immediately.
+
 ## 3. Model credentials and the scheduler guard
 
 Agents only run with **explicit** credentials (cockpit model settings, provisioned inference,
@@ -94,7 +162,7 @@ switch to `0` and restart `api`.
 | 4. Operate | `operate`, `agent_incidents`, `ops_team` | alert webhook, notification channel, `SOKKAN_OPS_GROUP` | a test alert opens an incident; a failed agent run opens one incident | ● / ◐ |
 | 5. Projects | `multi_project`, `sso_teams` | `SOKKAN_FEATURE_MULTI_PROJECT=1`; create projects and grants in Admin → Projects & teams (`POST /api/admin/projects`, `…/grants`) | two people, two projects: neither sees the other's sessions, cards, agents or notes; `GET /api/audit?q=memory.scope_violation` stays empty | ◐ |
 | 6. Vault and budgets per project | `project_vault_budgets` | per registry | secrets of X never in a session of Y; budget stop per project | ○ lot 4 |
-| 7. GitLab | `gitlab` | per registry | Reporter cannot push; Developer pushes a branch and opens an MR | ○ lot 5 |
+| 7. GitLab | `gitlab` | § 2b | Reporter cannot push; Developer pushes a branch and opens an MR; Maintainer pushes the protected branch | ◐ lot 5 (beta) |
 | 8. Revocation | `revocation` | SCIM endpoint in the IdP | SCIM delete → sessions closed, agents paused | ○ lot 6 |
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | per registry | per feature spec | ○ |
 | 10. Helm, classification, Teams | `helm`, `classification`, `teams` | — | — | ○ 3.3 / 3.4 |
@@ -107,7 +175,7 @@ What holds state:
 
 | Where | Content | Criticality |
 |---|---|---|
-| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately |
+| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately |
 | volume `sokkan-pg` | CortHeXis (Postgres + pgvector: notes, links, versions, recall log) | critical |
 | `SOKKAN_WORKSPACE` | the code sessions work on (also in your forge) | per your forge policy |
 | `.env` | configuration and secrets (0600) | critical, store in your secrets manager |
@@ -192,7 +260,9 @@ Severity levels, notification chain and post-mortem template: **TBD with the cus
 | OIDC client secret | IdP + `.env` | rotate in the IdP, update `.env`, `docker compose up -d api` | logins fail between the two steps |
 | Model API key / tenant token | cockpit model settings or `.env` | replace, restart `api` if in `.env` | — |
 | Claude BYOK key at the gateway | operated: set by the operator (encrypted) | replace; the old one is erased | — |
-| Forge tokens (lot 5) | per person, encrypted | refreshed automatically; unlink to erase | — |
+| Forge tokens (lot 5) | per person, `projects.db` encrypted with `/data/forge.key` | refreshed automatically (GitLab rotates refresh tokens); unlink to erase | — |
+| GitLab OAuth application secret | GitLab + `.env` (`SOKKAN_GITLAB_CLIENT_SECRET`) | renew in GitLab, update `.env`, `docker compose up -d api` | links keep working (refresh uses the new secret) |
+| `forge.key` | `/data/forge.key` | delete it and restart: everyone links GitLab again | access re-read at the next link |
 
 Rotation calendar: **TBD with the customer's policy**.
 

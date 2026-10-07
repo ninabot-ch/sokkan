@@ -136,13 +136,19 @@ effective_role(person, project) =
   project; pushes to A still work because the forge decides per push) — decision of 07.10.
   Protected branches are listed (`GET /projects/:id/protected_branches`) only to grey out
   actions in the UI; the push itself is the authority.
-* **Abstraction.** `forge.Provider` (lot 5): `authorize_url()`, `exchange(code)`,
-  `refresh(link)`, `whoami(link)`, `access_level(link, repo) → project role | None`,
-  `protected_branches(link, repo)`, `git_credentials(link) → (username, token)`. GitLab is
-  implemented; GitHub (collaborator permission `read|triage|write|maintain|admin`),
-  Gitea/Forgejo (`/repos/{o}/{r}/collaborators/{u}/permission`), Bitbucket (repository
-  permissions) and Azure DevOps (Graph + Git security namespaces) are mappings of the same
-  five methods.
+* **Abstraction** (`backend/forge/`, lot 5 ✅). `forge.Provider`:
+  `authorize_url(state, code_challenge, redirect_uri)`, `exchange(code, verifier,
+  redirect_uri) → Tokens`, `refresh(refresh_token, redirect_uri) → Tokens`, `revoke(token)`,
+  `whoami(token) → Identity`, `access_level(token, identity, repo) → project role | None`,
+  `protected_branches(token, repo)`, `git_credentials(token) → (username, password)`, and the
+  pure `role_for(level)`. Errors: `ForgeUnavailable` (network, 5xx: keep the cache, never a
+  revocation), `ForgeUnauthorized` (401, `invalid_grant`: revoke the link),
+  `NotImplementedForge`. **GitLab** (self-hosted or gitlab.com, API v4) is implemented.
+  **GitHub** (collaborator permission `read|triage|write|maintain|admin`) and
+  **Gitea/Forgejo** (`/repos/{o}/{r}/collaborators/{u}/permission`: `read|write|admin|owner`)
+  are skeletons: mapping defined and tested, every network method raises
+  `NotImplementedForge` (contract tests: `tests/test_forge_contract.py`). Bitbucket and Azure
+  DevOps: not started.
 * **Cache.** Positive rows 10 min, negative rows 2 min (`access_cache.expires_at`). Re-read:
   at login, when a session or an agent run of the project starts, on a push/API `403` from
   the forge, from the "Refresh my access" button, and by a sweep every 30 min for people
@@ -329,23 +335,55 @@ the new limit after the upgrade. A person disabled in the IdP loses the cockpit 
 
 ## Sessions and pushes with the person's token (lot 5)
 
-* The person links their forge account once (Profile → Forge accounts → "Link GitLab"):
+* The person links their forge account once (Profile → Linked accounts → "Link GitLab"):
   OAuth 2 authorization code + PKCE, `state` bound to the SOKKAN session. Scopes (GitLab):
   `read_user`, `read_api` (membership and protected branches), `read_repository`,
   `write_repository`. Not `api`: a merge request is opened by `git push -o
   merge_request.create`, which `write_repository` allows.
-* Tokens are Fernet-encrypted with `forge.key` (separate from `vault.key`, 0600, rotation =
-  re-encrypt), refreshed server-side, never shown, never logged, never stored in a session
-  transcript.
-* A session gets **git credentials only**: `GIT_ASKPASS` / a credential helper that asks
-  the API (loopback, session-bound token) for a short-lived access token for the
-  configured forge host. The token is the person's: a session can do at most what the
+* Tokens are Fernet-encrypted — the vault's scheme — with their own key `forge.key`
+  (separate from `vault.key`, 0600; losing or rotating it = people link again), refreshed
+  server-side (GitLab rotates refresh tokens: one refresh at a time per link), never shown,
+  never logged, never stored in a session transcript.
+* A session gets **git credentials only**: through `GIT_CONFIG_COUNT`/`KEY`/`VALUE`, for each
+  forge host of the project, the credential helper list is **reset** (a `store`/`cache`
+  helper of the user's git config never receives the token) then
+  `backend/forge/git_credential_helper.py` is set; `GIT_TERMINAL_PROMPT=0`. The helper asks
+  `POST /api/forge/git-credential` (loopback only, refused through the proxy) with an HMAC
+  ticket naming the session and its person (`SOKKAN_FORGE_TICKET`, not a token); the API
+  checks the session is live and owned by that person, re-checks their project role, and
+  answers the person's current token for that host only. git keeps it in memory for that one
+  command; `erase` (git was refused) re-reads the person's access at once. The token is the person's: a session can do at most what the
   person can, for at most the token's life (GitLab: 2 h). Prompt-injection exfiltration of
   that token is the residual risk (documented; mitigations: short life, minimal scopes,
   the sandbox of lot 8, egress filtering).
 * No forge account linked → the session works on a clone that cannot push, and says so.
 * An agent run pushes with its **owner's** token; if the owner's link is revoked or their
   access dropped, the run is skipped.
+
+### Lot 5: what shipped
+
+* `backend/forge/`: `Provider` interface, GitLab implementation, GitHub / Gitea-Forgejo
+  skeletons; `links` (configuration, `forge.key`, OAuth transactions bound to the person and
+  the browser, refresh with rotation); `access` (resolution, cache, repositories);
+  `gitcred` + `git_credential_helper.py`; `routes` (`/api/forge/status|links|refresh`,
+  `/api/forge/gitlab/link|callback`, `DELETE /api/forge/links/gitlab`,
+  `/api/forge/projects/<slug>/protected-branches`, `/api/admin/projects/<slug>/repos`,
+  `POST /api/forge/git-credential`). Operator guide: `docs/enterprise/OPERATIONS.md` § 2b.
+* `projects.effective_role` reads the forge (with the person's token) when a forge project has
+  no fresh cache row; `explain` shows the forge source.
+* Someone whose only access is through GitLab can log in before linking: only
+  `/api/forge/*`, `/api/me`, `/api/projects`, `/api/features` answer them.
+* Not in lot 5: the 30-min sweep for people with a live session (a decision is re-read at the
+  first request after it expires — a push is decided by GitLab anyway); an agent run of a
+  revoked owner is not skipped yet (its push fails); `viewer` still cannot open a session
+  (read-only sessions for Reporter remain to do); live sessions are closed on unlink, not on
+  a 401 found later (their credential requests are refused from then on).
+* Proof: `tests/test_forge_contract.py`, `tests/test_forge_api.py`, `tests/test_forge_push.py`
+  — a fake GitLab (`tests/fake_gitlab.py`: OAuth with PKCE and refresh rotation, API v4,
+  real `git http-backend` with a protected `main`) drives real `git push`: Reporter refused,
+  Developer pushes a branch with `-o merge_request.create` (the option reaches GitLab) and is
+  refused on `main`, Maintainer pushes `main`; no linked account → immediate failure; the
+  token is never in the session env, git's output, any file, the logs or the journal.
 
 ## Migration from a single-project instance
 
@@ -379,8 +417,10 @@ names its columns); migration `0011` leaves a column 3.1 does not read.
   repositories, resources, budgets), teams (SSO groups seen at login, local teams), grants
   (group or person → role), "who has access to X and why" (the resolution, source by
   source), "Revoke now".
-* **Profile → Forge accounts**: link / unlink GitLab (and later others), linked identity,
-  scopes, last refresh, "Refresh my access".
+* **Profile → Linked accounts** (lot 5 ✅): link / unlink GitLab (and later others), linked
+  identity, scopes, token expiry, state (active / expired / revoked), the role GitLab gives
+  in each project, "Refresh my access". Admin → Projects & teams: access source "GitLab
+  roles" and the project's repositories.
 * **Admin → Model keys (BYOK)**: the client's admin enters their Anthropic key (or gateway
   URL + token) in the cockpit; stored encrypted in the instance vault namespace, shown
   masked, test call, last use; never readable back. **Per instance for the POC**; a
@@ -424,7 +464,7 @@ in points (1 point ≈ one focused session of work with its tests).
 | **2 ✅** | Scheduler guard (explicit credentials, no boot catch-up), `SOKKAN_SESSION_SECRETS=named` default, session cookie TTL 8 h | low | 1.5 | restart an instance with a queued run and no credentials → nothing runs |
 | **3 ✅** | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
 | 4 | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
-| 5 | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
+| **5 ✅** | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
 | 6 | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
 | 7 | BYOK admin screen (client admin enters their keys) | low | 1.5 | key set, masked, test call, used by sessions |
 | 8 | Optional sandbox per sensitive project (own uid / container for sessions) | high | 5 | a session of X cannot read X' files by `Bash cat` |

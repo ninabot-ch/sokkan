@@ -97,6 +97,30 @@ Notable changes, newest first. Versions: semver + release hash (see
   the run and the agent. New routes: `POST /api/board/card/{id}/comment|close|reopen`;
   `PATCH` accepts `assignee` (an IAM user email or `agent:<name>`).
 
+### Lot 5
+- **GitLab projects** (feature `gitlab`, beta; requires `multi_project` + `sso`; on by
+  default in the enterprise edition). A project whose access source is "GitLab roles" gives
+  each person the **lowest** GitLab level they have over the project's repositories
+  (Guest/Reporter → viewer, Developer → dev, Maintainer → maintainer, Owner → admin; group
+  inheritance included), read with **their own** account, cached 10 min (refusals 2 min);
+  GitLab unreachable → the last decision until it expires, then no access.
+- **Profile → Linked accounts**: link GitLab (OAuth 2 + PKCE, scopes `read_user read_api
+  read_repository write_repository`, no `api`), see the account, scopes, token expiry and the
+  role in each project, "Refresh my access", unlink. Tokens are Fernet-encrypted with their
+  own key (`$SOKKAN_DATA_DIR/forge.key`), refreshed server-side, never shown nor logged.
+  Unlink (or a 401 from GitLab) withdraws the access at once; unlink also closes the
+  person's live sessions of GitLab projects.
+- **Push in the person's name**: sessions of a GitLab project get a git credential helper
+  (no token in their environment, no credential stored on disk, the user's `store`/`cache`
+  helpers bypassed) that asks the API on the loopback for the person's current token;
+  `git push -o merge_request.create` opens the merge request. No linked account → the push
+  fails at once and says why.
+- Admin → Projects & teams: access source "GitLab roles" and the project's repositories
+  (`/api/admin/projects/<slug>/repos`). `backend/forge/`: one `Provider` interface (GitLab
+  implemented; GitHub and Gitea/Forgejo skeletons). Variables `SOKKAN_GITLAB_URL`,
+  `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`, `_CA_BUNDLE` (operator guide:
+  `docs/enterprise/OPERATIONS.md` § 2b).
+
 ## 3.1.2 — 2026-10-07 — "Crew up"
 Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:
 alert-triggered agents that auto-approve write tools need an admin override to be

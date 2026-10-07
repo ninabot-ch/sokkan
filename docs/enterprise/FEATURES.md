@@ -42,7 +42,7 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`fleet`](#fleet) Managed fleet | stable | integration | if configured | if configured | — | — | `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN` |
 | [`cortex`](#cortex) CortHeXis link | stable | integration | if configured | if configured | — | — | `SOKKAN_CORTEX_URL` |
 | [`project_vault_budgets`](#project_vault_budgets) Vault and budgets per project | planned (3.2) | planned | off | off | `multi_project`, `named_secrets` | — | `SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS` |
-| [`gitlab`](#gitlab) GitLab projects | planned (3.2) | planned | off | off | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
+| [`gitlab`](#gitlab) GitLab projects | beta | toggle | off | on | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
 | [`revocation`](#revocation) Revocation | planned (3.2) | planned | off | off | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
 | [`byok_admin`](#byok_admin) BYOK admin screen | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
 | [`sandbox`](#sandbox) Project sandbox | planned (3.2) | planned | off | off | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
@@ -123,7 +123,7 @@ graph LR
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
   classDef invariant fill:#eaf7ea;
-  class project_vault_budgets,gitlab,revocation,byok_admin,sandbox,shared_review,helm,classification,teams,connect_ai planned;
+  class project_vault_budgets,revocation,byok_admin,sandbox,shared_review,helm,classification,teams,connect_ai planned;
   class sso,operate,infra,fleet,cortex integration;
   class memory_quarantine invariant;
 ```
@@ -402,11 +402,11 @@ Per-project vault, cost totals and budgets, agent names and CortHeXis review per
 
 ### gitlab
 
-**GitLab projects** — planned for 3.2, planned.
+**GitLab projects** — beta, toggle.
 
-Project access from GitLab roles (OAuth PKCE), credential helper, push and merge requests in the person's name (lot 5).
+Project access from GitLab roles read with the person's own account (OAuth PKCE; lowest level over the project's repositories, cached 10 min / 2 min), credential helper, push and merge requests in the person's name (lot 5).
 
-- Defaults: community **off**, enterprise **off**
+- Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `sso`
 - Switch: `SOKKAN_FEATURE_GITLAB`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
