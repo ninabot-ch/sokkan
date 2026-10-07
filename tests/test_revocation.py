@@ -379,3 +379,25 @@ def test_an_agent_does_not_outlive_its_owner_access(world, monkeypatch):
     agents.set_next_run(a["id"], None, status="active")
     done, started = _run_once(a)
     assert started
+
+
+def test_revocation_revokes_the_grant_at_the_forge(world, monkeypatch):
+    """Lot 5 × lot 6: a revoked person's forge grant is revoked AT THE FORGE (forge.revoke_link)
+    before the local erasure, so a token copied earlier stops working there too."""
+    import revocation
+    from forge import Tokens, links
+
+    links.save("alice@x", "gitlab", "https://gitlab.example", Tokens("acc-tok", "ref-tok"),
+               "7", "alice")
+    called = []
+
+    class FakeProvider:
+        def revoke(self, token):
+            called.append(token)
+
+    monkeypatch.setattr(links, "provider_for", lambda provider, base: FakeProvider())
+    out = asyncio.run(revocation.revoke("alice@x", by="admin@x", reason="test"))
+    assert called == ["acc-tok"]
+    assert out["forge_tokens_erased"] == 1
+    row = links.get("alice@x", "gitlab", "https://gitlab.example")
+    assert row["revoked_at"] and not row["token_enc"] and not row["refresh_enc"]

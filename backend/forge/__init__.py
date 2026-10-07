@@ -23,6 +23,7 @@ carry the HTTP status and the endpoint, never a header or a body.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 
 # SOKKAN project roles, increasing (= projects.PROJECT_ROLES; repeated to keep this
@@ -150,3 +151,22 @@ def provider_class(name: str) -> type[Provider]:
     if name not in classes:
         raise NotImplementedForge(f"no forge provider {name!r}")
     return classes[name]
+
+
+def revoke_link(row: dict) -> bool:
+    """Revoke a ``forge_links`` row's grant AT THE FORGE (best effort), for the revocation of
+    a person (lot 6, backend/revocation.py). The local erasure stays the caller's job: this
+    only tells the forge, so a token copied before the revocation stops working there too.
+    True when the forge accepted the call; never raises for a forge that cannot be reached
+    or a provider that does not implement it."""
+    from forge import links
+    provider = row.get("provider") or ""
+    tok = links._dec(row.get("token_enc") or "") or links._dec(row.get("refresh_enc") or "")
+    if not tok:
+        return False
+    try:
+        links.provider_for(provider, row.get("base_url") or "").revoke(tok)
+        return True
+    except (ForgeError, NotImplementedError, OSError) as e:
+        print(f"[forge] revoke at {provider} failed: {type(e).__name__}", file=sys.stderr)
+        return False
