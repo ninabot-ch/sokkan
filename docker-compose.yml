@@ -105,6 +105,10 @@ services:
       SOKKAN_FEATURE_AGENTS: ${SOKKAN_FEATURE_AGENTS:-1}
       SOKKAN_AGENTS_MAX_CONCURRENT: ${SOKKAN_AGENTS_MAX_CONCURRENT:-2}
       SOKKAN_AGENTS_MISFIRE_S: ${SOKKAN_AGENTS_MISFIRE_S:-21600}
+      # qui approuve un agent : owner | admin | four_eyes
+      SOKKAN_AGENTS_APPROVAL: ${SOKKAN_AGENTS_APPROVAL:-owner}
+      # secrets des sessions humaines : all (défaut 3.1) | named (défaut prévu en 3.2)
+      SOKKAN_SESSION_SECRETS: ${SOKKAN_SESSION_SECRETS:-all}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

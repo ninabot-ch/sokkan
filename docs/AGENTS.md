@@ -1,6 +1,6 @@
 # Agents ("Crew") — spec
 
-Status: **3.1 "Crew up"**, in development on branch `crew-up`. This page is the contract
+Status: **3.1 "Crew up"**. This page is the contract
 the code implements; when they disagree, fix one of them.
 
 ## Why
@@ -56,7 +56,7 @@ Target users: developers, devops, system engineers, DBAs, QA.
 | `secrets` | vault secret **names** injected as env vars of the run (`$GITHUB_TOKEN`). Never values. |
 | `budget_usd` | hard cap per run (0 = instance session budget, else none) |
 | `max_minutes` | wall-clock cap per run (default 30); beyond it the run is interrupted → `timeout` |
-| `outputs` | where the deliverable goes, any of: `card` (board card in **Review**), `memory` (note `agent-<name>-latest`, overwritten each run), `file` (`$SOKKAN_DATA_DIR/agents/<name>/<run>.md`), `notify` |
+| `outputs` | where the deliverable goes, any of: `card` (board card in **Review**), `memory` (note `agent-<name>-latest`, **quarantined** until a human approves it — see below), `file` (`$SOKKAN_DATA_DIR/agents/<name>/<run>.md`), `notify` |
 | `notify_on` | subset of `failure` (default), `budget`, `timeout` (default), `approval` (default), `success` |
 | `status` | lifecycle, below |
 | `pending_change` | a change proposed by a session on an approved agent, waiting for a human |
@@ -137,12 +137,47 @@ Target users: developers, devops, system engineers, DBAs, QA.
 5. Monitoring → `notify.send`: failure, timeout, budget hit, approval waiting (the existing
    ping), success if asked. Everything lands in the audit log (`agent.*`).
 
+## Approval modes — `SOKKAN_AGENTS_APPROVAL`
+
+| Mode | Who activates an agent, or applies a change to an approved one |
+|---|---|
+| `owner` (default) | its owner (dev+) or an admin; a human using the form may arm it directly |
+| `admin` | an admin only; a dev's form creation or edit of an approved agent becomes a proposal |
+| `four_eyes` | someone OTHER than the proposer and the owner (in practice another admin, since devs only see their own agents); nobody self-activates, every edit of an approved agent becomes a pending change |
+
+The proposer is recorded (`proposed_by`, `pending_change_by`); a session's proposal is the
+proposal of the human behind the session. The deck shows *needs a second approver* / *needs
+an admin* to the people who cannot approve, and the API answers 403 with the reason.
+
+## Memory quarantine
+
+An agent run reads the outside world (advisories, logs, diffs), so what it writes to memory
+is a prompt-injection channel into every later session. Therefore:
+
+* every note an agent run writes — the `memory` output, or a `memory_write` call from inside
+  the run — goes to `$SOKKAN_DATA_DIR/memory-quarantine/` (`SOKKAN_MEMORY_QUARANTINE_DIR`),
+  OUTSIDE the indexed memory directory, with its provenance (agent, run, session, date);
+* nothing indexes that directory: a quarantined note is never recalled — not by the spawn
+  pre-seed, not by `memory_search`, not by the per-turn hooks;
+* a human reviews it from the run (Crew → History) or from the CortHeXis tab (Quarantine):
+  **approve** moves it into the memory with `metadata.provenance` and `approved_by` in its
+  frontmatter; **reject** archives it under `rejected/` (or deletes it);
+* inside a run, Write/Edit into the memory or quarantine directories is refused.
+
+## Session secrets — `SOKKAN_SESSION_SECRETS`
+
+Agent runs always get only the vault secrets they name. Human sessions: `all` (3.1
+default, unchanged behaviour: the whole vault) or `named` (the session gets only the names
+picked when it is opened — or listed by its playbook — and nothing otherwise; the choice is
+stored with the session and survives an API restart). `named` becomes the default in 3.2.
+Sessions spawned by the server (Operate alerts, runbooks) get none in `named` mode.
+
 ## Access control (IAM, before full RBAC)
 
 * Every agent has an `owner`. A session/Nina proposal is owned by the human behind it.
 * **viewer**: sees nothing of Crew yet (runs carry deliverables). **dev**: creates and
   manages their own agents, sees their own runs. **admin/owner**: sees and manages all.
-* Approve / reject a proposal: the agent's owner (dev+) or an admin.
+* Approve / reject a proposal: per `SOKKAN_AGENTS_APPROVAL` (above).
 * Runs execute with the owner's identity for metering (`AgentSession.user`).
 
 ## The Crew tab (UI)

@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.1.0 — unreleased — "Crew up"
+## 3.1.0 — 2026-10-07 — "Crew up"
 - **Agents, in a new Crew tab.** An agent is a named, owned job: model, purpose,
   expected deliverable and when it is done, trigger (manual, one-shot, cron in
   Europe/Zurich wall-clock time, or an Operate alert), allowed tools and MCP servers,
@@ -36,8 +36,25 @@ Notable changes, newest first. Versions: semver + release hash (see
   (6 h). DST: a time in the spring-forward gap is skipped, the repeated autumn hour runs
   once. `SOKKAN_FEATURE_AGENTS=0` turns it all off.
 - **Owner and access**: every agent has an owner; a dev sees and manages their own, an
-  admin all of them; viewers do not see Crew yet. Approving takes the owner or an admin.
-- No existing API changes; `POST /api/observability/alert` also returns `agent_runs`.
+  admin all of them; viewers do not see Crew yet.
+- **Approval modes** — `SOKKAN_AGENTS_APPROVAL=owner|admin|four_eyes` (default `owner`):
+  `admin` = only an admin activates an agent or applies a change to an approved one;
+  `four_eyes` = the approver must be someone other than the proposer and the owner, for
+  creation and changes alike. The deck says *needs a second approver* / *needs an admin*.
+- **Memory written by agents is quarantined.** A note an agent run writes (its `memory`
+  output or a `memory_write` from inside the run) is kept outside the memory, with its
+  provenance (agent, run, date), and is never recalled — not at spawn, not by
+  `memory_search`, not by the per-turn hooks — until a human approves it, from the run in
+  Crew or from the new **Quarantine** panel of the CortHeXis tab. Reject archives it.
+  Agents read the outside world; their notes do not get to brief your next session unread.
+- **Secrets by name for human sessions too, optional** — `SOKKAN_SESSION_SECRETS=all|named`.
+  `all` (the 3.1 default) keeps today's behaviour: a session gets the whole vault. `named`:
+  a session gets only the secrets picked when it is opened (or listed by its playbook).
+  **`named` will become the default in 3.2** — try it now.
+- Defaults validated: 2 concurrent runs, 6 h catch-up window — `SOKKAN_AGENTS_MAX_CONCURRENT`,
+  `SOKKAN_AGENTS_MISFIRE_S` to change them (both passed through `docker-compose.yml`).
+- No existing API changes; `POST /api/observability/alert` also returns `agent_runs`,
+  `POST /api/spawn` accepts an optional `secrets` list.
 
 ## 3.0.2 — 2026-10-07 — "One memory"
 - **Magnitude: images reach vision models.** Images — including the ones Claude Code
