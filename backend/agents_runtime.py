@@ -198,7 +198,7 @@ class Runtime:
         now = time.time() if now is None else now
         self.schedule_due(now)
         self.start_queued()
-        await self.watchdog(now)
+        await self.watchdog(time.time())  # started_at is wall-clock: never a fake `now`
 
     def schedule_due(self, now: float) -> None:
         for a in agents.due_agents(now):
@@ -238,7 +238,18 @@ class Runtime:
             run = agents.get_run(r["id"])
             t = asyncio.create_task(self._execute(a, run))
             self.tasks[r["id"]] = t
-            t.add_done_callback(lambda _t, rid=r["id"]: self.tasks.pop(rid, None))
+            t.add_done_callback(lambda _t, rid=r["id"]: self._done(rid, _t))
+
+    def _done(self, rid: int, task: asyncio.Task) -> None:
+        """A run task ended. If it died before recording an end state (cancelled
+        before its first step, unexpected exception), never leave it `running`."""
+        self.tasks.pop(rid, None)
+        r = agents.get_run(rid)
+        if r and r["status"] == "running":
+            why = ("cancelled before it started" if task.cancelled()
+                   else f"runner error: {task.exception()!r}"[:500])
+            agents.update_run(rid, status="cancelled" if rid in self._cancelled else "failed",
+                              error=why, waiting_approval=0)
 
     async def watchdog(self, now: float) -> None:
         for r in agents.runs_with_status("running"):
