@@ -1624,6 +1624,14 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
         print(f"[sokkan] SSO groups sync failed for {email}: {e!r}", file=sys.stderr)
     if not email:
         raise HTTPException(401, "OIDC token has no email")
+    if claims.get("oid") and claims.get("tid"):
+        try:  # 3.4 Teams : le compte Entra ID (oid) de la personne = SON compte SOKKAN
+            import teams
+            if teams.enabled() and claims["tid"] == teams.tenant_id():
+                from teams import store as teams_store
+                teams_store.link_user(str(claims["oid"]), str(claims["tid"]), email)
+        except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur le lien Teams
+            print(f"[sokkan] Teams link failed for {email}: {e!r}", file=sys.stderr)
     resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", "")),
                     max_age=sess.TTL, httponly=True, secure=True, samesite="lax")
@@ -1642,7 +1650,8 @@ def auth_oidc_logout():
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
               "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
-              "/api/memory/hook")  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
+              "/api/teams/messages")  # 3.4 : JWT Bot Framework vérifié par teams.botauth
 
 
 @app.middleware("http")
@@ -2325,6 +2334,11 @@ def memory_migration_approve(body: MigrationApproval,
 # 3.4 classification : niveaux, habilitations, rappel audité (backend/classification_api.py)
 import classification_api  # noqa: E402
 app.include_router(classification_api.router)
+# 3.4 Microsoft Teams : @Nina, approbations en cartes, décisions, calendrier (backend/teams/)
+from teams import api as teams_api  # noqa: E402
+from teams import graph as teams_graph  # noqa: E402
+app.include_router(teams_api.router)
+teams_graph.register()        # interface `calendars` : configured() = feature + app
 
 # onglet CortHeXis : graphe, revue, réparations avec approbation (backend/corthexis.py)
 app.include_router(corthexis.router)

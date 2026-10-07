@@ -21,6 +21,21 @@ Notable changes, newest first. Versions: semver + release hash (see
   handed out is logged (`note_access`: who, which note, via spawn / prompt / mcp / cockpit /
   nina / teams / brief), `GET /api/classification/audit` for project admins, CSV export.
   Off: nothing above `project` is reachable by anyone. See `docs/enterprise/SECURITY.md` § 8.
+- **Microsoft Teams** (feature `teams`, requires `assistant` + `classification` + `sso`; off
+  by default, experimental). `@Nina` in a channel, a group chat or 1:1: project status card,
+  `card: …`, `note la décision : …` (a decision note in the project memory with author,
+  date, link to the thread, level inherited from the channel), `run <agent>` → approval
+  card, `approvals` → pending agents as cards. HITL approvals are Adaptive Cards with
+  Approve / Refuse, signed (HMAC), expiring, single use, optionally bound to one approver,
+  executed as the person who clicks (four-eyes refuses the requester). Single-tenant app:
+  every request's Bot Framework JWT is verified (keys, issuer, audience, expiry, serviceUrl,
+  msteams endorsement) and its tenant checked before anything is read; a Teams user acts only
+  through the SOKKAN account linked at their Entra ID sign-in (`oid`), and Nina answers with
+  their clearance capped by the channel's level. Outbound tokens cached Fernet-encrypted.
+  Channel ↔ project mapping and the manifest in Profile → Teams. Calendar via Graph
+  (`Calendars.Read`) behind the new `calendars` interface (for the brief). Built and tested
+  against a Graph / Bot Framework simulator — no app registered yet. See
+  `docs/enterprise/TEAMS.md`.
 - **Feature registry** (`backend/features.py`, the base of SOKKAN Enterprise — the same app,
   not a fork). Every feature is declared once: switch `SOKKAN_FEATURE_<ID>=1|0`, defaults per
   edition (`SOKKAN_EDITION` = community, the default, or enterprise), `requires`,
