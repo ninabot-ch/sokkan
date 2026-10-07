@@ -52,6 +52,8 @@ import iam
 import infra
 import oidc
 import agentchat
+import agents
+import agents_runtime
 import session as sess
 import termproxy
 import memorykb
@@ -139,7 +141,13 @@ async def _lifespan(_app: FastAPI):
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
+    # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
+    rt = agents_runtime.start(
+        recall=lambda q, sid: _memory_preseed(q, session_id=sid),
+        write_note=mem.memory_write)
     yield
+    if rt:
+        await rt.stop()
 
 
 app = FastAPI(title="SOKKAN P1 backend", lifespan=_lifespan)
@@ -521,6 +529,7 @@ async def observability_alert(request: Request) -> dict:
     # format Grafana alerting : {alerts:[{labels, annotations, valueString, status}]}
     alerts = payload.get("alerts") or [payload]
     spawned = []
+    agent_runs: list[int] = []
     for a in alerts:
         labels = a.get("labels", {}) if isinstance(a, dict) else {}
         ann = a.get("annotations", {}) if isinstance(a, dict) else {}
@@ -548,7 +557,17 @@ async def observability_alert(request: Request) -> dict:
         _bg(asyncio.to_thread(
             notify.send, f"SOKKAN — 🚨 {title}", summary,
             notify.session_link(spawned[-1]["session"]) if spawned else notify.PUBLIC_URL, "alert"))
-    return {"ok": True, "spawned": spawned}
+        # 3.1 : les agents déclenchés par une alerte (trigger event « alert[:nom] »)
+        rt = agents_runtime.get_runtime()
+        if rt:
+            try:
+                runs = rt.fire_event("alert", title, {"alertname": title, "severity": severity,
+                                                      "summary": summary, "labels": labels,
+                                                      "incident": rid})
+                agent_runs.extend(runs)
+            except Exception as e:  # noqa: BLE001 — une alerte ne casse jamais sur un agent
+                print(f"[obs alert] agents event failed: {e}", file=sys.stderr)
+    return {"ok": True, "spawned": spawned, "agent_runs": agent_runs}
 
 
 # --- runbooks : procédures d'ops mémorisées, rejouables ---------------------
@@ -607,6 +626,137 @@ def vault_delete(name: str, u: dict = Depends(require("admin"))) -> dict:
     vault.delete_secret(name)
     audit.log(u["email"], "vault.delete", name, "")
     return {"names": vault.names()}
+
+
+# --- agents (3.1 « Crew up ») — spec docs/AGENTS.md --------------------------
+feature_agents = _feature("SOKKAN_FEATURE_AGENTS")
+
+
+def _agent_http(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except agents.NotFound as e:
+        raise HTTPException(404, str(e))
+    except agents.Forbidden as e:
+        raise HTTPException(403, str(e))
+    except agents.AgentError as e:
+        raise HTTPException(400, str(e))
+
+
+def _agent_full(u: dict, aid: int) -> dict:
+    a = _agent_http(lambda: agents._need(u, agents.get(aid)))
+    full = next((x for x in agents.list_agents(u, include_archived=True) if x["id"] == a["id"]), a)
+    return agents.public(full) | {k: full.get(k) for k in ("deck", "needs_approval",
+                                                           "waiting_for_human", "created_at",
+                                                           "updated_at")}
+
+
+class AgentBody(BaseModel):
+    model_config = {"extra": "allow"}
+    activate: bool = False
+
+
+@app.get("/api/agents/meta")
+def agents_meta(_u: dict = Depends(require("dev")), _f: None = Depends(feature_agents)) -> dict:
+    """What the form needs: vault NAMES (never values), choices, playbooks."""
+    return {"secrets": vault.names(), "tools": agents.KNOWN_TOOLS,
+            "default_tools": agents.DEFAULT_TOOLS, "mcp": list(agents.MCP_CHOICES),
+            "outputs": list(agents.OUTPUTS), "notify_on": list(agents.NOTIFY_ON),
+            "models": ["", "haiku", "sonnet", "opus"], "triggers": list(agents.TRIGGERS),
+            "playbooks": [p for p in playbooks.catalog() if p["id"] != "new-agent"],
+            "timezone": "Europe/Zurich"}
+
+
+@app.get("/api/agents")
+def agents_list(archived: bool = False, u: dict = Depends(require("dev")),
+                _f: None = Depends(feature_agents)) -> dict:
+    items = [agents.public(a) | {k: a.get(k) for k in ("deck", "needs_approval",
+                                                       "waiting_for_human")}
+             for a in agents.list_agents(u, include_archived=archived)]
+    return {"agents": items, "pending": agents.pending_approvals(u)}
+
+
+@app.post("/api/agents")
+def agents_create(body: AgentBody, u: dict = Depends(require("dev")),
+                  _f: None = Depends(feature_agents)) -> dict:
+    fields = body.model_dump(exclude={"activate"})
+    a = _agent_http(agents.create, u, fields, created_by=f"user:{u['email']}",
+                    activate=body.activate, known_secrets=vault.names())
+    audit.log(u["email"], "agent.create", a["name"], a["status"])
+    agents_runtime.poke()
+    return _agent_full(u, a["id"])
+
+
+@app.post("/api/agents/proposals")
+def agents_propose(body: AgentBody, u: dict = Depends(require("dev")),
+                   _f: None = Depends(feature_agents)) -> dict:
+    """A proposal built in Nina's chat → a pending card (a human approves it)."""
+    fields = body.model_dump(exclude={"activate"})
+    a = _agent_http(agents.create, u, fields, created_by=f"nina:{u['email']}", proposal=True,
+                    known_secrets=vault.names())
+    audit.log(u["email"], "agent.propose", a["name"], "from Nina")
+    return _agent_full(u, a["id"])
+
+
+@app.get("/api/agents/runs/{run_id}")
+def agents_run(run_id: int, u: dict = Depends(require("dev")),
+               _f: None = Depends(feature_agents)) -> dict:
+    return _agent_http(agents.get_run_for, u, run_id)
+
+
+@app.post("/api/agents/runs/{run_id}/cancel")
+def agents_run_cancel(run_id: int, u: dict = Depends(require("dev")),
+                      _f: None = Depends(feature_agents)) -> dict:
+    r = _agent_http(agents.get_run_for, u, run_id)
+    rt = agents_runtime.get_runtime()
+    ok = rt.cancel(run_id) if rt else False
+    if not ok and r["status"] == "queued":
+        agents.update_run(run_id, status="cancelled", error="cancelled before start")
+        ok = True
+    audit.log(u["email"], "agent.run.cancel", r["agent_name"], f"run #{run_id}")
+    return {"ok": ok}
+
+
+@app.get("/api/agents/{aid}")
+def agents_get(aid: int, u: dict = Depends(require("dev")),
+               _f: None = Depends(feature_agents)) -> dict:
+    return _agent_full(u, aid)
+
+
+@app.patch("/api/agents/{aid}")
+def agents_patch(aid: int, body: AgentBody, u: dict = Depends(require("dev")),
+                 _f: None = Depends(feature_agents)) -> dict:
+    fields = body.model_dump(exclude={"activate"}, exclude_unset=True)
+    a = _agent_http(agents.update, u, aid, fields, known_secrets=vault.names())
+    audit.log(u["email"], "agent.update", a["name"], ", ".join(sorted(fields)))
+    agents_runtime.poke()
+    return _agent_full(u, aid)
+
+
+@app.post("/api/agents/{aid}/{action}")
+def agents_action(aid: int, action: str, u: dict = Depends(require("dev")),
+                  _f: None = Depends(feature_agents)) -> dict:
+    ops = {
+        "approve": lambda: agents.approve(u, aid),
+        "reject": lambda: agents.reject(u, aid),
+        "pause": lambda: agents.set_status(u, aid, "paused"),
+        "resume": lambda: agents.set_status(u, aid, "active"),
+        "archive": lambda: agents.set_status(u, aid, "archived"),
+        "run": lambda: agents.request_run(u, aid, "manual", u["email"]),
+    }
+    if action not in ops:
+        raise HTTPException(404, f"unknown action: {action}")
+    out = _agent_http(ops[action])
+    name = (agents.get(aid) or {}).get("name", str(aid))
+    audit.log(u["email"], f"agent.{action}", name, f"run #{out['id']}" if action == "run" else "")
+    agents_runtime.poke()
+    return {"agent": _agent_full(u, aid), **({"run": out} if action == "run" else {})}
+
+
+@app.get("/api/agents/{aid}/runs")
+def agents_runs(aid: int, limit: int = 50, u: dict = Depends(require("dev")),
+                _f: None = Depends(feature_agents)) -> list[dict]:
+    return _agent_http(agents.list_runs, u, aid, limit)
 
 
 @app.get("/api/edge/ask")
@@ -895,6 +1045,8 @@ def features() -> dict:
         "magnitude": os.environ.get("SOKKAN_FEATURE_MAGNITUDE", "1") != "0",
         # bannière de visite guidée (instance de démo publique read-only)
         "demo": os.environ.get("SOKKAN_DEMO_BANNER", "0") != "0",
+        # onglet Crew (agents, 3.1)
+        "agents": agents_runtime.enabled(),
     }
 
 

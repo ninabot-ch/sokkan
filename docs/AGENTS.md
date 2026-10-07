@@ -145,6 +145,48 @@ Target users: developers, devops, system engineers, DBAs, QA.
 * Approve / reject a proposal: the agent's owner (dev+) or an admin.
 * Runs execute with the owner's identity for metering (`AgentSession.user`).
 
+## The Crew tab (UI)
+
+**The deck is the main view: one agent = one card**, laid out as a kanban whose four
+columns are the four states. A card moves by itself from column to column as its agent
+lives. Archived agents are hidden behind a toggle.
+
+| State | Colour | Label / icon | Means |
+|---|---|---|---|
+| Idle | **blue** | `● Idle` | not armed: draft, waiting for approval (badge *needs approval*), paused, or active with a manual trigger |
+| Armed | **green** | `◉ Armed` | active, waiting for its trigger (next run shown: "in 6 h · 02:00") |
+| Running | **orange** | `▶ Running` | a run is queued or going; badge *waiting for you* when a tool call waits for approval |
+| Error | **red** | `✕ Error` | the last run ended `failed`, `timeout`, `budget`, `interrupted` or `incomplete` — until a run succeeds again |
+
+* Colours are tokens (`--crew-idle`, `--crew-armed`, `--crew-running`, `--crew-error` in
+  `globals.css`), contrast-checked on the cockpit's dark panels; the colour is never the
+  only signal (label + icon on every card and column header). The cockpit has no light
+  theme yet; the tokens carry a light variant so it follows when it gets one.
+* **A running card breathes**: a slow glow/pulse around it. Under
+  `prefers-reduced-motion: reduce` the animation is replaced by a static ring and a
+  "running" dot.
+* A card shows: name, purpose (2 lines), trigger in human words ("every night 02:00
+  Zurich"), model, last run (status, cost, when), total runs/cost, owner.
+* **Click = popout** above the deck (the deck stays where it was) with three tabs:
+  - **Settings** — every field editable (same validation as the API), approve / reject a
+    proposal or a pending change, pause / resume / run now / archive;
+  - **Live** — the live session(s) of the agent, in the same chat pane as the Sessions tab
+    (approve a waiting tool call right there);
+  - **History** — past runs: status, cost, tokens, duration, trigger, deliverable, where it
+    was filed, link to the session transcript.
+* **Creation — the chat is the main path.** "New agent" opens a session with the
+  `new-agent` playbook: the agent interviews the human **one question at a time** (purpose,
+  deliverable and done criteria, trigger/frequency, model tier, tools and MCP, vault
+  secrets, budget, what needs a human approval, where the deliverable goes), recaps, then
+  calls `create_agent`; the card appears in the deck (Idle, *needs approval*) and stays
+  editable in Settings. Nina does the same interview in her chat and ends with a proposal
+  block the cockpit turns into a card on one click. The form remains for people who prefer
+  it.
+* Everything is wired to the MCP servers: `sokkan-memory` / CortHeXis (recall at spawn,
+  deliverable or learnings written to memory), `sokkan-board` (deliverable card),
+  `sokkan-observability` (Operate alerts as triggers, metrics/logs for ops agents), the
+  vault, and `sokkan-agents` itself.
+
 ## API (`/api/agents`, cookie auth like the rest)
 
 | Method | Path | Role |

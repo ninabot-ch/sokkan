@@ -59,13 +59,32 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _MEM_SRV = os.path.join(_HERE, "..", "memory", "memory_search_server.py")
 _BOARD_SRV = os.path.join(_HERE, "board_mcp.py")
 _OBS_SRV = os.path.join(_HERE, "observability_mcp.py")
+_AGENTS_SRV = os.path.join(_HERE, "agents_mcp.py")
 _PY = os.environ.get("SOKKAN_PYTHON", sys.executable)
 MCP_SERVERS = {
     "sokkan-memory": {"command": _PY, "args": [os.path.abspath(_MEM_SRV)]},
     "sokkan-board": {"command": _PY, "args": [os.path.abspath(_BOARD_SRV)]},
     # opérer la prod : lire métriques/logs, composer des dashboards
     "sokkan-observability": {"command": _PY, "args": [os.path.abspath(_OBS_SRV)]},
+    # 3.1 « Crew up » : créer / piloter des agents depuis une session (HITL)
+    "sokkan-agents": {"command": _PY, "args": [os.path.abspath(_AGENTS_SRV)]},
 }
+
+
+def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
+                    agent_run: bool = False) -> dict:
+    """MCP servers of ONE session: same commands, plus who is calling (the API
+    sets it, the model cannot) so a server can attribute and gate its writes.
+    `only` restricts the set (agent runs get the servers their agent lists)."""
+    who = {"SOKKAN_SESSION_ID": sid, "SOKKAN_SESSION_USER": user or ""}
+    if agent_run:
+        who["SOKKAN_AGENT_RUN"] = "1"  # the agents MCP is read-only inside a run
+    out = {}
+    for name, cfg in MCP_SERVERS.items():
+        if only is not None and name not in only:
+            continue
+        out[name] = {**cfg, "env": {**cfg.get("env", {}), **who}}
+    return out
 MODEL = os.environ.get("SOKKAN_AGENT_MODEL") or None  # None → défaut du CLI
 # lectures auto-approuvées (UX fluide) ; tout le reste passe par les boutons.
 # Les outils MCP SOKKAN en lecture (mémoire RAG, board) sont sûrs → le seed
@@ -79,6 +98,10 @@ SAFE_TOOLS = [
     # (écriture) reste soumis à permission.
     "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs",
     "mcp__sokkan-observability__list_dashboards",
+    # agents (3.1) en LECTURE ; créer/modifier/lancer passe par le gate puis,
+    # pour une création, par l'approbation humaine dans l'onglet Crew
+    "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent",
+    "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
 ]
 # modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
 VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
@@ -125,7 +148,7 @@ class AgentSession:
     """Une session de chat SDK : un ClaudeSDKClient long-vivant + diffusion d'events."""
 
     def __init__(self, sid: str, cwd: str = CWD, resume: str | None = None,
-                 model: str | None = MODEL, user: str = ""):
+                 model: str | None = MODEL, user: str = "", policy: dict | None = None):
         self.sid = sid
         self.cwd = cwd
         self.resume = resume
@@ -144,6 +167,15 @@ class AgentSession:
         self._budget_warned = False  # avertissement 80 % émis une seule fois
         self._model_seen: str | None = None
         self.mode = "default"  # default | acceptEdits | bypassPermissions | plan
+        # agent run (3.1) : politique d'outils/secrets/budget de l'agent, None pour
+        # une session humaine (comportement inchangé). Clés : tools (noms de base
+        # autorisés), auto_approve (règles Claude Code), secrets (noms du coffre),
+        # budget_usd, mcp (serveurs), on_wait(bool) (une approbation attend ou non)
+        self.policy = policy
+        self.tokens_in = 0
+        self.tokens_out = 0
+        self.num_turns = 0
+        self.last_result: dict | None = None
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -166,16 +198,21 @@ class AgentSession:
         async with self._start_lock:
             if self.client is not None:
                 return
+            pol = self.policy
             opts_kwargs: dict[str, Any] = dict(
                 cwd=self.cwd,
                 can_use_tool=self._can_use_tool,
-                allowed_tools=SAFE_TOOLS,
+                allowed_tools=self._allowed_tools(),
                 # bypass/acceptEdits sont gérés dans _can_use_tool ; seul `plan`
                 # doit être engagé au niveau du SDK (change le comportement du modèle)
                 permission_mode="plan" if self.mode == "plan" else "default",
                 setting_sources=["user", "project", "local"],
-                mcp_servers=MCP_SERVERS,
+                mcp_servers=mcp_servers_for(self.sid, self.user,
+                                            only=pol.get("mcp") if pol else None,
+                                            agent_run=bool(pol)),
             )
+            if pol and pol.get("budget_usd") and "max_budget_usd" in _OPTION_FIELDS:
+                opts_kwargs["max_budget_usd"] = float(pol["budget_usd"])
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
             hooks = memrecall.sdk_hooks(self.sid)
             if hooks:
@@ -183,7 +220,8 @@ class AgentSession:
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
-            env_extra = {**vault.session_env(), **llm.session_env(self.user)}
+            env_extra = {**vault.session_env(pol.get("secrets") if pol else None),
+                         **llm.session_env(self.user)}
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = self.model or llm.session_model()
@@ -207,9 +245,51 @@ class AgentSession:
                 pass
             self.client = None
 
+    # ---- politique d'agent (3.1) ----------------------------------------------
+    def _allowed_tools(self) -> list[str]:
+        """Outils approuvés sans demander. Session humaine : SAFE_TOOLS. Run
+        d'agent : les lectures sûres QU'IL A LE DROIT d'utiliser + ses règles
+        auto_approve (syntaxe Claude Code, ex. `Bash(npm audit:*)`)."""
+        pol = self.policy
+        if not pol:
+            return SAFE_TOOLS
+        safe = [t for t in SAFE_TOOLS if self._tool_permitted(t)]
+        return safe + [r for r in pol.get("auto_approve") or [] if r not in safe]
+
+    def _tool_permitted(self, tool_name: str) -> bool:
+        pol = self.policy
+        if not pol:
+            return True
+        if tool_name.startswith("mcp__"):
+            server = tool_name.split("__")[1] if tool_name.count("__") >= 2 else ""
+            return server in (pol.get("mcp") or []) or tool_name in (pol.get("tools") or [])
+        allowed = {t.split("(", 1)[0] for t in pol.get("tools") or []}
+        return tool_name in allowed
+
+    def _set_waiting(self, waiting: bool) -> None:
+        cb = (self.policy or {}).get("on_wait")
+        if cb:
+            try:
+                cb(waiting)
+            except Exception:  # noqa: BLE001 — l'état du run ne bloque jamais l'outil
+                pass
+
     # ---- callback de permission (cœur de l'interactivité) -------------------
     async def _can_use_tool(self, tool_name: str, input_data: dict, context: Any):
         loop = asyncio.get_event_loop()
+
+        if self.policy:
+            # run d'agent : personne ne regarde → une question est refusée avec une
+            # consigne, un outil hors de la liste de l'agent est refusé sans réveiller
+            # personne. Le reste suit le gate humain normal (ping HITL).
+            if tool_name == "AskUserQuestion":
+                return PermissionResultDeny(message=(
+                    "This is an unattended agent run: nobody can answer. Decide with your "
+                    "best judgement, and list the open question in your final deliverable."))
+            if not self._tool_permitted(tool_name):
+                return PermissionResultDeny(message=(
+                    f"{tool_name} is not in this agent's allowed tools. Do without it, or say "
+                    "in your deliverable that the agent needs it."))
 
         # AskUserQuestion : on rend les choix en boutons, on injecte la réponse
         if tool_name == "AskUserQuestion":
@@ -243,12 +323,15 @@ class AgentSession:
         self._emit({"type": "permission", "id": pid, "tool": tool_name,
                     "title": title, "input": input_data})
         self._arm_hitl_notify(pid, title)  # ping si tu ne réponds pas à temps
+        self._set_waiting(True)
         try:
             decision = await fut
         except asyncio.CancelledError:
             return PermissionResultDeny(message="Request cancelled")
         finally:
             self._perms.pop(pid, None)
+            if not self._perms:
+                self._set_waiting(False)
         if decision.get("decision") == "allow":
             return PermissionResultAllow(
                 updated_input=decision.get("updated_input") or input_data
@@ -375,6 +458,18 @@ class AgentSession:
             turn_cost = getattr(msg, "total_cost_usd", None)
             if turn_cost:
                 self.cost_usd += float(turn_cost)
+            usage = getattr(msg, "usage", None) or {}
+            if isinstance(usage, dict):
+                self.tokens_in += int(usage.get("input_tokens") or 0) + int(
+                    usage.get("cache_read_input_tokens") or 0) + int(
+                    usage.get("cache_creation_input_tokens") or 0)
+                self.tokens_out += int(usage.get("output_tokens") or 0)
+            self.num_turns += int(getattr(msg, "num_turns", 0) or 0)
+            self.last_result = {
+                "text": getattr(msg, "result", "") or "",
+                "is_error": bool(getattr(msg, "is_error", False)),
+                "subtype": getattr(msg, "subtype", "") or "",
+            }
             self._emit({
                 "type": "result",
                 "text": getattr(msg, "result", "") or "",
@@ -419,6 +514,13 @@ class AgentSession:
                         "tool_use_id": getattr(b, "tool_use_id", None),
                         "text": out[:8000], "is_error": bool(getattr(b, "is_error", False)),
                         "truncated": len(out) > 8000})
+
+
+try:  # champs d'options du SDK installé (max_budget_usd n'existe pas partout)
+    import dataclasses as _dc
+    _OPTION_FIELDS = {f.name for f in _dc.fields(ClaudeAgentOptions)}
+except Exception:  # noqa: BLE001
+    _OPTION_FIELDS = set()
 
 
 # ---- registry (1 AgentSession par sid, en mémoire) --------------------------
@@ -471,12 +573,13 @@ def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
         s.events.extend(evs[-RING_MAX:])
 
 
-def get_or_create(sid: str, resume: str | None = None, user: str = "") -> AgentSession:
+def get_or_create(sid: str, resume: str | None = None, user: str = "",
+                  model: str | None = None, policy: dict | None = None) -> AgentSession:
     s = _registry.get(sid)
     if s is None:
         # après un restart de sokkan-api : reprendre le claude_session_id persisté
         resume = resume or (board.get_claude_session_id(sid) or None)
-        s = AgentSession(sid, resume=resume, user=user)
+        s = AgentSession(sid, resume=resume, user=user, model=model or MODEL, policy=policy)
         if resume:
             _seed_ring_from_transcript(s, resume)
         _registry[sid] = s

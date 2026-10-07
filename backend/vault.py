@@ -82,12 +82,16 @@ def delete_secret(name: str) -> None:
         _save(d)
 
 
-def session_env() -> dict[str, str]:
+def session_env(only: list[str] | None = None) -> dict[str, str]:
     """{NAME: valeur déchiffrée} à merger dans l'env des sessions. Appelé côté
-    serveur uniquement (agentchat), jamais renvoyé à l'UI ni au LLM."""
+    serveur uniquement (agentchat), jamais renvoyé à l'UI ni au LLM.
+    `only` (runs d'agent, 3.1) = les seuls noms référencés par l'agent ; None =
+    tout le coffre (session humaine, comportement historique)."""
     f = Fernet(_key())
     out: dict[str, str] = {}
     for k, v in _load().items():
+        if only is not None and k not in only:
+            continue
         try:
             out[k] = f.decrypt(v.encode()).decode()
         except Exception:  # noqa: BLE001 — secret corrompu / clé changée : on saute

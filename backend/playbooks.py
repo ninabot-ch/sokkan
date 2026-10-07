@@ -106,6 +106,38 @@ _REGISTRY: dict[str, dict] = {
             "(name: project-status, a strong description:, metadata.type: project)."
         ),
     },
+    "new-agent": {
+        "label": "New agent",
+        "tag": "devops",
+        "description": "Interview me one question at a time, then build the agent card (Crew) — the main way to create an agent.",
+        "subject_optional": True,
+        "prompt": (
+            "Help me create a SOKKAN agent — an unattended job that runs on a trigger and "
+            "hands back a deliverable. {subject}\n\n"
+            "Interview me ONE question at a time (wait for my answer before the next one; "
+            "propose a sensible default in each question so I can just say yes). Skip what I "
+            "already told you. In this order:\n"
+            "1. Purpose — what should it do, on what (repo, service, logs, database…)?\n"
+            "2. Deliverable — what must each run hand back, and how does it know it is done?\n"
+            "3. Trigger — one-shot, recurring (I say it in words, you turn it into a cron in "
+            "Europe/Zurich time and read it back to me), or on an Operate alert?\n"
+            "4. Model tier — haiku (cheap, routine), sonnet (default), opus (hard reasoning)?\n"
+            "5. Tools and MCP — which tools it may use (default Read, Glob, Grep, WebFetch, "
+            "WebSearch, Bash) and whether it needs the board or observability servers.\n"
+            "6. Secrets — which vault secrets by NAME (list them with the names I give; never "
+            "ask me for a value: values go in Profile → Secrets).\n"
+            "7. Budget — max cost per run (USD) and max minutes.\n"
+            "8. Human approval — what may run without asking (e.g. `Bash(npm audit:*)`); "
+            "everything else waits for a human.\n"
+            "9. Where the deliverable goes — board card (Review), memory note, file, "
+            "notification — and when to notify me (failure, timeout, budget, success).\n\n"
+            "Before the interview, search the memory (mcp__sokkan-memory__memory_search) for "
+            "the project context and check existing agents with "
+            "mcp__sokkan-agents__list_agents so you do not duplicate one. Then recap the whole "
+            "card in a short table, ask for my OK, and call mcp__sokkan-agents__create_agent. "
+            "Tell me the card is now in the Crew tab, waiting for my approval."
+        ),
+    },
     "curation": {
         "label": "Memory curation",
         "tag": "docs",
