@@ -3,7 +3,31 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## Unreleased — 3.2 "multi-user" (in progress)
+- **Projects, the groundwork** (lot 1 of `docs/MULTIUSER.md`, the 3.2 spec: SSO teams,
+  projects as perimeters, rights from the forge, pushes with the person's own token).
+  New `projects.db` (projects, teams, grants, repositories, resources, forge links, access
+  cache). At the first start, everything the instance holds becomes the project
+  `default`, whose rights are the instance roles: nothing moves, nobody gains or loses a
+  right, and nothing changes on screen while it is the only project. Sessions, cards and
+  agents get a `project` column (`default` for every existing row); `POST /api/spawn`
+  takes an optional `project` (developer access required; terminal sessions stay in
+  `default` for now).
+- **Memory recall scoped by project** — the memory store gets `notes.project` (migration
+  `0011`, existing notes → `default`) and every path that brings a note into a session
+  keeps to the session's project: the pre-seed at spawn (agent runs included), the
+  per-turn and sub-agent recall (chat and terminal sessions), `memory_search`,
+  `memory_get` and `memory_links` (a note of another project answers "not found"), and a
+  note quoted by name. The store filters at every stage of the search (dense, lexical,
+  final row), the recall filters again, and anything unknown gives no recall rather than
+  all of it. A search without a project scope (CortHeXis on its own, plain `.mcp.json`) is
+  unchanged.
+- **Tests never touch a real instance** — the test suite now runs on a throw-away
+  `SOKKAN_DATA_DIR`: some modules used to resolve `~/.local/share/sokkan` before a test
+  module set its own directory.
+- Planned for 3.2 (spec, not in this build): `SOKKAN_SESSION_SECRETS=named` becomes the
+  default; the agent scheduler no longer starts a run at boot on an instance without
+  model credentials explicitly configured for it.
 - **The board, driven from a session** — the embedded `sokkan-board` MCP server
   gains `get_card` (fields, comments, history, links), `search_cards` (text in title,
   description and comments; tag, column, assignee), `update_card` (title,
