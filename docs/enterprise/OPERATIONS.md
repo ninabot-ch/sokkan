@@ -213,11 +213,11 @@ switch to `0` and restart `api`.
 | 3. Agents | `agents`, `four_eyes`, `memory_quarantine` | `SOKKAN_AGENTS_APPROVAL=four_eyes` | an agent proposed by A is approved by B, refused for A | ● |
 | 4. Operate | `operate`, `agent_incidents`, `ops_team` | alert webhook, notification channel, `SOKKAN_OPS_GROUP` | a test alert opens an incident; a failed agent run opens one incident | ● / ◐ |
 | 5. Projects | `multi_project`, `sso_teams` | `SOKKAN_FEATURE_MULTI_PROJECT=1`; create projects and grants in Admin → Projects & teams (`POST /api/admin/projects`, `…/grants`) | two people, two projects: neither sees the other's sessions, cards, agents or notes; `GET /api/audit?q=memory.scope_violation` stays empty | ◐ |
-| 6. Vault and budgets per project | `project_vault_budgets` | per registry | secrets of X never in a session of Y; budget stop per project | ○ lot 4 |
+| 6. Vault and budgets per project | `project_vault_budgets` | per registry | secrets of X never in a session of Y; budget stop per project | ◐ lot 4 (beta) |
 | 7. GitLab | `gitlab` | § 2b | Reporter cannot push; Developer pushes a branch and opens an MR; Maintainer pushes the protected branch | ◐ lot 5 (beta) |
 | 8. Revocation | `revocation` | § 2.1 (`SOKKAN_SCIM_TOKEN`, IdP provisioning) | SCIM deactivate → 403 at once, sessions closed, agents paused | ◐ lot 6 |
-| 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | per registry | per feature spec | ○ |
-| 10. Helm | `helm` | — | — | ○ 3.3 |
+| 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | § 4.1 (sandbox), [UI-FEATURES.md](UI-FEATURES.md) | a session of X cannot `Read`/`cat` a file of Y; a key set in Model keys is masked and used; a share to a viewer is read-only | ◐ lots 7, 8 (beta) |
+| 10. Helm | `helm` | [HELM.md](../HELM.md); `SOKKAN_HELM_TICK_S`, calendar ICS by vault name | ▶ spawn of a child card carries the parent's intent and decisions; a child card's progress rolls up to its parent | ◐ 3.3 (beta) |
 | 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Profile → Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
 | 12. Teams | `teams` | [TEAMS.md](TEAMS.md): app registration, `SOKKAN_TEAMS_*`, admin consent, channel ↔ project mapping | `@Nina status` in a mapped channel answers as the sender; an approval card works once, for the right person | ◐ 3.4 |
 

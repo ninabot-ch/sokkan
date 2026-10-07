@@ -582,9 +582,9 @@ in points (1 point ≈ one focused session of work with its tests).
 | **3 ✅** | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
 | **4 ✅** | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
 | **5 ✅** | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
-| 6 | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
-| 7 | BYOK admin screen (client admin enters their keys) | low | 1.5 | key set, masked, test call, used by sessions |
-| 8 | Optional sandbox per sensitive project (own uid / container for sessions) | high | 5 | a session of X cannot read X' files by `Bash cat` |
+| **6 ◐** | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
+| **7 ✅** | BYOK admin screen (client admin enters their keys) | low | 1.5 | key set, masked, test call, used by sessions |
+| **8 ✅** | Optional sandbox per sensitive project (own uid / container for sessions) | high | 5 | a session of X cannot read X' files by `Bash cat` |
 
 Lots 1-2 can ship in a 3.2 preview; lots 3-5 are the POC's "multi-user" criterion; 6-7 before
 a production rollout at a large client; 8 if their security officer requires it.
