@@ -269,7 +269,8 @@ def pause_agent(a: dict, why: str, by: str = "sokkan") -> bool:
             agents.update_run(r["id"], status="cancelled", error=f"agent paused: {why}",
                               waiting_approval=0)
     if changed:
-        audit.log(by, "agent.pause.owner_access", a["name"], why)
+        audit.log(by, "agent.pause.owner_access", a["name"], why,
+                  project=a.get("project") or "default")
         try:
             import notify
             notify.send(f"SOKKAN — ⏸️ agent {a['name']} paused",

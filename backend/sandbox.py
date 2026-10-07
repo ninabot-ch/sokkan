@@ -350,7 +350,8 @@ def _log_deny(sid: str, user: str, project: str, tool: str, reason: str) -> None
     print(f"[sandbox] denied {tool} in session {sid} ({project}): {reason}", file=sys.stderr)
     try:
         import audit
-        audit.log(user or f"session:{sid}", "sandbox.deny", f"{project}:{tool}", reason[:300])
+        audit.log(user or f"session:{sid}", "sandbox.deny", f"{project}:{tool}", reason[:300],
+                  project=project)
     except Exception:  # noqa: BLE001 — the refusal stands even if the journal is down
         pass
 

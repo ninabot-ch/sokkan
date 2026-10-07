@@ -109,9 +109,10 @@ def install(app, current_user, require) -> None:
     @app.post("/api/helm/cards/{card_id}/baseline")
     def helm_baseline(card_id: int, u: dict = Depends(current_user),
                       _f: None = Depends(feature_helm)) -> dict:
-        _steer_card(u, card_id)
+        card = _steer_card(u, card_id)
         c = helm.rebaseline(card_id, u["email"])
-        audit.log(u["email"], "helm.scope.accept", f"card #{card_id}", "re-baselined")
+        audit.log(u["email"], "helm.scope.accept", f"card #{card_id}", "re-baselined",
+                  project=card["project"])
         return c
 
     def _sugg(u: dict, sid: int) -> dict:
@@ -129,7 +130,8 @@ def install(app, current_user, require) -> None:
         except ValueError as e:
             raise HTTPException(409, str(e))
         audit.log(u["email"], "helm.suggestion.approve", f"suggestion #{sid}",
-                  f"{s['kind']}: {s['title'][:120]} → card #{out['reframe_card']['id']}")
+                  f"{s['kind']}: {s['title'][:120]} → card #{out['reframe_card']['id']}",
+                  project=s["project"])
         return out
 
     @app.post("/api/helm/suggestions/{sid}/ignore")
@@ -141,7 +143,7 @@ def install(app, current_user, require) -> None:
         except ValueError as e:
             raise HTTPException(409, str(e))
         audit.log(u["email"], "helm.suggestion.ignore", f"suggestion #{sid}",
-                  f"{s['kind']}: {s['title'][:120]}")
+                  f"{s['kind']}: {s['title'][:120]}", project=s["project"])
         return out
 
     @app.post("/api/helm/projects")
@@ -166,7 +168,7 @@ def install(app, current_user, require) -> None:
         except ValueError as e:
             raise HTTPException(400, str(e))
         audit.log(u["email"], "helm.project.create", f"card #{out['card']['id']}",
-                  f"{body.title[:120]} · {len(out['children'])} card(s) · from Nina")
+                  f"{body.title[:120]} · {len(out['children'])} card(s) · from Nina", project=slug)
         return out
 
     @app.get("/api/helm/brief")
