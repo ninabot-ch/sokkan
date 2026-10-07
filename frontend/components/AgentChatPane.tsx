@@ -7,6 +7,8 @@ import {
 import type { Message } from "@/lib/types";
 import ChatMessage from "./ChatMessage";
 import { useCan } from "@/lib/me";
+import { useFeatureOn } from "@/lib/uifeatures";
+import ShareDialog from "./ShareDialog";
 
 interface PermReq { id: string; tool: string; title: string; input: Record<string, unknown> }
 interface QReq { id: string; questions: AgentQuestion[] }
@@ -35,6 +37,9 @@ export default function AgentChatPane({
   onClose?: (sid: string) => void;
 }) {
   const canWrite = useCan("dev");
+  const shareOn = useFeatureOn("shared_review");
+  const canShare = shareOn && canWrite;
+  const [sharing, setSharing] = useState(false);
   const [open, setOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -182,6 +187,7 @@ export default function AgentChatPane({
 
   return (
     <div className="flex min-h-0 flex-col rounded-xl border border-line bg-panel">
+      {sharing && <ShareDialog kind="session" target={sid} title={title} onClose={() => setSharing(false)} />}
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
           working ? "animate-pulse bg-emerald-400" : open ? "bg-emerald-500" : "bg-slate-600"
@@ -195,6 +201,11 @@ export default function AgentChatPane({
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          {canShare && (
+            <button onClick={() => setSharing(true)} title="share this session for review (read or write, delegated approval)"
+              className="ui-focus shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] text-mut hover:bg-panel2 hover:text-slate-200">
+              ⇪ share</button>
+          )}
           <button onClick={cycleMode} disabled={!canWrite}
             title={`${curMode.title} · click or Shift+Tab to change mode`}
             className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] hover:bg-panel2 disabled:opacity-40 ${curMode.cls}`}>

@@ -90,3 +90,44 @@ body {
   .crew-breathe { animation: none; box-shadow: 0 0 0 2px var(--c); }
   .crew-live-dot { animation: none; }
 }
+
+/* ---- ui features (3.2) : partage pour validation, clés modèle, Connect your AI ------
+   Mêmes règles que le deck Crew : la couleur n'est jamais le seul signal (libellé +
+   icône), variante claire prête, animation coupée sous prefers-reduced-motion. */
+:root {
+  --share-read: #60a5fa;
+  --share-write: #34d399;
+  --share-approval: #fbbf24;
+  --engine-ok: #34d399;
+  --engine-off: #64748b;
+  --engine-warn: #fbbf24;
+}
+:root[data-theme="light"] {
+  --share-read: #1d4ed8;
+  --share-write: #047857;
+  --share-approval: #b45309;
+  --engine-ok: #047857;
+  --engine-off: #475569;
+  --engine-warn: #b45309;
+}
+.ui-chip { display: inline-flex; align-items: center; gap: .25rem; border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--c);
+  padding: 0 .4rem; font-size: 10px; line-height: 1rem; white-space: nowrap; }
+.ui-c-read { --c: var(--share-read); }
+.ui-c-write { --c: var(--share-write); }
+.ui-c-approval { --c: var(--share-approval); }
+.ui-c-ok { --c: var(--engine-ok); }
+.ui-c-off { --c: var(--engine-off); }
+.ui-c-warn { --c: var(--engine-warn); }
+.ui-focus:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+@keyframes ui-attn { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--share-approval) 0%, transparent) }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--share-approval) 35%, transparent) } }
+.ui-attn { animation: ui-attn 1.8s ease-in-out infinite; }
+.engine-avatar { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  height: 2.25rem; width: 2.25rem; border-radius: .7rem; font-weight: 700; font-size: 12px;
+  color: #fff; background: linear-gradient(135deg, var(--a1), var(--a2)); }
+.engine-card[data-selected="true"] { border-color: #3b82f6; background: color-mix(in srgb, #3b82f6 8%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .ui-attn { animation: none; box-shadow: 0 0 0 2px var(--share-approval); }
+}

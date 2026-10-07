@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { useCan } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
+import { crewEngines } from "@/lib/uifeatures";
 import AgentChatPane from "./AgentChatPane";
 import CardModal from "./CardModal";
 import { QuarantineReview } from "./Quarantine";
@@ -649,6 +650,9 @@ function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
   const [activate, setActivate] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 3.2 connect_ai : connected engines can drive this card (model `engine:<id>`)
+  const [engines, setEngines] = useState<{ value: string; label: string; model: string }[]>([]);
+  useEffect(() => { crewEngines().then(setEngines).catch(() => setEngines([])); }, []);
   // re-sync from the server while the user has not touched the form
   useEffect(() => { if (a && !dirty) setF({ ...a }); }, [a, dirty]);
   const set = <K extends keyof Agent>(k: K, v: Agent[K]) => { setDirty(true); setF((x) => ({ ...x, [k]: v })); };
@@ -709,12 +713,17 @@ function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
           <textarea className={`${inp} h-14`} value={f.done_criteria || ""} onChange={(e) => set("done_criteria", e.target.value)} placeholder="every direct dependency has been checked" /></div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Model</label>
-            <select className={inp} value={meta.models.includes(f.model || "") ? f.model : "__custom"} onChange={(e) => set("model", e.target.value === "__custom" ? (f.model || "") : e.target.value)}>
+            <select className={inp} value={meta.models.includes(f.model || "") || engines.some((e) => e.value === f.model) ? f.model : "__custom"} onChange={(e) => set("model", e.target.value === "__custom" ? (f.model || "") : e.target.value)}>
               <option value="">instance default</option>
               <option value="haiku">haiku — cheap, routine</option>
               <option value="sonnet">sonnet — balanced</option>
               <option value="opus">opus — hard reasoning</option>
-              {!meta.models.includes(f.model || "") && <option value="__custom">{f.model}</option>}
+              {engines.length > 0 && (
+                <optgroup label="Connect your AI — engines">
+                  {engines.map((e) => <option key={e.value} value={e.value}>{e.label}{e.model ? ` — ${e.model}` : ""}</option>)}
+                </optgroup>
+              )}
+              {!meta.models.includes(f.model || "") && !engines.some((e) => e.value === f.model) && <option value="__custom">{f.model}</option>}
             </select></div>
           <div><label className={lbl}>Playbook (optional)</label>
             <select className={inp} value={f.playbook || ""} onChange={(e) => set("playbook", e.target.value)}>

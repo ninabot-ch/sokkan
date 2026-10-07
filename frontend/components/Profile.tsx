@@ -12,10 +12,13 @@ import type { IamUser } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
 import FeaturesAdmin from "./FeaturesAdmin";
 import { useFeatures } from "@/lib/features";
+import { useFeatureOn } from "@/lib/uifeatures";
+import ConnectAI from "./ConnectAI";
+import ModelKeys from "./ModelKeys";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "notify" | "secrets";
+type Section = "account" | "org" | "members" | "projects" | "features" | "model" | "keys" | "notify" | "secrets";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -428,10 +431,15 @@ export default function Profile({ onClose }: { onClose: () => void }) {
   const me = useMe();
   const featProblems = useFeatures().registry?.problems.length ?? 0;
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
+  const connectOn = useFeatureOn("connect_ai");
+  const byokOn = useFeatureOn("byok_admin");
   const nav: [Section, string][] = [["account", "My account"], ["org", "Organization"], ["members", "Members"],
     ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
     ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
-    ["model", "Model"], ["notify", "Notifications"], ["secrets", "Secrets"]];
+    // 3.2 connect_ai wraps Model; byok_admin adds Model keys (instance admins)
+    ["model", connectOn ? "Connect your AI" : "Model"] as [Section, string],
+    ...(instAdmin && byokOn ? [["keys", "Model keys"] as [Section, string]] : []),
+    ["notify", "Notifications"], ["secrets", "Secrets"]];
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
       <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -451,7 +459,7 @@ export default function Profile({ onClose }: { onClose: () => void }) {
             <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
           </div>
           <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? <Model /> : sec === "notify" ? <Notifications /> : <Secrets />}
+            {sec === "account" ? <Account /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "model" ? (connectOn ? <ConnectAI legacy={<Model />} /> : <Model />) : sec === "keys" ? <ModelKeys /> : sec === "notify" ? <Notifications /> : <Secrets />}
           </div>
         </div>
       </div>

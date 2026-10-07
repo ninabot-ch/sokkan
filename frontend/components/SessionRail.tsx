@@ -5,6 +5,7 @@ import type { Playbook } from "@/lib/api";
 import type { SessionSummary } from "@/lib/types";
 import { useCan } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
+import SharedWithMe from "./SharedWithMe";
 
 function ago(s: number): string {
   if (s < 60) return `${Math.round(s)}s`;
@@ -136,6 +137,7 @@ export default function SessionRail({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <SharedWithMe onOpenSession={(sid) => { if (!open.includes(sid)) onOpen({ session_id: sid }); }} />
         {sessions.map((s) => {
           const isOpen = open.includes(s.session_id);
           const del = async () => {
