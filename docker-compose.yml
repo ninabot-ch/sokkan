@@ -149,6 +149,14 @@ services:
       SOKKAN_FEATURE_OPS_TEAM: ${SOKKAN_FEATURE_OPS_TEAM:-}
       # lot 4 : coffre, budgets, noms d'agents, revue CortHeXis et journal PAR PROJET
       SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS: ${SOKKAN_FEATURE_PROJECT_VAULT_BUDGETS:-}
+      # lot 5 — GitLab: rights read with the person's account, push in their name
+      # (docs/enterprise/OPERATIONS.md « GitLab »). Tokens: Fernet, $DATA/forge.key.
+      SOKKAN_FEATURE_GITLAB: ${SOKKAN_FEATURE_GITLAB:-}
+      SOKKAN_GITLAB_URL: ${SOKKAN_GITLAB_URL:-}
+      SOKKAN_GITLAB_CLIENT_ID: ${SOKKAN_GITLAB_CLIENT_ID:-}
+      SOKKAN_GITLAB_CLIENT_SECRET: ${SOKKAN_GITLAB_CLIENT_SECRET:-}
+      SOKKAN_GITLAB_REDIRECT_URI: ${SOKKAN_GITLAB_REDIRECT_URI:-}
+      SOKKAN_GITLAB_CA_BUNDLE: ${SOKKAN_GITLAB_CA_BUNDLE:-}
       # 3.1 : réglages fins déjà documentés (docs/AGENTS.md), jusqu'ici non transmis
       SOKKAN_AGENTS_TICK_S: ${SOKKAN_AGENTS_TICK_S:-15}
       SOKKAN_MEMORY_QUARANTINE_DIR: ${SOKKAN_MEMORY_QUARANTINE_DIR:-}

@@ -93,6 +93,23 @@ def resolve_email(request: Request) -> str:
     raise HTTPException(500, f"unknown SOKKAN_AUTH_MODE: {MODE}")
 
 
+# 3.2 lot 5: someone whose ONLY access comes from GitLab has no role anywhere until they
+# link their GitLab account — let them reach the few routes that do that, nothing else
+_FORGE_ONBOARDING = ("/api/forge/", "/api/me", "/api/projects", "/api/features")
+
+
+def _forge_onboarding(request: Request) -> bool:
+    if not request.url.path.startswith(_FORGE_ONBOARDING):
+        return False
+    try:
+        import features
+        import projects
+        return features.enabled("gitlab") and any(
+            p["access_source"] == "forge" for p in projects.list_projects())
+    except Exception:  # noqa: BLE001 — fail-closed
+        return False
+
+
 def instance_user(request: Request) -> dict:
     """The person with their INSTANCE role (iam.py), whatever the request's project."""
     user = iam.get_user(resolve_email(request))
@@ -101,7 +118,7 @@ def instance_user(request: Request) -> dict:
         # through an SSO team or a grant — let them in, with no instance role
         import projects
         try:
-            if not projects.readable_projects(user):
+            if not projects.readable_projects(user) and not _forge_onboarding(request):
                 raise HTTPException(403, "account not provisioned on this instance")
         except HTTPException:
             raise

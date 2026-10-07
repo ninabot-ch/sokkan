@@ -124,6 +124,12 @@ def _cortex_configured() -> bool:
     return bool((os.environ.get("SOKKAN_CORTEX_URL") or "").strip())
 
 
+def _gitlab_check() -> str | None:
+    if not (os.environ.get("SOKKAN_GITLAB_CLIENT_ID") or "").strip():
+        return "no GitLab OAuth application (SOKKAN_GITLAB_CLIENT_ID): nobody can link an account"
+    return None
+
+
 def _managed_tier() -> str | None:
     if (os.environ.get("SOKKAN_TIER") or "").strip():
         return "SOKKAN Cloud managed instance (SOKKAN_TIER is set): always on"
@@ -282,9 +288,13 @@ REGISTRY: tuple[Feature, ...] = (
             status="beta", defaults=_ed(False, True), target="3.2",
             requires=("multi_project", "named_secrets"), vars=_t("project_vault_budgets"), doc=M),
     Feature("gitlab", "GitLab projects",
-            "Project access from GitLab roles (OAuth PKCE), credential helper, push and merge "
-            "requests in the person's name (lot 5).", status="planned", kind="planned", target="3.2",
-            requires=("multi_project", "sso"), vars=_t("gitlab"), doc=M),
+            "Project access from GitLab roles read with the person's own account (OAuth PKCE; "
+            "lowest level over the project's repositories, cached 10 min / 2 min), credential "
+            "helper, push and merge requests in the person's name (lot 5).", status="beta",
+            defaults=_ed(False, True), requires=("multi_project", "sso"), vars=_t("gitlab"),
+            config=("SOKKAN_GITLAB_URL", "SOKKAN_GITLAB_CLIENT_ID", "SOKKAN_GITLAB_CLIENT_SECRET",
+                    "SOKKAN_GITLAB_REDIRECT_URI", "SOKKAN_GITLAB_CA_BUNDLE"),
+            check=_gitlab_check, doc=M),
     Feature("revocation", "Revocation",
             "SCIM, « Revoke now », back-channel logout (lot 6).", status="planned", kind="planned",
             target="3.2", requires=("sso_teams",), vars=_t("revocation"), doc=M),

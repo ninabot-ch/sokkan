@@ -9,8 +9,7 @@ project comes from ONE access source, chosen per project (docs/MULTIUSER.md):
   created by the migration uses it, so a 3.1 install behaves exactly as before;
 * ``sso_group`` — grants to users or to teams (= IdP groups synced at login);
 * ``forge``     — the person's access level on the project's repositories, read with their
-  own forge account (GitLab first). Lot 3: until then a forge project only grants what a
-  fresh ``access_cache`` row says, i.e. nothing.
+  own forge account (GitLab first, lot 5: ``forge.access``), cached in ``access_cache``.
 
 Lot 1 builds the tables, the idempotent "default project" migration and the read side
 (``effective_role``, ``readable_projects``, ``recall_scope``) used by the memory recall
@@ -23,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -311,14 +311,26 @@ def effective_role(user: dict, project: str, now: float | None = None) -> str | 
             "   (SELECT team_id FROM team_members WHERE email=?)))",
             (project, email, email)).fetchall()
         roles = [r["role"] for r in rows]
+        read_forge = False
         if p["access_source"] == "forge":
             now = time.time() if now is None else now
             c = con.execute("SELECT role FROM access_cache WHERE email=? AND project=? AND "
                             "expires_at > ?", (email, project, now)).fetchone()
-            if c and c["role"]:
+            if c:
                 roles.append(c["role"])
+            else:
+                read_forge = bool(email)
     finally:
         con.close()
+    if read_forge:
+        # lot 5: no fresh cache row → read the forge with the person's token (cached by
+        # forge.access: 10 min positive / 2 min negative). Any failure = no forge role.
+        try:
+            from forge import access as forge_access
+            roles.append(forge_access.resolve(email, project))
+        except Exception as e:  # noqa: BLE001 — fail-closed
+            print(f"[sokkan] forge access of {email} on {project} unknown ({type(e).__name__}):"
+                  " no forge role", file=sys.stderr)
     return _best(roles + floor)
 
 
@@ -426,6 +438,17 @@ def explain(user: dict, project: str) -> dict:
                                    "by": g["created_by"]})
     if project == SHARED_PROJECT and email:
         out["sources"].append({"source": "shared: everyone reads", "role": "viewer"})
+    if p["access_source"] == "forge":
+        con = _con()
+        c = con.execute("SELECT role, computed_at, expires_at FROM access_cache WHERE email=? "
+                        "AND project=?", (email, project)).fetchone()
+        con.close()
+        out["sources"].append({
+            "source": "forge (lowest level over the project's repositories, read with the "
+                      "person's own account)",
+            "role": c["role"] if c and c["expires_at"] > time.time() else None,
+            "computed_at": c["computed_at"] if c else None,
+            "expires_at": c["expires_at"] if c else None})
     return out
 
 
