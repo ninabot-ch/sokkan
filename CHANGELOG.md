@@ -33,6 +33,7 @@ edited or re-approved, and their alert runs now ask a human for those calls.
 - **Fix: every 3.1 agent variable reaches the container.** `SOKKAN_AGENTS_TICK_S` and
   `SOKKAN_MEMORY_QUARANTINE_DIR` were documented but missing from `docker-compose.yml`;
   declared, with the three variables above. A test now guards the list.
+- **Nina's fallback model and daily limit reach the container.** `SOKKAN_ASSISTANT_LLM_API`, the `SOKKAN_ASSISTANT_LLM_FALLBACK_*` settings and `SOKKAN_ASSISTANT_DAILY_LIMIT` were read by the backend but never passed through `docker-compose.yml`, so setting them in `.env` had no effect.
 
 ## 3.1.1 — 2026-10-07 — "Crew up"
 - **Crew in read-only for viewers** — `SOKKAN_CREW_VIEWER_READONLY=1` (off by default).
