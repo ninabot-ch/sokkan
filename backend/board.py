@@ -12,6 +12,11 @@ relaunch. Le rail liste ces sessions par tag.
 v2 (2026-07-02, consolidation produit) : cartes enrichies — priorité (0 urgente
 → 3 basse), échéance, checklist JSON, archivage soft (revert possible), et
 timeline d'événements par carte (`card_events`) : qui a fait quoi, quand.
+
+3.2 (board piloté depuis les sessions, POC RTS) : assigné, clôture (terminé ≠
+supprimé : `closed_at`/`closed_by`), commentaires signés (`card_comments`),
+liens vers session / agent / run / incident (`card_links`), recherche, et chaque
+événement porte la session d'où il vient (`session_id`, `session_tag`, `via`).
 """
 from __future__ import annotations
 
@@ -46,7 +51,17 @@ _CARD_MIGRATIONS = {
     "checklist": "TEXT DEFAULT '[]'",
     "updated_at": "REAL",
     "archived": "INTEGER DEFAULT 0",
+    "assignee": "TEXT DEFAULT ''",
+    "closed_at": "REAL",
+    "closed_by": "TEXT DEFAULT ''",
 }
+# 3.2 : d'où vient un événement (session SOKKAN, canal web / mcp / run d'agent)
+_EVENT_MIGRATIONS = {
+    "session_id": "TEXT DEFAULT ''",
+    "session_tag": "TEXT DEFAULT ''",
+    "via": "TEXT DEFAULT ''",
+}
+LINK_KINDS = ("session", "agent", "run", "incident")
 
 
 _init_lock = threading.Lock()
@@ -83,12 +98,29 @@ def init(force: bool = False) -> None:
                 user TEXT DEFAULT '', action TEXT NOT NULL, detail TEXT DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS ix_card_events_card ON card_events(card_id, ts);
+            CREATE TABLE IF NOT EXISTS card_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL, ts REAL NOT NULL, author TEXT DEFAULT '',
+                session_id TEXT DEFAULT '', session_tag TEXT DEFAULT '', via TEXT DEFAULT '',
+                body TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_card_comments_card ON card_comments(card_id, ts);
+            CREATE TABLE IF NOT EXISTS card_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL,
+                ts REAL NOT NULL, created_by TEXT DEFAULT '',
+                UNIQUE(card_id, kind, ref)
+            );
             """
         )
         cols = {r[1] for r in con.execute("PRAGMA table_info(cards)")}
         for col, ddl in _CARD_MIGRATIONS.items():
             if col not in cols:
                 con.execute(f"ALTER TABLE cards ADD COLUMN {col} {ddl}")
+        ecols = {r[1] for r in con.execute("PRAGMA table_info(card_events)")}
+        for col, ddl in _EVENT_MIGRATIONS.items():
+            if col not in ecols:
+                con.execute(f"ALTER TABLE card_events ADD COLUMN {col} {ddl}")
         scols = {r[1] for r in con.execute("PRAGMA table_info(sessions)")}
         if "kind" not in scols:
             con.execute("ALTER TABLE sessions ADD COLUMN kind TEXT DEFAULT 'tmux'")
@@ -107,10 +139,16 @@ def _con() -> sqlite3.Connection:
     return con
 
 
-def _event(con: sqlite3.Connection, card_id: int, user: str, action: str, detail: str = "") -> None:
+def _event(con: sqlite3.Connection, card_id: int, user: str, action: str, detail: str = "",
+           origin: dict | None = None) -> None:
+    """`origin` = d'où vient l'action : {session_id, session_tag, via} — posé par
+    l'appelant (API : via=web ; MCP : la session de l'env), jamais par le modèle."""
+    o = origin or {}
     con.execute(
-        "INSERT INTO card_events(card_id, ts, user, action, detail) VALUES(?,?,?,?,?)",
-        (card_id, time.time(), user or "", action, detail),
+        "INSERT INTO card_events(card_id, ts, user, action, detail, session_id, session_tag, via)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (card_id, time.time(), user or "", action, detail, o.get("session_id") or "",
+         o.get("session_tag") or "", o.get("via") or ""),
     )
 
 
@@ -328,18 +366,19 @@ def list_cards(include_archived: bool = False) -> dict:
 
 def add_card(title: str, description: str = "", tag: str = "backend",
              bucket: str = "Backlog", priority: int = 2, due: str = "",
-             user: str = "") -> dict:
+             user: str = "", origin: dict | None = None) -> dict:
     if bucket not in BUCKETS:
         bucket = "Backlog"
     title = (title.strip() or description.strip()[:60] or "tâche")
     now = time.time()
     con = _con()
     cur = con.execute(
-        "INSERT INTO cards(title, description, tag, bucket, created_at, sort, priority, due, updated_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?)",
-        (title, description.strip(), tag, bucket, now, now, int(priority), due, now),
+        "INSERT INTO cards(title, description, tag, bucket, created_at, sort, priority, due, updated_at,"
+        " closed_at, closed_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (title, description.strip(), tag, bucket, now, now, int(priority), due, now,
+         now if bucket == "Done" else None, (user or "") if bucket == "Done" else ""),
     )
-    _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}")
+    _event(con, cur.lastrowid, user, "created", f"\u201c{title}\u201d in {bucket}", origin)
     con.commit()
     row = _card_out(con.execute("SELECT * FROM cards WHERE id=?", (cur.lastrowid,)).fetchone())
     con.close()
@@ -356,7 +395,8 @@ def get_card(card_id: int) -> dict | None:
 def card_events(card_id: int, limit: int = 50) -> list[dict]:
     con = _con()
     rows = [dict(r) for r in con.execute(
-        "SELECT ts, user, action, detail FROM card_events WHERE card_id=? ORDER BY ts DESC LIMIT ?",
+        "SELECT ts, user, action, detail, session_id, session_tag, via FROM card_events"
+        " WHERE card_id=? ORDER BY ts DESC, id DESC LIMIT ?",
         (card_id, limit),
     )]
     con.close()
@@ -375,9 +415,10 @@ def _describe_change(field: str, old, new) -> str:
     return f"{field}: {old or '\u2014'} \u2192 {new or '\u2014'}"
 
 
-def update_card(card_id: int, user: str = "", **fields) -> dict | None:
+def update_card(card_id: int, user: str = "", origin: dict | None = None,
+                **fields) -> dict | None:
     allowed = {"title", "description", "tag", "bucket", "session_id", "window",
-               "sort", "priority", "due", "checklist", "archived"}
+               "sort", "priority", "due", "checklist", "archived", "assignee"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return get_card(card_id)
@@ -386,23 +427,33 @@ def update_card(card_id: int, user: str = "", **fields) -> dict | None:
         return None
     if "checklist" in sets and not isinstance(sets["checklist"], str):
         sets["checklist"] = json.dumps(sets["checklist"], ensure_ascii=False)
-    sets["updated_at"] = time.time()
+    now = time.time()
+    sets["updated_at"] = now
+    # Done = clos : la clôture suit la colonne, quel que soit le chemin (web, MCP)
+    if "bucket" in sets and sets["bucket"] != old["bucket"]:
+        if sets["bucket"] == "Done" and not old.get("closed_at"):
+            sets["closed_at"], sets["closed_by"] = now, user or ""
+        elif sets["bucket"] != "Done":
+            sets["closed_at"], sets["closed_by"] = None, ""
     con = _con()
     con.execute(
         f"UPDATE cards SET {', '.join(f'{k}=?' for k in sets)} WHERE id=?",
         (*sets.values(), card_id),
     )
     for k, v in sets.items():
-        if k in ("updated_at", "session_id", "window"):
+        if k in ("updated_at", "session_id", "window", "closed_at", "closed_by"):
             continue
         ov = json.dumps(old.get(k), ensure_ascii=False) if k == "checklist" else old.get(k)
         if ov != v:
             if k == "bucket":
-                _event(con, card_id, user, "moved", f"{old['bucket']} \u2192 {v}")
+                _event(con, card_id, user, "moved", f"{old['bucket']} \u2192 {v}", origin)
             elif k == "archived":
-                _event(con, card_id, user, "archived" if v else "restored", "")
+                _event(con, card_id, user, "archived" if v else "restored", "", origin)
+            elif k == "assignee":
+                _event(con, card_id, user, "assigned", f"{old.get(k) or '\u2014'} \u2192 {v or '\u2014'}",
+                       origin)
             else:
-                _event(con, card_id, user, "edited", _describe_change(k, old.get(k), v))
+                _event(con, card_id, user, "edited", _describe_change(k, old.get(k), v), origin)
     con.commit()
     con.close()
     return get_card(card_id)
@@ -412,6 +463,8 @@ def delete_card(card_id: int, user: str = "") -> None:
     con = _con()
     con.execute("DELETE FROM cards WHERE id=?", (card_id,))
     con.execute("DELETE FROM card_events WHERE card_id=?", (card_id,))
+    con.execute("DELETE FROM card_comments WHERE card_id=?", (card_id,))
+    con.execute("DELETE FROM card_links WHERE card_id=?", (card_id,))
     con.commit()
     con.close()
 
@@ -427,3 +480,259 @@ def spawn_card(card_id: int, user: str = "") -> dict:
     con.commit()
     con.close()
     return {**s, "card_id": card_id}
+
+
+# ---------- 3.2 : clôture, commentaires, liens, recherche ----------
+
+def close_card(card_id: int, user: str = "", resolution: str = "",
+               origin: dict | None = None) -> dict | None:
+    """Terminé ≠ supprimé : la carte passe en Done, garde tout son historique,
+    et `reopen_card` la rouvre. Clore une carte déjà close ne change rien."""
+    old = get_card(card_id)
+    if old is None:
+        return None
+    if old["bucket"] == "Done" and old.get("closed_at"):
+        return old
+    now = time.time()
+    con = _con()
+    con.execute("UPDATE cards SET bucket='Done', closed_at=?, closed_by=?, updated_at=? WHERE id=?",
+                (now, user or "", now, card_id))
+    detail = f"{old['bucket']} \u2192 Done" + (f" \u2014 {resolution.strip()[:300]}" if resolution.strip() else "")
+    _event(con, card_id, user, "closed", detail, origin)
+    con.commit()
+    con.close()
+    return get_card(card_id)
+
+
+def reopen_card(card_id: int, user: str = "", bucket: str = "Backlog", reason: str = "",
+                origin: dict | None = None) -> dict | None:
+    """Rouvre une carte close (et/ou archivée) dans `bucket` (pas Done)."""
+    if bucket not in BUCKETS or bucket == "Done":
+        raise ValueError(f"reopen into one of {[b for b in BUCKETS if b != 'Done']}")
+    old = get_card(card_id)
+    if old is None:
+        return None
+    if old["bucket"] != "Done" and not old.get("archived") and not old.get("closed_at"):
+        return old
+    now = time.time()
+    con = _con()
+    con.execute("UPDATE cards SET bucket=?, closed_at=NULL, closed_by='', archived=0, updated_at=?"
+                " WHERE id=?", (bucket, now, card_id))
+    detail = f"{old['bucket']} \u2192 {bucket}" + (f" \u2014 {reason.strip()[:300]}" if reason.strip() else "")
+    _event(con, card_id, user, "reopened", detail, origin)
+    con.commit()
+    con.close()
+    return get_card(card_id)
+
+
+def archive_card(card_id: int, user: str = "", reason: str = "",
+                 origin: dict | None = None) -> dict | None:
+    """Archivage soft : la carte quitte le board, reste lisible (get_card,
+    search_cards include_archived) et se restaure (reopen_card / UI)."""
+    old = get_card(card_id)
+    if old is None:
+        return None
+    if old.get("archived"):
+        return old
+    con = _con()
+    con.execute("UPDATE cards SET archived=1, updated_at=? WHERE id=?", (time.time(), card_id))
+    _event(con, card_id, user, "archived", reason.strip()[:300], origin)
+    con.commit()
+    con.close()
+    return get_card(card_id)
+
+
+COMMENT_MAX = 8000
+
+
+def add_comment(card_id: int, body: str, author: str = "",
+                origin: dict | None = None) -> dict | None:
+    body = (body or "").strip()
+    if not body:
+        raise ValueError("empty comment")
+    if get_card(card_id) is None:
+        return None
+    o = origin or {}
+    con = _con()
+    cur = con.execute(
+        "INSERT INTO card_comments(card_id, ts, author, session_id, session_tag, via, body)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (card_id, time.time(), author or "", o.get("session_id") or "",
+         o.get("session_tag") or "", o.get("via") or "", body[:COMMENT_MAX]),
+    )
+    first = body.splitlines()[0]
+    _event(con, card_id, author, "commented", first[:120] + ("\u2026" if len(first) > 120 else ""), origin)
+    con.execute("UPDATE cards SET updated_at=? WHERE id=?", (time.time(), card_id))
+    con.commit()
+    row = dict(con.execute("SELECT * FROM card_comments WHERE id=?", (cur.lastrowid,)).fetchone())
+    con.close()
+    return row
+
+
+def card_comments(card_id: int, limit: int = 200) -> list[dict]:
+    con = _con()
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM card_comments WHERE card_id=? ORDER BY ts, id LIMIT ?", (card_id, limit))]
+    con.close()
+    return rows
+
+
+def resolve_link(kind: str, ref) -> dict | None:
+    """Le lien pointe-t-il vers un objet qui EXISTE ? → {kind, ref, label, status,
+    href} ; None sinon. `href` = lien profond du cockpit (session : ouverte par l'UI)."""
+    ref = str(ref).strip()
+    if kind not in LINK_KINDS or not ref:
+        return None
+    try:
+        if kind == "session":
+            s = next((x for x in list_sessions() if x["session_id"] == ref), None)
+            if not s:
+                return None
+            return {"kind": kind, "ref": ref, "label": f"{s.get('tag') or ''} \u00b7 {s.get('title') or ''}".strip(" \u00b7"),
+                    "status": s.get("kind") or "", "href": ""}
+        if kind == "agent":
+            import agents
+            a = agents.resolve(int(ref) if ref.isdigit() else ref)
+            if not a:
+                return None
+            return {"kind": kind, "ref": str(a["id"]), "label": a["name"], "status": a["status"],
+                    "href": f"/?tab=crew&agent={a['id']}"}
+        if kind == "run":
+            import agents
+            if not ref.lstrip("#").isdigit():
+                return None
+            r = agents.get_run(int(ref.lstrip("#")))
+            if not r:
+                return None
+            a = agents.get(r["agent_id"]) or {}
+            return {"kind": kind, "ref": str(r["id"]),
+                    "label": f"run #{r['id']} of {a.get('name') or 'agent #' + str(r['agent_id'])}",
+                    "status": r["status"], "agent_id": r["agent_id"],
+                    "href": f"/?tab=crew&agent={r['agent_id']}&run={r['id']}"}
+        if kind == "incident":
+            import observability
+            if not ref.lstrip("#").isdigit():
+                return None
+            iid = int(ref.lstrip("#"))
+            con = observability._con()
+            row = con.execute("SELECT id, title, status FROM incidents WHERE id=?", (iid,)).fetchone()
+            con.close()
+            if not row:
+                return None
+            return {"kind": kind, "ref": str(row["id"]), "label": row["title"] or f"incident #{iid}",
+                    "status": row["status"], "href": f"/?tab=operate&incident={row['id']}"}
+    except (ValueError, sqlite3.Error):
+        return None
+    return None
+
+
+def link_card(card_id: int, kind: str, ref, user: str = "", remove: bool = False,
+              origin: dict | None = None) -> dict | None:
+    """Relie (ou délie) une carte à une session / un agent / un run / un incident.
+    Refuse un objet qui n'existe pas (ValueError) ; None si la carte n'existe pas."""
+    if kind not in LINK_KINDS:
+        raise ValueError(f"unknown link kind: {kind} (valid: {list(LINK_KINDS)})")
+    if get_card(card_id) is None:
+        return None
+    con = _con()
+    if remove:
+        t = resolve_link(kind, ref)
+        rref = t["ref"] if t else str(ref).strip().lstrip("#")
+        cur = con.execute("DELETE FROM card_links WHERE card_id=? AND kind=? AND ref=?",
+                          (card_id, kind, rref))
+        if cur.rowcount:
+            _event(con, card_id, user, "unlinked", f"{kind} {ref}", origin)
+        con.commit()
+        con.close()
+        return {"card_id": card_id, "removed": bool(cur.rowcount)}
+    target = resolve_link(kind, ref)
+    if target is None:
+        con.close()
+        raise ValueError(f"{kind} {ref} not found")
+    cur = con.execute("INSERT OR IGNORE INTO card_links(card_id, kind, ref, ts, created_by)"
+                      " VALUES(?,?,?,?,?)", (card_id, kind, target["ref"], time.time(), user or ""))
+    if cur.rowcount:
+        _event(con, card_id, user, "linked", f"{kind} {target['label']}", origin)
+    con.commit()
+    con.close()
+    return {"card_id": card_id, **target, "added": bool(cur.rowcount)}
+
+
+def card_links(card_id: int) -> list[dict]:
+    """Liens de la carte, résolus (un objet disparu reste listé, `missing`).
+    La session spawnée depuis la carte (`cards.session_id`) compte comme un lien."""
+    con = _con()
+    rows = [dict(r) for r in con.execute(
+        "SELECT kind, ref, ts, created_by FROM card_links WHERE card_id=? ORDER BY ts, id", (card_id,))]
+    c = con.execute("SELECT session_id FROM cards WHERE id=?", (card_id,)).fetchone()
+    con.close()
+    if c and c["session_id"] and not any(r["kind"] == "session" and r["ref"] == c["session_id"]
+                                         for r in rows):
+        rows.insert(0, {"kind": "session", "ref": c["session_id"], "ts": None, "created_by": "spawn"})
+    out = []
+    for r in rows:
+        t = resolve_link(r["kind"], r["ref"])
+        out.append({**r, **(t or {"label": f"{r['kind']} {r['ref']}", "status": "", "href": "",
+                                   "missing": True})})
+    return out
+
+
+def card_detail(card_id: int) -> dict | None:
+    c = get_card(card_id)
+    if not c:
+        return None
+    return {**c, "events": card_events(card_id), "comments": card_comments(card_id),
+            "links": card_links(card_id)}
+
+
+def search_cards(query: str = "", tag: str = "", bucket: str = "", assignee: str = "",
+                 include_archived: bool = False, limit: int = 50) -> list[dict]:
+    """Recherche plein texte simple (titre, description, commentaires) + filtres."""
+    where, args = [], []
+    if not include_archived:
+        where.append("c.archived=0")
+    if tag:
+        where.append("c.tag=?")
+        args.append(tag)
+    if bucket:
+        where.append("c.bucket=?")
+        args.append(bucket)
+    if assignee:
+        if assignee in ("none", "-"):
+            where.append("COALESCE(c.assignee,'')=''")
+        else:
+            where.append("LOWER(c.assignee)=LOWER(?)")
+            args.append(assignee.strip())
+    for word in (query or "").split()[:8]:
+        like = f"%{word.replace('%', '').replace('_', '')}%"
+        where.append("(c.title LIKE ? OR c.description LIKE ? OR EXISTS (SELECT 1 FROM card_comments k"
+                     " WHERE k.card_id=c.id AND k.body LIKE ?))")
+        args += [like, like, like]
+    sql = "SELECT c.* FROM cards c" + (" WHERE " + " AND ".join(where) if where else "")
+    sql += " ORDER BY c.archived, CASE c.bucket WHEN 'Done' THEN 1 ELSE 0 END, c.priority," \
+           " COALESCE(c.updated_at, c.created_at) DESC LIMIT ?"
+    args.append(max(1, min(int(limit), 200)))
+    con = _con()
+    rows = [_card_out(r) for r in con.execute(sql, args)]
+    con.close()
+    return rows
+
+
+def validate_assignee(value: str) -> str:
+    """'' (personne), l'email d'un utilisateur IAM connu, ou `agent:<nom>` d'un
+    agent existant. Renvoie la valeur normalisée ; ValueError sinon."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if v.lower().startswith("agent:"):
+        import agents
+        name = v.split(":", 1)[1].strip()
+        a = agents.get_by_name(name)
+        if not a:
+            raise ValueError(f"unknown agent: {name}")
+        return f"agent:{a['name']}"
+    import iam
+    email = v.lower()
+    if not any(u["email"] == email for u in iam.list_users()):
+        raise ValueError(f"unknown user: {v} (an IAM user email, or agent:<name>)")
+    return email

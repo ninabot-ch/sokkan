@@ -427,8 +427,16 @@ class Runtime:
                         description=f"{deliverable[:8000]}\n\n---\nRun #{run['id']} ({status}) · "
                                     f"session {link}",
                         tag="devops", bucket="Review", priority=2,
-                        user=f"agent:{a['name']}")
+                        user=f"agent:{a['name']}",
+                        origin={"session_id": sid, "session_tag": "agent",
+                                "via": f"agent-run #{run['id']}"})
                     out["card"] = c["id"]
+                    # the card knows where it comes from (CardModal → Links)
+                    for kind, ref in (("run", run["id"]), ("agent", a["id"])):
+                        try:
+                            board.link_card(c["id"], kind, ref, user=f"agent:{a['name']}")
+                        except ValueError:
+                            pass
                 elif kind == "memory":
                     # QUARANTAINE : la note n'est rappelée qu'après relecture humaine
                     name = f"agent-{a['name']}-latest"[:64]

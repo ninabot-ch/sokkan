@@ -51,7 +51,7 @@ Target users: developers, devops, system engineers, DBAs, QA.
 | `playbook` | optional playbook id used as the mission template |
 | `trigger` | `manual` · `once` (`once_at`, epoch) · `cron` (`schedule`, 5-field cron, **Europe/Zurich** unless `timezone` says otherwise) · `event` (`event`: `alert` or `alert:<alertname glob>`) |
 | `tools` | tools the agent may use. Anything else is **denied without asking** (no 3 a.m. ping for a tool it should not use). Default: `Read Glob Grep WebFetch WebSearch Bash` |
-| `mcp` | embedded MCP servers it gets: `sokkan-memory` (always), `sokkan-board`, `sokkan-observability` |
+| `mcp` | embedded MCP servers it gets: `sokkan-memory` (always), `sokkan-board` (reads auto-approved; writes — `comment_card`, `close_card`… — ask a human unless listed in `tools` + `auto_approve`; signed `agent:<name>` with the run), `sokkan-observability` |
 | `auto_approve` | subset of `tools` run without asking, in Claude Code rule syntax (`Bash(npm audit:*)`, `Write`). Default empty: every mutating call waits for a human |
 | `secrets` | vault secret **names** injected as env vars of the run (`$GITHUB_TOKEN`). Never values. |
 | `budget_usd` | hard cap per run (0 = instance session budget, else none) |

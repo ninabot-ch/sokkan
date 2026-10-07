@@ -3,10 +3,35 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { deleteCard, fetchCardDetail, patchCard, spawnCard } from "@/lib/api";
-import type { Card, CardDetail, ChecklistItem } from "@/lib/types";
+import { closeCard, commentCard, deleteCard, fetchCardDetail, patchCard, reopenCard, spawnCard } from "@/lib/api";
+import type { Card, CardDetail, CardLink, ChecklistItem } from "@/lib/types";
 import { PRIORITIES, ago, dueTone, stamp } from "@/lib/fmt";
 import { useCan } from "@/lib/me";
+
+// who did it: an email shows as its local part, agents and sessions as they are
+const who = (u: string) => (u.includes("@") ? u.split("@")[0] : u) || "—";
+
+// the SOKKAN session an action came from (and the channel) — clickable when known
+function Origin({ sid, tag, via, onOpen }: {
+  sid?: string; tag?: string; via?: string; onOpen: (sid: string) => void;
+}) {
+  if (!sid && !via) return null;
+  return (
+    <span className="shrink-0 text-[10px] text-mut/70">
+      {sid ? (
+        <button onClick={() => onOpen(sid)} title={`open session ${sid}`}
+          className="rounded bg-sea/10 px-1 text-sea/90 hover:bg-sea/20">
+          ⌁ {tag || sid.slice(0, 8)}
+        </button>
+      ) : null}
+      {via && via !== "web" ? <span className="ml-1">via {via}</span> : via === "web" && !sid ? <span>web</span> : null}
+    </span>
+  );
+}
+
+const LINK_ICON: Record<CardLink["kind"], string> = {
+  session: "⌁", agent: "◆", run: "▶", incident: "⚠",
+};
 
 // modal portalée sur document.body (gotcha Safari : position:fixed + ancêtre transformé)
 export default function CardModal({
@@ -24,6 +49,8 @@ export default function CardModal({
   const [newItem, setNewItem] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [comment, setComment] = useState("");
+  const [err, setErr] = useState("");
   const canWrite = useCan("dev");
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -45,10 +72,20 @@ export default function CardModal({
   const patch = async (fields: Partial<Card>) => {
     if (!card || !canWrite) return;
     setCard({ ...card, ...fields } as CardDetail); // optimiste
-    await patchCard(card.id, fields).catch(() => {});
+    setErr("");
+    await patchCard(card.id, fields).catch((e) => setErr(String(e?.message || e)));
     await load();
     onChanged();
   };
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setErr("");
+    try { await fn(); } catch (e) { setErr(String((e as Error)?.message || e)); }
+    await load();
+    onChanged();
+  };
+
+  const openSession = (sid: string) => { onOpenSession(sid); onClose(); };
 
   const checklist = card?.checklist ?? [];
   const doneCount = checklist.filter((i) => i.done).length;
@@ -89,6 +126,11 @@ export default function CardModal({
               <span>· created {ago(card.created_at)}</span>
               {card.updated_at && <span>· updated {ago(card.updated_at)}</span>}
               {card.archived ? <span className="rounded bg-red-500/15 px-1.5 text-red-300">archived</span> : null}
+              {card.closed_at ? (
+                <span className="rounded bg-emerald-500/15 px-1.5 text-emerald-300" title={stamp(card.closed_at)}>
+                  closed {ago(card.closed_at)}{card.closed_by ? ` by ${who(card.closed_by)}` : ""}
+                </span>
+              ) : null}
             </div>
           </div>
           <button onClick={onClose} className="rounded-md px-2 py-1 text-mut hover:bg-panel2 hover:text-slate-200">✕</button>
@@ -120,7 +162,32 @@ export default function CardModal({
                 className={`rounded border border-line bg-panel2 px-1.5 py-0.5 text-slate-200 ${card.due ? dueTone(card.due) : ""}`} />
               {card.due && canWrite && <button onClick={() => patch({ due: "" })} className="text-mut hover:text-slate-300">✕</button>}
             </label>
+            <label className="flex items-center gap-2">
+              <span className="text-mut">assignee</span>
+              <input key={`a-${card.assignee ?? ""}`} defaultValue={card.assignee ?? ""} disabled={!canWrite}
+                placeholder="email or agent:name"
+                onBlur={(e) => e.target.value.trim() !== (card.assignee ?? "") && patch({ assignee: e.target.value.trim() })}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                className="w-44 rounded border border-line bg-panel2 px-1.5 py-0.5 text-slate-200 placeholder:text-mut/50" />
+            </label>
           </div>
+          {err && <div className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11.5px] text-red-300">{err}</div>}
+
+          {/* links: sessions / agents / runs / incidents */}
+          {(card.links?.length ?? 0) > 0 && (
+            <div>
+              <div className="mb-1.5 text-[12px] font-medium text-slate-300">Links</div>
+              <div className="flex flex-wrap gap-1.5">
+                {card.links!.map((l, i) => {
+                  const cls = `rounded border px-1.5 py-0.5 text-[11.5px] ${l.missing ? "border-line text-mut line-through" : "border-sea/40 bg-sea/10 text-sea hover:border-sea"}`;
+                  const text = <>{LINK_ICON[l.kind]} {l.kind} · {l.label}{l.status ? <span className="ml-1 text-mut">({l.status})</span> : null}</>;
+                  if (l.missing) return <span key={i} className={cls} title="this object no longer exists">{text}</span>;
+                  if (l.kind === "session") return <button key={i} onClick={() => openSession(l.ref)} className={cls}>{text}</button>;
+                  return <a key={i} href={l.href} className={cls}>{text}</a>;
+                })}
+              </div>
+            </div>
+          )}
 
           {/* description (markdown) */}
           <div>
@@ -188,16 +255,52 @@ export default function CardModal({
             </div>
           </div>
 
-          {/* activité */}
+          {/* commentaires signés (personne / agent + session d'origine) */}
           <div>
-            <div className="mb-1.5 text-[12px] font-medium text-slate-300">Activity</div>
-            <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
+            <div className="mb-1.5 text-[12px] font-medium text-slate-300">
+              Comments {card.comments?.length ? <span className="text-mut">{card.comments.length}</span> : null}
+            </div>
+            <div className="space-y-2">
+              {(card.comments ?? []).map((c) => (
+                <div key={c.id} className="rounded-lg border border-line/60 bg-panel2/40 px-3 py-2">
+                  <div className="mb-1 flex items-baseline gap-2 text-[10.5px] text-mut">
+                    <span className="font-medium text-slate-300">{who(c.author)}</span>
+                    <span className="tabular-nums">{stamp(c.ts)}</span>
+                    <span className="ml-auto"><Origin sid={c.session_id} tag={c.session_tag} via={c.via} onOpen={openSession} /></span>
+                  </div>
+                  <div className="md text-[12.5px] text-slate-200">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{c.body}</ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+              {canWrite && (
+                <div className="flex gap-2">
+                  <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2}
+                    placeholder="add a comment (markdown)"
+                    className="flex-1 rounded border border-line/60 bg-transparent px-2 py-1 text-[12px] text-slate-200 outline-none placeholder:text-mut/60 focus:border-sea/50" />
+                  <button disabled={!comment.trim()}
+                    onClick={() => act(async () => { await commentCard(card.id, comment.trim()); setComment(""); })}
+                    className="self-end rounded-md px-3 py-1.5 text-[12px] text-sea ring-1 ring-sea/30 hover:bg-sea/10 disabled:opacity-40">
+                    comment
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* activité : qui, quand, depuis quelle session */}
+          <div>
+            <div className="mb-1.5 text-[12px] font-medium text-slate-300">History</div>
+            <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
               {card.events.map((ev, i) => (
                 <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
                   <span className="shrink-0 tabular-nums text-mut/70">{stamp(ev.ts)}</span>
                   <span className="shrink-0 rounded bg-panel2 px-1.5 text-[10.5px] text-slate-300">{ev.action}</span>
-                  <span className="truncate text-mut">{ev.detail}</span>
-                  {ev.user && <span className="ml-auto shrink-0 text-[10px] text-mut/60">{ev.user.split("@")[0]}</span>}
+                  <span className="min-w-0 truncate text-mut" title={ev.detail}>{ev.detail}</span>
+                  <span className="ml-auto flex shrink-0 items-baseline gap-1.5">
+                    {ev.user && <span className="text-[10px] text-slate-400" title={ev.user}>{who(ev.user)}</span>}
+                    <Origin sid={ev.session_id} tag={ev.session_tag} via={ev.via} onOpen={openSession} />
+                  </span>
                 </div>
               ))}
               {!card.events.length && <div className="text-[11.5px] text-mut">no events</div>}
@@ -220,6 +323,18 @@ export default function CardModal({
               </button>
             )}
             <div className="ml-auto flex items-center gap-2">
+              {card.bucket === "Done" || card.closed_at ? (
+                <button onClick={() => act(() => reopenCard(card.id))}
+                  className="rounded-md px-3 py-1.5 text-[12px] text-mut ring-1 ring-line hover:text-slate-200">
+                  reopen
+                </button>
+              ) : (
+                <button onClick={() => act(() => closeCard(card.id))}
+                  title="finished: moves to Done, keeps everything (reopen anytime)"
+                  className="rounded-md px-3 py-1.5 text-[12px] text-emerald-300 ring-1 ring-emerald-600/30 hover:bg-emerald-600/10">
+                  close
+                </button>
+              )}
               <button onClick={() => patch({ archived: card.archived ? 0 : 1 })}
                 className="rounded-md px-3 py-1.5 text-[12px] text-mut ring-1 ring-line hover:text-slate-200">
                 {card.archived ? "restore" : "archive"}

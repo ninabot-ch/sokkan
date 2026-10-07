@@ -233,17 +233,48 @@ export interface Card {
   checklist: ChecklistItem[];
   updated_at: number | null;
   archived: number;
+  assignee?: string; // IAM user email, "agent:<name>" or ""
+  closed_at?: number | null; // closed = finished, not deleted
+  closed_by?: string;
 }
 
+// where a card action came from: the SOKKAN session, and the channel
+// ("web", "mcp", "agent-run #12") — set by the server, never by a model
 export interface CardEvent {
   ts: number;
   user: string;
   action: string;
   detail: string;
+  session_id?: string;
+  session_tag?: string;
+  via?: string;
+}
+
+export interface CardComment {
+  id: number;
+  ts: number;
+  author: string;
+  session_id: string;
+  session_tag: string;
+  via: string;
+  body: string;
+}
+
+export interface CardLink {
+  kind: "session" | "agent" | "run" | "incident";
+  ref: string;
+  label: string;
+  status: string;
+  href: string;
+  ts: number | null;
+  created_by: string;
+  missing?: boolean;
 }
 
 export interface CardDetail extends Card {
   events: CardEvent[];
+  comments?: CardComment[];
+  links?: CardLink[];
 }
 
 export interface BoardData {

@@ -1,5 +1,5 @@
 import type {
-  AuditEvent, Binding, BoardData, CloudEnv, Card, CardDetail, DiffData, IamUser,
+  AuditEvent, Binding, BoardData, CloudEnv, Card, CardComment, CardDetail, DiffData, IamUser,
   InfraNode, InfraTarget, LiveState, Me, MemNote, MemSearchResult, MemStats,
   PreviewEnv, PreviewRepo, PreviewTrigger, SessionDetail, SessionSummary, TmuxWindow,
   UsageSummary,
@@ -57,6 +57,12 @@ export const patchCard = (id: number, fields: Partial<Card>) =>
   mutate<Card>(`/api/board/card/${id}`, "PATCH", fields);
 export const deleteCard = (id: number) =>
   mutate<{ ok: boolean }>(`/api/board/card/${id}`, "DELETE");
+export const commentCard = (id: number, body: string) =>
+  mutate<CardComment>(`/api/board/card/${id}/comment`, "POST", { body });
+export const closeCard = (id: number, resolution = "") =>
+  mutate<Card>(`/api/board/card/${id}/close`, "POST", { resolution });
+export const reopenCard = (id: number, bucket = "Backlog", reason = "") =>
+  mutate<Card>(`/api/board/card/${id}/reopen`, "POST", { bucket, reason });
 
 // journal d'audit
 export const fetchAudit = (limit = 200, q = "") =>

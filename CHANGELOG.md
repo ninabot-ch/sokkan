@@ -3,6 +3,29 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+- **The board, driven from a session** — the embedded `sokkan-board` MCP server
+  gains `get_card` (fields, comments, history, links), `search_cards` (text in title,
+  description and comments; tag, column, assignee), `update_card` (title,
+  description, tag, priority, due date, assignee), `close_card` / `reopen_card`
+  (closed means finished, not deleted: the card goes to Done with `closed_at` /
+  `closed_by` and keeps everything), `archive_card`, `comment_card` and `link_card`
+  (to a session, an agent, an agent run or an incident — only if it exists).
+  Reads are auto-approved; writes go through the session's permission gate, like
+  `create_card` / `move_card`; in a Crew run the server is there only if the agent
+  was granted it, and a write runs unattended only if the agent's `auto_approve`
+  lists it.
+- **Signed card history** — every card action records who (the person driving the
+  session, or `agent:<name>` in a run), when, and from which session and channel
+  (`web`, `mcp`, `agent-run #N`). The identity comes from the environment the API
+  gives the MCP server; no tool takes an author. A session driven by a viewer cannot
+  write the board.
+- **CardModal** — comments (and a box to add one), links to sessions / agents / runs /
+  incidents, an assignee, close / reopen, and a History that shows who, when and
+  from which session (click to open it). A card filed by an agent run is linked to
+  the run and the agent. New routes: `POST /api/board/card/{id}/comment|close|reopen`;
+  `PATCH` accepts `assignee` (an IAM user email or `agent:<name>`).
+
 ## 3.1.1 — 2026-10-07 — "Crew up"
 - **Crew in read-only for viewers** — `SOKKAN_CREW_VIEWER_READONLY=1` (off by default).
   A viewer then sees the deck and opens every agent (Settings, Live, History, the

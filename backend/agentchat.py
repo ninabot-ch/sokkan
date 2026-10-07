@@ -97,6 +97,7 @@ SAFE_TOOLS = [
     "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get",
     "mcp__sokkan-memory__memory_links",
     "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
+    "mcp__sokkan-board__get_card", "mcp__sokkan-board__search_cards",
     # observabilité en LECTURE : diagnostiquer sans gate ; create_dashboard
     # (écriture) reste soumis à permission.
     "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs",

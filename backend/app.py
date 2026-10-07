@@ -2110,6 +2110,23 @@ class CardPatch(BaseModel):
     due: str | None = None
     checklist: list[ChecklistItem] | None = None
     archived: int | None = None
+    assignee: str | None = None
+
+
+class CardComment(BaseModel):
+    body: str
+
+
+class CardClose(BaseModel):
+    resolution: str = ""
+
+
+class CardReopen(BaseModel):
+    bucket: str = "Backlog"
+    reason: str = ""
+
+
+_WEB = {"via": "web"}
 
 
 @app.get("/api/board")
@@ -2119,10 +2136,10 @@ def board_list(archived: int = 0) -> dict:
 
 @app.get("/api/board/card/{card_id}")
 def board_card_detail(card_id: int) -> dict:
-    c = board.get_card(card_id)
+    c = board.card_detail(card_id)
     if not c:
         raise HTTPException(404, "card not found")
-    return {**c, "events": board.card_events(card_id)}
+    return c
 
 
 @app.post("/api/board/card")
@@ -2130,7 +2147,7 @@ def board_add(body: CardCreate, u: dict = Depends(require("dev"))) -> dict:
     if not body.title.strip() and not body.description.strip():
         raise HTTPException(400, "title or prompt required")
     c = board.add_card(body.title, body.description, body.tag, body.bucket,
-                       priority=body.priority, due=body.due, user=u["email"])
+                       priority=body.priority, due=body.due, user=u["email"], origin=_WEB)
     audit.log(u["email"], "board.card.create", f"card #{c['id']}", c["title"])
     return c
 
@@ -2140,11 +2157,50 @@ def board_patch(card_id: int, body: CardPatch, u: dict = Depends(require("dev"))
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if "checklist" in fields:
         fields["checklist"] = [dict(i) for i in body.checklist or []]
-    c = board.update_card(card_id, user=u["email"], **fields)
+    if "assignee" in fields:
+        try:
+            fields["assignee"] = board.validate_assignee(fields["assignee"])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    c = board.update_card(card_id, user=u["email"], origin=_WEB, **fields)
     if not c:
         raise HTTPException(404, "card not found")
     changed = ", ".join(k for k in fields)
     audit.log(u["email"], "board.card.update", f"card #{card_id}", changed)
+    return c
+
+
+@app.post("/api/board/card/{card_id}/comment")
+def board_comment(card_id: int, body: CardComment, u: dict = Depends(require("dev"))) -> dict:
+    try:
+        c = board.add_comment(card_id, body.body, author=u["email"], origin=_WEB)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not c:
+        raise HTTPException(404, "card not found")
+    audit.log(u["email"], "board.card.comment", f"card #{card_id}", body.body.strip()[:120])
+    return c
+
+
+@app.post("/api/board/card/{card_id}/close")
+def board_close(card_id: int, body: CardClose, u: dict = Depends(require("dev"))) -> dict:
+    c = board.close_card(card_id, user=u["email"], resolution=body.resolution, origin=_WEB)
+    if not c:
+        raise HTTPException(404, "card not found")
+    audit.log(u["email"], "board.card.close", f"card #{card_id}", body.resolution[:200])
+    return c
+
+
+@app.post("/api/board/card/{card_id}/reopen")
+def board_reopen(card_id: int, body: CardReopen, u: dict = Depends(require("dev"))) -> dict:
+    try:
+        c = board.reopen_card(card_id, user=u["email"], bucket=body.bucket, reason=body.reason,
+                              origin=_WEB)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not c:
+        raise HTTPException(404, "card not found")
+    audit.log(u["email"], "board.card.reopen", f"card #{card_id}", f"→ {body.bucket}")
     return c
 
 
@@ -2163,8 +2219,9 @@ async def board_spawn(card_id: int, u: dict = Depends(require("dev"))) -> dict:
     if not card:
         raise HTTPException(404, "card not found")
     s = _spawn_sdk(card["tag"], prompt=card["description"], title=card["title"], user=u["email"])
-    board.update_card(card_id, user=u["email"], session_id=s["session_id"],
-                      window="", bucket="Doing")
+    board.update_card(card_id, user=u["email"], origin={**_WEB, "session_id": s["session_id"],
+                                                         "session_tag": s.get("tag", "")},
+                      session_id=s["session_id"], window="", bucket="Doing")
     audit.log(u["email"], "board.card.spawn", f"card #{card_id}", s["title"])
     return {**s, "card_id": card_id}
 
