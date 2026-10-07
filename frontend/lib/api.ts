@@ -423,6 +423,16 @@ export interface Agent {
   proposed_by?: string; pending_change_by?: string;
   approval?: { mode: "owner" | "admin" | "four_eyes"; can_approve: boolean; reason: string } | null;
   approval_mode?: "owner" | "admin" | "four_eyes";
+  /** 3.1.2 : write rules of an alert-triggered agent that need an admin override */
+  alert_write_rules?: string[];
+  alert_write_override?: { by: string; at: number; rules: string[] } | null;
+  metering?: AgentMetering;
+}
+/** 3.1.2 : how a run's cost and budget are counted (docs/AGENTS.md § Budget) */
+export interface AgentMetering {
+  basis: "sdk" | "sokkan"; model: string; endpoint: string; note: string;
+  price: { currency: "USD" | "CHF"; input: number; output: number; source: string } | null;
+  max_tokens_per_run: number | null;
 }
 export interface AgentRun {
   id: number; agent_id: number; trigger: string; scheduled_for: number | null; status: string;
@@ -437,6 +447,8 @@ export interface AgentsMeta {
   approval_mode: "owner" | "admin" | "four_eyes"; self_activation: boolean;
   /** viewer with SOKKAN_CREW_VIEWER_READONLY=1 : sees everything, changes nothing */
   read_only?: boolean;
+  is_admin?: boolean;
+  metering?: AgentMetering;
 }
 export interface AgentsList {
   agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] };
@@ -461,12 +473,14 @@ async function mutateDetail<T>(url: string, method: string, body?: unknown): Pro
 export const agentsList = (archived = false) => getJSON<AgentsList>(`/api/agents${archived ? "?archived=1" : ""}`);
 export const agentsMeta = () => getJSON<AgentsMeta>("/api/agents/meta");
 export const agentGet = (id: number) => getJSON<Agent>(`/api/agents/${id}`);
-export const agentCreate = (fields: Partial<Agent> & { activate?: boolean }) =>
+export const agentCreate = (fields: Partial<Agent> & { activate?: boolean; override_alert_writes?: boolean }) =>
   mutateDetail<Agent>("/api/agents", "POST", fields);
-export const agentPatch = (id: number, fields: Partial<Agent>) =>
+export const agentPatch = (id: number, fields: Partial<Agent> & { override_alert_writes?: boolean }) =>
   mutateDetail<Agent>(`/api/agents/${id}`, "PATCH", fields);
-export const agentAction = (id: number, action: "approve" | "reject" | "pause" | "resume" | "archive" | "run") =>
-  mutateDetail<{ agent: Agent; run?: AgentRun }>(`/api/agents/${id}/${action}`, "POST");
+export const agentAction = (id: number, action: "approve" | "reject" | "pause" | "resume" | "archive" | "run",
+  overrideAlertWrites = false) =>
+  mutateDetail<{ agent: Agent; run?: AgentRun }>(
+    `/api/agents/${id}/${action}${overrideAlertWrites ? "?override_alert_writes=true" : ""}`, "POST");
 export const agentRuns = (id: number, limit = 50) => getJSON<AgentRun[]>(`/api/agents/${id}/runs?limit=${limit}`);
 export const agentRun = (runId: number) => getJSON<AgentRun>(`/api/agents/runs/${runId}`);
 export const agentRunCancel = (runId: number) => mutateDetail<{ ok: boolean }>(`/api/agents/runs/${runId}/cancel`, "POST");

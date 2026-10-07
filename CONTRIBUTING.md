@@ -69,3 +69,9 @@ Questions, ideas, feedback from running SOKKAN on your own projects:
 
 Please do NOT open a public issue for vulnerabilities — email
 security@ninabot.ch and we'll respond quickly.
+
+## Releases
+
+Version numbers follow the rules in [docs/RELEASING.md](docs/RELEASING.md) (semver: a patch
+fixes, a minor adds or changes a default, a major breaks; security fixes may ship as a patch
+under the conditions written there).

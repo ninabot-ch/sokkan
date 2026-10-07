@@ -327,10 +327,10 @@ function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSess
   }, [onClose]);
 
   const live = runs.filter((r) => r.status === "running" || r.status === "queued");
-  const act = async (action: "approve" | "reject" | "pause" | "resume" | "archive" | "run") => {
+  const act = async (action: "approve" | "reject" | "pause" | "resume" | "archive" | "run", override = false) => {
     setMsg("");
     try {
-      await agentAction(id as number, action);
+      await agentAction(id as number, action, override);
       if (action === "run") setTab("Live");
       load(); onChanged();
     } catch (e) { setMsg(String((e as Error).message)); }
@@ -370,7 +370,8 @@ function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSess
         </header>
 
         {a?.needs_approval && (
-          <ApprovalBar a={a} ro={ro} tip={tip} onApprove={() => act("approve")} onReject={() => act("reject")} />
+          <ApprovalBar a={a} ro={ro} tip={tip} isAdmin={!!meta?.is_admin} onApprove={() => act("approve")} onReject={() => act("reject")}
+            onOverride={() => { if (confirm(`Let ${(a.alert_write_rules || []).join(", ")} run unasked on an agent started by alerts? An alert payload is external input. This override is journaled.`)) act("approve", true); }} />
         )}
 
         <nav className="flex gap-1 border-b border-line px-3 pt-2" role="tablist">
@@ -423,8 +424,27 @@ function AgentPopout({ id, initialRun, onClose, onCreated, onChanged, onOpenSess
   );
 }
 
-function ApprovalBar({ a, ro, tip, onApprove, onReject }: { a: Agent; ro: boolean; tip: string; onApprove: () => void; onReject: () => void }) {
+/** 3.1.2 — mirror of agents.is_write_rule: rules that let a write run unasked */
+const READ_MCP = new Set([
+  "mcp__sokkan-memory__memory_search", "mcp__sokkan-memory__memory_get", "mcp__sokkan-memory__memory_links",
+  "mcp__sokkan-board__list_tags", "mcp__sokkan-board__list_board",
+  "mcp__sokkan-board__get_card", "mcp__sokkan-board__search_cards",
+  "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs", "mcp__sokkan-observability__list_dashboards",
+  "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent", "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
+]);
+function alertWriteRules(rules: string[]): string[] {
+  return rules.filter((r) => {
+    const base = r.split("(")[0];
+    return base.startsWith("mcp__") ? !READ_MCP.has(base) : ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"].includes(base);
+  });
+}
+
+function ApprovalBar({ a, ro, tip, isAdmin, onApprove, onReject, onOverride }: {
+  a: Agent; ro: boolean; tip: string; isAdmin: boolean; onApprove: () => void; onReject: () => void; onOverride: () => void;
+}) {
   const change = a.pending_change;
+  const held = a.alert_write_rules || [];
+  const covered = held.length > 0 && held.every((r) => (a.alert_write_override?.rules || []).includes(r));
   return (
     <div className="border-b border-brass/30 bg-brass/10 px-4 py-2.5 text-[12px] text-brass">
       <div className="flex flex-wrap items-center gap-2">
@@ -440,12 +460,22 @@ function ApprovalBar({ a, ro, tip, onApprove, onReject }: { a: Agent; ro: boolea
             <span className="rounded-md border border-brass/50 px-2.5 py-1 font-medium" title={`approval mode: ${a.approval.mode}`}>
               {a.approval.reason === "needs a second approver" ? "🔒 needs a second approver — someone other than the proposer and the owner" : `🔒 ${a.approval.reason}`}
             </span>
+          ) : held.length > 0 && !covered ? (
+            isAdmin
+              ? <button onClick={onOverride} title="journaled in the audit log" className="rounded-md bg-red-600/20 px-3 py-1 font-medium text-red-200 ring-1 ring-red-500/50 hover:bg-red-600/35">✓ Approve with override (admin)</button>
+              : <span className="rounded-md border border-red-500/50 px-2.5 py-1 font-medium text-red-300">🔒 remove the write rules, or an admin overrides</span>
           ) : (
             <button onClick={onApprove} className="rounded-md bg-emerald-600/25 px-3 py-1 font-medium text-emerald-200 ring-1 ring-emerald-500/50 hover:bg-emerald-600/40">✓ Approve</button>
           )}
           {!ro && <button onClick={onReject} className="rounded-md px-3 py-1 text-mut ring-1 ring-line hover:text-red-300">Reject</button>}
         </span>
       </div>
+      {held.length > 0 && !covered && (
+        <div className="mt-1.5 text-[11.5px] text-red-300">
+          ⚠ Started by Operate alerts, and {held.join(", ")} would run without asking. An alert payload is external input that could try to steer the run:
+          remove these from “Runs without asking” (the calls then wait for a human), or an admin approves with the override.
+        </div>
+      )}
       {change && (
         <table className="mt-2 w-full text-[11.5px]">
           <tbody>
@@ -528,7 +558,7 @@ function History({ runs, initialRun, ro, onOpenSession, onOpenIncident }: {
                   <button key={k} onClick={() => onOpenIncident?.(v)} disabled={!onOpenIncident} title="this failure opened an incident in Operate"
                     className="rounded border border-red-500/40 bg-red-500/10 px-1.5 py-px text-red-300 hover:border-red-400">🚨 incident #{v} →</button>
                 ) : (
-                  <span key={k} className="rounded bg-panel2 px-1.5 py-px text-slate-300">{k === "card" ? `board card #${v}` : k === "memory" ? `memory note ${v}` : k === "memory_quarantined" ? "⚠ quarantined" : k === "file" ? `file ${String(v).split("/").slice(-2).join("/")}` : k === "notify" ? "notified" : `${k}: ${v}`}</span>
+                  <span key={k} className="rounded bg-panel2 px-1.5 py-px text-slate-300">{k === "card" ? `board card #${v}` : k === "memory" ? `memory note ${v}` : k === "memory_quarantined" ? "⚠ quarantined" : k === "file" ? `file ${String(v).split("/").slice(-2).join("/")}` : k === "notify" ? "notified" : k === "cost_basis" ? `💱 cost: ${v}` : `${k}: ${v}`}</span>
                 ))}
               </div>
             )}
@@ -638,8 +668,19 @@ function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
       auto_approve: f.auto_approve, secrets: f.secrets, budget_usd: Number(f.budget_usd) || 0,
       max_minutes: Number(f.max_minutes) || 30, outputs: f.outputs, notify_on: f.notify_on, playbook: f.playbook,
     };
+    const send = (override: boolean) => {
+      const b = override ? { ...body, override_alert_writes: true } : body;
+      return a ? agentPatch(a.id, b) : agentCreate({ ...b, activate: meta.self_activation ? activate : true });
+    };
     try {
-      const saved = a ? await agentPatch(a.id, body) : await agentCreate({ ...body, activate: meta.self_activation ? activate : true });
+      let saved: Agent;
+      try { saved = await send(false); } catch (e) {
+        const m = String((e as Error).message);
+        // 3.1.2 : an admin may override the alert write rule — explicitly, journaled
+        if (!(meta.is_admin && m.includes("alert-triggered agent cannot auto-approve")
+          && confirm(`${m}\n\nOverride as an admin? It is journaled in the audit log.`))) throw e;
+        saved = await send(true);
+      }
       setDirty(false);
       onSaved(saved);
     } catch (e) { onError(String((e as Error).message)); }
@@ -713,7 +754,12 @@ function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
           <div className="flex flex-wrap gap-1.5">{meta.tools.map((t) => <button type="button" key={t} className={chip((f.tools || []).includes(t))} onClick={() => toggle("tools", t)}>{t}</button>)}</div></div>
         <div><label className={lbl}>Runs without asking (Claude Code rules)</label>
           <input className={`${inp} font-mono`} value={(f.auto_approve || []).join(", ")} onChange={(e) => set("auto_approve", e.target.value.split(",").map((x) => x.trim()).filter(Boolean))} placeholder="Bash(npm audit:*), Bash(git log:*)" />
-          <div className="mt-1 text-[11px] text-mut">Every other mutating call waits for a human — you get pinged.</div></div>
+          <div className="mt-1 text-[11px] text-mut">Every other mutating call waits for a human — you get pinged.</div>
+          {f.trigger === "event" && (f.event || "").startsWith("alert") && alertWriteRules(f.auto_approve || []).length > 0 && (
+            <div className="mt-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-300">
+              ⚠ Alert-triggered: {alertWriteRules(f.auto_approve || []).join(", ")} cannot run unasked — the alert payload is external input.
+              Approval is refused unless an admin overrides it (journaled); in runs started by an alert these calls wait for a human.
+            </div>)}</div>
         <div><label className={lbl}>MCP servers</label>
           <div className="flex flex-wrap gap-1.5">{meta.mcp.map((m) => (
             <button type="button" key={m} disabled={m === "sokkan-memory"} className={chip((f.mcp || []).includes(m) || m === "sokkan-memory")} onClick={() => toggle("mcp", m)}>
@@ -728,6 +774,14 @@ function Settings({ a, meta, readOnlyRole, onSaved, onError }: {
           <div><label className={lbl}>Time limit (min)</label>
             <input type="number" min={1} className={inp} value={f.max_minutes ?? 30} onChange={(e) => set("max_minutes", Number(e.target.value))} /></div>
         </div>
+        {(() => {
+          const m = (a && a.model === f.model ? a.metering : undefined) || (!f.model ? meta.metering : undefined);
+          if (!m) return f.model && a && a.model !== f.model ? <div className="-mt-1 text-[11px] text-mut">Save to see how runs on {f.model} are metered.</div> : null;
+          return m.basis === "sdk" ? null : (
+            <div className={`-mt-1 rounded border px-2 py-1 text-[11px] ${m.price ? "border-line text-mut" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
+              {m.price ? "💱 " : "⚠ "}{m.note}
+            </div>);
+        })()}
         <div><label className={lbl}>Deliverable goes to</label>
           <div className="flex flex-wrap gap-1.5">{meta.outputs.map((o) => <button type="button" key={o} className={chip((f.outputs || []).includes(o))} onClick={() => toggle("outputs", o)}>
             {o === "card" ? "board card (Review)" : o === "memory" ? "memory note" : o === "file" ? "file" : "notification"}</button>)}</div></div>

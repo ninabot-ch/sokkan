@@ -190,3 +190,40 @@ def test_rollback_replaces_the_code_and_keeps_env_workspace_and_user_files(tmp_p
     assert "COMPOSE_FILE" not in env
     assert "compose up -d --build --remove-orphans" in (tmp_path / "docker.log").read_text()
     assert not list(d.glob(".sokkan-rollback.*"))
+
+
+# ---- 3.1.x : every operator-facing SOKKAN_* variable reaches the api container -----
+# (the 2.0.1 trap: a variable in .env but not in `environment:` never enters the
+# container). Per-session variables set by the API for its MCP subprocesses must
+# NOT be there — SOKKAN_AGENT_RUN=1 at the API level would make it read-only.
+AGENT_VARS_31X = (
+    "SOKKAN_FEATURE_AGENTS", "SOKKAN_AGENTS_MAX_CONCURRENT", "SOKKAN_AGENTS_MISFIRE_S",
+    "SOKKAN_AGENTS_TICK_S", "SOKKAN_AGENTS_APPROVAL", "SOKKAN_SESSION_SECRETS",
+    "SOKKAN_MEMORY_QUARANTINE_DIR", "SOKKAN_AGENTS_INCIDENTS", "SOKKAN_CREW_VIEWER_READONLY",
+    "SOKKAN_DEMO_CREW",
+    # 3.1.2
+    "SOKKAN_AGENTS_MAX_TOKENS_PER_RUN", "SOKKAN_MODEL_PRICES", "SOKKAN_FX_USD_PER_CHF",
+)
+PER_SESSION_VARS = ("SOKKAN_SESSION_ID", "SOKKAN_SESSION_USER", "SOKKAN_AGENT_RUN",
+                    "SOKKAN_AGENT_NAME", "SOKKAN_AGENT_RUN_ID")
+
+
+def test_agent_variables_are_passed_to_the_api_container():
+    env = _load(ROOT / "docker-compose.yml")["services"]["api"]["environment"]
+    missing = [v for v in AGENT_VARS_31X if v not in env]
+    assert not missing, f"declare in services.api.environment: {missing}"
+    leaked = [v for v in PER_SESSION_VARS if v in env]
+    assert not leaked, f"per-session variables must not be set on the API: {leaked}"
+    spec = (ROOT / "docs" / "AGENTS.md").read_text()
+    undocumented = [v for v in AGENT_VARS_31X if v not in spec]
+    assert not undocumented, f"document in docs/AGENTS.md: {undocumented}"
+
+
+def test_agent_variables_read_from_the_environment_are_all_declared():
+    """Any SOKKAN_AGENTS_* / SOKKAN_CREW_* the backend reads is in the api block."""
+    env = _load(ROOT / "docker-compose.yml")["services"]["api"]["environment"]
+    read = set()
+    for f in (ROOT / "backend").glob("*.py"):
+        read |= set(re.findall(r"\"(SOKKAN_(?:AGENTS|CREW)_[A-Z0-9_]+)\"", f.read_text()))
+    read.discard("SOKKAN_AGENTS_DB")  # test/path override, defaults under SOKKAN_DATA_DIR
+    assert read and not sorted(read - set(env))
