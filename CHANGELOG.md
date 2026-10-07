@@ -3,79 +3,52 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.2 "multi-user" (in progress)
+## 3.2.0 — 2026-10-08 — "Captains"
+Several people and several projects on one instance — the base of SOKKAN Enterprise, in
+the same open-source app: every enterprise capability is a feature of the registry, off in
+the community edition. Shipped inside 3.2.0 as **beta / experimental** features (off in
+community, see FEATURES.md): **3.3 "Helm"** (hierarchical boards, morning brief) and **3.4
+"Classification and Teams"** (clearances, Nina in Microsoft Teams — experimental, off in
+both editions).
 
-### Sharing, BYOK, Connect your AI
-- **Shared review** (`shared_review`, needs `preview` + `multi_project`): ⇪ share a session (pane
-  header) or a captured preview (Preview) with a person or a team of its project, read or
-  read-write, optionally for a limited time. The recipient finds it at the top of their rail
-  (« Shared with me », shared by …); a write share can carry the session's delegated HITL
-  approval (« ask X to validate » → ✋ allow / deny from the rail). Never wider than the project
-  role (a viewer never gets write; write capped by the current role; a non-member sees nothing),
-  revocable, every step in the journal. `docs/enterprise/UI-FEATURES.md`.
-- **Model keys** (`byok_admin`, lot 7, needs `multi_project`): Profile → Model keys for the
-  instance admin — set, replace, delete provider keys, stored encrypted with the vault key and
-  never shown again (…last 4, date, who); optional validity test (status only, the key is never
-  logged); the Anthropic key reaches the sessions through a reference in llm.json, and is pushed
-  to the SOKKAN gateway's BYOK endpoint when `SOKKAN_GATEWAY_URL` / `_ADMIN_TOKEN` / `_CLIENT` are
-  set. Scope `project:<slug>` reserved (BYOK per project: planned).
-- **Connect your AI** (`connect_ai`): Profile → Model becomes engine cards (SOKKAN Router, Claude
-  key or login, OpenAI / Codex, Gemini, OpenRouter, Ollama / local, Magnitude). Personal mode
-  (community): any engine, SOKKAN Router preselected with a configurable welcome-credit link
-  (`SOKKAN_ROUTER_WELCOME_URL`, no amount in the code). Governed mode (enterprise, or
-  `SOKKAN_CONNECT_AI_MODE`): the admin allows engines, zones and SOKKAN tiers; people only see
-  those; a project maintainer may pick the project's engine. A connected engine is selectable as
-  a Crew card's model (`engine:<id>`). The login card says: check your provider's terms.
-### 3.4 Classification and Teams
-- **Classification and clearances** (feature `classification`, requires `multi_project` +
-  `sso_teams`; enterprise default on). Notes (frontmatter `classification:`), cards, agent
-  deliverables carry a level `public < team < project < confidential < restricted`
-  (default `project`; customer labels with `SOKKAN_CLASSIFICATION_LABELS`). A person's
-  clearance per project = the highest of their project role's level (`SOKKAN_CLEARANCE_ROLES`)
-  and the levels mapped to their SSO groups (Profile → Classification). The memory engine
-  filters every search stage by `(project, clearance)` (migration `0013`: `notes.level`,
-  every existing note at `project`); recall, `memory_search` / `memory_get`, the CortHeXis
-  tab, the board (+ MCP), quarantine, sessions, runs and Nina answer only within the
-  clearance of the person they act for — Nina always as the person who asks. Derived content
-  (a note written by a session, an agent deliverable, a card from a session, a Nina answer)
-  inherits the highest level of its sources; an index upsert never lowers a level; lowering
-  takes a cleared maintainer/admin with a reason, journaled. **Audited recall**: every note
-  handed out is logged (`note_access`: who, which note, via spawn / prompt / mcp / cockpit /
-  nina / teams / brief), `GET /api/classification/audit` for project admins, CSV export.
-  Off: nothing above `project` is reachable by anyone. See `docs/enterprise/SECURITY.md` § 8.
-- **Microsoft Teams** (feature `teams`, requires `assistant` + `classification` + `sso`; off
-  by default, experimental). `@Nina` in a channel, a group chat or 1:1: project status card,
-  `card: …`, `note la décision : …` (a decision note in the project memory with author,
-  date, link to the thread, level inherited from the channel), `run <agent>` → approval
-  card, `approvals` → pending agents as cards. HITL approvals are Adaptive Cards with
-  Approve / Refuse, signed (HMAC), expiring, single use, optionally bound to one approver,
-  executed as the person who clicks (four-eyes refuses the requester). Single-tenant app:
-  every request's Bot Framework JWT is verified (keys, issuer, audience, expiry, serviceUrl,
-  msteams endorsement) and its tenant checked before anything is read; a Teams user acts only
-  through the SOKKAN account linked at their Entra ID sign-in (`oid`), and Nina answers with
-  their clearance capped by the channel's level. Outbound tokens cached Fernet-encrypted.
-  Channel ↔ project mapping and the manifest in Profile → Teams. Calendar via Graph
-  (`Calendars.Read`) behind the new `calendars` interface (for the brief). Built and tested
-  against a Graph / Bot Framework simulator — no app registered yet. See
-  `docs/enterprise/TEAMS.md`.
-### Kubernetes runner and Helm chart
-- **Session runners** (feature `kubernetes_runner`, experimental, off by default;
-  `backend/runner/`, docs/enterprise/KUBERNETES.md). `SOKKAN_RUNNER=local` (default) keeps
-  the CLI inside the api exactly as before. `docker` runs each session / agent run in its own
-  container on the compose host (opt-in override `docker/runner/compose.docker-runner.yml`);
-  `kubernetes` in its own Pod through the K8s API. A session container is non-root
-  (arbitrary uid OK), read-only, capabilities dropped, CPU/memory limited, mounts only its
-  workspace and transcript directory, and reaches nothing but the api's MCP relay and an
-  allowlist egress gateway. The cockpit still drives it with the Agent SDK (permissions,
-  hooks, budgets unchanged); a supervisor in the container keeps the CLI alive across an api
-  restart and the restarted api reattaches to it. New image `docker/session.Dockerfile`.
-- **Helm chart** `deploy/helm/sokkan` (vanilla Kubernetes; overlays `values-sks.yaml` for
-  Exoscale SKS and `values-openshift.yaml` for the restricted SCC): api (single replica —
-  refused otherwise, see the doc's limits), web, Ingress (/api and /term to the api),
-  external Postgres via Secret (test-only pgvector pod `devPostgres`), optional embeddings
-  and vLLM on GPU nodes, Secret / ExternalSecret, minimal namespaced RBAC, NetworkPolicies,
-  PodDisruptionBudget. `tests/test_helm_chart.py` renders every overlay and checks: no root,
-  no privileged, limits everywhere, dedicated ServiceAccounts.
+### Upgrading from 3.1 — read before you update
+**Back up first**: `scripts/backup.sh` (new in 3.2: Postgres dump, consistent SQLite copies,
+`vault.key` kept apart and encrypted with a passphrase; `docs/enterprise/OPERATIONS.md` § 5).
+Several stores are migrated in place at the first start and a 3.1 binary does not read them
+back: rolling back = `scripts/restore.sh` of that backup (or the `.bak` files below).
+- **Memory store (Postgres)**: migrations `0011_note_project` (notes get a `project`, all
+  existing notes → `default`), `0012_project_names` (note names unique per (project, name);
+  links, versions and recall log carry the project) and `0013_classification` (`notes.level`,
+  default `project`; `note_access` audit table). Applied automatically at start; the index is
+  rebuilt per project.
+- **Vault v1 → per project**: `vault.json` becomes format 2 (`{"projects": {slug: {...}},
+  "instance": {}}`) at its first read; every existing secret goes to the `default` project;
+  the 3.1 file is kept once as `vault.json.v1.bak` (what a rollback to 3.1 puts back).
+  `shared` never holds secrets.
+- **Agents**: `agents.db` is rebuilt once with names unique per project (same ids, runs kept,
+  `agents.db.pre-lot4.bak` taken first). Board `sessions` / `cards` get `project`, Helm
+  (`parent_id`, `kind`, `intent`, …) and `level` columns (additive).
+- **Secrets by name**: `SOKKAN_SESSION_SECRETS` defaults to `named` — a human session gets
+  only the vault secrets picked when it is opened. Set `all` to keep the 3.1 behaviour.
+- **Cockpit cookies last 8 h** (`SOKKAN_SESSION_TTL_S`, was 24 h, counted from issue): every
+  3.1 cookie older than 8 h is refused after the update — people log in again.
+- **No agent run without explicit model credentials**: an instance that relies on the CLI
+  login only (no key in the cockpit's model settings, no provisioned inference, no key in
+  the API's env) must set `SOKKAN_AGENTS_USE_CLI_LOGIN=1`, or its agents stay held.
+- **Enterprise edition defaults** (`SOKKAN_EDITION=enterprise`): `four_eyes` approval
+  (the approver is neither the proposer nor the owner), projects, vault/budgets per project,
+  GitLab, revocation, sandbox, shared review, Model keys, Connect your AI, Helm and
+  classification ON; Missions link OFF. Community defaults are unchanged (3.1 behaviour);
+  every feature is listed with its switch in `docs/enterprise/FEATURES.md`.
+- **docker compose**: the SSO / OIDC variables (`SOKKAN_AUTH_MODE`, `SOKKAN_OIDC_*`), the ops
+  group and the Prometheus / Grafana / CortHeXis URLs are now passed to the api container —
+  until 3.2 a value in `.env` did not reach it.
+- **Known limit — Kubernetes**: the Helm chart runs the api as a **single replica** (SQLite
+  stores and live sessions are in the api's memory, strategy Recreate); `api.replicas > 1`
+  is refused unless `allowMultipleReplicas=true`, which is NOT supported yet. Availability =
+  a fast restart (sessions reattach to their pods), not several api pods.
+
+### Projects, identity and the feature registry (lots 1–3)
 
 - **Feature registry** (`backend/features.py`, the base of SOKKAN Enterprise — the same app,
   not a fork). Every feature is declared once: switch `SOKKAN_FEATURE_<ID>=1|0`, defaults per
@@ -148,29 +121,8 @@ Notable changes, newest first. Versions: semver + release hash (see
 - **Cockpit sessions last 8 hours** (was 24) — `SOKKAN_SESSION_TTL_S`, 5 min to 24 h. The
   limit counts from when the cookie was issued, so a 24 h cookie from 3.1 does not outlive
   it after the upgrade: expect to log in again.
-- **The board, driven from a session** — the embedded `sokkan-board` MCP server
-  gains `get_card` (fields, comments, history, links), `search_cards` (text in title,
-  description and comments; tag, column, assignee), `update_card` (title,
-  description, tag, priority, due date, assignee), `close_card` / `reopen_card`
-  (closed means finished, not deleted: the card goes to Done with `closed_at` /
-  `closed_by` and keeps everything), `archive_card`, `comment_card` and `link_card`
-  (to a session, an agent, an agent run or an incident — only if it exists).
-  Reads are auto-approved; writes go through the session's permission gate, like
-  `create_card` / `move_card`; in a Crew run the server is there only if the agent
-  was granted it, and a write runs unattended only if the agent's `auto_approve`
-  lists it.
-- **Signed card history** — every card action records who (the person driving the
-  session, or `agent:<name>` in a run), when, and from which session and channel
-  (`web`, `mcp`, `agent-run #N`). The identity comes from the environment the API
-  gives the MCP server; no tool takes an author. A session driven by a viewer cannot
-  write the board.
-- **CardModal** — comments (and a box to add one), links to sessions / agents / runs /
-  incidents, an assignee, close / reopen, and a History that shows who, when and
-  from which session (click to open it). A card filed by an agent run is linked to
-  the run and the agent. New routes: `POST /api/board/card/{id}/comment|close|reopen`;
-  `PATCH` accepts `assignee` (an IAM user email or `agent:<name>`).
 
-### Lot 4
+### Vault and budgets per project (lot 4)
 - **Vault per project** (feature `project_vault_budgets`, beta, enterprise default; requires
   `multi_project` + `named_secrets`). `vault.json` becomes `{"format": 2, "projects": {slug:
   {NAME: token}}, "instance": {}}`, migrated in place at the first read: every existing secret
@@ -199,7 +151,8 @@ Notable changes, newest first. Versions: semver + release hash (see
   flagged), MANIFEST with sha256, retention (`SOKKAN_BACKUP_KEEP`), restore verified before
   anything is touched; end-to-end test `tests/test_backup_restore.py`
   (docs/enterprise/OPERATIONS.md § 5).
-### Lot 5
+
+### GitLab (lot 5)
 - **GitLab projects** (feature `gitlab`, beta; requires `multi_project` + `sso`; on by
   default in the enterprise edition). A project whose access source is "GitLab roles" gives
   each person the **lowest** GitLab level they have over the project's repositories
@@ -222,7 +175,8 @@ Notable changes, newest first. Versions: semver + release hash (see
   implemented; GitHub and Gitea/Forgejo skeletons). Variables `SOKKAN_GITLAB_URL`,
   `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URI`, `_CA_BUNDLE` (operator guide:
   `docs/enterprise/OPERATIONS.md` § 2b).
-### Lots 6 and 8
+
+### Revocation and project sandbox (lots 6 and 8)
 - **Revocation** (lot 6, feature `revocation`, requires `sso_teams`; on in the enterprise
   edition). One effect for every path: account disabled, cockpit cookies issued before now
   refused, open chat panes / terminals closed, live SDK sessions interrupted and closed,
@@ -246,7 +200,72 @@ Notable changes, newest first. Versions: semver + release hash (see
   restricted SCC; bubblewrap is opportunistic). `default` is unchanged; the raw
   terminal stays `default`-only. The API image installs `bubblewrap` (Docker's default
   seccomp profile keeps it in hooks-only mode — docs/enterprise/OPERATIONS.md § 4.1).
-### 3.3 Helm
+
+### Sharing for review, Model keys (lot 7), Connect your AI
+- **Shared review** (`shared_review`, needs `preview` + `multi_project`): ⇪ share a session (pane
+  header) or a captured preview (Preview) with a person or a team of its project, read or
+  read-write, optionally for a limited time. The recipient finds it at the top of their rail
+  (« Shared with me », shared by …); a write share can carry the session's delegated HITL
+  approval (« ask X to validate » → ✋ allow / deny from the rail). Never wider than the project
+  role (a viewer never gets write; write capped by the current role; a non-member sees nothing),
+  revocable, every step in the journal. `docs/enterprise/UI-FEATURES.md`.
+- **Model keys** (`byok_admin`, lot 7, needs `multi_project`): Profile → Model keys for the
+  instance admin — set, replace, delete provider keys, stored encrypted with the vault key and
+  never shown again (…last 4, date, who); optional validity test (status only, the key is never
+  logged); the Anthropic key reaches the sessions through a reference in llm.json, and is pushed
+  to the SOKKAN gateway's BYOK endpoint when `SOKKAN_GATEWAY_URL` / `_ADMIN_TOKEN` / `_CLIENT` are
+  set. Scope `project:<slug>` reserved (BYOK per project: planned).
+- **Connect your AI** (`connect_ai`): Profile → Model becomes engine cards (SOKKAN Router, Claude
+  key or login, OpenAI / Codex, Gemini, OpenRouter, Ollama / local, Magnitude). Personal mode
+  (community): any engine, SOKKAN Router preselected with a configurable welcome-credit link
+  (`SOKKAN_ROUTER_WELCOME_URL`, no amount in the code). Governed mode (enterprise, or
+  `SOKKAN_CONNECT_AI_MODE`): the admin allows engines, zones and SOKKAN tiers; people only see
+  those; a project maintainer may pick the project's engine. A connected engine is selectable as
+  a Crew card's model (`engine:<id>`). The login card says: check your provider's terms.
+
+### Session runners and Kubernetes chart (experimental)
+- **Session runners** (feature `kubernetes_runner`, experimental, off by default;
+  `backend/runner/`, docs/enterprise/KUBERNETES.md). `SOKKAN_RUNNER=local` (default) keeps
+  the CLI inside the api exactly as before. `docker` runs each session / agent run in its own
+  container on the compose host (opt-in override `docker/runner/compose.docker-runner.yml`);
+  `kubernetes` in its own Pod through the K8s API. A session container is non-root
+  (arbitrary uid OK), read-only, capabilities dropped, CPU/memory limited, mounts only its
+  workspace and transcript directory, and reaches nothing but the api's MCP relay and an
+  allowlist egress gateway. The cockpit still drives it with the Agent SDK (permissions,
+  hooks, budgets unchanged); a supervisor in the container keeps the CLI alive across an api
+  restart and the restarted api reattaches to it. New image `docker/session.Dockerfile`.
+- **Helm chart** `deploy/helm/sokkan` (vanilla Kubernetes; overlays `values-sks.yaml` for
+  Exoscale SKS and `values-openshift.yaml` for the restricted SCC): api (single replica —
+  refused otherwise, see the doc's limits), web, Ingress (/api and /term to the api),
+  external Postgres via Secret (test-only pgvector pod `devPostgres`), optional embeddings
+  and vLLM on GPU nodes, Secret / ExternalSecret, minimal namespaced RBAC, NetworkPolicies,
+  PodDisruptionBudget. `tests/test_helm_chart.py` renders every overlay and checks: no root,
+  no privileged, limits everywhere, dedicated ServiceAccounts.
+
+### Board, driven from a session
+- **The board, driven from a session** — the embedded `sokkan-board` MCP server
+  gains `get_card` (fields, comments, history, links), `search_cards` (text in title,
+  description and comments; tag, column, assignee), `update_card` (title,
+  description, tag, priority, due date, assignee), `close_card` / `reopen_card`
+  (closed means finished, not deleted: the card goes to Done with `closed_at` /
+  `closed_by` and keeps everything), `archive_card`, `comment_card` and `link_card`
+  (to a session, an agent, an agent run or an incident — only if it exists).
+  Reads are auto-approved; writes go through the session's permission gate, like
+  `create_card` / `move_card`; in a Crew run the server is there only if the agent
+  was granted it, and a write runs unattended only if the agent's `auto_approve`
+  lists it.
+- **Signed card history** — every card action records who (the person driving the
+  session, or `agent:<name>` in a run), when, and from which session and channel
+  (`web`, `mcp`, `agent-run #N`). The identity comes from the environment the API
+  gives the MCP server; no tool takes an author. A session driven by a viewer cannot
+  write the board.
+- **CardModal** — comments (and a box to add one), links to sessions / agents / runs /
+  incidents, an assignee, close / reopen, and a History that shows who, when and
+  from which session (click to open it). A card filed by an agent run is linked to
+  the run and the agent. New routes: `POST /api/board/card/{id}/comment|close|reopen`;
+  `PATCH` accepts `assignee` (an IAM user email or `agent:<name>`).
+
+### 3.3 "Helm" — beta, shipped in 3.2.0 (enterprise default on, community off)
 - **Hierarchical cards** (feature `helm`, beta; requires `multi_project` + `assistant`; on in
   enterprise, off in community). A card can sit under another (manager's project card →
   engineer's cards → sub-tasks; same project, no cycle, 6 levels): safe migration (new
@@ -276,6 +295,39 @@ Notable changes, newest first. Versions: semver + release hash (see
   `morning_brief`. New variables (compose `# helm` block): `SOKKAN_FEATURE_HELM`,
   `SOKKAN_HELM_TICK_S`, `SOKKAN_HELM_DRIFT_MIN`, `SOKKAN_HELM_SNOOZE_DAYS`,
   `SOKKAN_HELM_CALENDAR_ICS`, `SOKKAN_HELM_CALENDAR_ALLOW_PRIVATE`. Spec: `docs/HELM.md`.
+
+### 3.4 "Classification and Teams" — beta / experimental, shipped in 3.2.0
+- **Classification and clearances** (feature `classification`, requires `multi_project` +
+  `sso_teams`; enterprise default on). Notes (frontmatter `classification:`), cards, agent
+  deliverables carry a level `public < team < project < confidential < restricted`
+  (default `project`; customer labels with `SOKKAN_CLASSIFICATION_LABELS`). A person's
+  clearance per project = the highest of their project role's level (`SOKKAN_CLEARANCE_ROLES`)
+  and the levels mapped to their SSO groups (Profile → Classification). The memory engine
+  filters every search stage by `(project, clearance)` (migration `0013`: `notes.level`,
+  every existing note at `project`); recall, `memory_search` / `memory_get`, the CortHeXis
+  tab, the board (+ MCP), quarantine, sessions, runs and Nina answer only within the
+  clearance of the person they act for — Nina always as the person who asks. Derived content
+  (a note written by a session, an agent deliverable, a card from a session, a Nina answer)
+  inherits the highest level of its sources; an index upsert never lowers a level; lowering
+  takes a cleared maintainer/admin with a reason, journaled. **Audited recall**: every note
+  handed out is logged (`note_access`: who, which note, via spawn / prompt / mcp / cockpit /
+  nina / teams / brief), `GET /api/classification/audit` for project admins, CSV export.
+  Off: nothing above `project` is reachable by anyone. See `docs/enterprise/SECURITY.md` § 8.
+- **Microsoft Teams** (feature `teams`, requires `assistant` + `classification` + `sso`; off
+  by default, experimental). `@Nina` in a channel, a group chat or 1:1: project status card,
+  `card: …`, `note la décision : …` (a decision note in the project memory with author,
+  date, link to the thread, level inherited from the channel), `run <agent>` → approval
+  card, `approvals` → pending agents as cards. HITL approvals are Adaptive Cards with
+  Approve / Refuse, signed (HMAC), expiring, single use, optionally bound to one approver,
+  executed as the person who clicks (four-eyes refuses the requester). Single-tenant app:
+  every request's Bot Framework JWT is verified (keys, issuer, audience, expiry, serviceUrl,
+  msteams endorsement) and its tenant checked before anything is read; a Teams user acts only
+  through the SOKKAN account linked at their Entra ID sign-in (`oid`), and Nina answers with
+  their clearance capped by the channel's level. Outbound tokens cached Fernet-encrypted.
+  Channel ↔ project mapping and the manifest in Profile → Teams. Calendar via Graph
+  (`Calendars.Read`) behind the new `calendars` interface (for the brief). Built and tested
+  against a Graph / Bot Framework simulator — no app registered yet. See
+  `docs/enterprise/TEAMS.md`.
 
 ## 3.1.2 — 2026-10-07 — "Crew up"
 Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:

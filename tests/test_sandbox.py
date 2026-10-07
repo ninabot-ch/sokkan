@@ -221,7 +221,7 @@ def test_an_approval_cannot_unwrap_the_command(world, monkeypatch):
 class _FakeClient:
     last = None
 
-    def __init__(self, options):
+    def __init__(self, options, transport=None):  # runner: transport (3.2)
         _FakeClient.last = options
 
     async def __aenter__(self):
