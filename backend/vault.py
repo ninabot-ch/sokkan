@@ -61,8 +61,23 @@ def session_mode() -> str:
     reçoit que les secrets choisis à son ouverture ou par son playbook, rien sinon) ou
     `all` (comportement 3.1, à poser explicitement : toute session reçoit tout le coffre).
     Une valeur inconnue = `named` (le choix le plus restrictif, jamais « tout »)."""
+    if managed():
+        return "named"     # 3.2 (hardening B1): forced on SOKKAN Cloud managed instances
     m = (os.environ.get("SOKKAN_SESSION_SECRETS") or "named").strip().lower()
     return m if m in ("all", "named") else "named"
+
+
+def managed() -> bool:
+    """A SOKKAN Cloud managed instance (SOKKAN_TIER is seeded by the provisioning)."""
+    return bool((os.environ.get("SOKKAN_TIER") or "").strip())
+
+
+def mode_warning() -> str | None:
+    """Shown in the cockpit when sessions receive the whole vault (B1)."""
+    if session_mode() == "all":
+        return ("Every session receives the whole vault (SOKKAN_SESSION_SECRETS=all). "
+                "Set it to `named` so a session only gets the secrets picked for it.")
+    return None
 
 
 def upgrade_notice() -> str | None:

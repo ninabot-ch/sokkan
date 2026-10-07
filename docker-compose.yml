@@ -120,7 +120,8 @@ services:
       # 3.2 : durée d'une session du cockpit (secondes, 5 min à 24 h)
       SOKKAN_SESSION_TTL_S: ${SOKKAN_SESSION_TTL_S:-28800}
       # 3.1.1 : un run d'agent en échec / timeout / budget ouvre son incident dans Operate
-      SOKKAN_AGENTS_INCIDENTS: ${SOKKAN_AGENTS_INCIDENTS:-0}
+      # 3.2 : vide = actif dès qu'Operate l'est (Prometheus/Grafana), 0 = coupé, 1 = forcé
+      SOKKAN_AGENTS_INCIDENTS: ${SOKKAN_AGENTS_INCIDENTS:-}
       # 3.1.1 : Crew visible en LECTURE SEULE pour un viewer (démo publique)
       SOKKAN_CREW_VIEWER_READONLY: ${SOKKAN_CREW_VIEWER_READONLY:-0}
       # 3.1.1 : runs SIMULÉS de la démo publique (exige SOKKAN_DEMO_BANNER=1, aucune inférence)

@@ -271,7 +271,10 @@ def _bg(coro) -> asyncio.Task:
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)) -> dict:
-    return {**user, "source": auth.MODE, "ops": projects.is_ops(user)}
+    return {**user, "source": auth.MODE, "ops": projects.is_ops(user),
+            # 3.2 (B1) : bandeau du cockpit quand les sessions reçoivent tout le coffre
+            "secrets_warning": vault.mode_warning() if iam.rank(user["role"]) >= iam.rank("dev")
+            else None}
 
 
 # --- 3.2 lot 3 : projets, équipes, attributions -----------------------------------------

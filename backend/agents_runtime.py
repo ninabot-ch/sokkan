@@ -71,10 +71,19 @@ INCIDENT_STATUSES = ("failed", "timeout", "budget")
 
 
 def incidents_enabled() -> bool:
-    """SOKKAN_AGENTS_INCIDENTS=1 : a run ending failed / timeout / budget opens (or
-    joins) the agent's incident in Operate. Off by default."""
-    return (os.environ.get("SOKKAN_AGENTS_INCIDENTS") or "0").strip().lower() in (
-        "1", "true", "yes", "on")
+    """SOKKAN_AGENTS_INCIDENTS : a run ending failed / timeout / budget opens (or joins)
+    the agent's incident in Operate. 3.2 (hardening B2): ON by default when Operate is
+    active on the instance (Prometheus or Grafana configured), off otherwise; `0` turns it
+    off, `1` forces it on."""
+    raw = (os.environ.get("SOKKAN_AGENTS_INCIDENTS") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    try:
+        return bool(observability.ENABLED)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def demo_mode() -> bool:
