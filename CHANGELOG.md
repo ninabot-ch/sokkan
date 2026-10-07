@@ -97,6 +97,36 @@ Notable changes, newest first. Versions: semver + release hash (see
   the run and the agent. New routes: `POST /api/board/card/{id}/comment|close|reopen`;
   `PATCH` accepts `assignee` (an IAM user email or `agent:<name>`).
 
+### Lot 4
+- **Vault per project** (feature `project_vault_budgets`, beta, enterprise default; requires
+  `multi_project` + `named_secrets`). `vault.json` becomes `{"format": 2, "projects": {slug:
+  {NAME: token}}, "instance": {}}`, migrated in place at the first read: every existing secret
+  goes to `default` (the 3.1 file is kept once as `vault.json.v1.bak`). Names are unique per
+  (project, name). A session, an agent run, the MCP servers and the redaction of a run's
+  transcript read the vault of their project only; `shared` never holds secrets. Profile →
+  Secrets manages the selected project's vault (its admins / maintainers); `/api/vault*` is
+  now project-scoped. Feature off: only `default` has a vault (lot 3 behaviour).
+- **Project budgets**: a daily and / or monthly ceiling per project, USD or CHF
+  (`SOKKAN_FX_USD_PER_CHF`), set by a project admin (`GET|PUT /api/budgets`, Costs → Project
+  budget). Warning at 80 %, hard stop at 100 %: the project's sessions refuse new turns and
+  its agent runs end `budget` before starting. Costs shows the selected project's totals,
+  daily series and model split (transcripts of the project's workspace and sessions).
+- **Agent names unique per project**: the `agents` table is rebuilt once (same ids, runs
+  kept, one transaction, `agents.db.pre-lot4.bak` taken first) with `UNIQUE(project, name)`;
+  names are resolved in the session's / card's project (MCP, assignee `agent:<name>`).
+  Feature off: the per-instance uniqueness check of 3.1 stays.
+- **Before each run, the owner must still be dev or more in the agent's project**; otherwise
+  the run is skipped and the agent paused (journaled, owner notified).
+- **CortHeXis review per project** (store 3.0): each project's corpus is reviewed on its own,
+  proposals and curation belong to their project (another project's proposal = 404).
+- **Journal per project**: events carry their project; an admin / maintainer of a project
+  sees that project's journal, instance admins still see everything.
+- **`scripts/backup.sh` / `scripts/restore.sh`**: Postgres dump + consistent SQLite copies
+  and data tarball, `vault.key` kept apart (encrypted with a passphrase, or left out and
+  flagged), MANIFEST with sha256, retention (`SOKKAN_BACKUP_KEEP`), restore verified before
+  anything is touched; end-to-end test `tests/test_backup_restore.py`
+  (docs/enterprise/OPERATIONS.md § 5).
+
 ## 3.1.2 — 2026-10-07 — "Crew up"
 Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:
 alert-triggered agents that auto-approve write tools need an admin override to be
