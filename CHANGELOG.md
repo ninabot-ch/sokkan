@@ -3,6 +3,17 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.0.2 — 2026-10-07 — "One memory"
+- **Magnitude: images reach vision models.** Images — including the ones Claude Code
+  gets back from reading a .png — used to be dropped by the local shim. With
+  `MAGNITUDE_VISION=1` (a vision model served with its mmproj) they are forwarded;
+  otherwise the model is told an image was left out and why.
+- **Magnitude: works with Claude Code 2.1.29x on strict Qwen3 templates.** System
+  messages sent mid-conversation answered 400 "System message must be at the
+  beginning"; they are now passed as tagged user content.
+- **Magnitude: one immediate retry when llama-server drops the connection** before
+  answering (never once the response has started).
+
 ## 3.0.1 — 2026-10-03 — "One memory"
 - **The 2.x memory migration no longer stops on a note owned by another user.** When a
   note file belongs to someone else (e.g. created by root while the API runs as
