@@ -3,6 +3,37 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.1.2 — 2026-10-07 — "Crew up"
+Security patch of the agents (Crew), from an external review of 3.1. Upgrade notes:
+alert-triggered agents that auto-approve write tools need an admin override to be
+edited or re-approved, and their alert runs now ask a human for those calls.
+- **An Operate alert is untrusted input.** Its payload now reaches the run inside an
+  `<untrusted-data kind="alert">` block (per-prompt nonce) with the standing instruction
+  never to follow what it says; the diagnosis session Operate opens gets the same frame.
+  **Behaviour change:** an alert-triggered agent can no longer go live with a write tool in
+  "Runs without asking" — `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, any MCP
+  rule that is not a known read. Form activation, direct edit of a live agent and approval
+  answer 400 with the rules to remove; an admin may override (`override_alert_writes`),
+  which is stored on the agent and journaled (`agent.alert_write_override`). A run started
+  by an alert holds those rules back — agents armed under 3.1.0/3.1.1 included — so the
+  calls wait for a human (`agent.run.alert_writes_held`); manual and scheduled runs keep
+  them.
+- **Secrets masked in every form, and in transcripts.** `[secret:NAME]` now replaces
+  the value base64-encoded (standard or url-safe, also inside a larger blob such as a
+  Basic header), URL-encoded, hex, and any 12-character piece of a secret of 16+
+  characters — in the deliverable and, new, in the live events of a run and the
+  transcript shown in History. The CLI's own transcript file on disk is unchanged.
+- **Budgets hold on non-Claude models.** The CLI prices an unknown model at a Claude
+  tariff, so a run on SOKKAN Inference (`sokkan-ship`…) or a custom endpoint was costed,
+  and stopped, at the wrong price. Such runs are now metered by SOKKAN: tokens × a price
+  table (`SOKKAN_MODEL_PRICES`, the gateway's CHF tiers, `SOKKAN_FX_USD_PER_CHF`), and
+  always capped in tokens (`SOKKAN_AGENTS_MAX_TOKENS_PER_RUN`, default 5,000,000 — never
+  unlimited, the only limit when the price is unknown). Settings says which applies,
+  History shows how each run's cost was obtained. Claude on Anthropic is unchanged.
+- **Fix: every 3.1 agent variable reaches the container.** `SOKKAN_AGENTS_TICK_S` and
+  `SOKKAN_MEMORY_QUARANTINE_DIR` were documented but missing from `docker-compose.yml`;
+  declared, with the three variables above. A test now guards the list.
+
 ## 3.1.1 — 2026-10-07 — "Crew up"
 - **Crew in read-only for viewers** — `SOKKAN_CREW_VIEWER_READONLY=1` (off by default).
   A viewer then sees the deck and opens every agent (Settings, Live, History, the
