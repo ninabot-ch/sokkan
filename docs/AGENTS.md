@@ -117,6 +117,13 @@ Target users: developers, devops, system engineers, DBAs, QA.
   down: **one** catch-up run if the latest missed occurrence is younger than
   `SOKKAN_AGENTS_MISFIRE_S` (default 6 h), the others are not replayed.
 * **Watchdog**: a run past `max_minutes` is interrupted → `timeout`.
+* **Guard (3.2)**: nothing runs without model credentials **explicitly configured for the
+  instance** (cockpit model settings, provisioned inference, or a key in the API's
+  environment; a Claude CLI login only with `SOKKAN_AGENTS_USE_CLI_LOGIN=1`). Without them:
+  queued runs from before the boot are `skipped`, nothing is caught up, due schedules move to
+  their next occurrence with one `skipped` run, alerts record a `skipped` run, "Run now" is
+  refused, and the Crew tab says the scheduler is stopped. The restart rules above apply
+  only to an instance with credentials. Details: `docs/MULTIUSER.md`.
 
 ## A run
 
@@ -166,10 +173,11 @@ is a prompt-injection channel into every later session. Therefore:
 
 ## Session secrets — `SOKKAN_SESSION_SECRETS`
 
-Agent runs always get only the vault secrets they name. Human sessions: `all` (3.1
-default, unchanged behaviour: the whole vault) or `named` (the session gets only the names
-picked when it is opened — or listed by its playbook — and nothing otherwise; the choice is
-stored with the session and survives an API restart). `named` becomes the default in 3.2.
+Agent runs always get only the vault secrets they name. Human sessions: `named` (**the
+default since 3.2**: the session gets only the names picked when it is opened — or listed by
+its playbook — and nothing otherwise; the choice is stored with the session and survives an
+API restart) or `all` (the 3.1 default, set explicitly: the whole vault). An unknown value
+means `named`. A 3.1 install upgrading without the variable logs a start-up notice.
 Sessions spawned by the server (Operate alerts, runbooks) get none in `named` mode.
 
 ## Access control (IAM, before full RBAC)

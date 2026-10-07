@@ -1,8 +1,9 @@
 # Multi-user — spec (3.2)
 
 Status: **3.2 in progress.** Lot 1 (data model, "default project" migration, memory recall
-scoped by project) is implemented on branch `v3.2-multiuser`; everything else on this page is
-the design the next lots implement. This page is the contract: when code and page disagree,
+scoped by project) and lot 2 (scheduler guard, secrets by name by default, 8 h cockpit
+sessions) are implemented on branch `v3.2-multiuser`; everything else on this page is the
+design the next lots implement. Nick's decisions of 07.10.2026 are folded in (see the end). This page is the contract: when code and page disagree,
 fix one of them.
 
 ## Why
@@ -80,10 +81,21 @@ default directory only and never prunes notes of another project). A frontmatter
 field was rejected: a note's place on disk is what a session can `Read`, so the directory
 must be the boundary (see "Channels" below), and each directory gets its own `MEMORY.md`.
 
-Note names stay **unique per instance** (`notes.name UNIQUE`, links and recall log are keyed
-by name). Two projects writing the same name: from lot 3 the second is refused by
-`memory_write` and reported by the indexer like today's duplicate names. (Alternative — names unique per
-project, `UNIQUE(project, name)` — is a store-wide change; see decisions.)
+Note names are **unique per project** (decision of 07.10): with names unique per instance, a
+refused `memory_write` ("name already used") would reveal that a note of that name exists in
+a project the writer cannot see. Store change in lot 3 (migration `0012`): `notes` unique on
+`(project, name)` instead of `name`; `links`, `note_versions` and `recall_log` gain `project`
+(existing rows → `default`); `[[wikilinks]]`, quoted names and `memory_get(name)` resolve in the
+session's project first, then in `shared` (below). Lot 1's `notes.name UNIQUE` is still in
+place and harmless while only `default` exists.
+
+### The `shared` project (3.2)
+
+A project created by the migration of lot 3, **read-only for everyone** who can log in
+(conventions, infrastructure runbooks, glossary). Every session's recall scope is
+`(its project, "shared")`. Writing to it takes an explicit `maintainer` grant (typically the
+instance admins, audited); `memory_write` from a session of another project never writes
+there. Agents never write there; their quarantine approvals go to their own project.
 
 ## Sources of rights and their resolution
 
@@ -99,8 +111,8 @@ effective_role(person, project) =
 * **Instance roles stay** and change meaning: `owner` / `admin` administer the instance
   (IdP mapping, teams, projects, BYOK keys, Operate, audit); `dev` / `viewer` only matter in
   the `default` project (access source `instance`). **An instance admin has no implicit
-  access to a project's content** — they grant themselves explicitly, which is audited
-  (decision for Nick: see below).
+  access to a project's content** (decision of 07.10): they add themselves to the project,
+  which is audited (`project.grant` by and for the same person, flagged in the log).
 * **SSO groups.** At each OIDC login the `groups` claim replaces the person's `sso:*`
   memberships (`projects.sync_sso_groups`, lot 3). Entra ID sends group object ids (or
   names with the "cloud-only group names" option, and an overage link above 200 groups → lot 3
@@ -119,7 +131,7 @@ effective_role(person, project) =
 
   A project with several repositories: the role is the **lowest** level over its
   repositories for writing (a Developer on repo A and Reporter on repo B is `viewer` on the
-  project; pushes to A still work because the forge decides per push) — decision for Nick.
+  project; pushes to A still work because the forge decides per push) — decision of 07.10.
   Protected branches are listed (`GET /projects/:id/protected_branches`) only to grey out
   actions in the UI; the push itself is the authority.
 * **Abstraction.** `forge.Provider` (lot 5): `authorize_url()`, `exchange(code)`,
@@ -176,12 +188,14 @@ project's content.
 
 ¹ Read-only session: tools `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, memory and board
 reads; no `Write`/`Edit`/`Bash`; no secrets; its push would be refused by the forge anyway.
-² Lot 1 allows terminal sessions in `default` only: a terminal reads the shared memory
-directory and `.mcp.json` (see "Channels"); other projects get them with per-project
-workspaces (lot 3) and only behind the sandbox (lot 8) for projects marked sensitive.
+² **Raw terminal sessions only in `default` until the sandbox exists** (decision of 07.10):
+a terminal reads the shared memory directory and `.mcp.json` (see "Channels"); other
+projects get them only with lot 8. Enforced since lot 1 (`POST /api/spawn` → 400).
 ³ `SOKKAN_CREW_VIEWER_READONLY`, per project from lot 3.
 ⁴ `four_eyes`: approver ≠ proposer ≠ owner **and** role ≥ maintainer in the agent's project.
-⁵ Or a team granted the instance-level `ops` capability (devops / system engineers).
+⁵ And the members of the **ops team** (decision of 07.10): an SSO group named in the
+admin screen (`SOKKAN_OPS_GROUP` as the bootstrap value) gets the infrastructure Operate tab —
+read, ack, resolve, alert routing — without any project content.
 
 ## Memory isolation
 
@@ -208,7 +222,8 @@ only ever serves the `default` project, so lot 1 opens no hole.
 1. A session carries a project (`sessions.project`, set at spawn; an agent run takes its
    agent's). `projects.session_scope()` turns it into a **scope** — a tuple with that one
    project. Unknown session → `("default",)` while the instance has one project, `()` (no
-   recall) as soon as it has several. Unknown or invalid project → `()`.
+   recall) as soon as it has several. Unknown or invalid project → `()`. From lot 3 the
+   scope is `(project, "shared")`.
 2. The store applies the scope **at every stage** of the search (`Store.search(projects=…)`):
    dense candidates (`WHERE note_id IN (notes of the scope)`, HNSW with
    `hnsw.iterative_scan = relaxed_order` on pgvector ≥ 0.8 so a filtered probe still fills
@@ -228,8 +243,11 @@ only ever serves the `default` project, so lot 1 opens no hole.
 
 ## Secrets, budgets, board, agents
 
-* **Secrets.** `SOKKAN_SESSION_SECRETS=named` becomes the default (announced in the 3.1
-  changelog; `all` stays available for single-team installs). Vault namespaced per project
+* **Secrets.** `SOKKAN_SESSION_SECRETS=named` is the default since lot 2 (announced in the
+  3.1 changelog; `all` stays available for single-team installs, set explicitly; an unknown
+  value means `named`). Upgrade note: a 3.1 install that did not set the variable gets a
+  start-up message; sessions opened before the upgrade get no secret after a restart (pick
+  them again, or set `SOKKAN_SESSION_SECRETS=all`). Vault namespaced per project
   + an `instance` namespace (model keys, Operate integrations) that sessions never receive.
   A project resource's credentials are vault names of that project.
 * **Budgets.** Per project (day / month, hard stop like the per-session budget) and per
@@ -241,20 +259,37 @@ only ever serves the `default` project, so lot 1 opens no hole.
   that the owner still has ≥ dev in the project (else: run skipped, agent paused, owner and
   project admins notified).
 
-### Scheduler guard (incident of 07.10.2026)
+### Scheduler guard (two incidents of 07.10.2026) — lot 2 ✅
 
-A test instance started on a data directory holding a `queued` run started that run at
-boot with the credentials it found (the CLI's own login). 3.2 (lot 2):
+Twice on 07.10 an instance started on a data directory holding a `queued` run started that
+run at boot with the credentials it found: the host's Claude CLI login. Since lot 2:
 
-* the scheduler starts only if model credentials are **explicitly configured for the
-  instance** (`llm.configured_explicitly()`: the cockpit's model settings, or
-  `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` in the API's environment) — a CLI login
-  file under `CLAUDE_CONFIG_DIR` does not count;
-* at boot, runs left `queued` before the boot are marked `skipped` ("queued before restart")
-  and **no catch-up** run is created for the downtime, unless
-  `SOKKAN_AGENTS_RESUME_AT_BOOT=1`;
-* the Crew tab shows "Scheduler stopped: no model credentials configured" instead of a
-  silent idle deck.
+* **Explicit credentials only** (`llm.unattended_credentials()`): the cockpit's model
+  settings (`llm.json`: BYOK, custom gateway), the provisioned included inference, or
+  `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` in the API's own environment. A CLI login
+  under `CLAUDE_CONFIG_DIR` does **not** count, unless the operator says so with
+  `SOKKAN_AGENTS_USE_CLI_LOGIN=1` (an instance that runs on a Claude subscription logged in
+  with the CLI — such as our internal instance — must set it when it upgrades).
+* **Boot without credentials**: runs left `queued` by a previous process are marked
+  `skipped` ("queued before the restart; no model credentials…"); nothing is caught up.
+* **Held scheduler**: while there are no credentials, nothing starts (`tick` and, in depth,
+  `start_queued`); a schedule that falls due is moved to its next occurrence with **one**
+  `skipped` run recorded (visible in History); an Operate alert records a `skipped` run;
+  "Run now" (cockpit and `run_agent_now`) is refused with the reason. When credentials
+  arrive, the scheduler resumes from the next occurrence: nothing that fell due meanwhile
+  is replayed.
+* With credentials, 3.1 behaviour is unchanged (queued runs resume, catch-up of one run
+  missed less than `SOKKAN_AGENTS_MISFIRE_S` ago).
+* The Crew tab shows "Scheduler stopped: no model credentials configured for this
+  instance" (`GET /api/agents` → `scheduler: {running, held, reason}`). The public demo's
+  simulator never calls a model and is not held.
+
+### Cockpit session lifetime — lot 2 ✅
+
+8 h instead of 24 h (`SOKKAN_SESSION_TTL_S`, bounded to 5 min … 24 h), counted from the
+cookie's issue time with the limit **in force**: a 24 h cookie issued by 3.1 does not outlive
+the new limit after the upgrade. A person disabled in the IdP loses the cockpit at the latest
+8 h later (immediately with SCIM, lot 6).
 
 ## Sessions and pushes with the person's token (lot 5)
 
@@ -287,8 +322,13 @@ Automatic at the first start of 3.2, idempotent, nothing deleted or moved:
 3. Memory store: migration `0011` → every note in `default`; the indexer keeps indexing
    `SOKKAN_MEMORY_DIR` as `default`.
 4. Vault (lot 4): existing secrets → namespace `default`.
-5. Behaviour: identical. Same roles, same recall (scope `("default",)` = every note), same
-   board, same agents. The project selector appears only when a second project exists.
+5. Behaviour: identical for projects, roles, recall (scope `("default",)` = every note),
+   board and agents. The project selector appears only when a second project exists.
+6. Lot 2 changes three defaults on purpose — check them when upgrading:
+   * `SOKKAN_SESSION_SECRETS` → `named` (set `all` to keep the 3.1 behaviour);
+   * the agent scheduler needs explicit model credentials (cockpit model settings or a key
+     in the environment; a CLI login only with `SOKKAN_AGENTS_USE_CLI_LOGIN=1`);
+   * cockpit sessions last 8 h (`SOKKAN_SESSION_TTL_S` to change it).
 
 Rollback to 3.1: the added columns and `projects.db` are ignored by 3.1 (every 3.1 insert
 names its columns); migration `0011` leaves a column 3.1 does not read.
@@ -307,8 +347,8 @@ names its columns); migration `0011` leaves a column 3.1 does not read.
   scopes, last refresh, "Refresh my access".
 * **Admin → Model keys (BYOK)**: the client's admin enters their Anthropic key (or gateway
   URL + token) in the cockpit; stored encrypted in the instance vault namespace, shown
-  masked, test call, last use; never readable back. Per-project override optional
-  (decision).
+  masked, test call, last use; never readable back. **Per instance for the POC**; a
+  per-project override comes later (decision of 07.10).
 * Crew, Board, CortHeXis: unchanged layouts, scoped to the selected project
   (`feedback-ui`: one card per agent, state visible at a glance, details in a popout).
 
@@ -332,8 +372,9 @@ names its columns); migration `0011` leaves a column 3.1 does not read.
   marked "sensitive").
 * Bitbucket / Azure DevOps / GitHub providers (the interface is ready; GitLab ships).
 * Fine-grained ACLs below the project (per card, per note, per folder).
-* Cross-project agents, shared notes between projects (a "shared" project readable by all
-  is the planned answer, not in 3.2).
+* Cross-project agents; sharing between two given projects (only the `shared` project,
+  readable by all, is in 3.2).
+* BYOK per project (per instance in 3.2).
 * LDAPS group sync (OIDC only in 3.2; LDAPS login keeps instance roles).
 
 ## Delivery plan
@@ -344,8 +385,8 @@ in points (1 point ≈ one focused session of work with its tests).
 | Lot | Content | Risk | Size | Testable alone by |
 |---|---|---|---|---|
 | **1 ✅** | Data model (`projects.db`, `project` columns), "default project" migration, memory recall + MCP scoped by project, spawn with `project` (dev+ check), tests | low: dormant (one project) | 3 | unit + Postgres suites; behaviour identical on a 3.1 data dir |
-| 2 | Scheduler guard (explicit credentials, no boot catch-up), `SOKKAN_SESSION_SECRETS=named` default, session cookie TTL 8 h | low | 1.5 | restart an instance with a queued run and no credentials → nothing runs |
-| 3 | SSO groups → teams at login, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 6 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
+| **2 ✅** | Scheduler guard (explicit credentials, no boot catch-up), `SOKKAN_SESSION_SECRETS=named` default, session cookie TTL 8 h | low | 1.5 | restart an instance with a queued run and no credentials → nothing runs |
+| 3 | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
 | 4 | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
 | 5 | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
 | 6 | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
@@ -355,19 +396,17 @@ in points (1 point ≈ one focused session of work with its tests).
 Lots 1-2 can ship in a 3.2 preview; lots 3-5 are the POC's "multi-user" criterion; 6-7 before
 a production rollout at a large client; 8 if their security officer requires it.
 
-## Decisions for Nick
+## Decisions (Nick, 07.10.2026)
 
-1. **Instance admin and project content**: no implicit access (explicit, audited grant —
-   proposed) or implicit read on every project?
-2. **Several repositories in one project**: project role = the **lowest** forge level over
-   its repositories (proposed) or the highest (the forge still refuses pushes per repo)?
-3. **Note names**: unique per instance (proposed, no store change) or per project?
-4. **Shared knowledge across projects** (conventions, infra runbooks): a `shared` project
-   readable by everyone, in 3.2 or later?
-5. **Operate (infrastructure)**: instance admins only, or a team with an `ops` capability
-   (devops / system engineers of the client)?
-6. **Terminal sessions** in non-default projects before the sandbox (lot 8): allowed with
-   per-project workspaces (lot 3), or SDK sessions only?
-7. **BYOK per project** or per instance only?
-8. **Forge confirmation**: GitLab at the client (to confirm), self-managed version (OAuth
-   app and `members/all` exist since 12.x), Entra ID as IdP (groups claim vs Graph).
+1. **Instance admin and project content**: no access without adding themselves to the
+   project, which is logged.
+2. **Several repositories in one project**: the project role is the **lowest** forge level
+   over its repositories.
+3. **Note names unique per project**, not per instance (a collision must not reveal that a
+   note exists elsewhere) → migration `0012` in lot 3.
+4. **A `shared` project**, read-only for everyone, in 3.2.
+5. **Operate (infrastructure)** open to an **ops team** defined by an SSO group, in addition
+   to the instance admins.
+6. **No raw terminal outside `default`** before the sandbox (lot 8).
+7. **BYOK per instance** for the POC; per project later.
+8. **GitLab and Entra ID** to be confirmed at the client; the forge abstraction stays.
