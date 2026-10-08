@@ -38,12 +38,18 @@ from teams import connector, signing, store
 KIND = "teams.outreach"
 TTL_S = 3600                                    # a proposal is sent within the hour or redone
 # `free` = nothing on the calendar right now but no live presence (no Entra link)
-STATES = ("available", "free", "unknown", "away", "busy", "oof")
+STATES = ("available", "free", "unknown", "away", "busy", "offline", "oof")
 RANK = {s: i for i, s in enumerate(STATES)}
+# Graph `availability` (never `activity`) → state. Anything else, '' or an error = unknown;
+# a presence that was read is never promoted to « available » (3.4.3).
 _PRESENCE = {"available": "available", "availableidle": "available",
              "busy": "busy", "busyidle": "busy", "donotdisturb": "busy",
-             "away": "away", "berightback": "away", "offline": "away",
+             "away": "away", "berightback": "away", "offline": "offline",
              "outofoffice": "oof", "presenceunknown": "unknown"}
+
+
+def presence_state(availability: str | None) -> str:
+    return _PRESENCE.get((availability or "").strip().lower(), "unknown")
 _BUSY_SHOW_AS = ("busy", "oof")
 
 T = {
@@ -53,7 +59,8 @@ T = {
         "card_line": "Carte SOKKAN #{id}",
         "avail": "disponible dans Teams",
         "cal_free": "agenda libre{until}", "until_next": " jusqu'à {t}",
-        "busy": "occupé·e dans Teams", "away": "absent·e de Teams", "oof": "hors du bureau",
+        "busy": "occupé·e dans Teams", "away": "absent·e de Teams", "offline": "hors ligne dans Teams",
+        "oof": "hors du bureau",
         "cal_busy": "en réunion jusqu'à {t}", "cal_busy_day": "en réunion le reste de la journée",
         "cal_oof": "hors du bureau aujourd'hui", "unknown": "disponibilité inconnue",
         "no_link": "pas connecté·e à SOKKAN avec Entra ID : pas de présence, mention en clair",
@@ -66,7 +73,8 @@ T = {
         "card_line": "SOKKAN card #{id}",
         "avail": "available in Teams",
         "cal_free": "calendar free{until}", "until_next": " until {t}",
-        "busy": "busy in Teams", "away": "away from Teams", "oof": "out of office",
+        "busy": "busy in Teams", "away": "away from Teams", "offline": "offline in Teams",
+        "oof": "out of office",
         "cal_busy": "in a meeting until {t}", "cal_busy_day": "in meetings for the rest of the day",
         "cal_oof": "out of office today", "unknown": "availability unknown",
         "no_link": "not signed in to SOKKAN with Entra ID: no presence, plain-text mention",
@@ -103,9 +111,18 @@ def _hm(iso: str, tz: _dt.tzinfo) -> str:
 
 
 def _name(email: str) -> str:
+    """How Nina names a person (3.4.3): the IAM name when set, else the display name the
+    IdP or Teams gave (`user_links`), else the local part of the address. The `<at>` of a
+    mention carries this name."""
     import iam
-    n = (iam.get_user(email).get("name") or "").strip()
-    return n if n and n != email else email.split("@")[0]
+    n = iam.display_name(email)
+    if n:
+        return n
+    try:
+        n = store.display_name_of(email, teams.tenant_id())
+    except Exception:  # noqa: BLE001 — no Teams store: the local part
+        n = ""
+    return n or email.split("@")[0]
 
 
 # ---- availability ----------------------------------------------------------------------------
@@ -156,7 +173,7 @@ def availability(email: str, lang: str = "en", now: _dt.datetime | None = None) 
     except Exception as e:  # noqa: BLE001
         errors = True
         print(f"[teams] calendar of {email} unavailable: {type(e).__name__}")
-    state = _PRESENCE.get(pres.lower(), "unknown") if pres else "unknown"
+    state = presence_state(pres)
     reasons: list[str] = []
     if state != "unknown":
         reasons.append(t[state if state != "available" else "avail"])
@@ -192,9 +209,7 @@ def candidates(project: str, requester: str, exclude: tuple[str, ...] = ()) -> l
     for p in helm.project_people(project):
         if p["email"].lower() in skip:
             continue
-        name = (p.get("name") or "").strip()
-        out.append({"email": p["email"], "name": name if name and name != p["email"]
-                    else p["email"].split("@")[0]})
+        out.append({"email": p["email"], "name": _name(p["email"])})
     return out
 
 

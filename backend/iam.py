@@ -118,6 +118,27 @@ def upsert_user(email: str, role: str, name: str = "") -> dict:
     return get_user(email)
 
 
+def set_name(email: str, name: str) -> bool:
+    """3.4.3 — remember a person's display name (from the OIDC login: `name`, else
+    `preferred_username` when it is not an address). Only a KNOWN account, never the role;
+    an empty or address-like name changes nothing. True when written."""
+    email = (email or "").lower().strip()
+    name = (name or "").strip()
+    if not email or not name or "@" in name:
+        return False
+    con = _con()
+    cur = con.execute("UPDATE users SET name=? WHERE email=?", (name, email))
+    con.commit()
+    con.close()
+    return cur.rowcount > 0
+
+
+def display_name(email: str) -> str:
+    """The IAM name when it is one ('' when unset or just the address)."""
+    n = (get_user(email).get("name") or "").strip()
+    return "" if not n or n == (email or "").lower().strip() or "@" in n else n
+
+
 def delete_user(email: str) -> None:
     email = email.lower().strip()
     con = _con()

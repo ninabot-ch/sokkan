@@ -1774,12 +1774,23 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
         print(f"[sokkan] SSO groups sync failed for {email}: {e!r}", file=sys.stderr)
     if not email:
         raise HTTPException(401, "OIDC token has no email")
+    # 3.4.3: the display name of the login (`name`, else `preferred_username` when it is not
+    # an address) is remembered — Nina named people by the local part of their e-mail
+    display = str(claims.get("name") or "").strip()
+    if not display or "@" in display:
+        display = str(claims.get("preferred_username") or "").strip()
+        display = "" if "@" in display else display
+    try:
+        if display:
+            iam.set_name(email, display)
+    except Exception as e:  # noqa: BLE001 — a login never fails on this bookkeeping
+        print(f"[sokkan] display name of {email} not stored: {e!r}", file=sys.stderr)
     if claims.get("oid") and claims.get("tid"):
         try:  # 3.4 Teams : le compte Entra ID (oid) de la personne = SON compte SOKKAN
             import teams
             if teams.enabled() and claims["tid"] == teams.tenant_id():
                 from teams import store as teams_store
-                teams_store.link_user(str(claims["oid"]), str(claims["tid"]), email)
+                teams_store.link_user(str(claims["oid"]), str(claims["tid"]), email, display)
         except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur le lien Teams
             print(f"[sokkan] Teams link failed for {email}: {e!r}", file=sys.stderr)
     sid = str(claims.get("sid") or "")

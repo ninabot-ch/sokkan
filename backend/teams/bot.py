@@ -128,6 +128,8 @@ def _identify(activity: dict, text: str) -> tuple[Ctx, str]:
     aad = frm.get("aadObjectId") or ""
     tenant = botauth.tenant_of(activity)
     email = store.linked_email(aad, tenant) if aad else None
+    if email:   # 3.4.3: the name Teams shows for the person, for Nina's mentions
+        store.remember_user_name(aad, tenant, frm.get("name") or "")
     if not email:
         url = teams.public_url() or "SOKKAN"
         raise Stop(_t(lang,

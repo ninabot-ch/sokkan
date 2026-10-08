@@ -113,6 +113,10 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE conversations ADD COLUMN channel_name TEXT NOT NULL DEFAULT ''")
     if "team_id" not in conv:
         c.execute("ALTER TABLE conversations ADD COLUMN team_id TEXT NOT NULL DEFAULT ''")
+    # 3.4.3: the person's display name as Teams / the IdP give it (the @mention's text)
+    ul = {r[1] for r in c.execute("PRAGMA table_info(user_links)")}
+    if "display_name" not in ul:
+        c.execute("ALTER TABLE user_links ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
 
 
 def set_meta(name: str, value) -> None:
@@ -255,12 +259,41 @@ def remembered(channel_id: str) -> dict:
 
 
 # ---- user links -------------------------------------------------------------------------
-def link_user(aad_object_id: str, tenant: str, email: str) -> None:
+def link_user(aad_object_id: str, tenant: str, email: str, display_name: str = "") -> None:
+    """Entra object id ↔ SOKKAN account. A display name given here is kept; an empty one
+    never erases the one already remembered (3.4.3)."""
     c = con()
     with c:
-        c.execute("INSERT OR REPLACE INTO user_links(aad_object_id, tenant_id, email, linked_at)"
-                  " VALUES(?,?,?,?)", (aad_object_id, tenant, email.lower().strip(), time.time()))
+        c.execute("INSERT INTO user_links(aad_object_id, tenant_id, email, linked_at, display_name)"
+                  " VALUES(?,?,?,?,?) ON CONFLICT(aad_object_id, tenant_id) DO UPDATE SET"
+                  " email=excluded.email, linked_at=excluded.linked_at,"
+                  " display_name=CASE WHEN excluded.display_name='' THEN user_links.display_name"
+                  " ELSE excluded.display_name END",
+                  (aad_object_id, tenant, email.lower().strip(), time.time(),
+                   (display_name or "").strip()))
     c.close()
+
+
+def remember_user_name(aad_object_id: str, tenant: str, display_name: str) -> None:
+    """3.4.3 — the name Teams sends with an activity (`from.name`), kept on the link."""
+    display_name = (display_name or "").strip()
+    if not display_name or not aad_object_id:
+        return
+    c = con()
+    with c:
+        c.execute("UPDATE user_links SET display_name=? WHERE aad_object_id=? AND tenant_id=?",
+                  (display_name, aad_object_id, tenant))
+    c.close()
+
+
+def display_name_of(email: str, tenant: str) -> str:
+    """The display name remembered for this account in the tenant ('' when none)."""
+    c = con()
+    r = c.execute("SELECT display_name FROM user_links WHERE email=? AND tenant_id=?"
+                  " AND display_name<>'' ORDER BY linked_at DESC LIMIT 1",
+                  (email.lower().strip(), tenant)).fetchone()
+    c.close()
+    return r["display_name"] if r else ""
 
 
 def linked_email(aad_object_id: str, tenant: str) -> str | None:

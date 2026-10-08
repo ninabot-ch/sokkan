@@ -19,7 +19,7 @@ const T = FR ? {
   exTeams: "« Trouve-moi quelqu'un de disponible pour aider sur ‹X› » — je demande dans Teams, après votre clic",
   oChannel: "Canal Teams", oWho: "Demander à", oMsg: "Message", oSend: "Envoyer dans Teams", oCancel: "Annuler",
   oSent: "Envoyé dans Teams", oOpen: "ouvrir le fil →", oCancelled: "Annulé — rien n'est parti.", oNoChannel: "Aucun canal relié : rien ne peut partir.",
-  oSending: "Envoi…", oNextFree: "libre à", oState: { available: "disponible", free: "agenda libre", unknown: "inconnu", away: "absent", busy: "occupé", oof: "hors bureau" } as Record<string, string>,
+  oSending: "Envoi…", oNextFree: "libre à", oState: { available: "disponible", free: "agenda libre", unknown: "inconnu", away: "absent", busy: "occupé", offline: "hors ligne", oof: "hors bureau" } as Record<string, string>,
 } : {
   tagline: "Your DevOps engineer — projects, product, memory, costs.",
   hello: "Hello 👋 I know SOKKAN inside out. For example:",
@@ -29,7 +29,7 @@ const T = FR ? {
   exTeams: "“Find me someone available to help with ‹X›” — I ask in Teams, after your click",
   oChannel: "Teams channel", oWho: "Ask", oMsg: "Message", oSend: "Send to Teams", oCancel: "Cancel",
   oSent: "Sent to Teams", oOpen: "open the thread →", oCancelled: "Cancelled — nothing was sent.", oNoChannel: "No channel mapped: nothing can be sent.",
-  oSending: "Sending…", oNextFree: "free at", oState: { available: "available", free: "calendar free", unknown: "unknown", away: "away", busy: "busy", oof: "out of office" } as Record<string, string>,
+  oSending: "Sending…", oNextFree: "free at", oState: { available: "available", free: "calendar free", unknown: "unknown", away: "away", busy: "busy", offline: "offline", oof: "out of office" } as Record<string, string>,
 };
 
 type Msg = { role: string; content: string; ts?: number; level?: string };
@@ -376,6 +376,7 @@ const STATE_COLOR: Record<string, string> = {
   unknown: "bg-slate-500/15 text-slate-300 ring-slate-500/40",
   away: "bg-amber-500/15 text-amber-200 ring-amber-500/40",
   busy: "bg-red-500/15 text-red-300 ring-red-500/40",
+  offline: "bg-slate-500/15 text-slate-400 ring-slate-500/40",
   oof: "bg-red-500/10 text-red-200/80 ring-red-500/30",
 };
 

@@ -91,7 +91,9 @@ class Sim:
                 return httpx.Response(200, json={"value": self.events.get(who, [])})
             if path.endswith("/presence"):
                 who = unquote(path.split("/")[2])
-                return httpx.Response(200, json={"availability": self.presence.get(who, "Busy")})
+                # a real answer carries `activity` too (InACall, Presenting, …): never the state
+                return httpx.Response(200, json={"availability": self.presence.get(who, "Busy"),
+                                                 "activity": "Available"})
             if "/channels/" in path:                      # Channel.ReadBasic.All
                 cid = unquote(path.rsplit("/", 1)[1])
                 if cid in self.channel_names:

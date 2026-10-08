@@ -44,6 +44,20 @@ Notable changes, newest first. Versions: semver + release hash (see
   (`invalidateClassification()`). Backend: a `user:<email>` principal is stored lower-case
   and compared case-insensitively (a mapping typed `user:Nick@…` before 3.4.3 applies and
   can be deleted either way). `tests/test_classification.py`.
+- **Nina names people by their display name, not the local part of their e-mail.** An
+  account that came by OIDC has no IAM name, so the proposal (« ask *demo* ») and the
+  `<at>` mention carried « demo ». Order now: the IAM name when set → the display name of
+  the login (`name`, else `preferred_username` when it is not an address — stored in IAM at
+  the OIDC callback) or the one Teams sends with an activity (`from.name`, kept on
+  `user_links.display_name` at the first activity) → the local part. `iam.set_name`,
+  `iam.display_name`, `teams.store.remember_user_name`, `outreach._name`.
+- **Teams presence read as Graph gives it.** « Away » (Absent) was classed « available ·
+  available in Teams ». The state comes from Graph's `availability` only (never
+  `activity`): Available/AvailableIdle → available; Away/BeRightBack → away;
+  Busy/BusyIdle/DoNotDisturb → busy; Offline → **offline** (new state, after busy in the
+  ranking); PresenceUnknown, '' or an error → unknown — a presence that was read is never
+  promoted to available. `outreach.presence_state`, the simulator answers `activity` too,
+  one test per value.
 
 ## 3.4.2 — 2026-10-08 — "Bridge"
 

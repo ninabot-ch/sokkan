@@ -219,3 +219,114 @@ def test_post_message_contract(tw):
     assert res["id"]
     with pytest.raises(ValueError):
         outreach.post_message(SERVICE, CHANNEL, "Max ping", {"id": AAD["max@x"], "name": "Max"})
+
+
+# ---- 3.4.3: the person's name, the presence read from Graph -----------------------------
+@pytest.mark.parametrize("availability,state", [
+    ("Available", "available"), ("AvailableIdle", "available"), ("Away", "away"),
+    ("BeRightBack", "away"), ("Busy", "busy"), ("BusyIdle", "busy"), ("DoNotDisturb", "busy"),
+    ("Offline", "offline"), ("PresenceUnknown", "unknown"), ("", "unknown"), ("Weird", "unknown"),
+])
+def test_every_graph_availability_maps_to_its_state(tw, availability, state, monkeypatch):
+    """Seen live: « Away » shown as « available · available in Teams ». The state comes from
+    Graph's `availability` (the simulator answers `activity: Available` on purpose) and a
+    presence that was read is never promoted to available. No calendar here (a free
+    calendar with no live presence is the separate « free » state)."""
+    from teams import outreach
+    monkeypatch.setattr(outreach, "_calendar_now", lambda *a: None)
+    sim = tw["sim"]
+    sim.presence["aad-carol"] = availability
+    assert outreach.presence_state(availability) == state
+    av = outreach.availability("carol@x")
+    assert av["state"] == state, (availability, av)
+    if state == "available":
+        assert "available in Teams" in av["reason"]
+    elif state == "unknown":
+        assert "availability unknown" in av["reason"] and "available in Teams" not in av["reason"]
+    else:
+        assert "available in Teams" not in av["reason"]
+    assert outreach.availability("carol@x", "fr")["state"] == state
+
+
+def test_an_empty_or_failed_presence_is_unknown_not_available(tw, monkeypatch):
+    from teams import graph, outreach
+    monkeypatch.setattr(outreach, "_calendar_now", lambda *a: None)
+    monkeypatch.setattr(graph, "presence", lambda oid: "")
+    assert outreach.availability("carol@x")["state"] == "unknown"
+    monkeypatch.setattr(graph, "presence", lambda oid: (_ for _ in ()).throw(RuntimeError("503")))
+    av = outreach.availability("carol@x")
+    assert av["state"] == "unknown" and "unavailable" in av["reason"]
+
+
+def test_people_are_named_iam_then_idp_or_teams_then_local_part(tw):
+    """Seen live: « demo » (the local part) for an OIDC account whose IAM name is empty.
+    Order: IAM name → the display name the IdP / Teams gave → the local part."""
+    import iam
+    from teams import outreach, store
+    from teams_sim import TENANT
+    iam.upsert_user("carol@x", "dev", "")                 # an OIDC account: no IAM name
+    assert outreach._name("carol@x") == "carol"
+    store.remember_user_name("aad-carol", TENANT, "Carol Dupont")   # her first Teams activity
+    assert outreach._name("carol@x") == "Carol Dupont"
+    iam.upsert_user("carol@x", "dev", "carol@x")          # the address is not a name
+    assert outreach._name("carol@x") == "Carol Dupont"
+    assert iam.set_name("carol@x", "Carole D.") and outreach._name("carol@x") == "Carole D."
+    assert not iam.set_name("carol@x", "x@y") and outreach._name("carol@x") == "Carole D."
+    assert not iam.set_name("nobody@x", "Ghost")          # unknown account: nothing written
+    # a link re-made without a name keeps the remembered one; a new name replaces it
+    store.link_user("aad-carol", TENANT, "carol@x")
+    assert store.display_name_of("carol@x", TENANT) == "Carol Dupont"
+    store.link_user("aad-carol", TENANT, "carol@x", "Carol D-Link")
+    assert store.display_name_of("carol@x", TENANT) == "Carol D-Link"
+    # the proposal and its <at> carry the name; the requester too
+    iam.upsert_user("alice@x", "dev", "")
+    store.remember_user_name("aad-alice", TENANT, "Alice Martin")
+    iam.set_name("carol@x", "Carole D.")
+    sim = tw["sim"]
+    sim.presence.update({"aad-carol": "Available"})
+    p = _proposal(_ask(tw, "alice@x", "find me someone available to help with the radio bug")["reply"])
+    by = {c["email"]: c for c in p["candidates"]}
+    assert by["carol@x"]["name"] == "Carole D." and "<at>Carole D.</at>" in by["carol@x"]["text"]
+    assert "help Alice Martin with" in by["carol@x"]["text"] and p["requester"]["name"] == "Alice Martin"
+    assert by["boss@x"]["name"] == "boss"                 # no IAM name, never in Teams
+
+
+def test_a_teams_activity_remembers_the_sender_name(tw):
+    from teams import store
+    from teams_sim import TENANT
+    sim = tw["sim"]
+    act = sim.activity("status", "aad-max")
+    act["from"]["name"] = "Max Power"
+    assert tw["post"](act).status_code == 200
+    assert store.display_name_of("max@x", TENANT) == "Max Power"
+    act = sim.activity("status", "aad-max")
+    act["from"]["name"] = ""                              # a later activity without a name
+    assert tw["post"](act).status_code == 200
+    assert store.display_name_of("max@x", TENANT) == "Max Power"
+
+
+def test_the_oidc_login_stores_the_display_name(tw, monkeypatch):
+    import time as _time
+
+    import iam
+    import jwt
+    import oidc
+    import session as sess
+    from teams import outreach, store
+    from teams_sim import TENANT
+    iam.upsert_user("carol@x", "dev", "")
+    for claims, expect in (({"name": "Carol Dupont", "preferred_username": "carol@x"}, "Carol Dupont"),
+                           ({"name": "", "preferred_username": "cdupont"}, "cdupont"),
+                           ({"name": "", "preferred_username": "carol@x"}, "cdupont")):
+        monkeypatch.setattr(oidc, "exchange", lambda *x: {"id_token": "t"})
+        monkeypatch.setattr(oidc, "verify_id_token", lambda t, c=claims: {
+            "email": "carol@x", "oid": "aad-carol", "tid": TENANT, **c})
+        tx = jwt.encode({"s": "st", "v": "ver", "exp": int(_time.time()) + 600}, sess.SECRET,
+                        algorithm="HS256")
+        c = tw["c"]
+        c.cookies.set("sokkan_oidc_tx", tx)
+        r = c.get("/api/auth/callback?code=x&state=st", follow_redirects=False)
+        c.cookies.clear()
+        assert r.status_code == 302, r.text
+        assert iam.display_name("carol@x") == expect and outreach._name("carol@x") == expect
+    assert store.display_name_of("carol@x", TENANT) == "cdupont"
