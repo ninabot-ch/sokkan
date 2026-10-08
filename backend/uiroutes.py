@@ -117,13 +117,20 @@ def share_people(kind: str, target: str, u: dict = Depends(auth.current_user),
             role = projects.INSTANCE_TO_PROJECT.get(x["role"] or "")
             if role and x["email"] != me:
                 out[("user", x["email"])] = {"kind": "user", "id": x["email"], "role": role}
+    # effective members: direct grants AND members through a team grant (e.g. Alice via
+    # `sso:radio-devs`), each with their effective role (best of grants + teams)
+    emails: set[str] = set()
     for g in projects.list_grants(slug):
-        if g["principal_kind"] == "user" and g["principal"] == me:
-            continue
-        role = sharing.role_of(g["principal"], slug) if g["principal_kind"] == "user" else g["role"]
+        if g["principal_kind"] == "user":
+            emails.add(g["principal"])
+        elif g["principal_kind"] == "team":
+            out[("team", g["principal"])] = {"kind": "team", "id": g["principal"],
+                                             "role": sharing._team_role(g["principal"], slug)}
+            emails.update(projects.team_members(g["principal"]))
+    for e in emails - {me}:
+        role = sharing.role_of(e, slug)
         if role:
-            out[(g["principal_kind"], g["principal"])] = {
-                "kind": g["principal_kind"], "id": g["principal"], "role": role}
+            out[("user", e)] = {"kind": "user", "id": e, "role": role}
     rows = sorted(out.values(), key=lambda r: (r["kind"], r["id"]))
     for r in rows:
         r["write_ok"] = projects.prank(r["role"]) >= projects.prank("dev")

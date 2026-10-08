@@ -242,6 +242,27 @@ def test_people_picker_lists_members_with_write_eligibility(world):
     assert not any(r["id"] in ("bob@x", "alice@x", "sso:radio-devs") for r in rows)
 
 
+def test_people_picker_includes_team_members_with_effective_role(world):
+    import projects
+    projects.sync_sso_groups("vic@x", ["radio-readers"])
+    projects.grant("radio", "team", "sso:radio-readers", "viewer")
+    projects.grant("radio", "user", "dave@x", "viewer")
+    projects.sync_sso_groups("dave@x", ["radio-devs"])   # direct viewer + dev via team
+    rows = world["as"]("eve@x").get("/api/shares/people",
+                                    params={"kind": "session", "target": RADIO_SID}).json()
+    got = {(r["kind"], r["id"]): (r["role"], r["write_ok"]) for r in rows}
+    assert got[("user", "alice@x")] == ("dev", True)          # member via sso:radio-devs only
+    assert got[("user", "vic@x")] == ("viewer", False)        # viewer: never write
+    assert got[("user", "dave@x")] == ("dev", True)           # best of grant and team
+    assert got[("team", "sso:radio-devs")] == ("dev", True)
+    assert got[("team", "sso:radio-readers")] == ("viewer", False)
+    assert ("user", "eve@x") not in got                        # never oneself
+    r = world["as"]("eve@x").post("/api/shares", json={
+        "kind": "session", "target": RADIO_SID, "principal_kind": "user",
+        "principal": "alice@x", "access": "write"})
+    assert r.status_code == 200, r.text
+
+
 def test_shared_review_off_means_404(world, monkeypatch):
     monkeypatch.setenv("SOKKAN_FEATURE_SHARED_REVIEW", "0")
     assert world["as"]("bob@x").get("/api/shares/inbox").status_code == 404

@@ -391,6 +391,15 @@ def team_ids(email: str) -> list[str]:
     return [r["team_id"] for r in rows]
 
 
+def team_members(team: str) -> list[str]:
+    """Emails of the members of ``team`` (SSO-synced or local)."""
+    con = _con()
+    rows = con.execute("SELECT email FROM team_members WHERE team_id=? ORDER BY email",
+                       (team,)).fetchall()
+    con.close()
+    return [r["email"] for r in rows]
+
+
 def is_ops(user: dict) -> bool:
     """Instance admin/owner, or member of the ops team (SSO group)."""
     if user.get("role") in ("admin", "owner"):
