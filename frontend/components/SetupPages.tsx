@@ -5,11 +5,12 @@ import {
   instanceBudgets, instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
   adminRevocation, adminRevokeNow, adminReinstate, type RevocationState,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom, llmTiers, llmSetTier, type LlmTier,
+  memoryStats,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
 } from "@/lib/api";
-import type { IamUser } from "@/lib/types";
+import type { IamUser, MemStore } from "@/lib/types";
 import ProjectsAdmin from "./ProjectsAdmin";
 import FeaturesAdmin from "./FeaturesAdmin";
 import LinkedAccounts from "./LinkedAccounts";
@@ -540,6 +541,36 @@ export function OrganizationPage({ section }: { section?: string }) {
   );
 }
 
+/** 3.4.2 — the memory engine: which index serves, and what it allows. On the 2.x index
+ *  (sqlite) a project other than `default` has no memory and no level — writes are refused
+ *  rather than lost, so the admin must be able to read it here. */
+export function MemoryStoreState() {
+  const [st, setSt] = useState<MemStore | null | undefined>(undefined);
+  useEffect(() => { memoryStats().then((s) => setSt(s.store ?? null)).catch(() => setSt(null)); }, []);
+  if (!st) return null;
+  const on = st.mode === "postgres";
+  return (
+    <section aria-label="Memory store" className="rounded-lg border border-line bg-panel2/50 p-3 text-[12.5px]">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${on ? "bg-emerald-500" : st.migrating ? "bg-sky-400" : "bg-amber-400"}`} />
+        <span className="text-slate-200">
+          {on ? "Memory store 3.0 (Postgres + pgvector) — project memory and classification on"
+            : st.migrating ? "Memory: 2.x index (sqlite) while the 3.0 store is being built — project memory and classification once it serves"
+            : "Memory: 2.x index (sqlite) — project memory and classification off"}
+        </span>
+      </div>
+      {!on && !st.migrating && (
+        <div className="mt-1.5 text-[11.5px] text-mut">
+          Only the <code>default</code> project has a memory here; a decision captured in Teams, an agent deliverable or a note of a session
+          for another project (or above the default level) is refused, not written. Enable the store:{" "}
+          <code>CORTHEXIS_DATABASE_URL</code> + <code>CORTHEXIS_MEMORY_BACKEND=auto</code>, then restart — the migration runs by itself (
+          <a href="https://github.com/ninabot-ch/sokkan/blob/main/docs/UPGRADE.md#turn-the-store-on-later-sqlite-mode" target="_blank" rel="noreferrer" className="underline hover:text-slate-200">UPGRADE.md</a>).
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Setup › Engines — « Connect your AI » and the instance model keys on ONE page: with
  *  `connect_ai` on, each engine card carries its instance key for the admin (ConnectAI);
  *  without it, the model setup and, for the admin with `byok_admin`, the keys list. */
@@ -553,11 +584,13 @@ export function EnginesPage() {
     <>
       {demo && <ReadOnlyNote>The engines this instance allows. Keys are never shown — not even their last characters.</ReadOnlyNote>}
       <ConnectAI legacy={<Model />} />
+      <div className="mt-4"><MemoryStoreState /></div>
     </>
   );
   return (
     <div className="space-y-4">
       <Model />
+      <MemoryStoreState />
       {instAdmin && byokOn && (
         <section aria-label="Instance model keys" className="border-t border-line pt-3">
           <h3 className="mb-2 text-[12.5px] font-medium text-slate-100">Instance keys</h3>

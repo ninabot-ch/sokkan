@@ -263,12 +263,24 @@ export interface MemNote {
   priority?: boolean;
 }
 
+/** 3.4.2 — what serves the memory: the 2.x index (sqlite) knows neither projects nor levels. */
+export interface MemStore {
+  mode: "sqlite" | "postgres";
+  configured: string;
+  migrating: boolean;
+  project_memory: boolean;
+  classification: boolean;
+  doc: string;
+}
+
 export interface MemStats {
   notes: number;
   chunks: number;
-  model: string | null;
-  last_mtime: number | null;
+  model?: string | null;
+  last_mtime?: number | null;
   cortex_url?: string | null;
+  project?: string;
+  store?: MemStore;
 }
 
 export interface MemSearchResult {

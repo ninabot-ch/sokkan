@@ -10,14 +10,15 @@ import remarkGfm from "remark-gfm";
 import CorthexisGraph, { type Mode, TYPE_COLORS } from "@/components/CorthexisGraph";
 import MemoryBench from "@/components/MemoryBench";
 import { QuarantineButton } from "@/components/Quarantine";
-import { memoryDigest, memorySearch, spawnSession } from "@/lib/api";
+import { memoryDigest, memorySearch, memoryStats, spawnSession } from "@/lib/api";
 import { useCan } from "@/lib/me";
+import { currentProject } from "@/lib/project";
 import {
   cxCuration, cxDecide, cxGraph, cxNote, cxProposals, cxPropose, cxReview, cxRunReview,
   type CxFinding, type CxGraph, type CxItem, type CxNote, type CxOverview, type CxProposal,
   type CxProposalIn, type Severity,
 } from "@/lib/corthexis";
-import type { MemSearchResult } from "@/lib/types";
+import type { MemSearchResult, MemStore } from "@/lib/types";
 import { LevelControl } from "./LevelBadge";
 import { setNoteLevel } from "@/lib/classification";
 
@@ -37,6 +38,8 @@ const MODES: { id: Mode; label: string; title: string }[] = [
   { id: "health", label: "Health", title: "Only the notes flagged by the review stay lit" },
 ];
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US"));
+/** 3.4.2 — how to turn the 3.0 store on (the 2.x index has no project memory). */
+export const STORE_DOC_URL = "https://github.com/ninabot-ch/sokkan/blob/main/docs/UPGRADE.md#turn-the-store-on-later-sqlite-mode";
 const when = (iso: string | null | undefined) => iso
   ? new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—";
 
@@ -60,6 +63,10 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
   const [busy, setBusy] = useState("");
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
   const [offline, setOffline] = useState(false);
+  const [store, setStore] = useState<MemStore | null>(null);
+  const project = currentProject();
+  // 3.4.2: on the 2.x index, a project other than `default` has NO memory here — say it
+  const noProjectMemory = !!store && !store.project_memory && project !== "default";
 
   const toast = useCallback((text: string) => {
     const id = Date.now() + Math.random();
@@ -89,6 +96,10 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
   const loadReview = useCallback(() => {
     cxReview().then(setOv).catch(() => {});
     cxProposals().then(setProps).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    memoryStats().then((s) => setStore(s.store ?? null)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -227,6 +238,19 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
             </div>
           )}
         </div>
+
+        {noProjectMemory && (
+          <div role="alert" className="pointer-events-auto basis-full rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[12.5px] text-amber-100 backdrop-blur">
+            <span className="font-medium">Project memory needs the 3.0 store.</span>{" "}
+            This instance serves the 2.x index (sqlite){store?.migrating ? " while the store is being built" : ""}: the notes of
+            « {project} » are not indexed and nothing can be written here — decisions from Teams, agent deliverables and
+            notes of sessions are refused rather than lost.{" "}
+            {store?.migrating
+              ? <span>The migration is in progress: come back once it serves.</span>
+              : <span>Enable it: <code className="rounded bg-black/30 px-1">CORTHEXIS_DATABASE_URL</code> + <code className="rounded bg-black/30 px-1">CORTHEXIS_MEMORY_BACKEND=auto</code> —{" "}
+                <a href={STORE_DOC_URL} target="_blank" rel="noreferrer" className="underline decoration-amber-300/60 hover:text-white">how to turn it on</a>.</span>}
+          </div>
+        )}
 
         <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
           {canAct && <QuarantineButton />}
