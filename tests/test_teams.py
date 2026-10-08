@@ -302,8 +302,9 @@ def test_admin_maps_channels_and_gets_the_manifest(tw):
     r = adm.put("/api/admin/teams/channels", json={"channel_id": "19:sec@thread.tacv2",
                                                     "project": "radio", "level": "confidential"})
     assert r.status_code == 200
-    assert any(c["channel_id"] == "19:sec@thread.tacv2" and c["level"] == 3
-               for c in r.json()["channels"])
+    sec = next(c for c in r.json()["channels"] if c["channel_id"] == "19:sec@thread.tacv2")
+    assert sec["level"] == 3 and sec["approvals"] is True      # 3.4.1: a boolean, not 1
+    assert sec["name"] == "channel …19:sec"                     # never empty: a readable stub
     assert adm.put("/api/admin/teams/channels", json={"channel_id": "x", "project": "nope"}
                    ).status_code == 400
     m = adm.get("/api/admin/teams/manifest").json()
@@ -311,3 +312,30 @@ def test_admin_maps_channels_and_gets_the_manifest(tw):
     st = adm.get("/api/admin/teams").json()
     assert st["missing"] == [] and st["tenant"] == TENANT
     assert tw["as"]("alice@x").get("/api/admin/teams").status_code == 403
+
+
+def test_mapping_name_is_given_sent_by_teams_or_read_from_graph(tw):
+    """3.4.1 (live 08.10: `name: ""` after the mapping): the name is the one given, else the one
+    an activity of that channel carried, else Graph's displayName (Channel.ReadBasic.All)."""
+    adm = tw["as"]("admin@x", "default")
+    put = lambda **k: adm.put("/api/admin/teams/channels", json={"project": "radio", **k}).json()  # noqa: E731
+    by = {c["channel_id"]: c for c in put(channel_id="19:a@thread.tacv2", name="  Ops · General ")["channels"]}
+    assert by["19:a@thread.tacv2"]["name"] == "Ops · General"
+    # Teams sent the channel's name with a (verified) activity
+    _say(tw, "alice@x", "status", channel="19:b@thread.tacv2", channel_name="Security")
+    by = {c["channel_id"]: c for c in put(channel_id="19:b@thread.tacv2")["channels"]}
+    assert by["19:b@thread.tacv2"]["name"] == "Security"
+    _say(tw, "alice@x", "status", channel="19:b@thread.tacv2")   # a later event without a name
+    from teams import store
+    assert store.remembered("19:b@thread.tacv2") == {"channel_name": "Security", "team_id": "g-1"}
+    # seen without a name: Graph, with the team id the activity carried
+    tw["sim"].channel_names["19:c@thread.tacv2"] = "Release train"
+    _say(tw, "alice@x", "status", channel="19:c@thread.tacv2")
+    by = {c["channel_id"]: c for c in put(channel_id="19:c@thread.tacv2")["channels"]}
+    assert by["19:c@thread.tacv2"]["name"] == "Release train"
+    assert any("/teams/g-1/channels/19%3Ac%40thread.tacv2" in u for u in tw["sim"].graph_calls)
+    # Graph refuses (permission not granted): the stub, never an error
+    _say(tw, "alice@x", "status", channel="19:d@thread.tacv2")
+    by = {c["channel_id"]: c for c in put(channel_id="19:d@thread.tacv2")["channels"]}
+    assert by["19:d@thread.tacv2"]["name"] == "channel …19:d"
+    assert all(c["approvals"] is True for c in by.values())

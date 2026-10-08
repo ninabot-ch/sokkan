@@ -107,6 +107,12 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE channel_map ADD COLUMN approvals INTEGER NOT NULL DEFAULT 1")
     if "card" not in have["approvals"]:                 # what the card showed (refresh)
         c.execute("ALTER TABLE approvals ADD COLUMN card TEXT NOT NULL DEFAULT ''")
+    # 3.4.1: the channel's name and team as Teams sends them (resolves the mapping's name)
+    conv = {r[1] for r in c.execute("PRAGMA table_info(conversations)")}
+    if "channel_name" not in conv:
+        c.execute("ALTER TABLE conversations ADD COLUMN channel_name TEXT NOT NULL DEFAULT ''")
+    if "team_id" not in conv:
+        c.execute("ALTER TABLE conversations ADD COLUMN team_id TEXT NOT NULL DEFAULT ''")
 
 
 def set_meta(name: str, value) -> None:
@@ -224,6 +230,28 @@ def channels() -> list[dict]:
     rows = [_channel_out(r) for r in c.execute("SELECT * FROM channel_map ORDER BY project, name")]
     c.close()
     return rows
+
+
+def remember_names(channel_id: str, name: str = "", team_id: str = "") -> None:
+    """3.4.1: what a verified activity said about its channel (``channelData.channel.name``,
+    ``channelData.team.aadGroupId``) — Teams sends the name on some events only, so a known
+    value is never overwritten by an empty one."""
+    c = con()
+    with c:
+        c.execute("UPDATE conversations SET channel_name=CASE WHEN ?='' THEN channel_name ELSE ? END,"
+                  " team_id=CASE WHEN ?='' THEN team_id ELSE ? END WHERE channel_id=?",
+                  (name, name, team_id, team_id, channel_id))
+    c.close()
+
+
+def remembered(channel_id: str) -> dict:
+    """{channel_name, team_id} seen for this channel ('' when never seen)."""
+    c = con()
+    r = c.execute("SELECT channel_name, team_id FROM conversations WHERE channel_id=?",
+                  (channel_id,)).fetchone()
+    c.close()
+    return {"channel_name": r["channel_name"], "team_id": r["team_id"]} if r \
+        else {"channel_name": "", "team_id": ""}
 
 
 # ---- user links -------------------------------------------------------------------------

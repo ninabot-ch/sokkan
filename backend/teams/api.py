@@ -28,7 +28,10 @@ GRAPH_PERMISSIONS = [
      "why": "the brief reads the calendar of the person it is for (limit the mailboxes with an "
             "application access policy / RBAC for Applications)", "optional": True},
     {"permission": "Presence.Read.All", "type": "Application",
-     "why": "presence in the brief (optional)", "optional": True},
+     "why": "presence in the brief and in « Nina asks for help » (optional)", "optional": True},
+    {"permission": "Channel.ReadBasic.All", "type": "Application",
+     "why": "the name of a mapped channel when Teams has not sent it yet (optional)",
+     "optional": True},
 ]
 BOT_PERMISSIONS = ["Bot Framework: messaging endpoint (no Graph permission needed to answer)"]
 
@@ -112,10 +115,27 @@ def admin_map(body: ChannelIn, u: dict = Depends(_admin)) -> dict:
         lvl = classification._parse_strict(body.level)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    store.map_channel(body.channel_id.strip(), body.project, lvl, body.name, u["email"],
+    cid = body.channel_id.strip()
+    store.map_channel(cid, body.project, lvl, _channel_name(cid, body.name), u["email"],
                       body.approvals)
     audit.log(u["email"], "teams.channel.map", body.channel_id[:120], f"{body.project} @ {body.level}")
     return {"channels": store.channels()}
+
+
+def _channel_name(channel_id: str, given: str) -> str:
+    """3.4.1: the mapping's name is never empty — the one given, else the one Teams sent with an
+    activity of that channel, else Graph (``Channel.ReadBasic.All``), else a readable stub."""
+    if given.strip():
+        return given.strip()[:200]
+    seen = store.remembered(channel_id)
+    if seen["channel_name"]:
+        return seen["channel_name"]
+    try:
+        from teams import graph
+        n = graph.channel_name(seen["team_id"], channel_id)
+    except Exception:  # noqa: BLE001 — Graph is optional here
+        n = ""
+    return n or f"channel …{channel_id.split('@')[0][-8:]}"
 
 
 @router.delete("/api/admin/teams/channels")

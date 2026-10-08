@@ -64,11 +64,16 @@ def remember(activity: dict) -> None:
     surl = activity.get("serviceUrl") or ""
     if not ch or not botauth.service_url_ok(surl):
         return
+    key = bot.channel_key(activity)
     c = store.con()
     with c:
-        c.execute("INSERT OR REPLACE INTO conversations(channel_id, service_url, conversation_id,"
-                  " updated_at) VALUES(?,?,?,?)", (bot.channel_key(activity), surl, ch, time.time()))
+        c.execute("INSERT INTO conversations(channel_id, service_url, conversation_id, updated_at)"
+                  " VALUES(?,?,?,?) ON CONFLICT(channel_id) DO UPDATE SET service_url=excluded."
+                  "service_url, conversation_id=excluded.conversation_id, updated_at=excluded."
+                  "updated_at", (key, surl, ch, time.time()))
     c.close()
+    store.remember_names(key, str((cd.get("channel") or {}).get("name") or "")[:200],
+                         str((cd.get("team") or {}).get("aadGroupId") or "")[:120])
 
 
 def _reach(channel_id: str) -> tuple[str, str]:

@@ -65,6 +65,18 @@ def presence(aad_object_id: str) -> str:
     return (_get(f"/users/{quote(aad_object_id)}/presence") or {}).get("availability") or ""
 
 
+def channel_name(team_id: str, channel_id: str) -> str:
+    """displayName of a channel (``Channel.ReadBasic.All``, application), '' when unknown or
+    not permitted."""
+    if not team_id or not channel_id:
+        return ""
+    try:
+        return (_get(f"/teams/{quote(team_id)}/channels/{quote(channel_id)}") or {}
+                ).get("displayName") or ""
+    except connector.Error:
+        return ""
+
+
 def register() -> None:
     import calendars
     calendars.register(GraphCalendar())

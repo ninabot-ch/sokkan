@@ -42,6 +42,8 @@ class Sim:
         self.token_calls: list[dict] = []
         self.graph_calls: list[str] = []
         self.events: dict[str, list[dict]] = {}
+        self.presence: dict[str, str] = {}    # aad object id → availability (default Busy)
+        self.channel_names: dict[str, str] = {}   # Graph: channel id → displayName
         self.fail_connector = False           # the Bot Connector answers 503
 
     # ---- signing of inbound activities --------------------------------------------------
@@ -88,7 +90,13 @@ class Sim:
                 who = unquote(path.split("/")[2])
                 return httpx.Response(200, json={"value": self.events.get(who, [])})
             if path.endswith("/presence"):
-                return httpx.Response(200, json={"availability": "Busy"})
+                who = unquote(path.split("/")[2])
+                return httpx.Response(200, json={"availability": self.presence.get(who, "Busy")})
+            if "/channels/" in path:                      # Channel.ReadBasic.All
+                cid = unquote(path.rsplit("/", 1)[1])
+                if cid in self.channel_names:
+                    return httpx.Response(200, json={"id": cid, "displayName": self.channel_names[cid]})
+                return httpx.Response(403, json={"error": {"code": "Forbidden"}})
             return httpx.Response(404)
         return httpx.Response(599, text=f"simulator: no route for {url}")
 
@@ -97,7 +105,8 @@ class Sim:
 
     # ---- activities ---------------------------------------------------------------------
     def activity(self, text: str, aad: str, *, conv_type="channel", channel=CHANNEL,
-                 tenant=TENANT, service=SERVICE, kind="message", value=None, name=None) -> dict:
+                 tenant=TENANT, service=SERVICE, kind="message", value=None, name=None,
+                 channel_name: str = "") -> dict:
         conv_id = (f"{channel};messageid=1700000000000" if conv_type == "channel"
                    else f"a:{aad}-personal" if conv_type == "personal" else "19:chat@thread.v2")
         a = {"type": kind, "id": uuid.uuid4().hex[:12], "channelId": "msteams",
@@ -106,7 +115,8 @@ class Sim:
              "recipient": {"id": f"28:{APP_ID}", "name": "Nina"},
              "conversation": {"id": conv_id, "conversationType": conv_type, "tenantId": tenant},
              "channelData": {"tenant": {"id": tenant},
-                             **({"channel": {"id": channel},
+                             **({"channel": {"id": channel,
+                                             **({"name": channel_name} if channel_name else {})},
                                  "team": {"id": "19:team@thread", "aadGroupId": "g-1"}}
                                 if conv_type == "channel" else {})}}
         if value is not None:
