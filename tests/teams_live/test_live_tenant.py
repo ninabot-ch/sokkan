@@ -181,3 +181,22 @@ def test_manual_proactive_approval_from_the_cockpit(instance):
                 "on): its approval card must appear in the channel within a minute.")
     _wait_event(instance, "agent.approve", t0,
                 "Approve it in the COCKPIT: the card in Teams must turn into « Approved by … ».")
+
+
+# ---- 3.4.1 « Nina asks for help »: a real @mention in the mapped channel -----------------------
+def test_outreach_message_with_a_real_mention_in_the_channel(live, instance):
+    """What `teams.outreach.send` posts: a text message with a `mention` entity (Entra object id
+    of SOKKAN_TEAMS_LIVE_USER_OID, name SOKKAN_TEAMS_LIVE_USER_NAME or the UPN's local part).
+    Watch the channel: the name must render as a blue @mention that notifies the person."""
+    v = need("SOKKAN_TEAMS_LIVE_CHANNEL", "SOKKAN_TEAMS_LIVE_USER_OID", "SOKKAN_TEAMS_LIVE_USER")
+    from teams import outreach
+    surl, ch = _service_url(instance), v["SOKKAN_TEAMS_LIVE_CHANNEL"]
+    name = os.environ.get("SOKKAN_TEAMS_LIVE_USER_NAME") or v["SOKKAN_TEAMS_LIVE_USER"].split("@")[0]
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    text = (f"<at>{name}</at>, could you help the SOKKAN live check with “outreach {stamp}”? "
+            "(a test message of tests/teams_live — nothing to do)")
+    res = outreach.post_message(surl, ch, text, {"id": v["SOKKAN_TEAMS_LIVE_USER_OID"], "name": name})
+    assert res.get("id"), res
+    link = outreach.thread_link(ch, res["id"])
+    print("posted with a mention:", link)
+    assert link.startswith("https://teams.microsoft.com/l/message/")

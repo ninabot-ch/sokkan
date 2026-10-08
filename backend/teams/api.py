@@ -83,6 +83,24 @@ async def messages(request: Request):
     return JSONResponse(out)
 
 
+class OutreachSend(BaseModel):
+    token: str
+    to: str
+
+
+@router.post("/api/assistant/outreach/send")
+def outreach_send(body: OutreachSend, user: dict = Depends(auth.current_user)) -> dict:
+    """3.4.1 — « Nina asks for help »: the person clicked Send on Nina's proposal (signed,
+    single-use token issued by `outreach.propose`); the message goes to the mapped channel
+    with a real @mention, as the requester, journaled `teams.outreach`."""
+    _on()
+    from teams import outreach
+    try:
+        return outreach.send(user, body.token, body.to)
+    except outreach.Refused as e:
+        raise HTTPException(e.status, str(e)) from e
+
+
 class ChannelIn(BaseModel):
     channel_id: str
     project: str

@@ -178,6 +178,41 @@ Reading the result:
   Approve / Refuse, the second viewer's copy turning into « Approved by … », no `<at>` tag in
   answers, mobile rendering. Screenshots desktop + mobile.
 
+### 7.1 Validate « Nina asks for help » (3.4.1)
+
+A tenant with **two licensed users** is enough: the instance owner (project `admin`) and a second
+person (`maintainer` of a **demo project**, e.g. `sales-emea`) who has signed in to SOKKAN once
+with Entra ID (link recorded: `oid` → email) and has an Exchange mailbox. **Map a demo channel to
+the demo project — never `default` / General**: the message names the project's people and, when
+cleared, a card title.
+
+1. Setup › Organization › Teams: map the demo channel to the demo project (level `project`).
+   Create a card in that project (e.g. « Upgrade Postgres 15 → 16 »), unassigned.
+2. In the second person's Outlook calendar: one event **busy now** (30 min) — this is what the
+   proposal must read.
+3. As the owner, in the cockpit header select the demo project, open Nina and write:
+   « trouve-moi quelqu'un de disponible pour aider sur ‹Upgrade Postgres› » (or the English
+   form). Expected: a proposal card — channel = the demo channel, one candidate = the second
+   person, state **busy** with « in a meeting until HH:MM » and « free at HH:MM » (presence
+   `Busy`/`InAMeeting` or the calendar), the message « @<name>, could you help <owner> with
+   “Upgrade Postgres 15 → 16”? » with the card link. Nothing in Teams yet.
+4. Delete the event (or wait for its end), ask again: state **available** / « calendar free ».
+5. Click **Send**: a new thread in the demo channel, the name rendered as a real @mention (blue,
+   the second person notified on desktop and mobile), Nina shows « Sent · open the thread → ».
+   Journal (Operate › Journal, or `GET /api/audit?q=teams.outreach`): actor = the owner,
+   resource = the channel id, detail `to <email> · card #<id>`.
+6. Click **Send** again on the same card: refused (single use). Ask once more and click
+   **Cancel**: nothing posted.
+7. Classification: reclassify the card to `confidential` (card dialog), ask again — the message
+   says « a confidential card (#<id>) », the title is absent from the proposal text and from the
+   thread once sent.
+8. Automatic check of the wire format (a real mention, no person needed):
+   `SOKKAN_TEAMS_LIVE_USER_OID=<object id of the second person> SOKKAN_TEAMS_LIVE_USER=<upn>`
+   then `python -m pytest tests/teams_live -k outreach -v -s`.
+
+What to report: the states shown at steps 3 and 4 (presence value vs calendar), the rendering
+of the mention on desktop and mobile, the thread link.
+
 ## 8. Rollback
 
 In order, stop at the level you need:

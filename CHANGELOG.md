@@ -5,6 +5,32 @@ Notable changes, newest first. Versions: semver + release hash (see
 
 ## 3.4.1 — unreleased
 
+### Nina asks for help in Teams (feature `teams`)
+- From the cockpit's Nina panel: « trouve-moi quelqu'un de disponible pour aider sur ‹X› »,
+  « who is available to help with the TLS rotation? », « demande de l'aide sur la carte #16 »
+  (FR / EN, recognised in Python — no model decides an action). Nina **proposes**: the people of
+  the project (dev+, minus the requester and the card's assignee) with their availability now
+  — Teams presence and today's calendar through Graph, busy / out of office, next free slot —
+  ranked available › free › unknown › away › busy › out of office; the channel mapped to the
+  project (the widest audience allowed by the card's level); the exact message with a real
+  @mention. **Send** (signed, single-use, 1 h token; the requester only) posts a new thread in
+  the channel with the mention entity, journals `teams.outreach`, and Nina links the thread.
+  Cancel sends nothing. A card above the channel's level is « a confidential card (#16) »:
+  its title never reaches Teams. Graph down or no Entra link = « availability unknown », never
+  an error. `GET /api/admin/teams` lists the optional `Channel.ReadBasic.All`.
+  `backend/teams/outreach.py`, `POST /api/assistant/outreach/send`, `tests/test_teams_outreach.py`,
+  `tests/teams_live` (a real mention), TEAMS.md § 10, TEAMS-SETUP.md § 7.1.
+
+### Fixes from the live validation of 08.10 (Teams)
+- A refused approval click (four-eyes, role, vanished object) is journaled
+  (`teams.approval.refused`).
+- `PUT /api/admin/teams/channels` answers `approvals` as a boolean and a never-empty `name`
+  (given › sent by Teams with an activity › Graph `Channel.ReadBasic.All` › a readable stub).
+- `POST /api/agents` and `/api/agents/proposals`: one 400 listing every missing required field.
+- Docs aligned with the code: the bot registration is **multi-tenant** (Developer Portal
+  « Multiple organizations », Azure Bot *MultiTenant*, `teams-register.sh`), the tenant is
+  enforced by SOKKAN on every activity; live claims confirmed (`serviceurl` lowercase).
+
 ### Security
 - **An unknown sign-in no longer lands as `viewer` of the `default` project in the enterprise
   edition.** With `SOKKAN_DEFAULT_ROLE=none` — now the enterprise default (community keeps

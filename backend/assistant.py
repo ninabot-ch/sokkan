@@ -159,6 +159,9 @@ _KB_BRIDGE = {
     "project": "projet", "projects": "projet", "helm": "projet", "manager": "projet",
     "breakdown": "décomposition", "decompose": "décomposition", "brief": "brief",
     "deadline": "délai", "scope": "périmètre", "projet": "projet",
+    # 3.4.1 Teams outreach
+    "available": "disponible", "someone": "quelqu", "teams": "teams", "channel": "canal",
+    "mention": "mention", "presence": "présence", "calendar": "agenda",
 }
 
 
@@ -665,9 +668,51 @@ def _persist(user_email: str, message: str, reply: str) -> None:
     con.close()
 
 
+def outreach_intent(message: str) -> dict | None:
+    """3.4.1 — « trouve-moi quelqu'un de disponible pour aider sur ‹X› » / « who is available
+    to help with X? » / « demande de l'aide sur la carte #16 »: {subject, card_id, lang}, else
+    None. Deterministic (regex, FR/EN): the model is not in the loop for an action."""
+    from teams import outreach
+    return outreach.intent(message)
+
+
+def _outreach(user_email: str, message: str) -> str | None:
+    """The « Nina asks for help » proposal (feature `teams`), or None when the message is not
+    that request, Teams is off, or the request is outside a project the person reads."""
+    try:
+        import teams
+        if not teams.enabled():
+            return None
+        it = outreach_intent(message)
+        if it is None:
+            return None
+        import projectgate
+        import projects
+        from teams import outreach
+        pu = projectgate.current()
+        if pu is None:
+            if projects.multi_project():
+                return None
+            import classification
+            pu = projectgate.project_user(classification.user_for(user_email), projects.DEFAULT_PROJECT)
+            if pu is None:
+                return None
+        prop = outreach.propose(user_email, pu["project"], pu.get("clearance"), it["subject"],
+                                it["card_id"], it["lang"])
+        return outreach.reply(prop)
+    except Exception as e:  # noqa: BLE001 — the panel never dies of it: the model answers
+        print(f"[assistant] outreach unavailable ({type(e).__name__}: {e})")
+        return None
+
+
 def chat(user_email: str, message: str, scope=None, channel: str = "nina") -> dict:
     """Un tour de chat, réponse complète. Retourne {reply, via, level, sources}.
     3.4 : ``level`` = le niveau le plus élevé des notes qui ont servi (la réponse en hérite)."""
+    if channel == "nina":
+        out = _outreach(user_email, message)
+        if out is not None:
+            _persist(user_email, message, out)
+            return {"reply": out, "via": "outreach", "level": "project", "sources": []}
     meta: dict = {}
     cfg, fb, system, msgs = _prepare(user_email, message, scope=scope, meta=meta, via=channel)
     st: dict = {}
@@ -693,6 +738,12 @@ def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
     Le basculement vers le repli n'est possible qu'AVANT le premier octet —
     après, le flux est engagé (même règle que la passerelle d'inférence).
     """
+    out = _outreach(user_email, message)
+    if out is not None:                  # 3.4.1: a proposal, built in Python, no model
+        _persist(user_email, message, out)
+        yield "delta", out
+        yield "done", out
+        return
     meta: dict = {}
     cfg, fb, system, msgs = _prepare(user_email, message, meta=meta)
     if meta.get("level"):

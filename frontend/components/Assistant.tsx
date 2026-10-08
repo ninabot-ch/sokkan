@@ -16,12 +16,20 @@ const T = FR ? {
   ex: ["« Comment importer mon projet ? »", "« Comment semer la mémoire de ce projet ? »", "« Worker ou plan supérieur, comment choisir ? »"],
   exHelm: "« Crée un projet avec moi » — je le découpe en cartes",
   thinking: "Nina réfléchit…", placeholder: "Votre question…", unknown: "erreur inconnue",
+  exTeams: "« Trouve-moi quelqu'un de disponible pour aider sur ‹X› » — je demande dans Teams, après votre clic",
+  oChannel: "Canal Teams", oWho: "Demander à", oMsg: "Message", oSend: "Envoyer dans Teams", oCancel: "Annuler",
+  oSent: "Envoyé dans Teams", oOpen: "ouvrir le fil →", oCancelled: "Annulé — rien n'est parti.", oNoChannel: "Aucun canal relié : rien ne peut partir.",
+  oSending: "Envoi…", oNextFree: "libre à", oState: { available: "disponible", free: "agenda libre", unknown: "inconnu", away: "absent", busy: "occupé", oof: "hors bureau" } as Record<string, string>,
 } : {
   tagline: "Your DevOps engineer — projects, product, memory, costs.",
   hello: "Hello 👋 I know SOKKAN inside out. For example:",
   ex: ["“How do I import my project?”", "“How do I seed this project's memory?”", "“Why is this agent waiting?”"],
   exHelm: "“Create a project with me” — I break it into cards",
   thinking: "Nina is thinking…", placeholder: "Your question…", unknown: "unknown error",
+  exTeams: "“Find me someone available to help with ‹X›” — I ask in Teams, after your click",
+  oChannel: "Teams channel", oWho: "Ask", oMsg: "Message", oSend: "Send to Teams", oCancel: "Cancel",
+  oSent: "Sent to Teams", oOpen: "open the thread →", oCancelled: "Cancelled — nothing was sent.", oNoChannel: "No channel mapped: nothing can be sent.",
+  oSending: "Sending…", oNextFree: "free at", oState: { available: "available", free: "calendar free", unknown: "unknown", away: "away", busy: "busy", oof: "out of office" } as Record<string, string>,
 };
 
 type Msg = { role: string; content: string; ts?: number; level?: string };
@@ -203,6 +211,7 @@ export default function Assistant({ tab }: { tab: string }) {
                 {T.hello}
                 <ul className="mt-2 list-disc pl-4">
                   {features.helm && <li>{T.exHelm}</li>}
+                  {features.registry?.items?.some((f) => f.id === "teams" && f.enabled) && <li>{T.exTeams}</li>}
                   {T.ex.map((x) => <li key={x}>{x}</li>)}
                 </ul>
               </div>
@@ -260,7 +269,22 @@ const AGENT_BLOCK = /```sokkan-agent\s*([\s\S]*?)```/;
 // par Nina après l'interview ; l'humain les modifie puis valide (HelmProposal).
 const PROJECT_BLOCK = /```sokkan-project\s*([\s\S]*?)```/;
 
+// 3.4.1 « Nina asks for help »: ```sokkan-outreach {json}``` = the proposal (channel, candidates
+// with their availability, the message with a real @mention) — sent to Teams on the click only.
+const OUTREACH_BLOCK = /```sokkan-outreach\s*([\s\S]*?)```/;
+
 function AssistantText({ text }: { text: string }) {
+  const om = text.match(OUTREACH_BLOCK);
+  if (om) {
+    let o: OutreachProposalData | null = null;
+    try { o = JSON.parse(om[1]); } catch { o = null; }
+    return (
+      <>
+        <MiniMarkdown text={text.slice(0, om.index).trimEnd()} />
+        {o ? <OutreachProposal p={o} /> : <pre className="mt-2 whitespace-pre-wrap text-[11px] text-mut">{om[0]}</pre>}
+      </>
+    );
+  }
   const pm = text.match(PROJECT_BLOCK);
   if (pm) {
     let p: ProjectProposal | null = null;
@@ -327,6 +351,103 @@ function AgentProposal({ spec }: { spec: Record<string, unknown> }) {
           <a href={`/?plane=build&tab=crew&agent=${state.id}`} className="text-sea hover:underline">✓ Card created — review & approve it in Crew →</a>
         ) : (
           <button onClick={create} disabled={state.busy} className="rounded-md bg-brass/90 px-2.5 py-1 font-semibold text-ink hover:bg-brass disabled:opacity-50">Create the card</button>
+        )}
+        {state.err && <span className="text-red-400">{state.err}</span>}
+      </div>
+    </div>
+  );
+}
+
+
+interface OutreachCandidate {
+  email: string; name: string; mention: boolean; state: string; reason: string; next_free: string | null; text: string;
+}
+interface OutreachProposalData {
+  project: string; lang: string; subject: string | null; redacted: boolean; token: string | null; to: string | null;
+  card: { id: number; title: string | null; level: number } | null;
+  channel: { id: string; name: string; level: number; level_label: string } | null;
+  requester: { email: string; name: string };
+  candidates: OutreachCandidate[];
+}
+
+const STATE_COLOR: Record<string, string> = {
+  available: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40",
+  free: "bg-emerald-500/10 text-emerald-200/80 ring-emerald-500/25",
+  unknown: "bg-slate-500/15 text-slate-300 ring-slate-500/40",
+  away: "bg-amber-500/15 text-amber-200 ring-amber-500/40",
+  busy: "bg-red-500/15 text-red-300 ring-red-500/40",
+  oof: "bg-red-500/10 text-red-200/80 ring-red-500/30",
+};
+
+const hm = (iso: string) => { try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return iso; } };
+
+/** The proposal card: pick who to ask among the people Nina found, read the exact message,
+ *  Send / Cancel. The message text is built by the server (classification: a card above the
+ *  channel's level is never named); only the recipient is chosen here. */
+function OutreachProposal({ p }: { p: OutreachProposalData }) {
+  const [to, setTo] = useState<string | null>(p.to);
+  const [state, setState] = useState<{ busy?: boolean; sent?: { link: string; to: string }; err?: string; cancelled?: boolean }>({});
+  const chosen = p.candidates.find((c) => c.email === to) ?? p.candidates[0];
+  const canSend = !!p.token && !!chosen && !state.sent && !state.cancelled;
+  const send = async () => {
+    if (!p.token || !chosen) return;
+    setState({ busy: true });
+    try {
+      const r = await fetch("/api/assistant/outreach/send", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: p.token, to: chosen.email }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.detail || `${r.status}`);
+      setState({ sent: { link: d.link || "", to: d.to } });
+    } catch (e) { setState({ err: e instanceof Error ? e.message : T.unknown }); }
+  };
+  const preview = (chosen?.text || "").replace(/<at>(.*?)<\/at>/g, "@$1");
+  return (
+    <div className="mt-2 whitespace-normal rounded-lg border border-line bg-panel2/70 p-2.5 text-[11.5px]">
+      <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-mut">{T.oChannel}</span>
+        {p.channel ? (
+          <span className="flex items-center gap-1.5 text-slate-200">{p.channel.name}<LevelBadge level={p.channel.level} /></span>
+        ) : <span className="text-amber-300">{T.oNoChannel}</span>}
+      </div>
+      <div className="text-mut">{T.oWho}</div>
+      <div role="radiogroup" className="mt-1 space-y-1">
+        {p.candidates.map((c) => (
+          <label key={c.email} className={`flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 ${c.email === chosen?.email ? "bg-panel" : "hover:bg-panel/60"}`}>
+            <input type="radio" name={`outreach-${p.token || p.project}`} className="mt-0.5" checked={c.email === chosen?.email}
+              disabled={!!state.sent || !!state.cancelled} onChange={() => setTo(c.email)} />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold text-slate-100">{c.name}</span>
+                <span className={`rounded px-1.5 py-px text-[10px] ring-1 ${STATE_COLOR[c.state] || STATE_COLOR.unknown}`}>{T.oState[c.state] || c.state}</span>
+                {c.next_free && <span className="text-[10px] text-mut">{T.oNextFree} {hm(c.next_free)}</span>}
+              </span>
+              <span className="block text-[10.5px] text-mut">{c.reason}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {chosen && (
+        <div className="mt-2">
+          <div className="text-mut">{T.oMsg}</div>
+          <div className="mt-0.5 whitespace-pre-wrap rounded border border-line bg-[#07080a] px-2 py-1.5 text-[12px] leading-relaxed text-slate-200">{preview}</div>
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {state.sent ? (
+          <span className="text-emerald-300">✓ {T.oSent} · {state.sent.to}{state.sent.link && <> — <a href={state.sent.link} target="_blank" rel="noreferrer" className="text-sea hover:underline">{T.oOpen}</a></>}</span>
+        ) : state.cancelled ? (
+          <span className="text-mut">{T.oCancelled}</span>
+        ) : (
+          <>
+            <button onClick={() => void send()} disabled={!canSend || state.busy}
+              className="rounded-md bg-brass/90 px-2.5 py-1 font-semibold text-ink hover:bg-brass disabled:opacity-50">
+              {state.busy ? T.oSending : T.oSend}
+            </button>
+            <button onClick={() => setState({ cancelled: true })} disabled={state.busy}
+              className="rounded-md border border-line px-2.5 py-1 text-slate-200 hover:bg-panel disabled:opacity-50">{T.oCancel}</button>
+          </>
         )}
         {state.err && <span className="text-red-400">{state.err}</span>}
       </div>

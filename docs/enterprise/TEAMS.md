@@ -23,6 +23,7 @@ setup on a real tenant, step by step (Developer Portal path, no Azure subscripti
 | `@Nina approvals` / `approbations` | one card per agent waiting for activation | — |
 | click **Approve** / **Refuse** on a card | the action, as the person who clicked | the clicker (four-eyes: not the requester) |
 | *(nothing — 3.4.0)* an agent proposal, a pending change or a tool call of an agent run starts waiting | its approval card is **posted in the project's channel** (proactive) and replaced by its outcome once decided — in Teams or in the cockpit | the clicker; a tool call: the agent's owner or a project admin |
+| *(in the cockpit — 3.4.1)* « find me someone available to help with ‹X› » to Nina | Nina proposes who (presence + calendar), the channel and the message; **Send** posts it with a real @mention (§ 10) | the requester, on their click |
 
 In a 1:1 chat with no mapping, start with `in <project>: …` (or nothing if the person has a
 single project). The answer carries `_classification: <label>_` when it was built from notes
@@ -199,6 +200,43 @@ waiting (hooks in `agents`, debounced) and by a periodic safety net
   with an `Action.Submit` fallback carrying the verb for older clients, `refresh`
   (verb `refresh`: any viewer gets the current state — decided, expired — without deciding;
   automatic for ≤ 60 members, « Refresh card » beyond), `fallbackText`, `msteams.width = Full`.
+
+## 10. Nina asks for help (3.4.1)
+
+From the cockpit's Nina panel, in the project selected in the header:
+
+> *trouve-moi quelqu'un de disponible pour aider sur ‹Upgrade Postgres›* · *qui est disponible pour
+> aider sur la carte #16 ?* · *demande de l'aide sur la carte #16* · *who is available to help with
+> the TLS rotation?* · *find me someone to help with “Upgrade Postgres”* · *ask for help on card #16*
+
+The request is recognised in Python (FR / EN, `teams.outreach.intent` — no model decides an
+action); a question (« how do I get help… ») goes to Nina as usual. Nina answers with a
+**proposal**, nothing else happens:
+
+* **who** — the members of the project with the role `dev` or above (grants, SSO teams, instance
+  roles), minus the requester and the assignee of the card; each with their availability now
+  and why: Teams presence (`Presence.Read.All`, for people linked to Entra by their SOKKAN
+  sign-in) and today's calendar (`Calendars.Read`: busy / out of office now, next free slot,
+  in `SOKKAN_TZ`). Ranked available › free (calendar only) › unknown › away › busy › out of
+  office. Graph down, permission missing, no link → « availability unknown », never an error;
+* **where** — the channel mapped to the project; several → the widest audience whose level
+  allows the subject; none → Nina says so (Setup › Organization › Teams) and still shows who
+  is available;
+* **what** — « @Ana, could you help Claire with “Upgrade Postgres 15 → 16”? » in the requester's
+  language, a link to the card when there is one. **Classification**: a card above the
+  channel's level is « a confidential card (#16) » — its title never reaches Teams — and the
+  proposal says so; a free-text subject is the person's own words;
+* **send** — the person picks the recipient among the candidates and clicks **Send**
+  (`POST /api/assistant/outreach/send`, the proposal's signed, single-use, 1 h token, valid for
+  the requester in that project only). The bot posts a new thread in the channel with a real
+  mention — `<at>Ana</at>` in the text + `entities: [{type: mention, text, mentioned: {id:
+  <Entra object id>, name}}]` — or the plain name when the person never signed in to SOKKAN with
+  Entra ID. Journal: `teams.outreach` (actor, channel, recipient, card, subject). Nina answers
+  with the link to the thread. **Cancel** sends nothing; the token expires unused.
+
+Prerequisites: `teams` on, a channel mapped to the project, the candidates signed in once with
+Entra ID (presence and a real mention), the two optional Graph application permissions. Live
+check: TEAMS-SETUP.md § 7.1.
 
 ## 8. Limits — what needs a real tenant
 

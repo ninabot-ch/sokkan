@@ -303,3 +303,42 @@ def test_stream_handles_a_non_streaming_endpoint(monkeypatch):
     monkeypatch.setattr(assistant.httpx, "stream", lambda *a, **k: R())
     cfg = {"url": "https://infer.sokkan.ch", "token": "t", "api": "anthropic", "model": "m"}
     assert list(assistant._stream(cfg, "S", [], "a@b.ch")) == ["réponse entière"]
+
+
+# ---- 3.4.1 : « Nina trouve quelqu'un de disponible » — intention FR/EN, sans modèle ---------
+@pytest.mark.parametrize("msg,subject,card,lang", [
+    ("trouve-moi quelqu'un de disponible pour aider sur ‹Upgrade Postgres›", "Upgrade Postgres", None, "fr"),
+    ("Trouve moi quelqu'un de dispo pour m'aider sur la migration DNS", "migration DNS", None, "fr"),
+    ("qui est disponible pour aider sur « Upgrade Postgres 15 → 16 » ?", "Upgrade Postgres 15 → 16", None, "fr"),
+    ("demande de l'aide sur la carte #16", None, 16, "fr"),
+    ("cherche quelqu'un pour la carte 42", None, 42, "fr"),
+    ("who is available to help with the TLS rotation?", "TLS rotation", None, "en"),
+    ("find me someone available to help with ‹Upgrade Postgres›", "Upgrade Postgres", None, "en"),
+    ("ask for help on card #16", None, 16, "en"),
+    ("get help with the release checklist", "release checklist", None, "en"),
+    ("someone free to help on #7?", None, 7, "en"),
+])
+def test_outreach_intent_fr_en(msg, subject, card, lang):
+    it = assistant.outreach_intent(msg)
+    assert it is not None, msg
+    assert (it["subject"], it["card_id"], it["lang"]) == (subject, card, lang)
+
+
+@pytest.mark.parametrize("msg", [
+    "how do I get help on the key rotation plan?",          # a question to Nina
+    "comment je demande de l'aide à l'équipe ?",
+    "what is the fleet tab for?",
+    "help",
+    "ask for help",                                           # weak trigger, no subject
+    "the card #16 is done",
+    "crée un projet avec moi",
+])
+def test_not_an_outreach_intent(msg):
+    assert assistant.outreach_intent(msg) is None, msg
+
+
+def test_outreach_without_a_subject_still_counts_as_the_request():
+    """Nina asks « on what? » rather than letting the model improvise an action."""
+    it = assistant.outreach_intent("trouve-moi quelqu'un de disponible")
+    assert it == {"subject": None, "card_id": None, "lang": "fr"}
+    assert assistant.outreach_intent("who's free right now?") == {"subject": None, "card_id": None, "lang": "en"}

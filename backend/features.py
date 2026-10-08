@@ -430,7 +430,9 @@ REGISTRY: tuple[Feature, ...] = (
             "project's channel the moment they start waiting —, decision capture "
             "into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. "
             "One tenant per instance (enforced on every activity), admin consent, Nina answers "
-            "as the identified user only.",
+            "as the identified user only. 3.4.1: from the cockpit, « find me someone available "
+            "to help with X » — Nina proposes who (presence + calendar) and the message with a "
+            "real @mention in the project's channel; it is posted on the person's click only.",
             status="experimental", requires=("assistant", "classification", "sso"),
             vars=_t("teams"),
             config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD",
