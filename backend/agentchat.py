@@ -611,12 +611,12 @@ class AgentSession:
                         "message": "A turn is already running — interrupt it first."})
             return
         # budget par session (hard stop HITL) : au-delà, plus de nouveau tour —
-        # relever le budget (Profil → Organisation) ou ouvrir une session neuve.
+        # relever le budget (Setup › Organization) ou ouvrir une session neuve.
         budget = instance.budgets().get("budget_session_usd", 0.0)
         if budget and self.cost_usd >= budget:
             self._emit({"type": "error",
                         "message": (f"Session budget reached (${self.cost_usd:.2f} ≥ "
-                                    f"${budget:.2f}). Raise the budget in Profile → "
+                                    f"${budget:.2f}). Raise the budget in Setup › "
                                     "Organisation, or spawn a fresh session.")})
             return
         # 3.2 lot 4: the project's day / month ceiling — warn at 80 %, hard stop at 100 %

@@ -35,7 +35,7 @@ Spawning a session *is* the "check your memory" ritual — and since 2.0 it's a 
 - **Board** — a kanban where cards spawn pre-seeded sessions (`▶ spawn` → the card's description becomes the task, **the server runs the memory search itself and injects the top notes into the first message** — deterministic recall, not a ritual the model may skip — then the agent proposes a plan and waits for your go)
 - **Playbooks** — curated session templates (refactor, debug, ops incident, code review, memory digest, memory onboarding): pick one at spawn, it shapes the mission — the HITL guardrails stay on top
 - **Memory/KB** — inspect the RAG store: notes, links and backlinks (indexed, with `[[target|label]]` aliases), a **knowledge graph** of the `[[wikilinks]]` with type filters and cluster chips, and a search playground showing exactly what a session would recall. Sessions navigate the graph too (`memory_links` MCP tool) and **write back to it** (`memory_write` — one durable fact per note, in the project format). Mark durable facts `priority: high` to boost them at recall; **⚡ onboard** seeds the first notes from a fresh repo in one click; **✎ digest** condenses the whole memory into a `project-status` note
-- **Costs & budgets** — per-day / per-session token usage and estimated API cost, aggregated from the transcripts; set a **budget per session and per day** (Profile → Organisation): sessions warn at 80% and hard-stop at the limit — raising it is your explicit call, nothing silent
+- **Costs & budgets** — per-day / per-session token usage and estimated API cost, aggregated from the transcripts; set a **budget per session and per day** (Setup › Organization): sessions warn at 80% and hard-stop at the limit — raising it is your explicit call, nothing silent
 - **Journal** — an audit trail of every action (who spawned, moved, deleted what — the basis for reverting)
 - **Nina** — an embedded DevOps assistant (🧭) that knows the product — sessions, memory, fleet, runbooks — and answers next to your work. Strict guardrails: never your secrets, never your code; she guides, you hold the helm. Behind `SOKKAN_FEATURE_ASSISTANT=1` self-host (bring your model config); included with zero setup on [SOKKAN Cloud](https://sokkan.ch/#cloud)
 - Sessions can talk back: bundled MCP servers let any session **search the memory**, **drive the board** (search, read, create, edit, move, comment, link, close and reopen cards — every action signed with the session it came from), and **push a preview** of what it changed
@@ -111,7 +111,7 @@ claude setup-token          # one-time browser login
 ### Using another provider (Kimi, GLM, DeepSeek, local models)
 
 Sessions run the Claude Code engine, but the model behind it is configurable:
-**Profile → Model → Other provider** takes any endpoint speaking the Anthropic
+**Setup › Engines → Other provider** takes any endpoint speaking the Anthropic
 Messages API — base URL + API key + model id, applied to every new session
 without restarting anything. Presets ship for:
 
@@ -143,7 +143,7 @@ and verifiable, and the operator holds itself to them:
   fails, requests first fail over to a second EU provider *at the same
   price*, then escalate to the Deep tier as a last resort. Unrequested
   escalation is billed **at your tier's price** for the first 1M escalated
-  tokens each month. A gauge in the cockpit (**Profile → Model**) and in
+  tokens each month. A gauge in the cockpit (**Setup › Engines**) and in
   `GET /usage` shows exactly how much was escalated — if the operator ever
   escalated gratuitously, it would pay the price difference itself, in
   public view.

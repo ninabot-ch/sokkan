@@ -481,7 +481,7 @@ def display_command(command: str) -> str:
 
 
 def readiness() -> str | None:
-    """Informational note for Profile → Features (never gates)."""
+    """Informational note for Setup › Organization › Features (never gates)."""
     global _probe_note
     if pod_isolation():
         return "pod: sessions run in their own pod (reference isolation); tool hook on top"

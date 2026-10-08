@@ -1,7 +1,7 @@
 # Nouveautés — 1.2 « Open helm » et 1.3 « Companion » (juillet 2026)
 
 **Multi-modèles (1.2)** : les sessions tournent sur le moteur Claude Code, mais le
-modèle derrière est configurable — Profil → Modèle → « Other provider » accepte
+modèle derrière est configurable — Setup › Engines → « Other provider » accepte
 tout endpoint compatible API Anthropic : Kimi (Moonshot), GLM (Z.AI), DeepSeek,
 ou un modèle local derrière un proxy LiteLLM/Ollama. Presets fournis ; appliqué
 à chaque nouvelle session, sans redémarrage. (Sur une instance en inférence
@@ -11,7 +11,7 @@ incluse, le modèle est géré par l'opérateur — pas de bascule depuis le coc
 - `priority: high` dans le frontmatter d'une note = boost au recall, ★ dans le
   cockpit, en tête du MEMORY.md généré. À réserver aux faits durables
   (conventions, contraintes dures).
-- Bouton **✎ digest** (onglet CortHeXis) : spawne une session qui condense la
+- Bouton **✎ digest** (Control › CortHeXis) : spawne une session qui condense la
   mémoire + l'historique git récent dans une note `project-status`.
 - Bouton **⬡ graph** : le graphe des `[[wikilinks]]` entre notes, cliquable.
 

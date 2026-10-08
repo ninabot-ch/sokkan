@@ -76,7 +76,7 @@ Target users: developers, devops, system engineers, DBAs, QA.
 ```
 
 * **Created from a session** (MCP `create_agent`) or from Nina → `pending`. It never runs
-  until a human approves it in the Crew tab. Approving = owner (dev+) or an admin.
+  until a human approves it in Build › Crew. Approving = owner (dev+) or an admin.
 * **Created from the form** by a human → `draft`, or `active` straight away (the human *is*
   the gate).
 * **Changed from a session** while `active`/`paused` → stored as `pending_change`; the
@@ -123,7 +123,7 @@ Target users: developers, devops, system engineers, DBAs, QA.
   environment; a Claude CLI login only with `SOKKAN_AGENTS_USE_CLI_LOGIN=1`). Without them:
   queued runs from before the boot are `skipped`, nothing is caught up, due schedules move to
   their next occurrence with one `skipped` run, alerts record a `skipped` run, "Run now" is
-  refused, and the Crew tab says the scheduler is stopped. The restart rules above apply
+  refused, and Build › Crew says the scheduler is stopped. The restart rules above apply
   only to an instance with credentials. Details: `docs/MULTIUSER.md`.
 
 ## A run
@@ -252,7 +252,7 @@ is a prompt-injection channel into every later session. Therefore:
   OUTSIDE the indexed memory directory, with its provenance (agent, run, session, date);
 * nothing indexes that directory: a quarantined note is never recalled — not by the spawn
   pre-seed, not by `memory_search`, not by the per-turn hooks;
-* a human reviews it from the run (Crew → History) or from the CortHeXis tab (Quarantine):
+* a human reviews it from the run (Crew → History) or from Control › CortHeXis (Quarantine):
   **approve** moves it into the memory with `metadata.provenance` and `approved_by` in its
   frontmatter; **reject** archives it under `rejected/` (or deletes it);
 * inside a run, Write/Edit into the memory or quarantine directories is refused.
@@ -293,7 +293,7 @@ configured), off otherwise; `0` turns it off, `1` forces it on.
   error as summary) — no storm from an agent failing every 15 minutes.
 * The next `succeeded` run resolves it; a human can also mark it resolved in Operate.
 * Notification: the incident's creation is notified once through Operate's channel
-  (kind `alert`, link `/?tab=operate&incident=<id>`), instead of the agent's own failure
+  (kind `alert`, link `/?tab=operate&incident=<id>`, which opens Operate › Operate), instead of the agent's own failure
   ping for that run; later failures follow the agent's `notify_on` as before.
 * Links: an incident lists the agent runs its alert started (`run.context.incident`)
   and, for an agent incident, its failed runs — both open Crew on the run
@@ -319,7 +319,7 @@ The public read-only demo shows a living Crew without spending inference:
   or done criteria copied from another agent is refused. `check <crew.json>` validates
   without writing.
 
-## The Crew tab (UI)
+## The Crew tab (UI) — Build › Crew
 
 **The deck is the main view: one agent = one card**, laid out as a kanban whose four
 columns are the four states. A card moves by itself from column to column as its agent
@@ -344,7 +344,7 @@ lives. Archived agents are hidden behind a toggle.
 * **Click = popout** above the deck (the deck stays where it was) with three tabs:
   - **Settings** — every field editable (same validation as the API), approve / reject a
     proposal or a pending change, pause / resume / run now / archive;
-  - **Live** — the live session(s) of the agent, in the same chat pane as the Sessions tab
+  - **Live** — the live session(s) of the agent, in the same chat pane as Build › Sessions
     (approve a waiting tool call right there);
   - **History** — past runs: status, cost, tokens, duration, trigger, deliverable, where it
     was filed, link to the session transcript.

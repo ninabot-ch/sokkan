@@ -1,9 +1,11 @@
-# Le cockpit, écran par écran
-- **Sessions** : rail des sessions vivantes + grille de chat multi-panneaux. Les tool calls, demandes de permission et questions s'affichent en widgets natifs (boutons) — rien d'irréversible sans clic. Une session = un agent Claude Code travaillant dans le workspace.
-- **Board** : kanban. Une carte décrit une tâche (description, priorité, échéance, checklist) ; « ▶ spawn » transforme la carte en session pré-contextée : la description sème une recherche mémoire, l'agent propose un plan et attend le go.
-- **Mémoire** : la base RAG du projet — notes, liens [[...]], backlinks, stats, et un terrain d'essai de recherche qui montre exactement ce qu'une session rappellerait.
-- **Coûts** : tokens et coût estimé par jour et par session, agrégés depuis les transcripts. Fenêtres 1j/7j/30j.
-- **Journal** : audit de toutes les actions (qui a spawné/déplacé/supprimé quoi).
-- **Ma flotte** (cloud) : ressources actives (workers, PostgreSQL managé), état en direct, catalogue pour commander (admin requis), terminal de maintenance (admin/owner, audité).
-- **Profil → Modèle** : mode d'inférence (BYOK ou incluse par crédits), solde et usage.
+# Le cockpit, plan par plan (3.2.2)
+La barre du haut a **quatre plans** ; chacun a ses sous-onglets (deuxième rangée). Un sous-onglet absent (fonction coupée, rôle insuffisant) n'apparaît pas ; un plan vide non plus. Raccourcis : `g` puis `c`/`b`/`o`/`s` change de plan, `1`…`9` choisit le sous-onglet. On atterrit sur le plan de son rôle : manager/maintainer → Control, dev → Build, équipe ops → Operate, admin → son dernier plan.
+- **Control › Helm** : cartes hiérarchiques de direction (managers) — contexte qui descend, avancement qui remonte, suggestions.
+- **Control › Board** : kanban. Une carte décrit une tâche (description, priorité, échéance, checklist) ; « ▶ spawn » transforme la carte en session pré-contextée : la description sème une recherche mémoire, l'agent propose un plan et attend le go.
+- **Control › CortHeXis** : la mémoire du projet — notes, liens [[...]], graphe, revue, quarantaine, et un terrain d'essai de recherche qui montre exactement ce qu'une session rappellerait.
+- **Build › Sessions** : rail des sessions vivantes + grille de chat multi-panneaux. Les tool calls, demandes de permission et questions s'affichent en widgets natifs (boutons) — rien d'irréversible sans clic. Une session = un agent Claude Code travaillant dans le workspace.
+- **Build › Crew** : les agents (cartes par état). **Build › Preview** : l'aperçu de ce qu'une session vient de modifier (lieu de validation).
+- **Operate › Operate** : incidents et alertes. **Operate › Infra** : topologie, et **Ma flotte** (cloud) : ressources actives, catalogue (admin), terminal de maintenance (admin/owner, audité). **Operate › Costs** : tokens et coût estimé par jour et par session (1j/7j/30j). **Operate › Journal** : audit de toutes les actions.
+- **Setup › Organization** : nom, budgets, membres, projets & équipes, classification, Teams, features. **Setup › Engines** : les moteurs IA (« Connect your AI ») et, pour l'admin, la clé d'instance de chaque fournisseur (…xxxx, posée par qui et quand — Remplacer / Retirer / Tester) ; mode d'inférence, solde et usage. **Setup › Magnitude** : vos GPU. **Setup › Secrets** : le coffre. **Setup › My account** (et comptes liés GitLab), **Setup › Notifications**.
+- Les anciens liens (`/?tab=crew`, `/?tab=operate&incident=…`) marchent toujours ; la forme nouvelle est `/?plane=build&tab=crew`.
 - Rôles : viewer < dev < admin < owner. Spawner/prompter = dev ; gérer les users et commander la flotte = admin.

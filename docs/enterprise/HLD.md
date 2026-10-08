@@ -43,20 +43,31 @@ pointed at the gateway (`ANTHROPIC_BASE_URL`) ●, or the `sokkan` CLI ●.
 
 ### 2.2 The cockpit (control plane)
 
-| Tab | Role | Status |
+Since 3.2.2 the cockpit is navigated by **planes**: one bar of four planes, each with its
+sub-tabs. A sub-tab absent for a person (feature off, role too low) is not shown; a plane
+with no visible sub-tab is not shown. Landing plane by role: manager / maintainer →
+Control, developer → Build, ops team → Operate, instance admin → the last plane they used
+(kept per user, `GET/PUT /api/me/nav`). Deep links: `/?plane=build&tab=crew`; every older
+`/?tab=<name>` still opens the right place (table in `frontend/lib/planes.ts`, tested).
+Keyboard: `g` then `c` / `b` / `o` / `s`, `1`–`9` for the sub-tabs.
+
+| Plane › sub-tab | Role | Status |
 |---|---|---|
-| Board | kanban per project; cards spawn pre-seeded sessions; driven from sessions by MCP | ● (MCP drive: ◐ 3.2) |
-| Sessions | parallel Claude Code sessions (Agent SDK), native approval widgets | ● |
-| Crew | agents: one card each, deck idle · armed · running · error | ● |
-| Preview | the change running, for validation | ● ; share read / read-write for review ○ 3.2 |
-| CortHeXis | memory: notes, graph, recall playground, quarantine review | ● ; per project ◐ |
-| Operate | observability, alerts → incidents with a diagnosis session, runbooks, secrets vault | ● |
-| Costs | usage and budgets per session / day; per agent run | ● ; per project ○ 3.2 lot 4 |
-| Magnitude | pair machines, benchmark models, serve one, route sessions to it | ● |
-| Nina | built-in assistant | ● ; decomposition / morning brief ○ 3.3 |
-| Journal | audit trail | ● |
-| Admin → Projects & teams, project selector | ◐ |
-| Helm | manager view: hierarchical cards, progress that rolls up | ○ 3.3 |
+| Control › Helm | manager view: hierarchical cards, progress that rolls up | ● 3.3 (feature `helm`, people who steer a project) |
+| Control › Board | kanban per project; cards spawn pre-seeded sessions; driven from sessions by MCP | ● |
+| Control › CortHeXis | memory: notes, graph, recall playground, quarantine review | ● ; per project ● |
+| Build › Sessions | parallel Claude Code sessions (Agent SDK), native approval widgets | ● |
+| Build › Crew | agents: one card each, deck idle · armed · running · error | ● |
+| Build › Preview | the change running, for validation; share read / read-write for review | ● (project `default`) |
+| Operate › Operate | observability, alerts → incidents with a diagnosis session, runbooks | ● (ops team + instance admins) |
+| Operate › Infra | topology, managed fleet | ● (ops team + instance admins) |
+| Operate › Costs | usage and budgets per session / day / agent run / project | ● |
+| Operate › Journal | audit trail | ● |
+| Setup › Organization | name, budgets, members, projects & teams, classification, Teams, features | ● |
+| Setup › Engines | « Connect your AI » and the instance model keys on one page (governed: allowed engines + each provider's instance key for the admin) | ● |
+| Setup › Magnitude | pair machines, benchmark models, serve one, route sessions to it | ● |
+| Setup › Secrets · My account · Notifications | vault (names only), identity and linked accounts, alert channels | ● |
+| Nina | built-in assistant, panel on every plane | ● |
 
 **Project gate** ◐ — a middleware decides the project of every request (the project of the
 *object* for sessions, cards, agents, runs; otherwise the `x-sokkan-project` header) and

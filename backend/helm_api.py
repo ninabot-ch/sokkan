@@ -193,7 +193,7 @@ def install(app, current_user, require) -> None:
                           _f: None = Depends(feature_helm)) -> dict:
         import vault
         if body.secret not in vault.names():
-            raise HTTPException(400, f"no vault secret named {body.secret} — an admin adds it in Profile → Secrets")
+            raise HTTPException(400, f"no vault secret named {body.secret} — an admin adds it in Setup › Secrets")
         try:
             out = helm_calendar.set_source(u["email"], body.kind, body.secret)
         except ValueError as e:

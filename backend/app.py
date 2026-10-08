@@ -305,6 +305,26 @@ def me(request: Request, user: dict = Depends(current_user)) -> dict:
             else None}
 
 
+class NavIn(BaseModel):
+    last_plane: str
+
+
+@app.get("/api/me/nav")
+def me_nav(user: dict = Depends(current_user)) -> dict:
+    """3.2.2 — the plane this person was on last (the cockpit lands an admin there)."""
+    import navprefs
+    return navprefs.get(user["email"])
+
+
+@app.put("/api/me/nav")
+def me_nav_set(body: NavIn, user: dict = Depends(current_user)) -> dict:
+    import navprefs
+    try:
+        return navprefs.set_last(user["email"], body.last_plane)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # --- 3.2 lot 3 : projets, équipes, attributions -----------------------------------------
 @app.get("/api/projects")
 def my_projects(user: dict = Depends(current_user)) -> dict:
@@ -360,7 +380,7 @@ def admin_projects(_u: dict = Depends(require("admin"))) -> dict:
 def admin_project_create(body: ProjectIn, u: dict = Depends(require("admin"))) -> dict:
     if not features.enabled("multi_project"):
         raise HTTPException(409, "feature `multi_project` is off on this instance "
-                                 "(SOKKAN_FEATURE_MULTI_PROJECT=1, see Profile → Features)")
+                                 "(SOKKAN_FEATURE_MULTI_PROJECT=1, see Setup › Organization › Features)")
     if body.access_source == "forge" and not features.enabled("gitlab"):
         raise HTTPException(400, "forge access arrives with lot 5 (GitLab); use sso_group")
     try:
@@ -1366,7 +1386,7 @@ def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
 def features_flags() -> dict:
     """Onglets/capacités actifs sur cette instance — le front masque le reste. The flat
     keys are kept for the UI (and older front-ends); `registry` = every feature of
-    backend/features.py with its effective state and WHY (Profile → Features)."""
+    backend/features.py with its effective state and WHY (Setup › Organization › Features)."""
     on = features.enabled
     return {
         # l'onglet Infra existe dès qu'il a quelque chose à montrer : topologie
@@ -1893,7 +1913,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
                 session._emit({"type": "error", "message": (
                     f"Daily budget notice: today's estimated spend is ${spent:.2f}, "
                     f"over the ${day_budget:.2f}/day budget. This session still works — "
-                    "consider wrapping up or raising the budget (Profile → Organisation).")})
+                    "consider wrapping up or raising the budget (Setup › Organization).")})
         except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
             pass
     bstate, bmsg = budgets.check(project)   # 3.2 lot 4 : budget du projet (jour / mois)

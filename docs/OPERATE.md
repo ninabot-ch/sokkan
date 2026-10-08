@@ -50,7 +50,7 @@ to memory, and the next occurrence starts smarter.
 
 ---
 
-## Secrets (Profile → Secrets)
+## Secrets (Setup › Secrets)
 
 Operating prod means keys. The vault stores secrets **encrypted at rest**
 (per-instance Fernet key) and injects them into every session as environment
@@ -61,13 +61,13 @@ values never returned.
 
 ---
 
-## HITL push (Profile → Notifications)
+## HITL push (Setup › Notifications)
 
 You launch nine sessions and step away; one hits a permission gate. Instead of
 blocking silently, SOKKAN pings you (Telegram or a generic webhook) after the
 request stays pending for ~25s, with a link to come click. Answer in time and no
 ping is sent. This is also the channel production alerts fan out to. Configure
-and test it in *Profile → Notifications*.
+and test it in *Setup › Notifications*.
 
 ---
 

@@ -114,7 +114,7 @@ def _identify(activity: dict, text: str) -> tuple[Ctx, str]:
                        + ", ".join(readable or ["none"]))
     else:
         raise Stop("This conversation is not linked to a SOKKAN project (an admin maps it in "
-                   "Profile → Teams).")
+                   "Setup › Organization › Teams).")
     pu = projectgate.project_user(user, project)
     if pu is None:
         raise Stop(f"You have no access to the project « {project} ».")

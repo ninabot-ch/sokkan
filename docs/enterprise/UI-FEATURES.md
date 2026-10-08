@@ -7,8 +7,8 @@ in the enterprise edition, off in community. Off = the routes answer 404 and the
 | Feature | Id | Requires | Where |
 |---|---|---|---|
 | Shared session / preview for review | `shared_review` | `preview`, `multi_project` | ⇪ share (session pane, Preview), rail « Shared with me » |
-| Model keys (BYOK admin, lot 7) | `byok_admin` | `multi_project` | Profile → Model keys (instance admins) |
-| Connect your AI | `connect_ai` | — | Profile → Connect your AI (replaces Model), Crew card engine |
+| Model keys (BYOK admin, lot 7) | `byok_admin` | `multi_project` | Setup › Engines (instance admins; 3.2.2: no separate screen, the key sits on its engine card — the API stays) |
+| Connect your AI | `connect_ai` | — | Setup › Engines (replaces Model), Crew card engine |
 
 ## 1. Shared review — `shared_review`
 
@@ -75,6 +75,16 @@ own door, or a proxy such as LiteLLM).
 `SOKKAN_CONNECT_AI_MODE=personal|governed` forces a mode. `SOKKAN_ROUTER_URL` overrides the
 router's base URL.
 
+- **Setup › Engines (3.2.2)** = « Connect your AI » and « Model keys » merged on one page. For the
+  admin, each engine card carries the instance key of its provider — « key …xxxx, set by X on
+  date » with **Replace / Remove / Test** — and, in governed mode, the policy of allowed
+  engines. It is ONE store: a key posed through an engine (`PUT /api/connect-ai/engines/{id}`)
+  is the record `GET /api/admin/model-keys` lists, and the other way round; an Anthropic key
+  posed through the Claude card is pushed to the gateway like one posed in Model keys.
+  `POST /api/connect-ai/engines/{id}/test` and `DELETE /api/connect-ai/engines/{id}/key`
+  (admin; removing the key also disconnects the engines that used it and clears the
+  sessions' reference). The `/api/admin/model-keys` routes stay (scripts, `connect_ai` off).
+  A non-admin sees neither the key nor its last 4 characters.
 - Connecting an engine (admins) stores its key in Model keys' encrypted store; « use for
   sessions » writes the llm.json reference. Login mode shows: *check your provider's terms* —
   SOKKAN makes no promise about consumer plans.

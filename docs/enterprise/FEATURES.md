@@ -8,9 +8,9 @@ SOKKAN Enterprise is **the same open-source app**, not a fork. Every capability 
 1. `SOKKAN_EDITION` = `community` (default) or `enterprise` picks the column of defaults.
 2. `SOKKAN_FEATURE_<ID>=1|0` turns a feature on or off. The variables used before the registry (marked *legacy*) are still read, after the canonical one: an existing installation changes nothing. An empty value counts as unset.
 3. *integration* features are on when their service is configured; *invariant* features are security properties, always on; *planned* features are declared for the roadmap and stay off whatever the environment says.
-4. A feature whose required feature is off, or whose conflicting feature is on, is **turned off** with its reason. The API always starts; a feature is never half on. If it had been asked for explicitly, the API logs `[features] <id> is OFF: <reason>` at startup and Profile → Features shows it in red.
+4. A feature whose required feature is off, or whose conflicting feature is on, is **turned off** with its reason. The API always starts; a feature is never half on. If it had been asked for explicitly, the API logs `[features] <id> is OFF: <reason>` at startup and Setup › Organization › Features shows it in red.
 
-State on a running instance: `GET /api/features` (`registry`) or Profile → Features (admins).
+State on a running instance: `GET /api/features` (`registry`) or Setup › Organization › Features (admins).
 
 ## Registry
 
@@ -346,7 +346,7 @@ Teams = the IdP's groups (claim `groups`), re-synchronised at each login; a team
 
 **Operate** — stable, integration.
 
-Observability tab: alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
+Operate plane (Operate › Operate): alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL`
@@ -367,7 +367,7 @@ Operate / Infra open to an SSO group (the ops team) besides the instance admins.
 
 **Infra topology** — stable, integration.
 
-Infra tab: host topology from Prometheus.
+Operate › Infra: host topology from Prometheus.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`
@@ -376,7 +376,7 @@ Infra tab: host topology from Prometheus.
 
 **Managed fleet** — stable, integration.
 
-Infra tab: the managed client VMs of SOKKAN Cloud.
+Operate › Infra: the managed client VMs of SOKKAN Cloud.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN`
@@ -385,7 +385,7 @@ Infra tab: the managed client VMs of SOKKAN Cloud.
 
 **CortHeXis link** — stable, integration.
 
-Link from the memory tab to a CortHeXis review UI.
+Link from Control › CortHeXis to a CortHeXis review UI.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_CORTEX_URL`
@@ -437,7 +437,7 @@ SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: c
 
 **BYOK admin screen** — beta, toggle.
 
-Profile → Model keys: the instance admin sets, replaces or deletes the model provider keys (Anthropic, …), stored encrypted with the vault key, never shown again (last 4 characters, date, who); optional validity test; exposed to the sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured (lot 7). Per-project keys: the field exists, planned.
+Setup › Engines: the instance admin sets, replaces or deletes the model provider keys (Anthropic, …), stored encrypted with the vault key, never shown again (last 4 characters, date, who); optional validity test; exposed to the sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured (lot 7). Per-project keys: the field exists, planned.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`
@@ -481,7 +481,7 @@ Hierarchical cards (manager's project card → engineer's cards → sub-tasks): 
 
 **Classification and clearances** — beta, toggle.
 
-Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the CortHeXis tab, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
+Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the Control › CortHeXis, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `sso_teams`
@@ -504,7 +504,7 @@ Notes, decisions, cards and agent deliverables carry a level (public < team < pr
 
 **Connect your AI** — beta, toggle.
 
-One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin sets the allowed engines, zones and tiers; choice per project). A connected engine can drive a Crew card.
+Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin sets the allowed engines, zones and tiers; choice per project). A connected engine can drive a Crew card.
 
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`

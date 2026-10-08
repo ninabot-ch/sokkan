@@ -267,7 +267,7 @@ def test_kb_always_carries_the_toc_and_the_spine():
     kb = assistant._kb_for("Combien coûte un worker ?")
     assert "Sections disponibles" in kb          # Nina sait ce qui existe…
     assert "Dépannage courant" in kb             # …même quand ce n'est pas déplié
-    assert "Le cockpit, écran par écran" in _titles(kb)   # colonne vertébrale
+    assert "Le cockpit, plan par plan (3.2.2)" in _titles(kb)   # colonne vertébrale
     assert len(kb) < len(assistant._kb())        # et c'est plus court que tout injecter
 
 

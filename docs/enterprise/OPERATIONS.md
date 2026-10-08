@@ -94,7 +94,7 @@ SOKKAN_SCIM_GROUP_KEY=displayName      # or externalId (Entra ID sending object 
 ```
 
 **What a revocation does** — the same effect for SCIM deactivate / delete and the admin
-button (Profile → Members → **Revoke now**, or `POST /api/admin/users/<email>/revoke`):
+button (Setup › Organization › Members → **Revoke now**, or `POST /api/admin/users/<email>/revoke`):
 
 ```
 account disabled ─┬─ every cockpit cookie issued before now refused (next request: 401/403)
@@ -106,7 +106,7 @@ account disabled ─┬─ every cockpit cookie issued before now refused (next 
                   └─ audit: user.revoke (counts), agent.pause.owner_access, scim.*
 ```
 
-Reinstate: Profile → Members → *reinstate* (or SCIM `active=true`). Paused agents stay paused:
+Reinstate: Setup › Organization › Members → *reinstate* (or SCIM `active=true`). Paused agents stay paused:
 someone with access resumes or takes them over on purpose. The instance `owner` and yourself
 cannot be revoked from the button (SCIM can disable anyone).
 
@@ -167,7 +167,7 @@ SOKKAN_GITLAB_REDIRECT_URI=             # only if it differs from $SOKKAN_PUBLIC
 SOKKAN_GITLAB_CA_BUNDLE=/data/gitlab-ca.pem    # internal CA of a self-hosted GitLab (API and git)
 ```
 
-`docker compose up -d api`; Profile → Features shows `gitlab` on with no "problem" and no note
+`docker compose up -d api`; Setup › Organization › Features shows `gitlab` on with no "problem" and no note
 "no GitLab OAuth application".
 
 **3. Projects.** Admin → Projects & teams → new project, access "GitLab roles"; add its
@@ -175,7 +175,7 @@ repositories (`group/subgroup/repo`; `POST /api/admin/projects/<slug>/repos`). G
 apply on top (explicit overrides). Changing the repositories clears the project's cached
 decisions.
 
-**4. People.** Each person: Profile → **Linked accounts** → "Link GitLab" → consent on GitLab.
+**4. People.** Each person: Setup › My account › **Linked accounts** → "Link GitLab" → consent on GitLab.
 The screen shows the linked account, scopes, token expiry (GitLab: 2 h, renewed server-side),
 and the role GitLab gives in each project ("Refresh my access" re-reads at once). Someone whose
 only access comes through GitLab can log in before linking: until then only `/api/forge/*`,
@@ -216,7 +216,7 @@ credentials the Crew tab shows "Scheduler stopped" and nothing that fell due is 
 Source of truth: [`backend/features.py`](../../backend/features.py) and the generated
 [FEATURES.md](FEATURES.md) (exact variable names, defaults per edition, dependencies).
 Canonical switch: `SOKKAN_FEATURE_<ID>=1|0`; legacy names still accepted. After each step:
-`docker compose up -d api`, then **Profile → Features** (or `GET /api/features`) must show the
+`docker compose up -d api`, then **Setup › Organization › Features** (or `GET /api/features`) must show the
 feature on with no red "problem", then run the check of the step. Rolling a step back = set the
 switch to `0` and restart `api`.
 
@@ -232,7 +232,7 @@ switch to `0` and restart `api`.
 | 8. Revocation | `revocation` | § 2.1 (`SOKKAN_SCIM_TOKEN`, IdP provisioning) | SCIM deactivate → 403 at once, sessions closed, agents paused | ◐ lot 6 |
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | § 4.1 (sandbox), [UI-FEATURES.md](UI-FEATURES.md) | a session of X cannot `Read`/`cat` a file of Y; a key set in Model keys is masked and used; a share to a viewer is read-only | ◐ lots 7, 8 (beta) |
 | 10. Helm | `helm` | [HELM.md](../HELM.md); `SOKKAN_HELM_TICK_S`, calendar ICS by vault name | ▶ spawn of a child card carries the parent's intent and decisions; a child card's progress rolls up to its parent | ◐ 3.3 (beta) |
-| 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Profile → Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
+| 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Setup › Organization › Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
 | 12. Teams | `teams` | [TEAMS.md](TEAMS.md): app registration, `SOKKAN_TEAMS_*`, admin consent, channel ↔ project mapping | `@Nina status` in a mapped channel answers as the sender; an approval card works once, for the right person | ◐ 3.4 |
 
 Planned features cannot be switched on: asking for one is reported, never honoured.
@@ -393,8 +393,8 @@ note.
 1. Read the `CHANGELOG.md` entry, *Upgrade notes* first ([RELEASING.md](../RELEASING.md)).
 2. Back up (§ 5).
 3. `curl -fsSL https://sokkan.ch/install.sh | sh` from the parent directory (keeps `.env` and
-   volumes) — or the manual steps in [UPGRADE.md](../UPGRADE.md). *Managed*: Profile → update.
-4. `./scripts/doctor.sh`, `GET /api/health`, Profile → Features (no red problem), one session,
+   volumes) — or the manual steps in [UPGRADE.md](../UPGRADE.md). *Managed*: Operate › Infra → My fleet → update.
+4. `./scripts/doctor.sh`, `GET /api/health`, Setup › Organization › Features (no red problem), one session,
    one agent "Run now" on a harmless agent.
 
 Roll back: `./scripts/rollback.sh <hash>` (keeps `.env`, workspace, volumes). **Going back from
@@ -412,7 +412,7 @@ expire at the new 8 h limit; an instance on a CLI login needs `SOKKAN_AGENTS_USE
 | Signal | How | Expected |
 |---|---|---|
 | Liveness | `GET /api/health`; `docker compose ps` (healthchecks on `db`, embedding service) | 200, all healthy |
-| Features | Profile → Features / `GET /api/features` | no `problem` |
+| Features | Setup › Organization › Features / `GET /api/features` | no `problem` |
 | Scheduler | Crew banner / `GET /api/agents` → `scheduler.held` | `held: false` |
 | Agent failures | Operate incidents (`agent_incidents`) | none open, or acknowledged |
 | Isolation | `GET /api/audit?q=memory.scope_violation` | always empty |
@@ -440,7 +440,7 @@ Severity levels, notification chain and post-mortem template: **TBD with the cus
 
 | Secret | Where | Rotation | Effect |
 |---|---|---|---|
-| Vault values (DB passwords, tokens) | Profile → Secrets (maintainer+ of the project in 3.2) | set the new value | sessions and runs started afterwards get it; redaction uses the current value |
+| Vault values (DB passwords, tokens) | Setup › Secrets (maintainer+ of the project in 3.2) | set the new value | sessions and runs started afterwards get it; redaction uses the current value |
 | `vault.key` (vault encryption key) | `/data/vault.key` | **TBD — no re-encryption tool** | — |
 | Cockpit session signing (`SOKKAN_SESSION_SECRET` or `/data/session.key`) | `.env` / data volume | change and restart `api` | everyone is logged out |
 | OIDC client secret | IdP + `.env` | rotate in the IdP, update `.env`, `docker compose up -d api` | logins fail between the two steps |
@@ -457,7 +457,7 @@ Rotation calendar: **TBD with the customer's policy**.
 - [ ] `./scripts/doctor.sh` green; `/api/health` 200; TLS valid on `SOKKAN_PUBLIC_URL`
 - [ ] `SOKKAN_AUTH_MODE=oidc`, `SOKKAN_DEFAULT_ROLE=none`, test login per profile
 - [ ] `SOKKAN_LOCAL_TOKEN` not used for people; `.env` mode 0600, not in git
-- [ ] Profile → Features reviewed; no `problem`; every enabled feature has passed its check (§ 4)
+- [ ] Setup › Organization › Features reviewed; no `problem`; every enabled feature has passed its check (§ 4)
 - [ ] `SOKKAN_SESSION_SECRETS=named`; `SOKKAN_AGENTS_APPROVAL=four_eyes` if required by policy
 - [ ] Explicit model credentials; scheduler not held; budgets set
 - [ ] Projects, grants and the ops group set; two-person isolation test passed

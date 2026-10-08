@@ -3,6 +3,38 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.2.2 — unreleased
+- **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
+  sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·
+  Preview), **Operate** (Operate — incidents and alerts · Infra · Costs · Journal) and **Setup**
+  (Organization · Engines · Magnitude · Secrets · My account · Notifications). The « Profile &
+  organization » dialog is gone: its sections are the Setup plane (the badge menu opens them). A
+  sub-tab a person does not have (feature off, role too low) is not shown, and a plane left empty
+  is not shown either.
+- **Landing plane by role**: manager / maintainer → Control, developer → Build, ops team →
+  Operate, instance admin → the plane they used last (kept per user: `GET/PUT /api/me/nav`,
+  `$SOKKAN_DATA_DIR/navprefs.json`). Coming back to a plane reopens its last sub-tab.
+- **Deep links**: new form `/?plane=build&tab=crew`. Every older link keeps working — the 11
+  `?tab=` values (notifications, Crew ⇄ Operate links, Nina's cards, `?tab=operate&incident=…`,
+  `?tab=crew&agent=…&run=…`) and the former Profile sections (`?tab=members`, `?tab=keys`, …,
+  `?forge=` back from GitLab) — through one table (`frontend/lib/planes.ts`), tested.
+- **Setup › Engines = « Connect your AI » + « Model keys » on one page.** For the admin, each
+  engine card carries the instance key of its provider (« key …xxxx, set by X on date », Replace /
+  Remove / Test) and, in governed mode, the policy of allowed engines. One store: a key posed
+  through an engine is the one `/api/admin/model-keys` lists (that API stays), an Anthropic key
+  posed on the Claude card reaches the gateway too. New: `POST /api/connect-ai/engines/{id}/test`,
+  `DELETE /api/connect-ai/engines/{id}/key`. A non-admin no longer receives the last 4
+  characters of a connected engine's key.
+- **Readable at 1280 px**: the motto shows from 1440 px only (it wrapped on three lines), the
+  identity badge is compact (name truncated, role kept).
+- **Keyboard and accessibility**: `g` then `c` / `b` / `o` / `s` changes plane, `1`–`9` picks a
+  sub-tab (never while typing; listed in the ⌨ tooltip); planes and sub-tabs are ARIA
+  tablists (arrow keys, Home / End), focus is visible, the selected one is marked by weight and
+  an underline, not by colour alone.
+- The public demo's guided tour points to the new places (Build › Sessions, Control › Board,
+  Control › CortHeXis, Operate › Costs, Build › Crew). Nina's knowledge base, the docs and the
+  messages that said « Profile → … » now say « Setup › … ».
+
 ## 3.2.1 — 2026-10-08 — "Captains"
 - **Fix: the API no longer crashes at startup when a numeric setting arrives as an empty string.** `docker compose`
   passes `${VAR:-}` as `""`; `SOKKAN_ASSISTANT_DAILY_LIMIT` (declared in 3.1.2) made `assistant.py` fail on

@@ -18,14 +18,16 @@ identity provider and your forge, and with the controls a security officer asks 
 | Profile | What they get |
 |---|---|
 | Developers, DevOps, system engineers, DBAs, QA | parallel sessions from the cockpit, VS Code or the terminal; a kanban they drive from the sessions; agents for the recurring work; a preview to validate a change |
-| Ops team | the Operate tab: alerts become incidents with a diagnosis session already started, runbooks, observability their sessions can read and write |
+| Ops team | the Operate plane: alerts become incidents with a diagnosis session already started, runbooks, observability their sessions can read and write |
 | Managers | project cards that split into engineer cards and report progress back (Helm, 3.3) |
 | Security officers, admins | SSO, roles per project, memory isolated per project, secrets by name, four-eyes approval, audit trail, and a feature registry that says what is on |
 
 ## What sets it apart
 
-1. **A cockpit, not another chat.** Board, Sessions, Crew (agents), Preview, CortHeXis
-   (memory), Operate, Costs and Magnitude in one app, around the developer's existing tools:
+1. **A cockpit, not another chat.** Four planes in one app — **Control** (Helm, Board,
+   CortHeXis memory), **Build** (Sessions, Crew agents, Preview), **Operate** (incidents and
+   alerts, Infra, Costs, Journal) and **Setup** (Organization, Engines, Magnitude, Secrets,
+   account, notifications) — each person landing on the plane of their role, around the developer's existing tools:
    Claude Code in VS Code or the terminal keeps working; SOKKAN plugs in underneath
    (`ANTHROPIC_BASE_URL` + MCP servers), it does not replace it.
 2. **Governed agents.** An agent is a card: model, purpose, expected deliverable, schedule
@@ -49,7 +51,7 @@ The enterprise features live in the open-source code. Each one is declared once 
 registry — its switch (`SOKKAN_FEATURE_<ID>`), its default per edition (`SOKKAN_EDITION` =
 `community` | `enterprise`), what it requires and what it conflicts with. A feature whose
 requirements are not met is turned off with the reason; it is never half on. The cockpit
-shows the effective state in **Profile → Features** (`GET /api/features`).
+shows the effective state in **Setup › Organization › Features** (`GET /api/features`).
 
 * Registry (source of truth): [`backend/features.py`](../../backend/features.py)
 * Generated table of every feature, its variables, status and dependencies: [`FEATURES.md`](FEATURES.md)
