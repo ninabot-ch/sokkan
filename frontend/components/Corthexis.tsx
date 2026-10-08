@@ -15,8 +15,8 @@ import { useCan } from "@/lib/me";
 import { currentProject } from "@/lib/project";
 import {
   cxCuration, cxDecide, cxGraph, cxNote, cxProposals, cxPropose, cxReview, cxRunReview,
-  type CxFinding, type CxGraph, type CxItem, type CxNote, type CxOverview, type CxProposal, type CxReport,
-  type CxProposalIn, type Severity,
+  type CxFinding, type CxGraph, type CxItem, type CxNote, type CxOverview, type CxProposal,
+  type CxProposalIn, type Severity, safeNote, safeReport,
 } from "@/lib/corthexis";
 import type { MemSearchResult, MemStore } from "@/lib/types";
 import { LevelControl } from "./LevelBadge";
@@ -38,17 +38,7 @@ const MODES: { id: Mode; label: string; title: string }[] = [
   { id: "health", label: "Health", title: "Only the notes flagged by the review stay lit" },
 ];
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US"));
-/** 3.4.3 — the review of a project may not have run (or cannot, on the 2.x index): every
- *  field the panels read is defaulted here, so a partial payload never crashes the page. */
-const EMPTY_REPORT: CxReport = {
-  at: null, duration_ms: 0, score: null, signature: "", notes_total: 0,
-  counts: { crit: 0, warn: 0, info: 0 }, source: null, skipped: [], findings: [], flags: {},
-};
-const safeReport = (ov: CxOverview | null): CxReport => {
-  const r = ov?.report;
-  return { ...EMPTY_REPORT, ...(r || {}), counts: { ...EMPTY_REPORT.counts, ...(r?.counts || {}) },
-    skipped: r?.skipped ?? [], findings: r?.findings ?? [], flags: r?.flags ?? {} };
-};
+// 3.4.3 — safeReport / safeNote (lib/corthexis.ts): a partial payload never crashes the page
 const sev = (s: Severity | undefined) => SEV[s as Severity] ?? SEV.info;
 /** 3.4.2 — how to turn the 3.0 store on (the 2.x index has no project memory). */
 export const STORE_DOC_URL = "https://github.com/ninabot-ch/sokkan/blob/main/docs/UPGRADE.md#turn-the-store-on-later-sqlite-mode";
@@ -150,7 +140,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
 
   function openNote(id: string) {
     setSel(id); setGhost(null); setPanel("note"); setNote(null);
-    cxNote(id).then(setNote).catch(() => setNote(null));
+    cxNote(id).then((n) => setNote(safeNote(n))).catch(() => setNote(null));
   }
   function lightNotes(names: string[]) {
     setQuery(""); setResults(null);

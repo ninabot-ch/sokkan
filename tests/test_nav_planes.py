@@ -22,13 +22,15 @@ world = _world_fixture
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_front_navigation_module():
+@pytest.mark.parametrize("spec", ["tests/nav/planes_test.ts", "tests/nav/corthexis_report_test.ts"])
+def test_front_pure_modules(spec):
+    """The front's pure modules, run with node (type stripping): navigation by planes, and
+    (3.4.3) the defaulting of a CortHeXis review/note payload — `lib/corthexis.ts`."""
     node = shutil.which("node")
     if not node:
         pytest.skip("node not installed")
     r = subprocess.run([node, "--experimental-strip-types", "--no-warnings", "--test",
-                        str(ROOT / "tests/nav/planes_test.ts")],
-                       capture_output=True, text=True, timeout=120, cwd=ROOT)
+                        str(ROOT / spec)], capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-2000:]
     assert "# fail 0" in r.stdout
 

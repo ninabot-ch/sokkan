@@ -33,6 +33,31 @@ export interface CxOverview {
   pending: number; running: boolean; notify: boolean; digest_at: string | null;
   project?: string; per_project?: "off";
 }
+/** 3.4.3 — the review of a project may not have run (or cannot, on the 2.x index): the
+ *  backend answers a full-shaped empty report since 3.4.3, and this defaults every field the
+ *  panels read for any older/partial payload — `report.counts.crit` on `{}` crashed the page. */
+export const EMPTY_REPORT: CxReport = {
+  at: null, duration_ms: 0, score: null, signature: "", notes_total: 0,
+  counts: { crit: 0, warn: 0, info: 0 }, source: null, skipped: [], findings: [], flags: {},
+};
+export function safeReport(ov: Partial<CxOverview> | null | undefined): CxReport {
+  const r = (ov?.report ?? null) as Partial<CxReport> | null;
+  return {
+    ...EMPTY_REPORT, ...(r || {}),
+    counts: { ...EMPTY_REPORT.counts, ...((r?.counts as Partial<CxReport["counts"]>) || {}) },
+    skipped: Array.isArray(r?.skipped) ? r.skipped : [],
+    findings: Array.isArray(r?.findings) ? r.findings : [],
+    flags: r?.flags && typeof r.flags === "object" ? r.flags : {},
+    score: typeof r?.score === "number" ? r.score : null,
+    at: typeof r?.at === "string" ? r.at : null,
+  };
+}
+/** The note's lists, whatever the payload left out. */
+export function safeNote(n: CxNote): CxNote {
+  return { ...n, flags: Array.isArray(n.flags) ? n.flags : [], in: Array.isArray(n.in) ? n.in : [],
+    out: Array.isArray(n.out) ? n.out : [], warnings: Array.isArray(n.warnings) ? n.warnings : [] };
+}
+
 export interface CxNoteFlag {
   id: string; severity: Severity; category: string; title: string; remedy: string;
   action: CxFinding["action"]; judgement: boolean; items: CxItem[];
