@@ -342,6 +342,14 @@ def memory_write(name: str, description: str, body: str,
     project = (os.environ.get("SOKKAN_SESSION_PROJECT") or "").strip()
     if scope is not None and not scope:
         return {"ok": False, "error": "this session has no project: memory writes refused"}
+    # 3.4.2: the 2.x index has no project and no level — a note of another project, or
+    # above the default level, would land on disk and never be indexed. Refused, honestly,
+    # before anything is written (the quarantine included: its approval could not index it).
+    try:
+        store_backend.require_store(project if scope is not None else "default", level)
+    except store_backend.StoreRequired as e:
+        return {"ok": False, "code": e.code, "status": 409, "error": str(e),
+                "store": store_backend.store_info()["mode"]}
     # 3.2 lot 3: a session writes in ITS project's directory (never in shared, never
     # elsewhere); outside SOKKAN (no project) = the configured directory, as before
     target_dir = (store_backend.memory_dir_for(project)

@@ -28,6 +28,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -476,6 +477,12 @@ def write_context_note(card_id: int) -> dict | None:
         return None
     import store_backend
     project = c.get("project") or "default"
+    try:    # 3.4.2: the 2.x index has no project and no level — the block (spawn_context)
+        store_backend.require_store(project, _lvl(c))   # stays the guarantee, no note
+    except store_backend.StoreRequired as e:
+        print(f"[helm] context note of card #{card_id} not written: {e.code} "
+              f"(project {project}, level {_lvl(c)})", file=sys.stderr)
+        return None
     d = store_backend.memory_dir_for(project)
     name = context_note_name(card_id)
     kids = board.children(card_id)

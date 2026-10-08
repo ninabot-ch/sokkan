@@ -139,6 +139,71 @@ def enabled() -> bool:
     return mode == "postgres"
 
 
+# ---- 3.4.2: honest refusal when the 2.x index cannot honour a write ------------------------
+# Seen live on 08.10 (an instance on CORTHEXIS_MEMORY_BACKEND=sqlite): a decision captured
+# in Teams for a project other than `default` was written under projects/<slug>/memory,
+# where nothing indexes it — the person believed it was in memory; it was not. The 2.x
+# index has no project and no level: it serves the default project's directory, at the
+# default level. A write that needs either is refused, never written half-way.
+
+STORE_REQUIRED = "memory_store_required"
+DOC_STORE = "docs/UPGRADE.md § From 2.x to 3.0"
+
+
+class StoreRequired(RuntimeError):
+    """A memory write the serving index cannot honour: a project other than ``default``
+    or a classification above the default level need the 3.0 store (Postgres)."""
+    code = STORE_REQUIRED
+
+    def __init__(self, project: str, level: int | None, migrating_now: bool = False):
+        self.project, self.level, self.migrating = project, level, migrating_now
+        super().__init__(store_required_message("en", migrating_now))
+
+
+def store_required_message(lang: str = "en", migrating_now: bool | None = None) -> str:
+    """The refusal, for a person (EN, or FR for a French message in Teams)."""
+    if migrating_now is None:
+        migrating_now = migrating()
+    if lang == "fr":
+        if migrating_now:
+            return ("La mémoire par projet et la classification demandent le store 3.0 "
+                    "(Postgres), encore en cours de construction sur cette instance (migration "
+                    "en cours) — rien n'a été écrit. Réessayez quand il sert (onglet CortHeXis).")
+        return ("La mémoire par projet et la classification demandent le store 3.0 (Postgres) ; "
+                "cette instance sert l'index 2.x (CORTHEXIS_MEMORY_BACKEND=sqlite) — rien n'a "
+                "été écrit. Activation : CORTHEXIS_DATABASE_URL + CORTHEXIS_MEMORY_BACKEND=auto "
+                f"(Setup › Engines, {DOC_STORE}).")
+    if migrating_now:
+        return ("Project memory and classification need the 3.0 store (Postgres), still being "
+                "built on this instance (migration in progress) — nothing was written. Try "
+                "again once it serves (CortHeXis tab).")
+    return ("Project memory and classification need the 3.0 store (Postgres); this instance "
+            "serves the 2.x index (CORTHEXIS_MEMORY_BACKEND=sqlite) — nothing was written. "
+            "Enable it: CORTHEXIS_DATABASE_URL + CORTHEXIS_MEMORY_BACKEND=auto "
+            f"(Setup › Engines, {DOC_STORE}).")
+
+
+def require_store(project: str | None, level: int | None = None) -> None:
+    """Raise :class:`StoreRequired` when a write for ``project`` at ``level`` needs the
+    3.0 store and it does not serve. ``default`` at the default level (or no level):
+    the 2.x behaviour, nothing to check."""
+    from core import levels
+    from core.contract import DEFAULT_PROJECT
+    p = (project or DEFAULT_PROJECT).strip() or DEFAULT_PROJECT
+    needs = p != DEFAULT_PROJECT or (level is not None and int(level) > levels.DEFAULT)
+    if needs and not enabled():
+        raise StoreRequired(p, level, migrating())
+
+
+def store_info() -> dict:
+    """What serves the memory, for the API and the cockpit (``/api/memory/stats``,
+    ``/api/memory/status``): ``mode`` sqlite | postgres, and what that allows."""
+    on = enabled()
+    return {"mode": "postgres" if on else "sqlite", "configured": configured(),
+            "migrating": (not on) and migrating(),
+            "project_memory": on, "classification": on, "doc": DOC_STORE}
+
+
 def get_store():
     """One Store (connection pool) per process, opened on first use."""
     global _store

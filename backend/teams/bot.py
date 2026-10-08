@@ -12,6 +12,11 @@ Commands (French or English), after the @mention:
   run <agent> | lance l'agent <agent>   propose a run → approval card
   approvals | approbations              pending agent approvals as cards
   anything else                         a question to Nina, answered as the asker
+
+Nina answers in the language of the message (3.4.2): French when the French trigger matched
+(« état », « carte », « note la décision », « lance l'agent », « approbations », « dans
+<projet> : ») or the sentence reads as French, English otherwise — replies, refusals and the
+cards' labels alike.
 """
 from __future__ import annotations
 
@@ -37,12 +42,41 @@ class Ctx:
     channel_level: int   # audience of the conversation
     cap: int             # what may be shown here: min(clearance, channel level)
     scope: tuple
+    lang: str = "en"     # 3.4.2: the language of the message (fr | en) — Nina answers in it
 
 
 # ---- helpers -------------------------------------------------------------------------------
 def _lv():
     from core import levels
     return levels
+
+
+# ---- language (3.4.2) ------------------------------------------------------------------------
+# A French trigger (or the « dans <projet> : » prefix of a 1:1 chat) decides; otherwise a few
+# unmistakably French words. English is the default: the cockpit's language.
+_FR_TRIGGER = re.compile(
+    r"^(?:dans\s+[a-z0-9][a-z0-9-]{0,62}\s*[:,]\s*)?"
+    r"(?:état|etat|carte|crée une carte|cree une carte|note la d[ée]cision|décision|"
+    r"lance(?:r)?\b|approbations)", re.I)
+_FR_WORDS = re.compile(
+    r"\b(?:le|la|les|des|une|est|pour|avec|dans|sur|qui|que|quoi|où|quel|quelle|quels|"
+    r"quelles|comment|pourquoi|est-ce|nous|vous|peux|peut|faut|merci|bonjour|salut)\b", re.I)
+
+
+def detect_lang(text: str) -> str:
+    """``fr`` when the message is French (a French trigger, or French words), else ``en``."""
+    t = (text or "").strip()
+    if not t:
+        return "en"
+    if _FR_TRIGGER.match(t):
+        return "fr"
+    if re.search(r"[àâçéèêëîïôûùüÿœ]", t.lower()) and _FR_WORDS.search(t):
+        return "fr"
+    return "fr" if len(_FR_WORDS.findall(t)) >= 2 else "en"
+
+
+def _t(lang: str, en: str, fr: str) -> str:
+    return fr if lang == "fr" else en
 
 
 def clean_text(activity: dict) -> str:
@@ -89,14 +123,18 @@ def _identify(activity: dict, text: str) -> tuple[Ctx, str]:
     import projectgate
     import projects
 
+    lang = detect_lang(text)
     frm = activity.get("from") or {}
     aad = frm.get("aadObjectId") or ""
     tenant = botauth.tenant_of(activity)
     email = store.linked_email(aad, tenant) if aad else None
     if not email:
         url = teams.public_url() or "SOKKAN"
-        raise Stop(f"I act only on behalf of a SOKKAN account. Sign in once to {url} with "
-                   "your company account (Microsoft Entra ID), then ask me again.")
+        raise Stop(_t(lang,
+                      f"I act only on behalf of a SOKKAN account. Sign in once to {url} with "
+                      "your company account (Microsoft Entra ID), then ask me again.",
+                      f"Je n'agis qu'au nom d'un compte SOKKAN. Connectez-vous une fois à {url} "
+                      "avec votre compte d'entreprise (Microsoft Entra ID), puis redemandez-moi."))
     user = classification.user_for(email)
     key = channel_key(activity)
     m = store.channel(key)
@@ -111,19 +149,25 @@ def _identify(activity: dict, text: str) -> tuple[Ctx, str]:
         elif len(readable) == 1:
             project = readable[0]
         else:
-            raise Stop("Which project? Start with « in <project>: … » — yours: "
-                       + ", ".join(readable or ["none"]))
+            mine = ", ".join(readable or [_t(lang, "none", "aucun")])
+            raise Stop(_t(lang,
+                          f"Which project? Start with « in <project>: … » — yours: {mine}",
+                          f"Quel projet ? Commencez par « dans <projet> : … » — les vôtres : {mine}"))
     else:
-        raise Stop("This conversation is not linked to a SOKKAN project (an admin maps it in "
-                   "Setup › Organization › Teams).")
+        raise Stop(_t(lang,
+                      "This conversation is not linked to a SOKKAN project (an admin maps it in "
+                      "Setup › Organization › Teams).",
+                      "Cette conversation n'est liée à aucun projet SOKKAN (un admin la relie dans "
+                      "Setup › Organization › Teams)."))
     pu = projectgate.project_user(user, project)
     if pu is None:
-        raise Stop(f"You have no access to the project « {project} ».")
+        raise Stop(_t(lang, f"You have no access to the project « {project} ».",
+                      f"Vous n'avez pas accès au projet « {project} »."))
     clr = classification.clearance(user, project)
     clr = _lv().DEFAULT if clr is None else clr
     cap = min(clr, level)
     scope = cap_scope(classification.scope_for(user, project), cap)
-    return Ctx(activity, email, aad, user, pu, project, level, cap, scope), text
+    return Ctx(activity, email, aad, user, pu, project, level, cap, scope, lang), text
 
 
 # ---- entry point --------------------------------------------------------------------------
@@ -157,20 +201,29 @@ def _invoke_text(out: dict) -> str:
 
 def route(ctx: Ctx, text: str) -> dict:
     low = text.lower()
-    if re.match(r"^(status|état|etat)\b", low):
+    m = re.match(r"^(status|état|etat)\b", low)
+    if m:
+        ctx.lang = "en" if m.group(1) == "status" else "fr"
         return status(ctx)
-    m = re.match(r"^(?:card|carte|create a card|crée une carte|cree une carte)\s*:?\s*(.+)$",
+    m = re.match(r"^(card|carte|create a card|crée une carte|cree une carte)\s*:?\s*(.+)$",
                  text, re.I | re.S)
     if m:
-        return create_card(ctx, m.group(1).strip())
-    m = re.match(r"^(?:note (?:la|the) d[ée]cision|d[ée]cision|decision)\s*:?\s*(.+)$",
+        ctx.lang = "fr" if m.group(1).lower().startswith(("carte", "crée", "cree")) else "en"
+        return create_card(ctx, m.group(2).strip())
+    m = re.match(r"^(note (?:la|the) d[ée]cision|d[ée]cision|decision)\s*:?\s*(.+)$",
                  text, re.I | re.S)
     if m:
-        return decision(ctx, m.group(1).strip())
-    m = re.match(r"^(?:run|launch|lance(?:r)?(?: l'agent| l’agent)?)\s+([A-Za-z0-9_.-]+)", text, re.I)
+        head = m.group(1).lower()
+        ctx.lang = "fr" if head.startswith("note la") or "é" in head else \
+            ("en" if head.startswith(("note the", "decision")) else ctx.lang)
+        return decision(ctx, m.group(2).strip())
+    m = re.match(r"^(run|launch|lance(?:r)?(?: l'agent| l’agent)?)\s+([A-Za-z0-9_.-]+)", text, re.I)
     if m:
-        return propose_run(ctx, m.group(1))
-    if re.match(r"^(approvals|approbations)\b", low):
+        ctx.lang = "fr" if m.group(1).lower().startswith("lance") else "en"
+        return propose_run(ctx, m.group(2))
+    m = re.match(r"^(approvals|approbations)\b", low)
+    if m:
+        ctx.lang = "fr" if m.group(1) == "approbations" else "en"
         return approvals(ctx)
     return ask_nina(ctx, text)
 
@@ -197,13 +250,15 @@ def status(ctx: Ctx) -> dict:
         n = 0
     _audit(ctx, "teams.status", ctx.project)
     return connector.card(cards.status(ctx.project, counts, runs[:5], n,
-                                       _lv().label(ctx.cap)), f"Status of {ctx.project}")
+                                       _lv().label(ctx.cap), lang=ctx.lang),
+                          _t(ctx.lang, f"Status of {ctx.project}", f"État de {ctx.project}"))
 
 
 def _need(ctx: Ctx, role: str) -> None:
     import projects
     if projects.prank(ctx.pu.get("project_role")) < projects.prank(role):
-        raise Stop(f"That needs the role {role} in « {ctx.project} ».")
+        raise Stop(_t(ctx.lang, f"That needs the role {role} in « {ctx.project} ».",
+                      f"Il faut le rôle {role} dans « {ctx.project} »."))
 
 
 def inherited_level(ctx: Ctx) -> int:
@@ -221,7 +276,9 @@ def create_card(ctx: Ctx, title: str) -> dict:
     c = board.add_card(title[:200], "", project=ctx.project, level=level, user=ctx.email,
                        origin={"via": "teams"})
     _audit(ctx, "board.card.create", f"card #{c['id']}", f"from Teams: {title[:80]}")
-    return connector.text(f"Card #{c['id']} created in « {ctx.project} » ({_lv().label(level)}).")
+    return connector.text(_t(
+        ctx.lang, f"Card #{c['id']} created in « {ctx.project} » ({_lv().label(level)}).",
+        f"Carte #{c['id']} créée dans « {ctx.project} » ({_lv().label(level)})."))
 
 
 def _slug(text: str) -> str:
@@ -235,6 +292,13 @@ def decision(ctx: Ctx, text: str) -> dict:
     import store_backend
     _need(ctx, "dev")
     level = inherited_level(ctx)
+    try:    # 3.4.2: the 2.x index has no project and no level — never a phantom note
+        store_backend.require_store(ctx.project, level)
+    except store_backend.StoreRequired as e:
+        _audit(ctx, "teams.decision.refused", ctx.project,
+               f"{e.code}: project={ctx.project} level={_lv().ident(level)} "
+               f"store={store_backend.store_info()['mode']}")
+        raise Stop(store_backend.store_required_message(ctx.lang, e.migrating))
     now = _dt.datetime.now(_dt.timezone.utc)
     name = f"decision-{now:%Y%m%d}-{_slug(text)}"[:64].rstrip("-")
     link = thread_link(ctx.activity)
@@ -266,8 +330,11 @@ def decision(ctx: Ctx, text: str) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f"[teams] level floor of {name} not recorded: {e!r}")
     _audit(ctx, "teams.decision", f"{ctx.project}/{name}", desc[:120])
-    return connector.text(f"Decision noted in the memory of « {ctx.project} » as **{name}** "
-                          f"({_lv().label(level)}).")
+    return connector.text(_t(
+        ctx.lang,
+        f"Decision noted in the memory of « {ctx.project} » as **{name}** ({_lv().label(level)}).",
+        f"Décision notée dans la mémoire de « {ctx.project} » sous **{name}** "
+        f"({_lv().label(level)})."))
 
 
 def propose_run(ctx: Ctx, agent_ref: str) -> dict:
@@ -275,19 +342,30 @@ def propose_run(ctx: Ctx, agent_ref: str) -> dict:
     _need(ctx, "dev")
     a = agents.resolve(agent_ref, ctx.project)   # 3.2 lot 4: names unique per project
     if a is None or (a.get("project") or "default") != ctx.project or not agents.can_read(ctx.pu, a):
-        raise Stop(f"No agent « {agent_ref} » in « {ctx.project} ».")
+        raise Stop(_t(ctx.lang, f"No agent « {agent_ref} » in « {ctx.project} ».",
+                      f"Aucun agent « {agent_ref} » dans « {ctx.project} »."))
     if a["status"] != "active":
-        raise Stop(f"The agent {a['name']} is {a['status']}: only an approved agent runs.")
-    spec = {"title": f"Run the agent {a['name']}?",
-            "facts": [("Project", ctx.project), ("Requested by", ctx.email),
-                      ("Purpose", a["purpose"][:200])],
-            "note": "Another person approves when four-eyes approval is on. The run acts as its "
-                    "owner, within the owner's clearance.",
-            "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}")}
+        raise Stop(_t(ctx.lang,
+                      f"The agent {a['name']} is {a['status']}: only an approved agent runs.",
+                      f"L'agent {a['name']} est {a['status']} : seul un agent approuvé "
+                      "s'exécute."))
+    fr = ctx.lang == "fr"
+    spec = {"title": f"Lancer l'agent {a['name']} ?" if fr else f"Run the agent {a['name']}?",
+            "facts": [(_t(ctx.lang, "Project", "Projet"), ctx.project),
+                      (_t(ctx.lang, "Requested by", "Demandé par"), ctx.email),
+                      (_t(ctx.lang, "Purpose", "Objet"), a["purpose"][:200])],
+            "note": _t(ctx.lang,
+                       "Another person approves when four-eyes approval is on. The run acts as "
+                       "its owner, within the owner's clearance.",
+                       "Une autre personne approuve quand la double validation est active. Le "
+                       "run agit comme son propriétaire, dans son habilitation."),
+            "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}"), "lang": ctx.lang}
     tok = signing.issue("agent.run", str(a["id"]), ctx.project, ctx.email, card=spec)
     _audit(ctx, "teams.approval.request", a["name"], "run")
     return connector.card(cards.approval(spec["title"], spec["facts"], tok, spec["note"],
-                                         spec["open_url"]), f"Approve a run of {a['name']}")
+                                         spec["open_url"], lang=ctx.lang),
+                          _t(ctx.lang, f"Approve a run of {a['name']}",
+                             f"Approuver un run de {a['name']}"))
 
 
 def _open(path: str) -> str:
@@ -300,19 +378,28 @@ def approvals(ctx: Ctx) -> dict:
     pend = agents.pending_approvals(ctx.pu)
     mine = [a for a in pend["agents"] if (a.get("project") or "default") == ctx.project]
     if not mine:
-        return connector.text("Nothing waits for an approval in « {} ».".format(ctx.project))
+        return connector.text(_t(ctx.lang,
+                                 f"Nothing waits for an approval in « {ctx.project} ».",
+                                 f"Rien n'attend d'approbation dans « {ctx.project} »."))
     atts = []
+    fr = ctx.lang == "fr"
     for a in mine[:5]:
-        spec = {"title": f"Activate the agent {a['name']}?" if not a.get("pending_change")
-                else f"Apply the change to the agent {a['name']}?",
-                "facts": [("Project", ctx.project), ("Owner", a.get("owner") or ""),
-                          ("Trigger", json.dumps(a.get("trigger"))
+        if a.get("pending_change"):
+            title = (f"Appliquer la modification de l'agent {a['name']} ?" if fr
+                     else f"Apply the change to the agent {a['name']}?")
+        else:
+            title = f"Activer l'agent {a['name']} ?" if fr else f"Activate the agent {a['name']}?"
+        spec = {"title": title,
+                "facts": [(_t(ctx.lang, "Project", "Projet"), ctx.project),
+                          (_t(ctx.lang, "Owner", "Propriétaire"), a.get("owner") or ""),
+                          (_t(ctx.lang, "Trigger", "Déclencheur"), json.dumps(a.get("trigger"))
                            if not isinstance(a.get("trigger"), str) else a["trigger"])],
-                "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}")}
+                "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}"), "lang": ctx.lang}
         tok = signing.issue("agent.activate", str(a["id"]), ctx.project, a.get("owner") or "",
                             card=spec)
-        atts.append(cards.approval(spec["title"], spec["facts"], tok, "", spec["open_url"]))
-    return {"type": "message", "summary": "Approvals",
+        atts.append(cards.approval(spec["title"], spec["facts"], tok, "", spec["open_url"],
+                                   lang=ctx.lang))
+    return {"type": "message", "summary": _t(ctx.lang, "Approvals", "Approbations"),
             "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
                              "content": c} for c in atts]}
 
@@ -320,12 +407,16 @@ def approvals(ctx: Ctx) -> dict:
 def ask_nina(ctx: Ctx, text: str) -> dict:
     import assistant
     if not text:
-        return connector.text("Ask me about « {} » — or: status, card: …, decision: …, "
-                              "run <agent>, approvals.".format(ctx.project))
+        return connector.text(_t(
+            ctx.lang,
+            f"Ask me about « {ctx.project} » — or: status, card: …, decision: …, run <agent>, "
+            "approvals.",
+            f"Posez-moi une question sur « {ctx.project} » — ou : état, carte : …, "
+            "note la décision : …, lance l'agent <agent>, approbations."))
     try:
         out = assistant.chat(ctx.email, text, scope=ctx.scope, channel="teams")
     except ValueError as e:
-        return connector.text(f"Nina: {e}")
+        return connector.text(f"Nina : {e}" if ctx.lang == "fr" else f"Nina: {e}")
     tail = ""
     if _lv().parse(out.get("level")) not in (None, _lv().DEFAULT):
         tail = f"\n\n_classification: {_lv().label(_lv().parse(out['level']))}_"
@@ -369,6 +460,7 @@ def _on_action(activity: dict, action: dict) -> dict:
     except signing.Invalid as e:
         return _invoke(f"Refused: {e}.")
     spec = _spec(row)
+    lang = spec.get("lang") or "en"
     try:
         if row["kind"] == "run.tool":
             title, detail = _decide_tool(pu, row, verb, email)
@@ -381,7 +473,7 @@ def _on_action(activity: dict, action: dict) -> dict:
         import audit
         audit.log(email, "teams.approval.refused", f"{row['kind']} {row['ref']}",
                   f"{verb}: {e}", project=row.get("project") or None)
-        return _invoke(f"Refused for you: {e}")
+        return _invoke(_t(lang, f"Refused for you: {e}", f"Refusé pour vous : {e}"))
     import audit
     audit.log(email, f"teams.approval.{verb}", f"{row['kind']} {row['ref']}",
               f"requested by {row['requested_by']}", project=row.get("project") or None)
@@ -390,12 +482,13 @@ def _on_action(activity: dict, action: dict) -> dict:
         proactive.poke()
     except Exception:  # noqa: BLE001
         pass
-    return _invoke(card=cards.decided(title, verb, email, detail))
+    return _invoke(card=cards.decided(title, verb, email, detail, lang=lang))
 
 
 def _decide_agent(pu: dict, row: dict, verb: str, email: str, spec: dict) -> tuple[str, str]:
     import agents
     import features
+    lang = spec.get("lang") or "en"
     aid = int(row["ref"])
     a = agents.get(aid) or {}
     title = spec.get("title") or f"Agent {a.get('name', aid)}"
@@ -406,16 +499,16 @@ def _decide_agent(pu: dict, row: dict, verb: str, email: str, spec: dict) -> tup
             r = agents.request_run(pu, aid, "manual",
                                    requested_by=f"{row['requested_by']} via Teams, "
                                                 f"approved by {email}")
-            detail = f"run #{r['id']} queued"
+            detail = _t(lang, f"run #{r['id']} queued", f"run #{r['id']} en file")
         else:
-            detail = "no run"
+            detail = _t(lang, "no run", "pas de run")
     elif row["kind"] == "agent.activate":
         if verb == "approve":
             agents.approve(pu, aid)
-            detail = "active"
+            detail = _t(lang, "active", "actif")
         else:
             agents.reject(pu, aid)
-            detail = "sent back to draft"
+            detail = _t(lang, "sent back to draft", "renvoyé en brouillon")
     else:
         raise agents.AgentError("unknown approval kind")
     return title, detail
@@ -437,17 +530,21 @@ def _refresh(token: str) -> dict:
         return _invoke(f"Refused: {e}.")
     row = signing.row(p["n"]) or {}
     spec = _spec(row)
-    title = spec.get("title") or "Approval"
+    lang = spec.get("lang") or "en"
+    title = spec.get("title") or _t(lang, "Approval", "Approbation")
     if row.get("used_at"):
         how = row.get("decision") or "closed"
-        detail = "" if how in ("approve", "refuse") else "decided in SOKKAN"
+        detail = "" if how in ("approve", "refuse") else _t(lang, "decided in SOKKAN",
+                                                             "décidé dans SOKKAN")
         return _invoke(card=cards.decided(title, how if how in ("approve", "refuse") else "closed",
                                           row.get("used_by") if how in ("approve", "refuse") else "",
-                                          detail))
+                                          detail, lang=lang))
     if p.get("e", 0) < time.time():
-        return _invoke(card=cards.decided(title, "closed", "", "this approval has expired"))
+        return _invoke(card=cards.decided(title, "closed", "",
+                                          _t(lang, "this approval has expired",
+                                             "cette approbation a expiré"), lang=lang))
     return _invoke(card=cards.approval(title, [tuple(f) for f in spec.get("facts") or []], token,
-                                       spec.get("note", ""), spec.get("open_url", "")))
+                                       spec.get("note", ""), spec.get("open_url", ""), lang=lang))
 
 
 def _resolve_permission(sess, pid: str, decision: dict) -> None:

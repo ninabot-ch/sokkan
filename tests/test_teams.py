@@ -181,7 +181,7 @@ def test_create_a_card_and_capture_a_decision(tw):
     c = board.search_cards("HSM", project="radio")[0]
     assert c["level"] == 3                             # inherited from the channel
     out = _say(tw, "alice@x", "note la décision : on garde Postgres 16 jusqu'en mars")[0]["text"]
-    assert "Decision noted" in out
+    assert "Décision notée" in out                     # 3.4.2: the language of the message
     d = tw["tmp"] / "projects" / "radio" / "memory"
     f = next(d.glob("decision_*.md"))
     text = f.read_text()
@@ -339,3 +339,58 @@ def test_mapping_name_is_given_sent_by_teams_or_read_from_graph(tw):
     by = {c["channel_id"]: c for c in put(channel_id="19:d@thread.tacv2")["channels"]}
     assert by["19:d@thread.tacv2"]["name"] == "channel …19:d"
     assert all(c["approvals"] is True for c in by.values())
+
+
+# ---- 3.4.2: Nina answers in the language of the message ------------------------------------
+def test_french_triggers_get_french_answers(tw):
+    from teams import bot, store
+    assert bot.detect_lang("note la décision : on garde Postgres") == "fr"
+    assert bot.detect_lang("decision: keep Postgres") == "en"
+    assert bot.detect_lang("état") == "fr" and bot.detect_lang("status") == "en"
+    assert bot.detect_lang("dans radio : comment fait-on la rotation des clés ?") == "fr"
+    assert bot.detect_lang("how do we do the key rotation plan?") == "en"
+    assert bot.detect_lang("") == "en"
+    store.map_channel(CHANNEL, "radio", 3, "radio · Security")
+    out = _say(tw, "carol@x", "carte : faire tourner les clés HSM")[0]["text"]
+    assert out.startswith("Carte #") and "créée dans « radio »" in out
+    out = _say(tw, "alice@x", "note la décision : on garde Postgres 16")[0]["text"]
+    assert out.startswith("Décision notée dans la mémoire de « radio »")
+    out = _say(tw, "alice@x", "decision: keep Postgres 16")[0]["text"]
+    assert out.startswith("Decision noted")
+    msg = _say(tw, "alice@x", "état")[0]
+    card = msg["attachments"][0]["content"]
+    assert msg["summary"].startswith("État de radio") if msg.get("summary") else True
+    assert card["body"][0]["text"] == "Projet radio"
+    assert "approbation(s) en attente" in card["body"][-1]["text"]
+    card = _say(tw, "alice@x", "status")[0]["attachments"][0]["content"]
+    assert card["body"][0]["text"] == "Project radio"
+    assert "Rien n'attend d'approbation" in _say(tw, "alice@x", "approbations")[0]["text"]
+    assert "Nothing waits" in _say(tw, "alice@x", "approvals")[0]["text"]
+    out = _say(tw, "alice@x", "lance l'agent nobody")[0]["text"]
+    assert out == "Aucun agent « nobody » dans « radio »."
+    assert _say(tw, "alice@x", "run nobody")[0]["text"] == "No agent « nobody » in « radio »."
+    # errors of the identification follow the message's language too
+    out = _say(tw, "alice@x", "état", channel="19:other@thread.tacv2")[0]["text"]
+    assert "liée à aucun projet SOKKAN" in out
+    out = _say(tw, "aad-stranger", "quel est le plan de rotation des clés ?")[0]["text"]
+    assert out.startswith("Je n'agis qu'au nom d'un compte SOKKAN")
+
+
+def test_french_run_proposal_card_and_its_decision_stay_french(tw, monkeypatch):
+    from teams import cards
+    a = _agent(tw)
+    msg = _say(tw, "carol@x", f"lance l'agent {a['name']}")[0]
+    card = msg["attachments"][0]["content"]
+    assert card["body"][0]["text"] == f"Lancer l'agent {a['name']} ?"
+    acts = cards.actions_of(card)
+    assert [x["title"] for x in acts] == ["Approuver", "Refuser", "Ouvrir dans SOKKAN"]
+    assert {f["title"] for f in card["body"][1]["facts"]} == {"Projet", "Demandé par", "Objet"}
+    tok = acts[0]["data"]["token"]
+    out = _execute(tw, "max@x", tok)
+    assert isinstance(out["value"], dict), out["value"]
+    assert out["value"]["body"][1]["text"].startswith("✅ Approuvé par max@x")
+    assert "en file" in out["value"]["body"][2]["text"]
+    msg = _say(tw, "carol@x", f"run {a['name']}")[0]
+    card = msg["attachments"][0]["content"]
+    assert card["body"][0]["text"] == f"Run the agent {a['name']}?"
+    assert [x["title"] for x in cards.actions_of(card)][:2] == ["Approve", "Refuse"]

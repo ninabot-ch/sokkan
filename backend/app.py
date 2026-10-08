@@ -1090,6 +1090,17 @@ def agents_runs(aid: int, limit: int = 50, u: dict = Depends(crew_reader),
 import quarantine  # noqa: E402 — memory/ est sur le path (cf. imports du haut)
 
 
+def _require_store_or_409(project: str, level: int | None = None) -> None:
+    """3.4.2 — a memory write for a project other than `default`, or above the default
+    level, needs the 3.0 store: in sqlite mode it is refused (409 `memory_store_required`)
+    rather than written where nothing indexes it."""
+    try:
+        store_backend.require_store(project, level)
+    except store_backend.StoreRequired as e:
+        raise HTTPException(409, {"code": e.code, "message": str(e),
+                                  "store": store_backend.store_info()})
+
+
 @app.get("/api/memory/quarantine")
 def memory_quarantine(_u: dict = Depends(require("dev"))) -> list[dict]:
     """Notes écrites par des runs d'agent, en attente de relecture humaine. Elles ne
@@ -1111,6 +1122,10 @@ class QuarantineDecision(BaseModel):
 
 @app.post("/api/memory/quarantine/{name}/approve")
 def memory_quarantine_approve(name: str, u: dict = Depends(require("dev"))) -> dict:
+    q = quarantine.get(name, _ctx_project(), classification.ctx_clearance())
+    if q is None:
+        raise HTTPException(404, "not in quarantine")
+    _require_store_or_409(_ctx_project(), q.get("level"))   # 3.4.2: never an unindexed note
     try:
         out = quarantine.approve(name, u["email"], _ctx_project(),
                                  classification.ctx_clearance())
@@ -2384,11 +2399,15 @@ def _ctx_scope() -> tuple[str, ...]:
 
 @app.get("/api/memory/stats")
 def memory_stats() -> dict:
+    """3.4.2: ``store`` says what serves the memory (``mode`` sqlite | postgres) and whether
+    project memory / classification are possible — the cockpit warns when the selected
+    project cannot have a memory on this instance."""
+    store = store_backend.store_info()
     if _ctx_project() != projects.DEFAULT_PROJECT:   # counts of the selected project only
         notes = memorykb.list_notes([_ctx_project()])
         return {"notes": len(notes), "chunks": sum(n.get("chunks") or 0 for n in notes),
-                "project": _ctx_project()}
-    return memorykb.stats()
+                "project": _ctx_project(), "store": store}
+    return {**memorykb.stats(), "project": _ctx_project(), "store": store}
 
 
 @app.get("/api/memory/notes")
@@ -2422,7 +2441,8 @@ def _store_or_503():
 @app.get("/api/memory/status")
 def memory_status() -> dict:
     """Backend, index (génération, notes), indexeur, profil d'embedding, rappel."""
-    out: dict = {"backend": "postgres" if store_backend.enabled() else "sqlite"}
+    out: dict = {"backend": "postgres" if store_backend.enabled() else "sqlite",
+                 "store": store_backend.store_info()}
     if not store_backend.enabled():
         out["index"] = memorykb.stats()
         return out

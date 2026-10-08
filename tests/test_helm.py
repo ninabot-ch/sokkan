@@ -54,6 +54,10 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(usage, "PROJECT_DIR", tmp_path / "transcripts")   # never the host's
     monkeypatch.setattr(helm, "_EMB_CACHE", {})
     monkeypatch.setattr(helm, "_embed", _bow_embed)
+    # 3.4.2: the context note of a project card needs the 3.0 store (sqlite mode refuses it
+    # honestly — tests/test_sqlite_honest.py); here the store serves
+    import store_backend
+    monkeypatch.setattr(store_backend, "enabled", lambda: True)
     projects.create("radio", "Radio player", created_by="root@x")
     projects.grant("radio", "user", "mia@x", "maintainer")
     projects.grant("radio", "user", "dan@x", "dev")

@@ -15,8 +15,27 @@ Model guidance:
   of 60 members or fewer, and offers « Refresh card » otherwise;
 * ``fallbackText`` for a client below 1.5, ``msteams.width = Full`` (a Teams host property,
   outside the open schema — the only key the schema test strips).
+
+``lang`` (3.4.2): the labels of a card (buttons, headings) follow the language of the message
+that produced it — ``fr`` or ``en`` (default).
 """
 from __future__ import annotations
+
+_L = {
+    "en": {"approve": "Approve", "refuse": "Refuse", "open": "Open in SOKKAN",
+           "approved": "✅ Approved", "refused": "⛔ Refused", "closed": "ℹ️ Closed", "by": "by",
+           "decide": "open SOKKAN to decide", "project": "Project", "runs": "Latest agent runs",
+           "waiting": "{n} approval(s) waiting", "shown": "shown up to"},
+    "fr": {"approve": "Approuver", "refuse": "Refuser", "open": "Ouvrir dans SOKKAN",
+           "approved": "✅ Approuvé", "refused": "⛔ Refusé", "closed": "ℹ️ Clos", "by": "par",
+           "decide": "ouvrir SOKKAN pour décider", "project": "Projet",
+           "runs": "Derniers runs d'agents", "waiting": "{n} approbation(s) en attente",
+           "shown": "affiché jusqu'à"},
+}
+
+
+def _l(lang: str | None) -> dict:
+    return _L["fr"] if lang == "fr" else _L["en"]
 
 SCHEMA = "http://adaptivecards.io/schemas/adaptive-card.json"
 VERSION = "1.5"
@@ -51,8 +70,9 @@ def actions_of(card: dict) -> list[dict]:
 
 
 def approval(title: str, facts: list[tuple[str, str]], token: str, note: str = "",
-             open_url: str = "", user_ids: list[str] | None = None) -> dict:
+             open_url: str = "", user_ids: list[str] | None = None, lang: str = "en") -> dict:
     """An approval: Approve / Refuse (signed single-use token), refreshable."""
+    t = _l(lang)
     data = {"sokkan": "approval", "token": token}
     body: list = [{"type": "TextBlock", "text": title, "weight": "Bolder", "wrap": True,
                    "style": "heading"},
@@ -60,21 +80,22 @@ def approval(title: str, facts: list[tuple[str, str]], token: str, note: str = "
     if note:
         body.append({"type": "TextBlock", "text": note, "isSubtle": True, "wrap": True,
                      "size": "Small"})
-    acts = [_execute("Approve", "approve", data, "positive"),
-            _execute("Refuse", "refuse", data, "destructive")]
+    acts = [_execute(t["approve"], "approve", data, "positive"),
+            _execute(t["refuse"], "refuse", data, "destructive")]
     if open_url:
-        acts.append({"type": "Action.OpenUrl", "title": "Open in SOKKAN", "url": open_url})
+        acts.append({"type": "Action.OpenUrl", "title": t["open"], "url": open_url})
     body.append({"type": "ActionSet", "actions": acts})
     refresh: dict = {"action": {"type": "Action.Execute", "verb": "refresh", "data": data}}
     if user_ids:
         refresh["userIds"] = list(user_ids)[:MAX_REFRESH_USERS]
-    return _card(body, f"{title} — open SOKKAN to decide.", refresh)
+    return _card(body, f"{title} — {t['decide']}.", refresh)
 
 
-def decided(title: str, decision: str, by: str, detail: str = "") -> dict:
+def decided(title: str, decision: str, by: str, detail: str = "", lang: str = "en") -> dict:
     """The card after the decision (replaces the approval for everyone)."""
-    label = {"approve": "✅ Approved", "refuse": "⛔ Refused"}.get(decision, "ℹ️ Closed")
-    head = f"{label} by {by}" if by else label
+    t = _l(lang)
+    label = {"approve": t["approved"], "refuse": t["refused"]}.get(decision, t["closed"])
+    head = f"{label} {t['by']} {by}" if by else label
     body = [{"type": "TextBlock", "text": title, "weight": "Bolder", "wrap": True,
              "style": "heading"},
             {"type": "TextBlock", "wrap": True, "text": head}]
@@ -83,26 +104,28 @@ def decided(title: str, decision: str, by: str, detail: str = "") -> dict:
     return _card(body, f"{title} — {head}.")
 
 
-def notice(title: str, text: str, open_url: str = "") -> dict:
+def notice(title: str, text: str, open_url: str = "", lang: str = "en") -> dict:
     """A card without decision (e.g. an approval above the channel's level)."""
     body: list = [{"type": "TextBlock", "text": title, "weight": "Bolder", "wrap": True,
                    "style": "heading"},
                   {"type": "TextBlock", "text": text, "wrap": True}]
     if open_url:
         body.append({"type": "ActionSet", "actions": [
-            {"type": "Action.OpenUrl", "title": "Open in SOKKAN", "url": open_url}]})
+            {"type": "Action.OpenUrl", "title": _l(lang)["open"], "url": open_url}]})
     return _card(body, f"{title} — {text}")
 
 
 def status(project: str, buckets: dict[str, int], runs: list[str], pending: int,
-           level_label: str) -> dict:
+           level_label: str, lang: str = "en") -> dict:
+    t = _l(lang)
     facts = [{"title": b, "value": str(n)} for b, n in buckets.items()]
-    body = [{"type": "TextBlock", "text": f"Project {project}", "weight": "Bolder"},
+    body = [{"type": "TextBlock", "text": f"{t['project']} {project}", "weight": "Bolder"},
             {"type": "FactSet", "facts": facts}]
     if runs:
-        body.append({"type": "TextBlock", "text": "Latest agent runs", "weight": "Bolder",
+        body.append({"type": "TextBlock", "text": t["runs"], "weight": "Bolder",
                      "spacing": "Medium"})
         body += [{"type": "TextBlock", "text": r, "wrap": True, "size": "Small"} for r in runs]
+    waiting = t["waiting"].format(n=pending)
     body.append({"type": "TextBlock", "isSubtle": True, "size": "Small", "wrap": True,
-                 "text": f"{pending} approval(s) waiting · shown up to « {level_label} »"})
-    return _card(body, f"Project {project}: {pending} approval(s) waiting.")
+                 "text": f"{waiting} · {t['shown']} « {level_label} »"})
+    return _card(body, f"{t['project']} {project}: {waiting}.")
