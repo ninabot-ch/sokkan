@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { patchCard } from "@/lib/api";
 import {
   helmActivity, helmApprove, helmBaseline, helmCard, helmCosts, helmDeck, helmFilters, helmIgnore, helmRefresh,
@@ -68,7 +68,11 @@ function Signals({ r }: { r: Rollup }) {
 }
 
 // ---- deck -------------------------------------------------------------------
-export default function Helm({ onOpenSession }: { onOpenSession?: (sid: string) => void }) {
+// 3.2.2 Captains demo: a member who does not steer reads Helm — every action is greyed
+const ReadOnly = createContext(false);
+const RO_TIP = "read-only demo";
+
+export default function Helm({ onOpenSession, readOnly = false }: { onOpenSession?: (sid: string) => void; readOnly?: boolean }) {
   const [deck, setDeck] = useState<HelmDeck | null>(null);
   const [err, setErr] = useState("");
   const [filters, setFilters] = useState<{ projects: { slug: string; name: string }[]; teams: string[]; people: string[] } | null>(null);
@@ -97,10 +101,12 @@ export default function Helm({ onOpenSession }: { onOpenSession?: (sid: string) 
   const sel = "rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200";
 
   return (
+    <ReadOnly.Provider value={readOnly}>
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel/60 px-3 py-2">
         <div className="mr-2">
-          <div className="text-[14px] font-semibold text-slate-100">Helm</div>
+          <div className="flex items-center gap-2 text-[14px] font-semibold text-slate-100">Helm
+            {readOnly && <span title="You see Helm as a project member: steering actions belong to the project's managers" className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[10.5px] font-normal text-mut">👁 {RO_TIP}</span>}</div>
           <div className="text-[10.5px] text-mut">every project of your teams — progress computed from the work, never declared</div>
         </div>
         <label className="flex items-center gap-1 text-[11px] text-mut">project
@@ -151,6 +157,7 @@ export default function Helm({ onOpenSession }: { onOpenSession?: (sid: string) 
       )}
       {openId !== null && <HelmPopout id={openId} onClose={() => { setOpenId(null); reload(); }} onOpenSession={onOpenSession} />}
     </div>
+    </ReadOnly.Provider>
   );
 }
 
@@ -187,6 +194,7 @@ function ProjectCard({ it, onOpen }: { it: DeckItem; onOpen: () => void }) {
 type PopTab = "Kanban" | "Activity" | "Suggestions" | "Costs";
 
 function HelmPopout({ id, onClose, onOpenSession }: { id: number; onClose: () => void; onOpenSession?: (sid: string) => void }) {
+  const ro = useContext(ReadOnly);
   const [cur, setCur] = useState(id);
   const [d, setD] = useState<HelmDetail | null>(null);
   const [tab, setTab] = useState<PopTab>("Kanban");
@@ -228,7 +236,7 @@ function HelmPopout({ id, onClose, onOpenSession }: { id: number; onClose: () =>
               </div>
               {d && <div className="mt-1 max-w-md"><Progress r={d.rollup} /></div>}
             </div>
-            {d && <button onClick={() => setCardModal(d.id)} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200">Edit card</button>}
+            {d && <button onClick={() => setCardModal(d.id)} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200">{ro ? "Open card" : "Edit card"}</button>}
             <button onClick={onClose} className="rounded-md px-2 py-1 text-mut hover:bg-panel2 hover:text-slate-200" aria-label="close">✕</button>
           </div>
         </header>
@@ -260,6 +268,7 @@ function KanbanTab({ d, onDrill, onOpenCard, onOpenSession, onChanged }: {
   d: HelmDetail; onDrill: (id: number) => void; onOpenCard: (id: number) => void;
   onOpenSession?: (sid: string) => void; onChanged: () => void;
 }) {
+  const ro = useContext(ReadOnly);
   const move = async (id: number, bucket: string, sort: number) => { await patchCard(id, { bucket, sort }); onChanged(); };
   const ctx = d.intent || d.constraints || (d.decisions || []).length;
   return (
@@ -275,7 +284,7 @@ function KanbanTab({ d, onDrill, onOpenCard, onOpenSession, onChanged }: {
       ) : null}
       <div className="flex min-h-[46vh]">
         <BoardColumns<KanbanCard>
-          buckets={d.kanban.buckets} cards={d.kanban.cards} canWrite onMove={move} compact
+          buckets={d.kanban.buckets} cards={d.kanban.cards} canWrite={!ro} onMove={ro ? undefined : move} compact
           onOpen={(cid) => onOpenCard(cid)} onOpenSession={onOpenSession}
           extra={(c) => (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -315,8 +324,10 @@ function ActivityTab({ id }: { id: number }) {
 }
 
 function SuggestionsTab({ d, onChanged, onError }: { d: HelmDetail; onChanged: () => void; onError: (m: string) => void }) {
+  const ro = useContext(ReadOnly);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const off = busy || ro;
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true); onError("");
     try { await fn(); onChanged(); } catch (e) { onError(String((e as Error).message)); } finally { setBusy(false); }
@@ -325,7 +336,7 @@ function SuggestionsTab({ d, onChanged, onError }: { d: HelmDetail; onChanged: (
     <div className="space-y-2 p-3">
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-mut">
         <span>Helm checks this project every 15 min: drift from the goal, decisions contradicted, scope growth, cards without owner, pace, incidents. Nothing is applied without you.</span>
-        <button disabled={busy} onClick={() => act(async () => { const r = await helmRefresh(d.id); setNote(`${r.new} new, ${r.resolved} resolved${r.notes.length ? ` — ${r.notes.join("; ")}` : ""}`); })}
+        <button disabled={off} title={ro ? RO_TIP : undefined} onClick={() => act(async () => { const r = await helmRefresh(d.id); setNote(`${r.new} new, ${r.resolved} resolved${r.notes.length ? ` — ${r.notes.join("; ")}` : ""}`); })}
           className="ml-auto rounded border border-line px-2 py-0.5 text-slate-300 hover:border-sea/50 disabled:opacity-40">↻ Check now</button>
       </div>
       {note && <div className="text-[11px] text-mut">{note}</div>}
@@ -339,10 +350,11 @@ function SuggestionsTab({ d, onChanged, onError }: { d: HelmDetail; onChanged: (
           <div className="mt-1.5 text-[13px] font-medium text-slate-100">{s.title}</div>
           <div className="mt-0.5 text-[12px] text-slate-300">{s.detail}</div>
           <div className="mt-2 flex items-center gap-2">
-            <button disabled={busy} onClick={() => act(() => helmApprove(s.id))} className="rounded-md bg-brass/90 px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-brass disabled:opacity-40" title="creates a « reframe » card assigned to you; the work itself is not touched">Approve</button>
-            <button disabled={busy} onClick={() => act(() => helmIgnore(s.id))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40" title="not proposed again for 7 days">Ignore</button>
+            <button disabled={off} onClick={() => act(() => helmApprove(s.id))} className="rounded-md bg-brass/90 px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-brass disabled:opacity-40" title={ro ? RO_TIP : "creates a « reframe » card assigned to you; the work itself is not touched"}>Approve</button>
+            <button disabled={off} onClick={() => act(() => helmIgnore(s.id))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40" title={ro ? RO_TIP : "not proposed again for 7 days"}>Ignore</button>
+            {ro && <span className="text-[11px] text-mut">{RO_TIP} — a project manager approves or ignores</span>}
             {s.kind === "scope" && s.card_id && (
-              <button disabled={busy} onClick={() => act(() => helmBaseline(s.card_id!))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40">Accept the new scope</button>
+              <button disabled={off} title={ro ? RO_TIP : undefined} onClick={() => act(() => helmBaseline(s.card_id!))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40">Accept the new scope</button>
             )}
           </div>
         </article>

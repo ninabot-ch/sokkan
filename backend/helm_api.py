@@ -61,10 +61,17 @@ def install(app, current_user, require) -> None:
             raise HTTPException(404, "card not found")
         return c
 
+    def _view_card(user: dict, card_id: int) -> dict:
+        """Read routes: can_view (= can_steer, plus project members on the Captains demo)."""
+        c = board.get_card(card_id)
+        if c is None or not helm.can_view(user, c.get("project") or "default"):
+            raise HTTPException(404, "card not found")
+        return c
+
     @app.get("/api/helm/deck")
     def helm_deck(project: str = "", team: str = "", person: str = "",
                   u: dict = Depends(current_user), _f: None = Depends(feature_helm)) -> dict:
-        if project and not helm.can_steer(u, project):
+        if project and not helm.can_view(u, project):
             raise HTTPException(404, f"no project '{project}' for you")
         return helm.deck(u, project=project, team=team, person=person.strip().lower())
 
@@ -76,24 +83,30 @@ def install(app, current_user, require) -> None:
     def helm_access(u: dict = Depends(current_user)) -> dict:
         """UI hint: does this person get the Helm tab (they steer at least one project)."""
         on = features.enabled("helm")
-        return {"enabled": on, "steers": helm.steerable_projects(u) if on else []}
+        import demo_captains
+        demo = on and demo_captains.enabled()
+        steers = helm.steerable_projects(u) if on else []
+        # 3.2.2 Captains demo: a member reads Helm without steering (read_only = no button)
+        reads = helm.viewable_projects(u) if demo else steers
+        return {"enabled": on, "steers": steers, "reads": reads,
+                "read_only": bool(demo and reads and not steers)}
 
     @app.get("/api/helm/cards/{card_id}")
     def helm_card(card_id: int, u: dict = Depends(current_user),
                   _f: None = Depends(feature_helm)) -> dict:
-        _steer_card(u, card_id)
+        _view_card(u, card_id)
         return helm.detail(card_id)
 
     @app.get("/api/helm/cards/{card_id}/activity")
     def helm_activity(card_id: int, u: dict = Depends(current_user),
                       _f: None = Depends(feature_helm)) -> list[dict]:
-        _steer_card(u, card_id)
+        _view_card(u, card_id)
         return helm.activity(card_id)
 
     @app.get("/api/helm/cards/{card_id}/costs")
     def helm_costs(card_id: int, u: dict = Depends(current_user),
                    _f: None = Depends(feature_helm)) -> dict:
-        _steer_card(u, card_id)
+        _view_card(u, card_id)
         return helm.costs(card_id)
 
     @app.post("/api/helm/cards/{card_id}/suggestions/refresh")

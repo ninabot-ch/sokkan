@@ -18,6 +18,7 @@ import TeamsAdmin from "./TeamsAdmin";
 import { useFeatures } from "@/lib/features";
 import { useFeatureOn } from "@/lib/uifeatures";
 import ConnectAI from "./ConnectAI";
+import { DemoMembers, DemoProjects, ReadOnlyNote } from "./DemoOrganization";
 import ModelKeys from "./ModelKeys";
 import type { OrgSection } from "@/lib/planes";
 
@@ -500,8 +501,11 @@ const ORG_NAV: [OrgSection, string, boolean][] = [
 export function OrganizationPage({ section }: { section?: string }) {
   const me = useMe();
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
-  const featProblems = useFeatures().registry?.problems.length ?? 0;
-  const nav = ORG_NAV.filter(([, , adminOnly]) => !adminOnly || instAdmin);
+  const feats = useFeatures();
+  const featProblems = feats.registry?.problems.length ?? 0;
+  // 3.2.2 Captains demo: the visitor reads the fictional members and projects
+  const demo = !!feats.demo_captains && !instAdmin;
+  const nav = ORG_NAV.filter(([k, , adminOnly]) => !adminOnly || instAdmin || (demo && k === "projects"));
   const [sec, setSec] = useState<OrgSection>(() =>
     (nav.find(([k]) => k === section)?.[0] ?? "org"));
   return (
@@ -517,7 +521,8 @@ export function OrganizationPage({ section }: { section?: string }) {
         ))}
       </nav>
       <div className="min-w-0 flex-1">
-        {sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin />
+        {sec === "org" ? <Org /> : sec === "members" ? (demo ? <DemoMembers /> : <Members />)
+          : sec === "projects" ? (demo ? <DemoProjects /> : <ProjectsAdmin />)
           : sec === "features" ? <FeaturesAdmin /> : sec === "classification" ? <ClassificationAdmin instanceAdmin={instAdmin} />
           : <TeamsAdmin />}
       </div>
@@ -533,7 +538,13 @@ export function EnginesPage() {
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
   const connectOn = useFeatureOn("connect_ai");
   const byokOn = useFeatureOn("byok_admin");
-  if (connectOn) return <ConnectAI legacy={<Model />} />;
+  const demo = !!useFeatures().demo_captains && !instAdmin;
+  if (connectOn) return (
+    <>
+      {demo && <ReadOnlyNote>The engines this instance allows. Keys are never shown — not even their last characters.</ReadOnlyNote>}
+      <ConnectAI legacy={<Model />} />
+    </>
+  );
   return (
     <div className="space-y-4">
       <Model />

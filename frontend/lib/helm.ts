@@ -97,7 +97,9 @@ const qs = (o: Record<string, string>) => {
   return s ? `?${s}` : "";
 };
 
-export const helmAccess = () => call<{ enabled: boolean; steers: string[] }>("/api/helm/access");
+/** steers = projects this person manages; reads (3.2.2 Captains demo) = projects whose Helm they
+ *  may read; read_only = they read without steering (every action greyed). */
+export const helmAccess = () => call<{ enabled: boolean; steers: string[]; reads?: string[]; read_only?: boolean }>("/api/helm/access");
 export const helmDeck = (f: { project?: string; team?: string; person?: string } = {}) =>
   call<HelmDeck>(`/api/helm/deck${qs({ project: f.project || "", team: f.team || "", person: f.person || "" })}`);
 export const helmFilters = () =>

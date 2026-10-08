@@ -126,6 +126,21 @@ def steerable_projects(user: dict) -> list[str]:
     return [p["slug"] for p in projects.work_projects() if can_steer(user, p["slug"])]
 
 
+def can_view(user: dict, project: str) -> bool:
+    """READ access to the Helm view: who steers — and, on the public demo with
+    `demo_captains`, any member of the project (read routes only; writes stay can_steer)."""
+    if can_steer(user, project):
+        return True
+    import demo_captains
+    import projects
+    return demo_captains.enabled() and projects.effective_role(user, project) is not None
+
+
+def viewable_projects(user: dict) -> list[str]:
+    import projects
+    return [p["slug"] for p in projects.work_projects() if can_view(user, p["slug"])]
+
+
 # ---- signals (links of a card, resolved live) ----------------------------------------
 _RUN_ACTIVE = ("queued", "running")
 _RUN_FAILED = ("failed", "timeout", "budget", "incomplete")
@@ -484,7 +499,7 @@ def deck_item(card: dict) -> dict:
 
 
 def deck(user: dict, project: str = "", team: str = "", person: str = "") -> dict:
-    allowed = steerable_projects(user)
+    allowed = viewable_projects(user)
     slugs = [project] if project else allowed
     slugs = [s for s in slugs if s in allowed]
     if team:
@@ -516,7 +531,7 @@ def _team_members(team: str) -> set[str]:
 
 def filters(user: dict) -> dict:
     import projects as P
-    slugs = steerable_projects(user)
+    slugs = viewable_projects(user)
     teams = sorted({g["principal"] for s in slugs for g in P.list_grants(s) if g["principal_kind"] == "team"})
     people: set[str] = set()
     for c in project_cards(slugs):

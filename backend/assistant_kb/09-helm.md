@@ -48,3 +48,11 @@ project » ; l'utilisateur ajuste les cartes avant de valider :
  "children": [{"title": "Composant lecteur HLS web", "assignee": "dan@example.ch"},
               {"title": "Lecteur mobile", "description": "..."}]}
 ```
+
+## Sur la démo publique (3.2.2, « Captains »)
+- Sur demo.sokkan.ch, le visiteur est un **viewer** : il voit **Control › Helm** (les cartes projet des 3 projets de démo,
+  leur avancement calculé, une suggestion de recadrage), le **tableau**, le **sélecteur de projet**, une session
+  « **Shared with me** », **Setup › Engines** et **Setup › Organization** — tout en **lecture seule** (« read-only demo »).
+- Les personnes, équipes et projets de la démo sont **fictifs** (adresses @example.com) ; aucune clé ni secret n'est affiché.
+- Toute écriture est refusée (403 « read-only demo »), sauf la conversation avec moi (Nina), plafonnée par jour.
+- Pour essayer en vrai : installer SOKKAN (sokkan.ch/install.sh) ou réserver une démo accompagnée.

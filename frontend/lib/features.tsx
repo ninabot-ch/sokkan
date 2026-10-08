@@ -17,6 +17,8 @@ export interface Features {
   agents_viewer_readonly?: boolean;
   /** 3.1.1 : simulated agent runs of the public demo (SOKKAN_DEMO_CREW=1) */
   demo_crew?: boolean;
+  /** 3.2.2 : public demo « Captains » (Helm, projects, Setup read-only, fictional people) */
+  demo_captains?: boolean;
   /** 3.3 : Helm (feature `helm`) — hierarchy in the card dialog, Helm tab for managers */
   helm?: boolean;
   /** 3.2 : projects (feature `multi_project`) */

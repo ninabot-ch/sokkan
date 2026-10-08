@@ -389,6 +389,11 @@ def engine_keys(eid: str) -> list[dict]:
 
 # ---- the screen ---------------------------------------------------------------------------
 
+def _demo() -> bool:
+    import demo_captains
+    return demo_captains.enabled()
+
+
 def view(user: dict, project: str | None, is_admin: bool, project_role: str | None) -> dict:
     import llm
     m = mode()
@@ -403,9 +408,12 @@ def view(user: dict, project: str | None, is_admin: bool, project_role: str | No
         conn = None
         if c:
             k = modelkeys.record(*c["key_ref"].rsplit(":", 1)) if c.get("key_ref") else None
-            conn = {"auth": c["auth"], "base_url": c.get("base_url", ""),
+            # 3.2.2 Captains demo: a non-admin sees that an engine is connected, never by whom
+            # nor where (base URL), and never a key tail
+            hide = not is_admin and _demo()
+            conn = {"auth": c["auth"], "base_url": "" if hide else c.get("base_url", ""),
                     "model": c.get("model", ""), "small_model": c.get("small_model", ""),
-                    "by": c.get("connected_by", ""), "at": c.get("connected_at"),
+                    "by": "" if hide else c.get("connected_by", ""), "at": c.get("connected_at"),
                     # 3.2.2: the key's tail is the admin's business (Setup › Engines)
                     "masked": ("…" + k["last4"]) if is_admin and k and k.get("last4") else None}
         engines.append({

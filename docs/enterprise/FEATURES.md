@@ -33,6 +33,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`crew_viewer_readonly`](#crew_viewer_readonly) Crew visible to viewers | stable | toggle | off | off | `agents` | — | `SOKKAN_FEATURE_CREW_VIEWER_READONLY`<br>`SOKKAN_CREW_VIEWER_READONLY` (legacy) |
 | [`demo_banner`](#demo_banner) Public demo mode | stable | toggle | off | off | — | — | `SOKKAN_FEATURE_DEMO_BANNER`<br>`SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on) |
 | [`demo_crew`](#demo_crew) Simulated demo Crew | stable | toggle | off | off | `agents`, `demo_banner` | — | `SOKKAN_FEATURE_DEMO_CREW`<br>`SOKKAN_DEMO_CREW` (legacy) |
+| [`demo_captains`](#demo_captains) Captains demo | beta | toggle | off | off | `demo_banner`, `multi_project` | — | `SOKKAN_FEATURE_DEMO_CAPTAINS`<br>`SOKKAN_DEMO_CAPTAINS` (legacy) |
 | [`sso`](#sso) Single sign-on | stable | integration | if configured | if configured | — | — | `SOKKAN_AUTH_MODE`, `SOKKAN_OIDC_ISSUER`, `SOKKAN_OIDC_CLIENT_ID` |
 | [`multi_project`](#multi_project) Projects | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_MULTI_PROJECT` |
 | [`sso_teams`](#sso_teams) SSO teams | beta | toggle | on | on | `sso` | — | `SOKKAN_FEATURE_SSO_TEAMS` |
@@ -76,6 +77,7 @@ graph LR
   crew_viewer_readonly["Crew visible to viewers"]
   demo_banner["Public demo mode"]
   demo_crew["Simulated demo Crew"]
+  demo_captains["Captains demo"]
   sso["Single sign-on"]
   multi_project["Projects"]
   sso_teams["SSO teams"]
@@ -103,6 +105,8 @@ graph LR
   crew_viewer_readonly --> agents
   demo_crew --> agents
   demo_crew --> demo_banner
+  demo_captains --> demo_banner
+  demo_captains --> multi_project
   sso_teams --> sso
   ops_team --> sso_teams
   project_vault_budgets --> multi_project
@@ -294,7 +298,7 @@ A viewer sees the whole Crew read-only (secret names, never values). Public demo
 Guided-tour banner of the public read-only demo instance.
 
 - Defaults: community **off**, enterprise **off**
-- Required by: `demo_crew`
+- Required by: `demo_crew`, `demo_captains`
 - Switch: `SOKKAN_FEATURE_DEMO_BANNER`, `SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on)
 
 ### demo_crew
@@ -307,6 +311,17 @@ Simulated agent runs (no model, no inference) for the public demo only.
 - Requires: `agents`, `demo_banner`
 - Switch: `SOKKAN_FEATURE_DEMO_CREW`, `SOKKAN_DEMO_CREW` (legacy)
 - Doc: [docs/AGENTS.md](../../docs/AGENTS.md)
+
+### demo_captains
+
+**Captains demo** — beta, toggle.
+
+Public demo only: the visitor (a viewer) sees Control › Helm and the board read-only, the project selector over 2-3 fictional projects, Setup › Engines and Organization read-only with fictional people (@example.com) and no key; every write under /api answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_captains.py.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `demo_banner`, `multi_project`
+- Switch: `SOKKAN_FEATURE_DEMO_CAPTAINS`, `SOKKAN_DEMO_CAPTAINS` (legacy)
+- Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
 
 ### sso
 
@@ -326,7 +341,7 @@ OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.
 Several isolated projects on one instance (sessions, board, agents, memory, workspace), roles per project. Off: no NEW project can be created; projects that exist keep their isolation (turning it off never opens data).
 
 - Defaults: community **off**, enterprise **on**
-- Required by: `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
+- Required by: `demo_captains`, `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
 - Switch: `SOKKAN_FEATURE_MULTI_PROJECT`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
 

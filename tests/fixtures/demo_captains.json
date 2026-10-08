@@ -1,0 +1,96 @@
+{
+  "_doc": "SOKKAN 3.2.2 « Captains » demo seed — FICTIONAL organization (people @example.com only). Seeded by backend/demo_captains.py via infra/sokkan/demo-seed-captains.sh. Idempotent.",
+  "people": [
+    {"email": "lea.martin@example.com", "name": "Léa Martin", "role": "dev"},
+    {"email": "tom.keller@example.com", "name": "Tom Keller", "role": "dev"},
+    {"email": "sara.rossi@example.com", "name": "Sara Rossi", "role": "dev"},
+    {"email": "yann.favre@example.com", "name": "Yann Favre", "role": "dev"},
+    {"email": "nora.weber@example.com", "name": "Nora Weber", "role": "dev"},
+    {"email": "malik.diallo@example.com", "name": "Malik Diallo", "role": "viewer"}
+  ],
+  "teams": [
+    {"id": "product-leads", "name": "Product leads", "members": ["lea.martin@example.com", "nora.weber@example.com"]},
+    {"id": "player-squad", "name": "Player squad", "members": ["tom.keller@example.com", "yann.favre@example.com"]},
+    {"id": "newsroom-devs", "name": "Newsroom devs", "members": ["sara.rossi@example.com", "yann.favre@example.com"]},
+    {"id": "editors", "name": "Editors", "members": ["malik.diallo@example.com"]}
+  ],
+  "projects": [
+    {
+      "slug": "player", "name": "Streaming player", "lead": "lea.martin@example.com",
+      "description": "Web and TV player: adaptive streaming, captions, playback analytics.",
+      "teams": {"product-leads": "maintainer", "player-squad": "dev", "editors": "viewer"},
+      "cards": [
+        {"title": "Player 2.0 — accessible playback for the winter season", "tag": "frontend", "ago_days": 24,
+         "assignee": "lea.martin@example.com", "due": "2026-11-30",
+         "intent": "Every programme plays with captions and audio description on web and TV, with playback analytics we own.",
+         "constraints": "WCAG 2.2 AA. Data stays in Switzerland. No new paid SaaS.",
+         "decisions": ["No Kafka: playback events stay on Postgres LISTEN/NOTIFY", "Captions are WebVTT, generated upstream"],
+         "children": [
+           {"title": "Captions and audio description", "tag": "frontend", "ago_days": 22, "assignee": "tom.keller@example.com",
+            "children": [
+              {"title": "WebVTT track picker in the control bar", "tag": "frontend", "bucket": "Done", "ago_days": 20, "assignee": "tom.keller@example.com"},
+              {"title": "Audio-description track switch without reloading", "tag": "frontend", "bucket": "Done", "ago_days": 15, "assignee": "tom.keller@example.com"},
+              {"title": "Caption styling (size, contrast) saved per viewer", "tag": "frontend", "bucket": "Review", "ago_days": 6, "assignee": "yann.favre@example.com"},
+              {"title": "Keyboard and screen-reader pass on the control bar", "tag": "frontend", "bucket": "Doing", "ago_days": 3, "assignee": "tom.keller@example.com"}
+            ]},
+           {"title": "Playback analytics", "tag": "backend", "ago_days": 18, "assignee": "yann.favre@example.com",
+            "children": [
+              {"title": "Playback events table and retention job", "tag": "backend", "bucket": "Done", "ago_days": 16, "assignee": "yann.favre@example.com"},
+              {"title": "Stream playback events to Kafka for the analytics team", "tag": "backend", "bucket": "Doing", "ago_days": 2, "assignee": "yann.favre@example.com",
+               "description": "The analytics team asked for a Kafka topic with every play / pause / seek."},
+              {"title": "Daily completion-rate chart per programme", "tag": "frontend", "bucket": "Backlog", "ago_days": 9}
+            ]},
+           {"title": "TV app parity", "tag": "frontend", "ago_days": 12, "assignee": "lea.martin@example.com",
+            "children": [
+              {"title": "Remote-control focus order on the TV player", "tag": "frontend", "bucket": "Backlog", "ago_days": 8},
+              {"title": "Resume where you left off across web and TV", "tag": "backend", "bucket": "Backlog", "ago_days": 8}
+            ]}
+         ]}
+      ]
+    },
+    {
+      "slug": "newsroom", "name": "Newsroom assistant", "lead": "nora.weber@example.com",
+      "description": "Tools for the editors: transcripts, summaries, fact-check queue.",
+      "teams": {"product-leads": "maintainer", "newsroom-devs": "dev", "editors": "viewer"},
+      "cards": [
+        {"title": "Morning desk — transcripts and summaries before 7:00", "tag": "research", "ago_days": 30,
+         "assignee": "nora.weber@example.com", "due": "2026-10-31",
+         "intent": "Editors find the night's interviews transcribed, summarised and searchable when they arrive.",
+         "constraints": "Swiss-hosted inference only. A human validates every published summary.",
+         "decisions": ["Summaries are never published without an editor's approval"],
+         "children": [
+           {"title": "Transcription pipeline", "tag": "backend", "ago_days": 28, "assignee": "sara.rossi@example.com",
+            "children": [
+              {"title": "Ingest the night recordings from the archive bucket", "tag": "backend", "bucket": "Done", "ago_days": 26, "assignee": "sara.rossi@example.com"},
+              {"title": "Speaker diarisation for interviews", "tag": "backend", "bucket": "Done", "ago_days": 19, "assignee": "sara.rossi@example.com"},
+              {"title": "Swiss-German dialect evaluation set", "tag": "research", "bucket": "Done", "ago_days": 14, "assignee": "yann.favre@example.com"}
+            ]},
+           {"title": "Editor's summary view", "tag": "frontend", "ago_days": 16, "assignee": "sara.rossi@example.com",
+            "children": [
+              {"title": "Summary card with sources and timestamps", "tag": "frontend", "bucket": "Done", "ago_days": 12, "assignee": "sara.rossi@example.com"},
+              {"title": "Approve / edit / reject before publication", "tag": "frontend", "bucket": "Review", "ago_days": 5, "assignee": "sara.rossi@example.com"},
+              {"title": "Search across the night's transcripts", "tag": "frontend", "bucket": "Doing", "ago_days": 4, "assignee": "yann.favre@example.com"}
+            ]}
+         ]}
+      ]
+    },
+    {
+      "slug": "archives", "name": "Archive search", "lead": "lea.martin@example.com",
+      "description": "Search 60 years of programmes by what is said, not only by title.",
+      "teams": {"product-leads": "maintainer", "newsroom-devs": "dev"},
+      "cards": [
+        {"title": "Archive search — pilot on the 1990s news", "tag": "research", "ago_days": 9,
+         "assignee": "lea.martin@example.com", "due": "2027-01-15",
+         "intent": "A journalist finds a 1990s clip by a sentence said in it, in under ten seconds.",
+         "constraints": "Rights metadata respected: a clip without broadcast rights is listed, never played.",
+         "children": [
+           {"title": "Rights metadata import", "tag": "backend", "bucket": "Doing", "ago_days": 7, "assignee": "sara.rossi@example.com"},
+           {"title": "Index the transcripts of 1990-1999", "tag": "backend", "bucket": "Backlog", "ago_days": 7},
+           {"title": "Search UI for the pilot editors", "tag": "frontend", "bucket": "Backlog", "ago_days": 7}
+         ]}
+      ]
+    }
+  ],
+  "share": {"from": "tom.keller@example.com", "title": "Caption styling — can you check it reads well?",
+            "note": "Read-only share for your review: does the caption styling read well on your screen?"}
+}

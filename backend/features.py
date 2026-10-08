@@ -261,6 +261,14 @@ REGISTRY: tuple[Feature, ...] = (
             "Simulated agent runs (no model, no inference) for the public demo only.",
             requires=("agents", "demo_banner"),
             vars=_t("demo_crew", Var("SOKKAN_DEMO_CREW", parse_bool, True)), doc=A),
+    Feature("demo_captains", "Captains demo",
+            "Public demo only: the visitor (a viewer) sees Control › Helm and the board read-only, "
+            "the project selector over 2-3 fictional projects, Setup › Engines and Organization "
+            "read-only with fictional people (@example.com) and no key; every write under /api "
+            "answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_captains.py.",
+            status="beta", requires=("demo_banner", "multi_project"),
+            vars=_t("demo_captains", Var("SOKKAN_DEMO_CAPTAINS", parse_bool, True)),
+            doc="docs/enterprise/UI-FEATURES.md"),
     # -- multi-user (3.2)
     Feature("sso", "Single sign-on",
             "OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.",

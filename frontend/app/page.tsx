@@ -70,18 +70,21 @@ function Cockpit() {
 
   // 3.3 Helm : the sub-tab exists for the people who steer at least one project
   const [steers, setSteers] = useState(false);
+  // 3.2.2 Captains demo: a member reads Helm without steering it
+  const [helmRO, setHelmRO] = useState(false);
   const [helmFor, setHelmFor] = useState<boolean | null>(null);
   useEffect(() => {
     const h = !!feats.helm;
-    if (!h) { setSteers(false); setHelmFor(false); return; }
-    helmAccess().then((a) => setSteers(a.steers.length > 0)).catch(() => setSteers(false))
+    if (!h) { setSteers(false); setHelmRO(false); setHelmFor(false); return; }
+    helmAccess().then((a) => { setSteers(a.steers.length > 0); setHelmRO(!!a.read_only && (a.reads || []).length > 0); })
+      .catch(() => { setSteers(false); setHelmRO(false); })
       .finally(() => setHelmFor(true));
   }, [feats.helm]);
   // the plane this person was on last (kept per user by the API)
   const [last, setLast] = useState<string | null | undefined>(undefined);
   useEffect(() => { navLast().then(setLast); }, []);
 
-  const planes = visiblePlanes({ f: feats, project: currentProject(), canDev, ops: me?.ops, steers });
+  const planes = visiblePlanes({ f: feats, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
   // availability is known only once features, Helm access and the remembered plane answered —
   // never decide on the loading defaults
   const settled = !!feats.loaded && helmFor === !!feats.helm && last !== undefined;
@@ -193,7 +196,7 @@ function Cockpit() {
       ) : tab === "infra" ? (
         <Infra />
       ) : tab === "helm" ? (
-        <Helm onOpenSession={(sid) => openSession({ session_id: sid })} />
+        <Helm onOpenSession={(sid) => openSession({ session_id: sid })} readOnly={helmRO && !steers} />
       ) : tab === "crew" ? (
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
       ) : tab === "incidents" ? (

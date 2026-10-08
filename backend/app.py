@@ -51,6 +51,7 @@ import auth
 import board
 import budgets
 import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
+import demo_captains  # 3.2.2 public demo « Captains » (write guard, org view)
 import iam
 import infra
 import oidc
@@ -1421,6 +1422,8 @@ def features_flags() -> dict:
         "revocation": on("revocation"),
         # 3.3 Helm (onglet réservé aux managers : /api/helm/access le dit par personne)
         "helm": on("helm"),
+        # 3.2.2 : démo publique « Captains » (Helm, projets, Setup en lecture seule)
+        "demo_captains": demo_captains.enabled(),
         "registry": features.as_api(),
     }
 
@@ -1735,6 +1738,11 @@ async def require_auth(request: Request, call_next):
             user = auth.instance_user(request)
             # 3.2 lot 3 : de quel projet parle la requête, avec quel rôle (projectgate)
             token = projectgate.resolve(request, user)
+            # 3.2.2 Captains demo: nothing is written by a visitor (403 before any route)
+            ro = demo_captains.guard(request.method, p, user)
+            if ro:
+                projectgate.reset(token)
+                return JSONResponse({"detail": ro}, status_code=403)
         except HTTPException as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
         except projectgate.Denied as e:
@@ -2847,3 +2855,11 @@ app.include_router(uiroutes.router)
 
 # --- 3.3 Helm : routes /api/helm/* (+ modèles d'agents) — backend/helm_api.py ----------
 helm_api.install(app, current_user, require)
+
+
+# --- 3.2.2 public demo « Captains » : Setup › Organization read-only, fictional people only
+@app.get("/api/demo/organization")
+def demo_organization(_u: dict = Depends(require("viewer"))) -> dict:
+    if not demo_captains.enabled():
+        raise HTTPException(404, "feature disabled on this instance")
+    return demo_captains.org_view()

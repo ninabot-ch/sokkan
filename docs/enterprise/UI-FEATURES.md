@@ -92,3 +92,30 @@ router's base URL.
   engine that was disconnected or disallowed falls back to the instance default, never to a
   stale key. A session of a project with a chosen engine runs on it.
 - Journal: `connect_ai.connect|disconnect|default|policy|project`.
+
+## 4. Captains demo — `demo_captains` (3.2.2, public demo only)
+
+What 3.2 « Captains » brings, shown to the anonymous visitor of the public read-only demo
+(everyone there is one viewer identity, `SOKKAN_OWNER_EMAIL`). Requires `demo_banner` and
+`multi_project`; `SOKKAN_DEMO_CAPTAINS=1` anywhere else is ignored (the feature stays off).
+
+| The visitor sees | Read-only how |
+|---|---|
+| **Control › Helm** — project cards of the 2-3 demo projects, their hierarchy and computed progress, one reframe suggestion | `/api/helm/access` answers `read_only: true`, `helm.can_view` opens the READ routes to project members; actions greyed « read-only demo » |
+| **Control › Board** and the **project selector** | the visitor has a viewer grant on each demo project |
+| **« Shared with me »** — one read share from a fictional colleague | a normal share (`shared_review`), read access |
+| **Setup › Engines** | engines allowed by the instance; no key tail, no « connected by », no base URL for a non-admin |
+| **Setup › Organization** — Members, Projects & teams | `GET /api/demo/organization`: fictional people (`@example.com`) only — any other email is never served |
+
+**Nothing is written by a visitor**: with the feature on, every non-read request under `/api`
+from someone below instance admin answers **403 « read-only demo »** in the auth middleware,
+before any route — Nina's chat excepted (`/api/assistant/`, capped per day by
+`SOKKAN_ASSISTANT_DAILY_LIMIT`). The demo's operator (an instance admin) is not affected.
+
+**Seed**: `python3 backend/demo_captains.py seed <captains.json>` (refused unless
+`SOKKAN_DEMO_CAPTAINS=1` or `--force`; `check` validates without writing). People must be
+`@example.com` with role viewer or dev (never admin); 2 or 3 projects; teams are local
+(`local:demo-<id>`); each project's grants are exactly the seed's (its teams + the visitor
+as viewer); cards are remembered in `board.db` table `demo_captains` and rewritten on each
+run (idempotent); a project with the same slug not made by the seed is refused. The agents
+seeded by `demo_crew` and every other card are left alone. Example: `tests/fixtures/demo_captains.json`.
