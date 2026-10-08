@@ -216,7 +216,8 @@ REGISTRY: tuple[Feature, ...] = (
             "Nina, the cockpit's help agent. Needs an LLM (SOKKAN_ASSISTANT_LLM_*) and its "
             "knowledge base; paid in the guaranteed offer, the user's own model in open source.",
             vars=_t("assistant", Var("SOKKAN_FEATURE_ASSISTANT", parse_zero_off, True, "0 = off, anything else = on")),
-            config=("SOKKAN_ASSISTANT_LLM_URL", "SOKKAN_ASSISTANT_LLM_MODEL"),
+            config=("SOKKAN_ASSISTANT_LLM_URL", "SOKKAN_ASSISTANT_LLM_MODEL",
+                    "SOKKAN_ASSISTANT_MAX_TOKENS"),
             check=_assistant_check),
     Feature("missions_link", "SOKKAN Missions link",
             "Header link to the public SOKKAN Missions marketplace, with a counter this instance "
@@ -402,8 +403,11 @@ REGISTRY: tuple[Feature, ...] = (
             "Hierarchical cards (manager's project card → engineer's cards → sub-tasks): the "
             "parent's intent, constraints and decisions flow down into the sessions, progress "
             "flows up (computed, never declared); the Helm view for project managers; Nina "
-            "interviews and breaks a project down, Helm suggests reframes (a manager approves "
-            "or ignores); morning-brief agent template (ICS calendar).", status="beta",
+            "interviews and breaks a project down into a project the manager steers, Helm "
+            "suggests reframes (a manager approves or ignores); the morning brief on demand "
+            "(« My brief ») and as an agent template (ICS calendar). Shows each manager only "
+            "the cards they are cleared for (classification). Stable since 3.4 (criteria: "
+            "docs/HELM.md).", status="stable",
             defaults=_ed(False, True), requires=("multi_project", "assistant"), vars=_t("helm"),
             config=("SOKKAN_HELM_TICK_S", "SOKKAN_HELM_DRIFT_MIN", "SOKKAN_HELM_SNOOZE_DAYS",
                     "SOKKAN_HELM_CALENDAR_ICS"), doc="docs/HELM.md"),
@@ -413,8 +417,10 @@ REGISTRY: tuple[Feature, ...] = (
             "their SSO groups and project role. Recall, memory_search / memory_get, the "
             "Control › CortHeXis, the board, Nina and Teams return only what the person is cleared "
             "for; derived content inherits the highest level of its sources; every note handed "
-            "out is logged (audited recall). Off: nothing above `project` is reachable.",
-            status="beta", defaults=_ed(False, True), requires=("multi_project", "sso_teams"),
+            "out is logged (audited recall, readable and exported by the project's admins). "
+            "Helm too shows each manager only what they are cleared for. Off: nothing above "
+            "`project` is reachable. Stable since 3.4.",
+            status="stable", defaults=_ed(False, True), requires=("multi_project", "sso_teams"),
             vars=_t("classification"),
             config=("SOKKAN_CLASSIFICATION_LABELS", "SOKKAN_CLEARANCE_ROLES"),
             doc="docs/enterprise/SECURITY.md"),

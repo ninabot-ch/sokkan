@@ -50,8 +50,8 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`secrets_provider`](#secrets_provider) Secrets provider | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_SECRETS_PROVIDER` |
 | [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
 | [`shared_review`](#shared_review) Shared session / preview for review | beta | toggle | off | on | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
-| [`helm`](#helm) Helm | beta | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
-| [`classification`](#classification) Classification and clearances | beta | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
+| [`helm`](#helm) Helm | stable | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
+| [`classification`](#classification) Classification and clearances | stable | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 
@@ -495,9 +495,9 @@ Share a session or a preview with a person or a team of its project, read or rea
 
 ### helm
 
-**Helm** — beta, toggle.
+**Helm** — stable, toggle.
 
-Hierarchical cards (manager's project card → engineer's cards → sub-tasks): the parent's intent, constraints and decisions flow down into the sessions, progress flows up (computed, never declared); the Helm view for project managers; Nina interviews and breaks a project down, Helm suggests reframes (a manager approves or ignores); morning-brief agent template (ICS calendar).
+Hierarchical cards (manager's project card → engineer's cards → sub-tasks): the parent's intent, constraints and decisions flow down into the sessions, progress flows up (computed, never declared); the Helm view for project managers; Nina interviews and breaks a project down into a project the manager steers, Helm suggests reframes (a manager approves or ignores); the morning brief on demand (« My brief ») and as an agent template (ICS calendar). Shows each manager only the cards they are cleared for (classification). Stable since 3.4 (criteria: docs/HELM.md).
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `assistant`
@@ -506,9 +506,9 @@ Hierarchical cards (manager's project card → engineer's cards → sub-tasks): 
 
 ### classification
 
-**Classification and clearances** — beta, toggle.
+**Classification and clearances** — stable, toggle.
 
-Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the Control › CortHeXis, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
+Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the Control › CortHeXis, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall, readable and exported by the project's admins). Helm too shows each manager only what they are cleared for. Off: nothing above `project` is reachable. Stable since 3.4.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `sso_teams`

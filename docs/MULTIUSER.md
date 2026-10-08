@@ -625,3 +625,17 @@ a production rollout at a large client; 8 if their security officer requires it.
 6. **No raw terminal outside `default`** before the sandbox (lot 8).
 7. **BYOK per instance** for the POC; per project later.
 8. **GitLab and Entra ID** to be confirmed at the client; the forge abstraction stays.
+
+## Status of `multi_project` (3.4 review) — stays beta
+
+Reviewed for 3.4 « Bridge » (Helm and classification went stable on top of it). The tests
+justify it — `tests/test_project_isolation.py` (15 tests through the real middleware with three
+people, each filter removed once turns one red), the 29 classification mutations, the Helm
+clearance tests — but the field does not yet: on the internal instance (3.2.x → 3.3.0
+enterprise, live since 08.10.2026) one person uses it, with one test project besides
+`default` and `shared`, for less than a day; the public demo uses it read-only. No two teams
+have worked side by side on one instance. **Criterion to go stable**: one deployment with at
+least two teams in separate projects (the RTS POC) for two weeks without an isolation finding,
+plus the open items of the lots (agent names unique per instance outside lot 4, the
+`git credential fill` path from a session). Until then `multi_project` stays **beta**, and the
+stable features that need it (Helm, classification) say so in their docs.

@@ -84,7 +84,7 @@ overrides ●; `project.create|archive|grant|revoke`, `project.grant.self`, `tea
 `memory.scope_violation` ◐; `forge.*`, `byok.*`, `revoke.now` ○. With several projects the
 journal is for instance admins only ◐.
 
-## 8. Classification and clearances (3.4) ◐
+## 8. Classification and clearances (3.4, stable)
 
 A note, a decision, a card or an agent deliverable carries a **level**; a person carries a
 **clearance** per project; nothing reaches a person above their clearance — including
@@ -163,7 +163,35 @@ project, note_name, level, query`. `via` = `spawn` | `prompt` | `subagent` | `mc
 `cockpit` | `nina` | `teams` | `brief`. Rows of sessions name their actor through the
 session's owner. `GET /api/classification/audit` (project **admins**; `?format=csv` exports;
 filters actor, note, session, days) — entries about notes above the reader's own clearance
-are left out; each read is journaled (`classification.audit.read`).
+are left out **and counted** (`hidden_above_clearance`; CSV header `x-sokkan-hidden-rows`): an
+auditor knows such reads exist without seeing them; each read is journaled
+(`classification.audit.read`). The same log is **readable in the cockpit** (Setup ›
+Organization › Classification: table with filters person / note / period, export of what is
+shown).
+
+### Helm (3.4 Bridge)
+
+Helm reads a whole project for its managers; it now applies the reader's clearance like the
+board: the deck leaves out a project card above it, the popout leaves out children above it
+(kanban, card list, costs, activity), a classified ancestor keeps its id but shows
+« (classified) », an event that names a hidden card (« child added: #12 “…” ») is redacted, a
+suggestion is shown — and decided — only when every card it names is visible, a card above
+the clearance answers 404, and the morning brief (route, board MCP, brief agent) is built
+from the cards the reader — or the agent's owner — is cleared for. The board's own card
+dialog (`/api/board/card/{id}`) and `get_card` / `get_card_tree` of the board MCP apply the
+same rules.
+
+### What makes it stable (3.4)
+
+* 29 mutations, each removing one filter (the 18 of 3.4 — store SQL with the Python
+  re-filter cut, scope, cockpit, board, gate, sessions, quarantine, Nina, CortHeXis, board MCP,
+  memory MCP, upsert, lowering, Teams ×5 — and the 11 Helm / audit filters of 3.4 Bridge):
+  every one turns a test red (`tests/test_classification*.py`, `tests/test_teams.py`,
+  `tests/test_bridge_helm.py`).
+* « Two people, same question » replayed through Nina on a disposable instance (real model,
+  Postgres store): the person cleared `confidential` gets the price of a confidential note,
+  the one cleared `project` does not; the answer carries its level; both reads are in the
+  access log with `via = nina`.
 
 ### Off
 

@@ -1,6 +1,6 @@
-# Helm — steering a project (SOKKAN 3.3)
+# Helm — steering a project (SOKKAN 3.3, stable since 3.4)
 
-Feature `helm` (`SOKKAN_FEATURE_HELM`, beta). Requires `multi_project` and `assistant`.
+Feature `helm` (`SOKKAN_FEATURE_HELM`, **stable since 3.4** — criteria at the end). Requires `multi_project` and `assistant`.
 Default: off in community, on in enterprise. Turning it off hides the Control › Helm sub-tab and every
 `/api/helm/*` route (404), refuses hierarchy edits on the board (400) and stops the
 periodic job; the columns and tables it added stay, unused.
@@ -104,6 +104,7 @@ instance admin sees no project content without being added to it, which is journ
 
 ## Nina creates a project
 
+« ✦ New project with Nina » (Helm header, and the empty deck) opens Nina and asks for it — or
 « Create a project » in Nina's chat: she interviews (goal, scope, constraints and
 decisions already taken, deadline, team) one question at a time, then proposes a
 breakdown into cards and ends with a ```` ```sokkan-project ```` block. The cockpit shows
@@ -112,6 +113,18 @@ owner, add/remove cards); « Create the project » posts it to `POST /api/helm/p
 (developer role in the project): the project card (`kind=project`, owner = the person),
 its children, the baseline set after them (the agreed scope), the memory note. Nina
 itself never creates anything (her boundary since S1).
+
+Since 3.4, Nina is given the real data she needs — `GET /api/helm/targets`: the projects
+where the person can create a project card (developer+), whether they **steer** it there,
+and the people who can own its cards — and told never to invent an address. The proposal
+says **where** it will be created (« create it in », steered projects first: a project card
+created where one only has the developer role never shows in one's Helm, and the form says
+so), owners are chosen among the project's people, decisions are editable (one per line).
+An owner who is not a person of the project is not assigned; the response lists them
+(`dropped_owners`) and the cockpit says how many. A proposal already created shows its
+result when the conversation is replayed. Nina's answer budget is
+`SOKKAN_ASSISTANT_MAX_TOKENS` (default 2048 — a proposal of 5-8 cards is ~1 000 tokens, and a
+reasoning model spends part of the budget thinking); an answer cut or empty says so.
 
 ## Morning brief
 
@@ -123,8 +136,10 @@ team: cards that moved since the last working day (Monday: since Friday), blocke
 and why, approvals waiting, incidents, agents in error, decisions recorded above their
 work, Helm suggestions, and today's agenda. Outputs `memory` + `notify`: the brief is a
 memory note **in quarantine** (3.1 invariant) and a notification on success.
-`GET /api/helm/brief` previews it (one's own: any member; someone else's or a team's: the
-managers).
+`GET /api/helm/brief` previews it (one's own: any member; someone else's, a team's or the
+whole project's — `?all=1` — the managers). In the cockpit: « ☀ My brief » in the Helm header
+(for: me / the whole project). The brief only lists what the reader is cleared for, and only
+non-empty sections (« Nothing to report: … »).
 
 Agenda: the `calendars` interface (`backend/calendars/`, shared with 3.4 Teams). **ICS URL**
 (`calendars/ics.py`)
@@ -160,3 +175,30 @@ computed progress, the context block) and `morning_brief(person, team)`.
 * Costs are estimations (sessions: API price grid of their transcripts; runs: their cost
   basis). Budgets per project come with lot 4.
 * A merge request link is checked for its form only until the GitLab lot (5).
+
+## Stable (3.4) — what it took, what keeps it stable
+
+Helm moved from beta to **stable** in 3.4 « Bridge » on these criteria — any change to Helm
+keeps them true:
+
+1. **The manager journey passes in the UI** — played as a persona with the `ui-ux-engineer`
+   skill (journey mode, real Chrome, disposable instance, Nina on a real model): a department
+   head who never used SOKKAN creates a project with Nina, sees it in Helm, follows its progress
+   as the team works, acts on a reframe suggestion and reads the morning brief, **without docs**.
+   3.3.0: ABANDONED at step 3 (Nina's answer empty or cut, invented owners, the project created
+   in a project the manager does not steer, « card not found »). 3.4: **SUCCESS**, 15 actions for
+   15 minimum, time to the project in Helm ≈ 3 min 45 s (two thirds of it is the model writing).
+2. **Real use**: the 3.4 project itself (« SOKKAN 3.4 Bridge », 6 cards from Nina's breakdown,
+   then 4 added by the team) ran on that instance; the suggestions fired as designed —
+   contradiction (« Webhook relay service » vs the decision « No new service »), scope growth
+   (+4 after the baseline), card without owner, and, with the embedding engine on, drift on two
+   short cards (one of them a false positive: drift only proposes).
+3. **Classification holds in Helm** (SECURITY.md § 8): a manager sees only the cards they are
+   cleared for; every Helm filter has a mutation test.
+4. **Smoke of the manager screens** (deck, popout, suggestions, card dialog, Nina, brief) at
+   1280 / 1440 / 390: no error left on the core task (axe-core, clipping, overflow).
+
+Not part of the contract (stay as documented limits): the drift / contradiction detectors are
+heuristics that only propose; costs are estimations; one Helm job per API process.
+`helm` requires `multi_project`, which stays **beta** (MULTIUSER.md): Helm's behaviour is
+stable, the multi-project layer under it is not yet proven by a multi-team deployment.

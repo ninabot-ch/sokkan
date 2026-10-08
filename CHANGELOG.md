@@ -3,6 +3,74 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.0 — unreleased — "Bridge"
+The command bridge, and the bridge to Teams. A department head creates a project with Nina, sees
+it in Helm, follows it, acts on a reframe suggestion and reads the brief — without docs (the same
+journey was abandoned on 3.3.0). Helm and classification are **stable**; a sign-out at the
+identity provider now ends the cockpit session; Teams is ready to plug into a real tenant.
+
+### Helm → stable
+- **The manager journey goes through** (played as a persona on a disposable instance, Nina on a
+  real model): « ✦ New project with Nina » in Helm; Nina gets the projects the person can create
+  in and their people (`GET /api/helm/targets`) — no invented owners, no copy-paste instructions;
+  the proposal says where it is created (steered projects first), owners are picked among the
+  project's people, decisions editable; the link after creation opens the right project.
+  `POST /api/helm/projects` reports the owners it could not assign (`dropped_owners`).
+- **Nina**: answer budget `SOKKAN_ASSISTANT_MAX_TOKENS` (default 2048, was 800 — a reasoning model
+  answered empty or cut a proposal); `reasoning` (vLLM) never shown; a cut or empty answer says so
+  (FR/EN); the knowledge sections follow the conversation; Markdown rendered; the panel's words
+  follow the browser language; a sent message is never replaced by the answer.
+- **« ☀ My brief »** in Helm: the morning brief on demand, for oneself or (managers) the whole
+  project (`/api/helm/brief?all=1`); only non-empty sections.
+- Suggestions say what Approve / Accept the new scope / Ignore did; accepting the new scope
+  resolves the scope suggestion at once; « card not found » explained; long titles wrap.
+- Stable criteria written in docs/HELM.md.
+
+### Classification → stable
+- **Helm applies the reader's clearance** (deck, popout, kanban, activity, costs, suggestions,
+  brief, board card dialog, board MCP): a manager never reads a card above their clearance —
+  not even its title in the parent's « child added » event; a classified ancestor shows
+  « (classified) ».
+- **The access log is readable in the cockpit** (Setup › Organization › Classification: filters,
+  export of what is shown); reads of notes above the auditor's clearance are counted
+  (`hidden_above_clearance`, CSV header `x-sokkan-hidden-rows`).
+- Cards reclassify from their dialog (raising immediate, lowering with an inline reason).
+- 29 mutations (the 18 filters of 3.4 + 11 of Bridge) — all red. SECURITY.md § 8.
+
+### OIDC back-channel logout (lot 6 completed)
+- `POST /api/auth/backchannel-logout` — OpenID Connect Back-Channel Logout 1.0: the IdP's signed
+  `logout_token` (JWKS, iss, aud, iat, `events`, sid/sub, no nonce, jti used once) ends the cockpit
+  sessions born from that IdP session: cookies refused, chat panes / terminals closed, live SDK
+  sessions interrupted then closed when no other IdP session of the person remains; `sub` alone
+  ends them all. Not a revocation: account, agents and forge tokens untouched. Audit
+  `auth.backchannel_logout`.
+- The cockpit cookie now carries the id_token's `sid`; the callback records sid/sub in identity.db.
+- Entra ID (no back-channel): front-channel `GET /api/auth/frontchannel-logout?sid=` behind
+  `SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1` (end-only; admin-side cuts stay SCIM / Revoke now).
+  OPERATIONS.md § 2.2 (Authentik 2025.8+, Entra ID).
+
+### Teams — ready to plug in (stays experimental)
+- App package: `GET /api/admin/teams/package`, `scripts/teams-manifest.py` (manifest v1.17
+  validated against the official schema, icons generated, valid domain = the public host).
+- `scripts/teams-register.sh`: Teams Developer Portal path by default (no Azure subscription;
+  changes nothing, prints the steps and the env lines); `--mode azure` with `--dry-run`.
+- HITL approvals as Adaptive Cards 1.5 per the Universal Action Model (Action.Execute in an
+  ActionSet + Action.Submit fallback, refresh, fallbackText), replaced by « Approved by X » once
+  decided.
+- **Pending approvals pushed proactively** to the project's Teams channel (agents waiting for
+  activation or a change, tool calls of a run) and replaced once decided — in Teams or in the
+  cockpit; an approval above the channel's level is announced without content.
+  `SOKKAN_TEAMS_PROACTIVE_S`.
+- `SOKKAN_TEAMS_APP_PASSWORD_FILE` (the secret from a 0600 file rendered from the vault).
+- `tests/teams_live/` — the real-tenant checklist as tests (skipped without `SOKKAN_TEAMS_LIVE=1`;
+  human steps under the `manual` marker). docs/enterprise/TEAMS-SETUP.md: day-of-the-tenant
+  runbook.
+
+### Registry
+- `helm` and `classification`: **stable**. `teams`: experimental until validated on a real
+  tenant. `multi_project`: stays **beta** (MULTIUSER.md « Status of multi_project »: proven by its
+  tests, not yet by a multi-team deployment).
+
 ## 3.3.0 — 2026-10-08 — "Helm"
 Steer your projects and your secrets. 3.3 makes OpenBao the reference place for an enterprise
 instance's secrets and keys — no clear key left on the data volume, backups that carry no key —
