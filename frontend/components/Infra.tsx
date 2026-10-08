@@ -50,7 +50,7 @@ function Topo() {
                 <span className="text-[14px] font-semibold text-slate-100">{n.name}</span>
                 <span className="ml-auto text-[10px] text-mut">{n.ip}</span>
               </div>
-              <div className="mt-0.5 text-[10.5px] text-mut">{n.role}</div>
+              {n.role && <div className="mt-0.5 text-[10.5px] text-mut">{n.role}</div>}
               {n.monitored && n.up ? (
                 <div className="mt-2.5 space-y-2">
                   <Metric label={`CPU · ${n.cores} cores`} value={`${n.cpu_pct ?? "—"}%`} pct={n.cpu_pct ?? 0} />
@@ -71,9 +71,14 @@ function Topo() {
         <div className="mb-2 text-[12px] font-semibold text-slate-200">Prometheus targets</div>
         <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
           {targets.map((t, i) => (
-            <div key={i} className="flex items-center gap-2 rounded-lg border border-line bg-panel2/40 px-2 py-1 text-[11.5px]">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${t.up ? "bg-emerald-500" : "bg-red-500"}`} />
-              <span className="text-slate-200">{t.job}</span><span className="ml-auto truncate text-mut">{t.instance}</span>
+            <div key={i} className="rounded-lg border border-line bg-panel2/40 px-2 py-1 text-[11.5px]" title={t.label || t.instance}>
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${t.up ? "bg-emerald-500" : "bg-red-500"}`} />
+                <span className="sr-only">{t.up ? "up" : "down"}</span>
+                <span className="shrink-0 text-slate-200">{t.job}</span>
+                <span className="ml-auto truncate text-slate-300">{t.name || ""}</span>
+              </div>
+              <div className="truncate pl-4 font-mono text-[10.5px] text-mut">{t.instance}</div>
             </div>
           ))}
         </div>
@@ -596,7 +601,7 @@ export default function Infra() {
         <div className="flex overflow-hidden rounded-md border border-line text-[12px]">
           {tabs.map((m) => (
             <button key={m} onClick={() => setMode(m)}
-              className={`px-3 py-0.5 ${cur === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
+              className={`px-3 py-1 ${cur === m ? "bg-panel2 text-slate-100" : "text-mut hover:text-slate-200"}`}>
               {LABEL[m]}
             </button>
           ))}

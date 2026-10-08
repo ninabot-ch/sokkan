@@ -75,6 +75,7 @@ import fleet
 import fleetterm
 import instance
 import llm
+import hostnames
 import magnitude
 import memeval
 import panestate
@@ -765,6 +766,11 @@ async def observability_alert(request: Request) -> dict:
         summary = ann.get("description") or ann.get("summary") or a.get("valueString", "")
         if a.get("status") == "resolved":
             continue  # on ne spawn que sur firing
+        # 3.2.3: the incident names the host, not only its address
+        summary = hostnames.annotate_text(summary)
+        inst = labels.get("instance") if isinstance(labels, dict) else None
+        if inst and inst not in summary:
+            summary = f"{summary} — on {hostnames.describe(str(inst))['label']}".lstrip(" —")
         rid = observability.record_incident(title, summary, severity)
         # 3.1.2 : the payload is external input — framed as untrusted data
         prompt = (
@@ -1309,8 +1315,9 @@ def magnitude_node_config(nid: str, body: MagnitudeNodeBody,
 
 class MagnitudeCmdBody(BaseModel):
     node: str
-    action: str  # 'bench' | 'run' | 'stop'
+    action: str  # 'bench' | 'run' | 'stop' | 'attach' (engine already running, 3.2.3)
     model: str = ""
+    port: int | None = None   # attach: the port of the engine on the node
 
 
 @app.post("/api/magnitude/cmd")
@@ -1318,8 +1325,8 @@ def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
                   _f: None = Depends(feature_magnitude)) -> dict:
     """Pose une commande pour un node (livrée à son prochain sync, ≤ 2 s)."""
     action, model = body.action.strip(), body.model.strip()
-    if action not in ("bench", "run", "stop"):
-        raise HTTPException(400, "action must be 'bench', 'run' or 'stop'")
+    if action not in ("bench", "run", "stop", "attach"):
+        raise HTTPException(400, "action must be 'bench', 'run', 'stop' or 'attach'")
     if action in ("bench", "run"):
         if not model:
             raise HTTPException(400, f"model required for {action!r}")
@@ -1328,10 +1335,13 @@ def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
     node = magnitude.get_node(body.node)
     if node is None:
         raise HTTPException(404, f"unknown node: {body.node!r}")
+    if action == "attach" and not magnitude.find_engine(node, model, body.port):
+        raise HTTPException(400, f"no engine {model!r} on port {body.port} reported by this node")
     if not magnitude.online(node):
         raise HTTPException(409, "agent is offline on this node")
-    magnitude.set_pending(body.node, action, model)
-    audit.log(u["email"], "magnitude.cmd", f"{body.node}:{action}", model)
+    magnitude.set_pending(body.node, action, model, port=body.port if action == "attach" else None)
+    audit.log(u["email"], "magnitude.cmd", f"{body.node}:{action}",
+              f"{model}:{body.port}" if action == "attach" else model)
     return magnitude.view()
 
 
@@ -1368,6 +1378,7 @@ class MagnitudeSyncBody(BaseModel):
     bench_result: dict | None = None
     serving: dict | None = None
     error: str | None = None
+    engines: list | None = None   # agent ≥ 0.2: engines already running on the node
 
 
 @app.post("/api/magnitude/agent/sync")
@@ -1916,7 +1927,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
     day_budget = instance.budgets().get("budget_day_usd", 0.0)
     if day_budget:
         try:  # avertissement (pas un blocage) — le jour est déjà bien entamé ?
-            spent = usage_mod.summary(1)["totals"]["today"]["cost"]
+            spent = usage_mod.summary(1)["totals"]["today"]["metered"]  # 3.2.3: billed, or API-equivalent on a subscription
             if spent >= day_budget:
                 session._emit({"type": "error", "message": (
                     f"Daily budget notice: today's estimated spend is ${spent:.2f}, "
@@ -2813,9 +2824,13 @@ def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict
             mine[s["session_id"]] = s
             if s.get("claude_session_id"):
                 mine[s["claude_session_id"]] = s
-    keep_unknown = not projects.multi_project() and p == projects.DEFAULT_PROJECT
+    # 3.2.3: a transcript SOKKAN did not start (`external`) is listed only when the
+    # operator counts them (SOKKAN_USAGE_EXTERNAL=include) and only in the default project
+    keep_external = (out.get("include_external") and not projects.multi_project()
+                     and p == projects.DEFAULT_PROJECT)
     out["sessions"] = [x for x in out.get("sessions") or []
-                       if x["session_id"] in mine or keep_unknown]
+                       if x["session_id"] in mine
+                       or (keep_external and x.get("source") == "external")]
     return out
 
 

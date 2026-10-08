@@ -39,7 +39,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`sso_teams`](#sso_teams) SSO teams | beta | toggle | on | on | `sso` | — | `SOKKAN_FEATURE_SSO_TEAMS` |
 | [`operate`](#operate) Operate | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL` |
 | [`ops_team`](#ops_team) Ops team | beta | toggle | on | on | `sso_teams` | — | `SOKKAN_FEATURE_OPS_TEAM` |
-| [`infra`](#infra) Infra topology | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM` |
+| [`infra`](#infra) Infra topology | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM`, `SOKKAN_HOSTS` |
 | [`fleet`](#fleet) Managed fleet | stable | integration | if configured | if configured | — | — | `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN` |
 | [`cortex`](#cortex) CortHeXis link | stable | integration | if configured | if configured | — | — | `SOKKAN_CORTEX_URL` |
 | [`kubernetes_runner`](#kubernetes_runner) Container runner (docker / Kubernetes) | experimental | toggle | off | off | — | — | `SOKKAN_FEATURE_KUBERNETES_RUNNER`<br>`SOKKAN_RUNNER` |
@@ -382,10 +382,10 @@ Operate / Infra open to an SSO group (the ops team) besides the instance admins.
 
 **Infra topology** — stable, integration.
 
-Operate › Infra: host topology from Prometheus.
+Operate › Infra: host topology from Prometheus. Addresses are shown with a host name (SOKKAN_HOSTS, /etc/hosts, Tailscale, reverse DNS).
 
 - Defaults: community **if configured**, enterprise **if configured**
-- Configuration: `SOKKAN_PROM`
+- Configuration: `SOKKAN_PROM`, `SOKKAN_HOSTS`
 
 ### fleet
 

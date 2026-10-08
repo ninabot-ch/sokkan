@@ -41,33 +41,94 @@ export interface UsageDay {
   turns: number;
   in_tokens: number;
   out_tokens: number;
-  cost: number;
+  cost: number;        // billed (USD)
+  api_equiv: number;   // same tokens at the public API price
 }
 
 export interface UsageTotals {
-  cost: number;
+  cost: number;        // billed (USD)
+  api_equiv: number;
+  metered: number;     // what budgets count
   out_tokens: number;
   turns: number;
 }
 
+export type BillingBasis = "api" | "subscription" | "gateway" | "local" | "custom";
+
 export interface UsageSession {
   session_id: string;
+  source: "sokkan" | "external";
   title: string;
   tag: string;
+  project: string;
   models: string;
+  bases: BillingBasis[];
+  subagents: number;
   turns: number;
   in_tokens: number;
   out_tokens: number;
   cache_read: number;
   cost: number;
+  api_equiv: number;
   last_ts: number;
 }
 
+export interface UsageBasisRow {
+  basis: BillingBasis;
+  label: string;
+  method: string;
+  billed: number;
+  api_equiv: number;
+  turns: number;
+  in_tokens: number;
+  out_tokens: number;
+  cache_read: number;
+  cache_write: number;
+  unpriced_turns: number;
+}
+
+export interface UsageModelRow {
+  model: string;
+  priced_as: string | null;
+  basis: BillingBasis;
+  priced: boolean;
+  turns: number;
+  in_tokens: number;
+  out_tokens: number;
+  cache_read: number;
+  cache_write: number;
+  cost_in: number;
+  cost_out: number;
+  cost_cr: number;
+  cost_cw: number;
+  api_equiv: number;
+  billed: number;
+  price: { input: number; output: number; cache_read: number } | null;
+}
+
+export interface UsageSource {
+  transcripts: number;
+  turns: number;
+  out_tokens: number;
+  billed: number;
+  api_equiv: number;
+  counted: boolean;
+}
+
 export interface UsageSummary {
+  period: { days: number; from: string; to: string };
+  pricing: { version: string; source: string; currency: string; unit: string; override?: string | null };
+  billing: { claude: BillingBasis; mode: string; why: string; claude_label: string; claude_method: string };
   days: UsageDay[];
-  totals: Record<"today" | "7d" | "30d" | "all", UsageTotals>;
+  totals: Record<"today" | "7d" | "30d" | "period" | "all", UsageTotals>;
+  by_basis: UsageBasisRow[];
+  by_model: UsageModelRow[];
+  by_project: { project: string; billed: number; api_equiv: number; turns: number; out_tokens: number }[];
+  sources: { sokkan: UsageSource; external: UsageSource };
   sessions: UsageSession[];
-  by_model: { model: string; cost: number; out_tokens: number }[];
+  include_external: boolean;
+  gateway: { spent_today_centimes?: number; spent_month_centimes?: number; balance_centimes?: number; currency: string } | null;
+  unpriced_models: string[];
   note: string;
   project?: string | null;          // 3.2 lot 4: totals of this project only
   project_budget?: ProjectBudget;   // 3.2 lot 4 (feature project_vault_budgets)
@@ -155,7 +216,8 @@ export interface IamUser {
 
 export interface InfraNode {
   ip: string;
-  name: string;
+  name: string;      // SOKKAN_INFRA_NODES, else resolved (SOKKAN_HOSTS, /etc/hosts, Tailscale, reverse DNS), else the ip
+  label?: string;    // "name (ip)"
   role: string;
   monitored: boolean;
   up: boolean | null;
@@ -173,6 +235,8 @@ export interface InfraNode {
 export interface InfraTarget {
   job: string;
   instance: string;
+  name?: string | null;   // host name of the instance's address (3.2.3)
+  label?: string;         // "name (ip:port)"
   up: boolean;
 }
 

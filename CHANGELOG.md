@@ -3,6 +3,44 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.2.3 — unreleased
+- **Operate › Costs tells what is billed, and how.** On an instance that runs Claude through a
+  Pro/Max login the tab showed hundreds of dollars a day. Four causes, all fixed: (1) every
+  transcript of the workspace was counted, including the operator's own Claude Code sessions run
+  in the same folder — only SOKKAN sessions (board sessions, agent runs, project workspaces, their
+  sub-agents) are counted now, the rest is one « not counted » line
+  (`SOKKAN_USAGE_EXTERNAL=include` to count it); (2) one API message was counted once per content
+  block (thinking, text, tool call — each transcript line repeats the message's usage):
+  deduplicated by message id; (3) models missing from a prefix list (`claude-opus-5-5`,
+  `claude-opus-5`) fell to the legacy Opus 15/75 tariff, cache reads included — prices now come
+  from a versioned table (`backend/model_prices.json`, public list of 2026-09-25: input, cache
+  write ×1.25 / ×2, cache read, output, per model), an unknown model is counted in tokens and
+  flagged, never priced at a guess (`SOKKAN_CLAUDE_PRICES` adds or overrides models); (4) every
+  token was valued at the API price — each figure now has a **billing basis**: API key (billed at
+  the public price), subscription (nothing billed; the API-equivalent is shown apart and labelled),
+  SOKKAN Inference (tier price + the gateway's ledger), local engine (0 + tokens), other endpoint
+  (`SOKKAN_MODEL_PRICES`). `SOKKAN_BILLING_BASIS=api|subscription` forces the Claude basis. The tab
+  shows totals by basis, by model (tokens and dollars per kind), by project, per day and per
+  session over 7 / 30 / 90 days, with the method in words. Budgets count the billed cost, and the
+  API-equivalent on a subscription. Reconciliation test with a synthetic transcript of known usage
+  in every basis. Docs: `docs/OPERATE.md` § Costs.
+- **Host names instead of bare addresses.** Operate › Infra (topology cards, Prometheus targets),
+  the Prometheus results an agent reads (`instance_name` label), the incidents opened by an alert
+  and Magnitude's endpoints show « name (ip) ». The name comes from `SOKKAN_HOSTS` (JSON ip → name,
+  new), then `SOKKAN_INFRA_NODES`, `/etc/hosts`, `tailscale status --json` (MagicDNS name) and
+  reverse DNS (bounded to 0.5 s, cached). A node absent from `SOKKAN_INFRA_NODES` is no longer
+  shown as its IP.
+- **Magnitude sees Intel GPUs and the models already running.** The agent (0.2.0) detects Intel
+  discrete cards through Level Zero / OpenCL (`xpu-smi`, `clinfo`, `sycl-ls`, PCI ids) before
+  Vulkan: every card is a device of the same node (4× Arc Pro B60 = one node, 90.8 GB, class XL,
+  L per card), with its VRAM; NVIDIA nodes with several cards are listed the same way. It also
+  finds the OpenAI-compatible engines already served on the node (vLLM, llama.cpp, ollama: model,
+  port, context, GPU cards from the container's env) every 30 s; the node's section lists them
+  under « Engines running » and **Use for sessions** bridges one to SOKKAN through the shim, like a
+  model Magnitude launched (action `attach`; the engine is not touched). New:
+  `MAGNITUDE_DISCOVER_PORTS`, `MAGNITUDE_ENGINE_CARDS`, `MAGNITUDE_GPU_DEVICES`. Agents 0.1 keep
+  working with this cockpit, and this agent with a 3.2.2 cockpit (unknown sync fields ignored).
+
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
   sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·

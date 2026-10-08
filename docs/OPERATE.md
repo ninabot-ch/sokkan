@@ -86,3 +86,35 @@ and supervised, not tribal knowledge.
 Deploy a Docker image to one of your fleet workers and roll back to the previous
 tag in one click — the same versioned, human-gated pattern SOKKAN uses to update
 itself, applied to your apps. From the fleet view (admin).
+
+---
+
+## Costs — what is billed, and how it is computed (3.2.3)
+
+Operate › Costs reads the Claude Code transcripts of the instance and says, for every
+figure, **which billing basis** it is on and **how** it was computed:
+
+| Basis | When | Billed |
+|---|---|---|
+| Claude API (API key) | an API key in Setup › Engines or `ANTHROPIC_API_KEY` | tokens × the public price of the model |
+| Claude subscription | a Pro/Max login (CLI login, setup-token) | nothing per token — the API-equivalent cost is shown apart, labelled |
+| SOKKAN Inference | `sokkan-*` tiers through the gateway | tokens × the tier price; the gateway ledger (CHF) when it answers |
+| Local engines | Magnitude, or an engine served on your hardware | 0 — tokens only |
+| Other endpoint | any other Anthropic-compatible endpoint | `SOKKAN_MODEL_PRICES`, else tokens only |
+
+- **Prices** come from `backend/model_prices.json`, a versioned copy of the public Claude
+  price list (input, cache write ×1.25 for 5 min / ×2 for 1 h, cache read, output — per
+  model). A model that is not in the table is counted in tokens and flagged; it is never
+  priced at a guessed tariff. Add or override models with `SOKKAN_CLAUDE_PRICES` (a JSON
+  file of the same shape).
+- **One API message is counted once.** Claude Code writes one transcript line per content
+  block (thinking, text, tool call) and repeats the usage of the whole message on each;
+  SOKKAN deduplicates them by message id. Sub-agent transcripts count in their session.
+- **Only SOKKAN sessions are counted.** The workspace folder can also hold transcripts of
+  Claude Code used directly in the same directory; they are reported on one line ("not
+  counted") — `SOKKAN_USAGE_EXTERNAL=include` counts them.
+- `SOKKAN_BILLING_BASIS=api|subscription` forces the Claude basis when the instance cannot
+  tell (the basis applies to the whole history: a transcript does not record how it was
+  authenticated).
+- **Budgets** (per project, daily notice) count the billed cost, and on a subscription the
+  API-equivalent — a usage brake, since nothing is billed per token there.

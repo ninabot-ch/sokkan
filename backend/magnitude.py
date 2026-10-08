@@ -34,6 +34,7 @@ import os
 import secrets
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 import llm
@@ -88,7 +89,10 @@ CATALOG: list[dict] = [
 ]
 
 _NODE_KEYS = ("token_sha256", "name", "shim_url", "profile", "last_seen",
-              "status", "bench", "serving", "pending")
+              "status", "bench", "serving", "pending", "engines")
+# a Claude Code session opens at ~40 500 tokens of prompt (dogfood 2026-08-10): an
+# engine whose context is below this cannot carry one
+SESSION_MIN_CTX = 40_960
 
 
 def _migrate(raw: dict) -> dict:
@@ -207,6 +211,11 @@ def _usable_gb(profile: dict) -> float | None:
     (hw.py donne déjà 75 % de la RAM unifiée sur Apple Silicon), sinon 50 % de
     la RAM en classe CPU. None = machine non servable (class unsupported)."""
     gpu = profile.get("gpu") or {}
+    # 3.2.3: Intel cards seen through Level Zero / OpenCL are usable by Magnitude's own
+    # engine (llama.cpp Vulkan build) only when the node has a Vulkan driver for them
+    gpu_usable = gpu.get("backend") in ("cuda", "vulkan", "metal") or gpu.get("offload") == "vulkan"
+    if gpu.get("vendor") == "intel" and not gpu_usable:
+        return float(profile["ram_gb"]) * 0.5 if profile.get("ram_gb") else None
     if gpu.get("vendor") not in (None, "", "none") and gpu.get("vram_total_gb"):
         return float(gpu["vram_total_gb"])
     if profile.get("class") == "CPU" and profile.get("ram_gb"):
@@ -241,16 +250,59 @@ def catalog_view(profile: dict | None) -> list[dict]:
 
 
 # --- commandes UI → agent ----------------------------------------------------
-def set_pending(node_id: str, action: str, model: str = "") -> bool:
+def set_pending(node_id: str, action: str, model: str = "", port: int | None = None) -> bool:
     """Pose la commande à livrer au prochain sync du node (une seule en vol)."""
     with _LOCK:
         st = load()
         node = st["nodes"].get(node_id)
         if node is None:
             return False
-        node["pending"] = {"action": action, "model": model}
+        node["pending"] = {"action": action, "model": model,
+                           **({"port": int(port)} if port is not None else {})}
         save(st)
     return True
+
+
+# --- engines already running on a node (agent ≥ 0.2, magnitude/discover.py) --
+def _clean_engine(e: dict) -> dict:
+    """Keep the known fields of an engine reported by an agent (untrusted input)."""
+    def _int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    cards = e.get("cards")
+    return {"port": _int(e.get("port")), "model": str(e.get("model") or "")[:200],
+            "engine": str(e.get("engine") or "openai-compatible")[:40],
+            "ctx": _int(e.get("ctx")), "healthy": bool(e.get("healthy")),
+            "container": (str(e["container"])[:120] if e.get("container") else None),
+            "cards": ([c for c in (_int(x) for x in cards) if c is not None]
+                      if isinstance(cards, list) else None)}
+
+
+def find_engine(node: dict, model: str, port) -> dict | None:
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return None
+    return next((e for e in node.get("engines") or []
+                 if e.get("port") == port and e.get("model") == model), None)
+
+
+def engines_view(node: dict) -> list[dict]:
+    """Engines of a node for the UI: card names, serving marker, context check."""
+    serving = node.get("serving") or {}
+    devices = {d.get("index"): d for d in ((node.get("profile") or {}).get("gpu") or {}).get("devices") or []}
+    out = []
+    for e in node.get("engines") or []:
+        cards = e.get("cards")
+        out.append({**e,
+                    "card_names": [f"#{c} {devices[c]['name']}" if c in devices else f"#{c}"
+                                   for c in cards] if cards else None,
+                    "serving": bool(serving.get("external")) and serving.get("port") == e.get("port")
+                    and serving.get("model") == e.get("model"),
+                    "ctx_ok": None if not e.get("ctx") else e["ctx"] >= SESSION_MIN_CTX})
+    return out
 
 
 # --- sync agent --------------------------------------------------------------
@@ -277,6 +329,9 @@ def sync(node_id: str, payload: dict, serving_set: bool) -> dict | None:
             node.setdefault("bench", {})[br["model"]] = entry
         if serving_set:
             node["serving"] = payload.get("serving")
+        if isinstance(payload.get("engines"), list):   # agent ≥ 0.2: engines running
+            node["engines"] = [_clean_engine(e) for e in payload["engines"] if isinstance(e, dict)][:50]
+            node["engines_at"] = time.time()
         node["last_seen"] = time.time()
         cmd = node.pop("pending", None)
         save(st)
@@ -306,6 +361,13 @@ def view() -> dict:
     for nid, node in sorted(st["nodes"].items(),
                             key=lambda kv: kv[1].get("paired_at") or 0):
         serving = node.get("serving") or None
+        shim = shim_url_of(node)
+        try:
+            import hostnames
+            host = urllib.parse.urlsplit(shim).hostname or ""
+            shim_host = hostnames.label(host) if host else ""
+        except Exception:  # noqa: BLE001 — a label is a nicety
+            shim_host = ""
         nodes.append({
             "id": nid,
             "name": node_name(nid, node),
@@ -315,11 +377,18 @@ def view() -> dict:
             "profile": node.get("profile"),
             "status": node.get("status") or {"phase": "idle"},
             "bench": node.get("bench") or {},
+            "shim_host": shim_host,
             "serving": ({"model": serving.get("model"),
-                         "shim_url": shim_url_of(node),
-                         "since": serving.get("since")} if serving else None),
+                         "shim_url": shim,
+                         "since": serving.get("since"),
+                         "engine": serving.get("engine"),
+                         "port": serving.get("port"),
+                         "external": bool(serving.get("external"))} if serving else None),
             "connected": nid == conn,
             "catalog": catalog_view(node.get("profile")),
+            "engines": engines_view(node),
+            "engines_at": node.get("engines_at"),
+            "agent_version": (node.get("profile") or {}).get("agent_version"),
         })
     return {"paired": bool(nodes), "shim_default": SHIM_URL, "nodes": nodes}
 
@@ -334,7 +403,10 @@ def _node_memory(profile: dict) -> dict | None:
         return profile["memory"]
     gpu = profile.get("gpu") or {}
     acc = None
-    if gpu.get("vendor") == "nvidia" and gpu.get("backend") == "cuda":
+    if gpu.get("vendor") == "intel" and gpu.get("backend") in ("level_zero", "opencl"):
+        acc = {"kind": "sycl", "name": gpu.get("name"), "vram_gb": gpu.get("vram_per_card_gb")
+               or gpu.get("vram_total_gb")}
+    elif gpu.get("vendor") == "nvidia" and gpu.get("backend") == "cuda":
         acc = {"kind": "cuda", "name": gpu.get("name"), "vram_gb": gpu.get("vram_total_gb")}
     elif gpu.get("vendor") == "apple":
         acc = {"kind": "metal", "name": gpu.get("name"), "vram_gb": gpu.get("vram_total_gb")}

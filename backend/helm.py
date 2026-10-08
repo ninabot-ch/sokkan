@@ -592,7 +592,8 @@ def costs(card_id: int) -> dict:
         if keys:
             q = ",".join("?" * len(keys))
             for r in con.execute(f"SELECT session_id, cost FROM files WHERE session_id IN ({q})", keys):
-                by_csid[r["session_id"]] = float(r["cost"] or 0)
+                # 3.2.3: a session = its transcript + its sub-agents' transcripts
+                by_csid[r["session_id"]] = by_csid.get(r["session_id"], 0.0) + float(r["cost"] or 0)
         con.close()
     except Exception:  # noqa: BLE001 — costs are an estimation, never a blocker
         pass

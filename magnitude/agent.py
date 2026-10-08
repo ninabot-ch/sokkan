@@ -22,11 +22,12 @@ import threading
 import time
 import urllib.request
 
-from . import __version__, catalog, engine, hw
+from . import __version__, catalog, discover, engine, hw
 
 SHIM_PORT = 8790
 SYNC_INTERVAL = 2.0
 SYNC_TIMEOUT = 5
+DISCOVER_INTERVAL = 30.0   # engines already running on the node (discover.py)
 # UA explicite : sans lui, un cockpit derrière Cloudflare (sokkan.ch, SOKKAN
 # Cloud) répond 403 au défaut « Python-urllib » et le sync échoue en silence.
 UA = "sokkan-magnitude/0.1"
@@ -49,6 +50,7 @@ class Agent:
         self._shim = None          # shim.Shim
         self._serving = None       # dict §2.2 serving (avec serve_token)
         self.profile = None
+        self._engines = None       # last engines list sent (discover.scan)
 
     # ------------------------------------------------------------- boucle main
 
@@ -57,6 +59,7 @@ class Agent:
         signal.signal(signal.SIGTERM, self._on_signal)
         _log(f"agent v{__version__} → {self.cockpit}")
         self.profile = hw.build_profile()
+        self.profile["agent_version"] = __version__   # 0.2: engines running + attach
         try:  # profil mémoire recommandé (CortHeXis), remonté avec le profil hardware
             from . import memprofile
             mem = memprofile.detect()
@@ -70,6 +73,7 @@ class Agent:
             self._outbox["profile"] = self.profile
         worker = threading.Thread(target=self._work, daemon=True)
         worker.start()
+        threading.Thread(target=self._discover_loop, daemon=True).start()
         while not self._stopping.is_set():
             cmd = self._sync()
             if cmd:
@@ -142,7 +146,9 @@ class Agent:
                 continue
             action, model = cmd.get("action"), cmd.get("model")
             try:
-                if action == "bench":
+                if action == "attach":
+                    self._do_attach(model, cmd.get("port"))
+                elif action == "bench":
                     self._do_bench(model)
                 elif action == "run":
                     self._do_run(model)
@@ -182,8 +188,8 @@ class Agent:
         entry, bindir, gguf = self._prepare(model_id)
         self._teardown_serving()  # un seul modèle servi à la fois
         self._set_status("starting", model=model_id)
-        gpu = ((self.profile or {}).get("gpu") or {}).get("backend") in (
-            "cuda", "vulkan", "metal")
+        g = (self.profile or {}).get("gpu") or {}
+        gpu = g.get("backend") in ("cuda", "vulkan", "metal") or g.get("offload") == "vulkan"
         self._server = engine.start_server(bindir, gguf, gpu=gpu)
         try:
             engine.wait_healthy(self._server)
@@ -203,6 +209,53 @@ class Agent:
             self._outbox["serving"] = dict(self._serving)
         self._set_status("serving", model=model_id)
         _log(f"{entry['label']} live — shim on :{SHIM_PORT}")
+
+    # ------------------------------------------------------- engines running
+
+    def _discover_loop(self) -> None:
+        """Every DISCOVER_INTERVAL: the engines already served on this node. Sent with the
+        next sync when the list changes (and once at start)."""
+        while not self._stopping.is_set():
+            skip = {engine.LLAMA_PORT}
+            if self._shim is not None:
+                skip.add(SHIM_PORT)
+            try:
+                found = discover.scan(skip=skip)
+            except Exception as e:  # noqa: BLE001 — discovery never stops the agent
+                _log(f"discovery failed: {e}")
+                found = None
+            if found is not None and found != self._engines:
+                self._engines = found
+                _log("engines running: " + (", ".join(
+                    f"{e['model']}@{e['port']}" for e in found) or "none"))
+                with self._lock:
+                    self._outbox["engines"] = found
+            self._stopping.wait(DISCOVER_INTERVAL)
+
+    def _do_attach(self, model_id: str, port) -> None:
+        """Put the shim in front of an engine that is ALREADY running on this node (no
+        download, no llama-server of ours): SOKKAN sessions then use it after Connect."""
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            raise ValueError("attach needs the engine port") from None
+        eng = next((e for e in discover.probe(port) if e["model"] == model_id), None)
+        if eng is None:
+            raise RuntimeError(f"no engine serves {model_id!r} on port {port} any more")
+        self._teardown_serving()
+        self._set_status("starting", model=model_id, detail=f"{eng['engine']} on :{port}")
+        serve_token = secrets.token_urlsafe(18)
+        from . import shim
+        self._shim = shim.Shim(upstream=eng["base_url"], port=SHIM_PORT, token=serve_token,
+                               model_id=model_id)
+        self._shim.start()
+        self._serving = {"model": model_id, "shim_port": SHIM_PORT,
+                         "serve_token": serve_token, "since": round(time.time(), 1),
+                         "engine": eng["engine"], "port": port, "external": True}
+        with self._lock:
+            self._outbox["serving"] = dict(self._serving)
+        self._set_status("serving", model=model_id)
+        _log(f"{model_id} ({eng['engine']} :{port}) attached — shim on :{SHIM_PORT}")
 
     def _do_stop(self) -> None:
         self._teardown_serving()
