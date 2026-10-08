@@ -24,11 +24,35 @@ curl -fsSL https://sokkan.ch/install.sh | sh
 
 It detects the existing install, pulls the current release over it, keeps your
 `.env` and data volumes, and rebuilds (short interruption while the containers
-restart). Equivalent manual steps, run inside the `sokkan/` folder:
+restart). Equivalent, run inside the `sokkan/` folder (3.4.3+ — the release ships
+its own updater):
 
 ```bash
-curl -fsSL https://sokkan.ch/dist/sokkan-latest.tar.gz | tar xz --strip-components=1
-docker compose up -d --build
+./scripts/upgrade.sh                 # the current release; --no-build to stop before compose
+./scripts/upgrade.sh 3.4.3+1a2b3c4   # a pinned release (the hash of CHANGELOG.md)
+./scripts/upgrade.sh ./sokkan-x.tar.gz   # a tarball you already have (or an https:// URL)
+```
+
+**Do not extract the tarball over the folder** (`tar xz --strip-components=1` in place,
+the pre-3.4.3 manual step). Extracting over the tree keeps every file an earlier
+release had and this one dropped, and the web build type-checks the whole tree: one
+dead component (`frontend/components/MemoryKB.tsx`, removed in 3.0, still on disk)
+is enough to fail `npm run build` — seen on the public demo at the 3.4.2 update.
+`scripts/upgrade.sh` takes the tarball's file list as the manifest and, inside the
+code directories of a release (`backend/`, `frontend/`, `memory/`, `cli/`,
+`scripts/`, `deploy/`, `docker/`, `magnitude/`, `examples/`, `docs/`, `tests/`),
+removes every file the release does not ship before copying it over. Never touched:
+`.env` and any `.env.*` (also inside those folders), `docker-compose.override.yml`,
+the workspace (`SOKKAN_WORKSPACE`), a local data folder (`SOKKAN_DATA_DIR`),
+`frontend/node_modules`, `frontend/.next`, `.git`, your own files at the top level,
+and the data volumes. `--dry-run` lists what would go. A failed download or a
+tarball that is not a release changes nothing. From a tree older than 3.4.3 (no
+`scripts/upgrade.sh` yet), take the updater out of the new tarball first:
+
+```bash
+curl -fsSL https://sokkan.ch/dist/sokkan-latest.tar.gz -o /tmp/sokkan.tar.gz
+tar xzf /tmp/sokkan.tar.gz --strip-components=1 sokkan/scripts/upgrade.sh
+./scripts/upgrade.sh /tmp/sokkan.tar.gz
 ```
 
 ### Roll back to a specific version

@@ -19,6 +19,18 @@ Notable changes, newest first. Versions: semver + release hash (see
   defensively (a missing `flags`/`in`/`out`/`items`/`severity` never throws).
   `GET /api/memory/note/{name}` carries `project` and `level` in every case.
   `corthexis.empty_report()`, `tests/test_project_lot4.py`.
+- **A self-hosted update no longer leaves dead code behind.** The manual update
+  (`tar xz --strip-components=1` over the folder — also what the managed fleet ran) kept
+  every file an earlier release had and the new one dropped; Next type-checks the whole
+  tree, so `frontend/components/MemoryKB.tsx` (removed in 3.0, still on disk) failed
+  `npm run build` of the public demo at 3.4.2. New `scripts/upgrade.sh` (latest, a pinned
+  hash, a local tarball or a URL): the tarball's file list is the manifest, every file of the
+  code directories (`backend/ frontend/ memory/ cli/ scripts/ deploy/ docker/ magnitude/
+  examples/ docs/ tests/`) absent from it is removed before the release is copied over —
+  never `.env`/`.env.*`, `docker-compose.override.yml`, the workspace, a local
+  `SOKKAN_DATA_DIR`, `frontend/node_modules`, `frontend/.next`, `.git`, your own top-level
+  files, nor the data volumes; `--dry-run`, `--no-build`; a failed download changes nothing.
+  UPGRADE.md § Upgrade, `tests/test_upgrade_script.py`.
 
 ## 3.4.2 — 2026-10-08 — "Bridge"
 
