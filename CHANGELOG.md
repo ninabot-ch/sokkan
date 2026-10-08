@@ -3,7 +3,11 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.3
+## 3.3.0 — 2026-10-08 — "Helm"
+Steer your projects and your secrets. 3.3 makes OpenBao the reference place for an enterprise
+instance's secrets and keys — no clear key left on the data volume, backups that carry no key —
+and gathers the project-steering work shipped in beta through 3.2 (Helm, the manager's view).
+Nothing changes on an existing instance until its operator chooses: the provider is explicit.
 
 ### Secrets provider — OpenBao as the reference (feature `secrets_provider`, beta)
 - **Where secrets live is now a choice**: `file` (default, the 3.2 files unchanged), **`openbao`**
@@ -36,8 +40,27 @@ Notable changes, newest first. Versions: semver + release hash (see
   OpenBao, or the customer's Vault; unseal shares 5 / threshold 3 — 2 with the principal
   operator, 1 with the second authorised person, 1 sealed in the company password safe, 1 on
   paper in the physical safe, never 3 in the same place.
-- Upgrade note: nothing changes until you choose: set `SOKKAN_SECRETS_PROVIDER=openbao` after
-  the migration (SECRETS.md § 4).
+
+### Helm — steering projects (feature `helm`, still beta)
+Shipped in beta in 3.2.0 (« 3.3 "Helm" » section below), stabilised through 3.2.x: hierarchical
+cards (manager's project card → engineer's cards → sub-tasks), context that flows down into the
+sessions, progress that flows up (computed, never declared), the Helm view for project managers,
+Nina's breakdown and reframe suggestions, morning brief. Since 3.2.0: Control › Helm in the plane
+navigation (3.2.2), read access for project members (`helm.can_view`, read-only demo Captains),
+named progress bars and cards readable at 390 px (3.2.2 UI pass), Helm's cards keep the
+classification of their parent (3.4 × 3.3). **Status stays `beta`** in 3.3.0: it requires
+`multi_project` (beta), its manager journey (break down, reframe, brief) has not had its own UI
+pass nor use on a real project yet — only the visitor's read-only view was walked in 3.2.2. It
+turns stable when those two are done.
+
+### Upgrading from 3.2
+- Nothing changes until you choose. To move an instance's secrets to OpenBao: back up, give the
+  api `SOKKAN_OPENBAO_*` (it stays on files and says « OpenBao address set but provider is
+  file »), migrate, then set `SOKKAN_SECRETS_PROVIDER=openbao` and restart (SECRETS.md § 4).
+- File-mode backups taken by 3.3 keep `forge.key` and `teams.key` out of `data.tgz` (they were
+  in clear there): `<key>.enc` with the passphrase like `vault.key`. Without
+  `SOKKAN_BACKUP_KEY_PASSPHRASE` no key is in the set at all — keep them yourself and give
+  `--keys-dir` at restore.
 
 ## 3.2.3 — 2026-10-08 — "Captains"
 - **Operate › Costs tells what is billed, and how.** On an instance that runs Claude through a
