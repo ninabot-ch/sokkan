@@ -237,17 +237,61 @@ def eur_per_mtok(tok_s, watts, kwh_price=KWH_PRICE_EUR):
     return round((watts / 1000) * hours_per_mtok * kwh_price, 4)
 
 
-def bench(bindir: Path, gguf: Path, timeout=900) -> dict:
+def run_devices(all_devices: list) -> list:
+    """Cards Magnitude's own llama.cpp may use, from MAGNITUDE_GPU_DEVICES:
+    unset/empty = every card; `none` (or `cpu`) = none, CPU only; `1,2` = those indexes
+    (the indexes the cockpit shows, PCI order). Unknown indexes are dropped."""
+    raw = (os.environ.get("MAGNITUDE_GPU_DEVICES") or "").strip().lower()
+    if not raw:
+        return list(all_devices)
+    if raw in ("none", "cpu", "-1"):
+        return []
+    want = []
+    for x in raw.replace(" ", "").split(","):
+        if x.isdigit() and int(x) in all_devices and int(x) not in want:
+            want.append(int(x))
+    return want
+
+
+def cpu_threads() -> int:
+    """Threads of a CPU-only run: MAGNITUDE_CPU_THREADS, else a quarter of the cores
+    (2..8) — the machine usually does other work."""
+    v = (os.environ.get("MAGNITUDE_CPU_THREADS") or "").strip()
+    if v.isdigit() and int(v) > 0:
+        return int(v)
+    return max(2, min(8, (os.cpu_count() or 4) // 4))
+
+
+def _device_args(gpu: bool) -> tuple[list, dict]:
+    """llama.cpp args + env restricting it to the allowed cards, or to the CPU."""
+    devices = (os.environ.get("MAGNITUDE_GPU_DEVICES") or "").strip().lower()
+    if not gpu or devices in ("none", "cpu", "-1"):
+        # --device none: no backend device at all — not even a buffer on a busy card
+        return ["--device", "none", "-ngl", "0", "-t", str(cpu_threads())], {}
+    env = {}
+    if devices:
+        env["GGML_VK_VISIBLE_DEVICES"] = devices
+        env["CUDA_VISIBLE_DEVICES"] = devices
+    return ["-ngl", "999"], env
+
+
+def bench(bindir: Path, gguf: Path, timeout=900, gpu=True) -> dict:
     """llama-bench sur un GGUF → dict au format §2.2 bench (sans la clé model)."""
-    sampler = PowerSampler() if shutil.which("nvidia-smi") else None
+    sampler = PowerSampler() if gpu and shutil.which("nvidia-smi") else None
     if sampler:
         sampler.start()
     t0 = time.time()
     try:
+        args, extra_env = _device_args(gpu)
+        if "--device" in args:   # llama-bench spells the CPU-only switch differently
+            args = ["-dev", "none", "-ngl", "0", "-t", args[args.index("-t") + 1]]
+        else:
+            args = ["-ngl", "99"]
         out = subprocess.run(
             [_bin(bindir, "llama-bench"), "-m", str(gguf),
-             "-p", "512", "-n", "128", "-r", "2", "-o", "json"],
-            capture_output=True, text=True, timeout=timeout, env=_env(bindir))
+             "-p", "512", "-n", "128", "-r", "2", "-o", "json", *args],
+            capture_output=True, text=True, timeout=timeout,
+            env={**_env(bindir), **extra_env})
     finally:
         if sampler:
             sampler.stop()
@@ -294,19 +338,16 @@ def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     extra = os.environ.get("MAGNITUDE_SERVER_ARGS", "")
     if extra:
         cmd += extra.split()
-    if gpu:
-        cmd += ["-ngl", "999"]
+    dev_args, dev_env = _device_args(gpu)
+    cmd += dev_args
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     log = open(RUN_DIR / "llama-server.log", "ab")
     try:
-        env = _env(bindir)
         # 3.2.3: on a node with several cards (some of them busy with other engines),
-        # MAGNITUDE_GPU_DEVICES=1,2 limits llama-server to those cards (Vulkan / CUDA index)
-        devices = (os.environ.get("MAGNITUDE_GPU_DEVICES") or "").strip()
-        if devices and gpu:
-            env["GGML_VK_VISIBLE_DEVICES"] = devices
-            env["CUDA_VISIBLE_DEVICES"] = devices
-        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
+        # MAGNITUDE_GPU_DEVICES=1,2 limits llama-server to those cards (Vulkan / CUDA
+        # index), `none` keeps it on the CPU
+        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
+                                env={**_env(bindir), **dev_env})
     finally:
         log.close()  # le fd est dupliqué par Popen
 

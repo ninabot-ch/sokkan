@@ -47,7 +47,8 @@ function ProfileTile({ p, current, recommended, selected, onSelect, admin }: {
         <div title="time to read 250 000 passages from scratch">full re-read ~{c.reindex_250k_h} h</div>
         <div>quality {(c.mrr_reranked ?? c.mrr).toFixed(2)}</div>
       </div>
-      {!p.fits && <div className="mt-2 text-[11px] text-amber-300/80">this machine is too small</div>}
+      {!p.fits && <div className="mt-2 text-[11px] text-amber-300/80">no machine here can hold it</div>}
+      {p.fits && p.fits_on && p.fits_on !== "this server" && <div className="mt-2 text-[11px] text-mut">served by {p.fits_on}</div>}
     </button>
   );
 }
@@ -143,6 +144,7 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
 
   const load = useCallback(() => {
     memoryView().then(setMv).catch(() => {});
@@ -163,12 +165,16 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
   if (!mv) return null;
 
   const current = sw?.available ? sw.current?.profile : mv.current;
+  const legacy = current === "remote" || current === "legacy";
+  const host = (u: string) => u.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const recOn = mv.recommended_on && mv.recommended_on !== "this server" ? ` on ${mv.recommended_on}` : "";
+  const selP = mv.profiles.find((p) => p.id === sel);
   const lic = mv.models.licence;
   const engine = mv.engine;
   const start = () => act(async () => {
     await memorySwitch({ profile: sel!, model: model || null, rebuild,
       urls: urls.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean) });
-    setSel(null); setAdv(false);
+    setSel(null); setAdv(false); setConfirmed(false);
   }, "could not start the change");
 
   return (
@@ -180,14 +186,16 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
 
       <div className="rounded-2xl border border-line bg-panel2/40 p-5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] text-slate-300">
-          <span>In use: <b className="text-slate-100">{mv.profiles.find((p) => p.id === current)?.label ?? current ?? "—"}</b></span>
+          <span>In use: <b className="text-slate-100">{legacy ? "2.x model (before profiles)" : mv.profiles.find((p) => p.id === current)?.label ?? current ?? "—"}</b></span>
           <span className="text-mut">·</span>
           <span>Recommended: <b className="text-brass">{mv.profiles.find((p) => p.id === mv.recommended)?.label ?? mv.recommended}</b>
-            <span className="text-mut"> ({mv.local.reason})</span></span>
+            <span className="text-mut">{recOn} ({mv.recommended_reason ?? mv.local.reason})</span></span>
         </div>
         {engine && !engine.error && (
-          <div className="mt-1 text-[12px] text-mut">
+          <div className="mt-1 text-[12px] leading-relaxed text-mut">
             Model: {engine.label ?? engine.model ?? "—"}{engine.licence ? ` · licence ${engine.licence === "gemma" ? "Gemma Terms" : engine.licence}` : ""}
+            {engine.urls?.length ? ` · served by ${engine.urls.map(host).join(", then ")}` : ""}
+            {engine.rerank_url ? ` · re-ranker ${host(engine.rerank_url)}` : ""}
             {sw?.active_generation ? ` · index #${sw.active_generation}` : ""}
           </div>
         )}
@@ -227,18 +235,33 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
                 </label>
               </div>
             )}
+            {/* re-reading every note loads the memory servers (on a GPU shared with production, too):
+                never started without an explicit tick */}
+            <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5 text-[12px] text-amber-100">
+              <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              <span>
+                I understand that every note is re-read with the {selP?.label ?? sel} model
+                {selP?.costs.reindex_250k_h != null ? ` (about ${selP.costs.reindex_250k_h} h per 250 000 passages)` : ""},
+                on the memory servers{selP?.fits_on && selP.fits_on !== "this server" ? ` of ${selP.fits_on}` : ""}, while the current memory keeps serving.
+              </span>
+            </label>
             <div className="mt-3 flex gap-2">
-              <button disabled={busy} onClick={start}
+              <button disabled={busy || !confirmed} onClick={start}
                 className="rounded-lg bg-sea/80 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-sea disabled:opacity-40">
                 Prepare the change
               </button>
-              <button onClick={() => setSel(null)} className="text-[12.5px] text-mut hover:text-slate-300">cancel</button>
+              <button onClick={() => { setSel(null); setConfirmed(false); }} className="text-[12.5px] text-mut hover:text-slate-300">cancel</button>
             </div>
           </div>
         )}
 
         {sw?.available === false && (
-          <div className="mt-4 text-[12px] text-mut">Changing profile from here needs the 3.0 memory store; use ./scripts/memory-setup.sh meanwhile.</div>
+          <div className="mt-4 rounded-lg border border-line bg-ink/30 px-3 py-2.5 text-[12px] leading-relaxed text-mut">
+            <span className="text-slate-300">The profile is set on the server for now.</span> This instance keeps its memory index in
+            SQLite (2.x); switching from here, checked against your own questions and reversible, needs the 3.0 memory store
+            (Postgres + pgvector). Meanwhile: <code className="font-mono text-slate-300">CORTHEXIS_MEMORY_PROFILE</code> or{" "}
+            <code className="font-mono text-slate-300">./scripts/memory-setup.sh</code>.
+          </div>
         )}
         {err && <div className="mt-3 rounded-lg border border-red-400/30 bg-red-400/5 px-3 py-2 text-[12.5px] text-red-300">{err}</div>}
         {sw?.job && <div className="mt-4"><JobPanel job={sw.job} admin={admin} busy={busy} act={act} rollback={sw.rollback} /></div>}

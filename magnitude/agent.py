@@ -22,12 +22,13 @@ import threading
 import time
 import urllib.request
 
-from . import __version__, catalog, discover, engine, hw
+from . import __version__, catalog, discover, engine, hw, metrics
 
 SHIM_PORT = 8790
 SYNC_INTERVAL = 2.0
 SYNC_TIMEOUT = 5
 DISCOVER_INTERVAL = 30.0   # engines already running on the node (discover.py)
+METRICS_INTERVAL = 3.0     # 0.3: live load per card + CPU/RAM (metrics.py)
 # UA explicite : sans lui, un cockpit derrière Cloudflare (sokkan.ch, SOKKAN
 # Cloud) répond 403 au défaut « Python-urllib » et le sync échoue en silence.
 UA = "sokkan-magnitude/0.1"
@@ -50,7 +51,7 @@ class Agent:
         self._shim = None          # shim.Shim
         self._serving = None       # dict §2.2 serving (avec serve_token)
         self.profile = None
-        self._engines = None       # last engines list sent (discover.scan)
+        self._engines = None       # last engines list found (discover.scan)
 
     # ------------------------------------------------------------- boucle main
 
@@ -59,7 +60,12 @@ class Agent:
         signal.signal(signal.SIGTERM, self._on_signal)
         _log(f"agent v{__version__} → {self.cockpit}")
         self.profile = hw.build_profile()
-        self.profile["agent_version"] = __version__   # 0.2: engines running + attach
+        self.profile["agent_version"] = __version__   # 0.2: engines running + attach; 0.3: metrics
+        if self.profile.get("gpu"):
+            # 0.3: the cards Magnitude's own Run / Benchmark may use (MAGNITUDE_GPU_DEVICES)
+            self.profile["gpu"]["run_devices"] = engine.run_devices(
+                [d.get("index") for d in self.profile["gpu"].get("devices") or []]
+                or list(range(int(self.profile["gpu"].get("count") or 1))))
         try:  # profil mémoire recommandé (CortHeXis), remonté avec le profil hardware
             from . import memprofile
             mem = memprofile.detect()
@@ -74,6 +80,7 @@ class Agent:
         worker = threading.Thread(target=self._work, daemon=True)
         worker.start()
         threading.Thread(target=self._discover_loop, daemon=True).start()
+        threading.Thread(target=self._metrics_loop, daemon=True).start()
         while not self._stopping.is_set():
             cmd = self._sync()
             if cmd:
@@ -114,8 +121,18 @@ class Agent:
         except (OSError, ValueError):
             with self._lock:  # rejouer sans écraser plus frais
                 for k, v in pending.items():
-                    self._outbox.setdefault(k, v)
+                    if k != "metrics":   # a stale load sample is worth nothing
+                        self._outbox.setdefault(k, v)
             return None
+        # 0.3: a cockpit that lost (or never stored) what we sent asks for it again —
+        # e.g. a cockpit upgraded after the agent, which had ignored the engines list
+        resend = resp.get("resend") or []
+        if resend:
+            with self._lock:
+                if "profile" in resend and self.profile:
+                    self._outbox.setdefault("profile", self.profile)
+                if "engines" in resend and self._engines is not None:
+                    self._outbox.setdefault("engines", self._engines)
         return resp.get("command")
 
     def _set_status(self, phase, model=None, pct=None, detail=None):
@@ -174,11 +191,21 @@ class Agent:
                 "downloading", model=model_id, pct=pct, detail=entry["label"]))
         return entry, bindir, gguf
 
+    def _gpu_run(self) -> bool:
+        """Our llama.cpp may offload to the GPU: a usable backend AND at least one card
+        allowed by MAGNITUDE_GPU_DEVICES (none = CPU only — the cards serve others)."""
+        g = (self.profile or {}).get("gpu") or {}
+        usable = g.get("backend") in ("cuda", "vulkan", "metal") or g.get("offload") == "vulkan"
+        return usable and g.get("run_devices") != []
+
     def _do_bench(self, model_id: str) -> None:
         entry, bindir, gguf = self._prepare(model_id)
         self._set_status("benching", model=model_id)
         _log(f"benching {entry['label']}…")
-        res = engine.bench(bindir, gguf)
+        gpu = self._gpu_run()
+        res = engine.bench(bindir, gguf, gpu=gpu)
+        devs = ((self.profile or {}).get("gpu") or {}).get("run_devices")
+        res["on"] = ("gpu " + ",".join(f"#{d}" for d in devs)) if gpu and devs else ("gpu" if gpu else "cpu")
         _log(f"bench {model_id}: {res.get('gen_tok_s')} gen tok/s")
         with self._lock:
             self._outbox["bench_result"] = {"model": model_id, **res}
@@ -188,9 +215,7 @@ class Agent:
         entry, bindir, gguf = self._prepare(model_id)
         self._teardown_serving()  # un seul modèle servi à la fois
         self._set_status("starting", model=model_id)
-        g = (self.profile or {}).get("gpu") or {}
-        gpu = g.get("backend") in ("cuda", "vulkan", "metal") or g.get("offload") == "vulkan"
-        self._server = engine.start_server(bindir, gguf, gpu=gpu)
+        self._server = engine.start_server(bindir, gguf, gpu=self._gpu_run())
         try:
             engine.wait_healthy(self._server)
         except Exception:
@@ -213,8 +238,9 @@ class Agent:
     # ------------------------------------------------------- engines running
 
     def _discover_loop(self) -> None:
-        """Every DISCOVER_INTERVAL: the engines already served on this node. Sent with the
-        next sync when the list changes (and once at start)."""
+        """Every DISCOVER_INTERVAL: the engines already served on this node, sent with the
+        next sync EVERY time (0.3 — 0.2 sent it only on change, so a cockpit upgraded
+        afterwards never got it and showed no engine)."""
         while not self._stopping.is_set():
             skip = {engine.LLAMA_PORT}
             if self._shim is not None:
@@ -224,13 +250,31 @@ class Agent:
             except Exception as e:  # noqa: BLE001 — discovery never stops the agent
                 _log(f"discovery failed: {e}")
                 found = None
-            if found is not None and found != self._engines:
+            if found is not None:
+                if found != self._engines:
+                    _log("engines running: " + (", ".join(
+                        f"{e['model']}@{e['port']}" for e in found) or "none"))
                 self._engines = found
-                _log("engines running: " + (", ".join(
-                    f"{e['model']}@{e['port']}" for e in found) or "none"))
                 with self._lock:
                     self._outbox["engines"] = found
             self._stopping.wait(DISCOVER_INTERVAL)
+
+    def _metrics_loop(self) -> None:
+        """Every METRICS_INTERVAL: load per card, CPU and RAM — joined to the next sync."""
+        totals = {d.get("pci"): d.get("vram_gb")
+                  for d in ((self.profile or {}).get("gpu") or {}).get("devices") or []
+                  if d.get("pci")}
+        sampler = metrics.Sampler(totals)
+        while not self._stopping.is_set():
+            try:
+                snap = sampler.sample()
+            except Exception as e:  # noqa: BLE001 — metrics never stop the agent
+                _log(f"metrics failed: {e}")
+                snap = None
+            if snap:
+                with self._lock:
+                    self._outbox["metrics"] = snap
+            self._stopping.wait(METRICS_INTERVAL)
 
     def _do_attach(self, model_id: str, port) -> None:
         """Put the shim in front of an engine that is ALREADY running on this node (no

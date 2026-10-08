@@ -277,6 +277,21 @@ export interface MagnitudeGpu {
   driver: string | null; power_limit_w: number | null;
   count?: number; devices?: MagnitudeDevice[]; vram_per_card_gb?: number | null;
   offload?: "vulkan" | null;   // Intel: Magnitude's own engine can use the cards (Vulkan driver)
+  run_devices?: number[] | null; // agent ≥ 0.3: cards Run/Benchmark may use (MAGNITUDE_GPU_DEVICES); [] = CPU only
+}
+/** Live load of one card (agent ≥ 0.3). Every figure may be null. */
+export interface MagnitudeGpuMetrics {
+  index: number; pci: string | null; util_pct: number | null;
+  vram_used_gb: number | null; vram_total_gb: number | null; temp_c: number | null; power_w: number | null;
+}
+export interface MagnitudeMetrics {
+  at: number; cpu_pct: number | null; load1: number | null; ram_used_gb: number | null; ram_total_gb: number | null;
+  gpus: MagnitudeGpuMetrics[];
+  history: { at: number; cpu: number | null; gpu: (number | null)[] }[];
+}
+/** Where Magnitude's own Run / Benchmark executes on a node, and the memory it can use. */
+export interface MagnitudeRunTarget {
+  where: "gpu" | "cpu"; cards: number[] | null; usable_gb: number | null; basis: "free" | "total" | "ram";
 }
 export interface MagnitudeProfile {
   schema: string; os: string; arch: string;
@@ -295,6 +310,7 @@ export interface MagnitudeBench {
   gen_tok_s: number | null; prefill_tok_s: number | null;
   power_avg_w: number | null; eur_per_mtok_gen: number | null;
   wall_s: number; at: number;
+  on?: string;   // agent ≥ 0.3: "gpu #2", "gpu", "cpu" — older benches don't say
 }
 export interface MagnitudeServing {
   model: string; shim_url: string; since: number;
@@ -324,6 +340,10 @@ export interface MagnitudeNode {
   engines?: MagnitudeEngine[];
   engines_at?: number | null;
   agent_version?: string | null;
+  metrics?: MagnitudeMetrics | null;
+  run_target?: MagnitudeRunTarget | null;
+  paired_at?: number | null;
+  stale?: boolean;   // silent (or never connected) for 10+ min
 }
 export interface MagnitudeState {
   paired: boolean; shim_default: string; nodes: MagnitudeNode[];
@@ -409,10 +429,12 @@ export interface MemProfileCosts {
 export interface MemProfile {
   id: "leger" | "standard" | "gpu"; label: string; embed: string; embed_device: string;
   reranker: string | null; rerank_policy: string; fits: boolean; costs: MemProfileCosts;
+  fits_on?: string | null;   // 3.2.3: "this server" or the Magnitude node that can serve it
   min: Record<string, number>;
 }
 export interface MemoryView {
   current: string | null; recommended: string;
+  recommended_on?: string; recommended_reason?: string;
   local: { recommended: string; reason: string; warnings: string[] };
   nodes: { id: string; name: string; online: boolean; recommended: string; reason: string }[];
   profiles: MemProfile[];
