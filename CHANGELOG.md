@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.0 — unreleased — "Bridge"
+## 3.4.0 — 2026-10-08 — "Bridge"
 The command bridge, and the bridge to Teams. A department head creates a project with Nina, sees
 it in Helm, follows it, acts on a reframe suggestion and reads the brief — without docs (the same
 journey was abandoned on 3.3.0). Helm and classification are **stable**; a sign-out at the
