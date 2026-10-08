@@ -254,6 +254,7 @@ class AgentSession:
         self.budget_stop: str | None = None
         # 3.2 lot 8: project whose sandbox confines this session (None = not confined)
         self.sandboxed: str | None = None
+        self._bash_off_noted = False
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -273,6 +274,16 @@ class AgentSession:
             del self.events[: len(self.events) - RING_MAX]
         for q in list(self.subscribers):
             q.put_nowait(event)
+
+    def _sandbox_bash_off(self) -> None:
+        """Bash refused by a hooks-only sandbox: one visible note per session (the model
+        gets the same text as the hook's reason, on every attempt)."""
+        if self._bash_off_noted:
+            return
+        self._bash_off_noted = True
+        import sandbox
+        self._emit({"type": "sandbox", "mode": sandbox.HOOKS, "message": sandbox.BASH_OFF,
+                    "denied": "Bash"})
 
     # ---- cycle de vie SDK ---------------------------------------------------
     async def ensure_started(self) -> None:
@@ -338,13 +349,18 @@ class AgentSession:
                                        cwd=self.cwd,
                                        auto_rules=(pol or {}).get("auto_approve") or [],
                                        env_names=sorted({*secret_env, *forge_env}),
-                                       forge_socket=forge_socket)
+                                       forge_socket=forge_socket,
+                                       on_bash_off=self._sandbox_bash_off)
                 for ev, matchers in sb.items():
                     hooks = dict(hooks or {})
                     hooks[ev] = [*matchers, *(hooks.get(ev) or [])]
                 if "add_dirs" in _OPTION_FIELDS:
                     opts_kwargs["add_dirs"] = []
                 self.sandboxed = proj
+                if sandbox.mode() == sandbox.HOOKS:
+                    # say it up front in the pane (banner), not only when Bash is refused
+                    self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
+                                "message": sandbox.BASH_OFF})
             if hooks:
                 opts_kwargs["hooks"] = hooks
             if env_extra:
@@ -469,6 +485,8 @@ class AgentSession:
             checked = sandbox.recheck(tool_name, input_data, sid=self.sid, user=self.user,
                                       project=self.sandboxed, cwd=self.cwd)
             if isinstance(checked, str):
+                if tool_name == "Bash" and checked == sandbox.BASH_OFF:
+                    self._sandbox_bash_off()
                 return PermissionResultDeny(message=checked)
             input_data = checked
 

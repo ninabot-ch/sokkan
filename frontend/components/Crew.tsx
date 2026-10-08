@@ -12,6 +12,7 @@ import { agentTemplate, agentTemplates } from "@/lib/helm";
 import { useFeatures } from "@/lib/features";
 import { crewEngines } from "@/lib/uifeatures";
 import AgentChatPane from "./AgentChatPane";
+import SandboxNotice, { useBashOff } from "./SandboxNotice";
 import CardModal from "./CardModal";
 import { QuarantineReview } from "./Quarantine";
 
@@ -358,6 +359,7 @@ function AgentPopout({ id, initialRun, draft, onClose, onCreated, onChanged, onO
     } catch (e) { setMsg(String((e as Error).message)); }
   };
 
+  const bashOff = useBashOff();
   const state: DeckState = a?.deck || "idle";
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 p-2 pt-[6vh] md:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -391,6 +393,7 @@ function AgentPopout({ id, initialRun, draft, onClose, onCreated, onChanged, onO
           <button onClick={onClose} className={`${a ? "" : "ml-auto"} rounded-md px-2 py-1 text-mut hover:bg-panel2 hover:text-slate-200`} aria-label="close">✕</button>
         </header>
 
+        {a && bashOff && (a.tools.length === 0 || a.tools.includes("Bash")) && <SandboxNotice />}
         {a?.needs_approval && (
           <ApprovalBar a={a} ro={ro} tip={tip} isAdmin={!!meta?.is_admin} onApprove={() => act("approve")} onReject={() => act("reject")}
             onOverride={() => { if (confirm(`Let ${(a.alert_write_rules || []).join(", ")} run unasked on an agent started by alerts? An alert payload is external input. This override is journaled.`)) act("approve", true); }} />

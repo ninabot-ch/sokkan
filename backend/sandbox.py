@@ -48,6 +48,13 @@ import sys
 from pathlib import Path
 
 OFF, HOOKS, BWRAP, POD = "off", "hooks-only", "bwrap", "pod"
+
+# What a person (and the model) reads when Bash is refused under `hooks-only`: the
+# refusal is the invariant (an unconfined Bash could read the other projects), the
+# message says why and how to lift it. Shown in the session and in the agent/session UI.
+BASH_OFF = ("Bash is disabled in this project: sandbox is hooks-only. Enable bubblewrap or "
+            "the Kubernetes runner, or switch the project to default. Admin: "
+            "SOKKAN_FEATURE_SANDBOX / docs/enterprise/OPERATIONS.md § 4.1")
 READ_TOOLS = ("Read", "Glob", "Grep", "LS", "NotebookRead")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 FILE_TOOLS = READ_TOOLS + WRITE_TOOLS
@@ -394,11 +401,9 @@ def decide(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str,
         if pod:
             return {}       # the pod is the boundary: normal permission flow
         if not script:
-            why = (f"Sandbox: Bash is not available in project '{project or '?'}' on this "
-                   "instance (no OS sandbox: bubblewrap is not installed or not usable). Use "
-                   "Read/Glob/Grep/Edit/Write on the project's workspace.")
-            _log_deny(sid, user, project, tool, why)
-            return _deny(why)
+            _log_deny(sid, user, project, tool, BASH_OFF)
+            return _deny(BASH_OFF + " — use Read/Glob/Grep/Edit/Write on the project's "
+                         "workspace meanwhile.")
         inner = unwrap(script, cmd)
         new = {**inp, "command": wrap(script, inner if inner is not None else cmd)}
         # an agent run's auto-approve rule still approves (now inside the sandbox);
@@ -412,8 +417,10 @@ def decide(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str,
 
 def sdk_hooks(*, sid: str, user: str, project: str, cwd: str,
               auto_rules: list[str] | None = None, env_names: list[str] | tuple = (),
-              forge_socket: str | None = None) -> dict:
-    """`ClaudeAgentOptions.hooks` entries confining one session ({} when not applicable)."""
+              forge_socket: str | None = None, on_bash_off=None) -> dict:
+    """`ClaudeAgentOptions.hooks` entries confining one session ({} when not applicable).
+    ``on_bash_off()`` is called when Bash is refused because the sandbox is hooks-only
+    (the session shows it to the person, not only to the model)."""
     if not applies(project):
         return {}
     from claude_agent_sdk import HookMatcher  # type: ignore
@@ -422,9 +429,17 @@ def sdk_hooks(*, sid: str, user: str, project: str, cwd: str,
 
     async def pre_tool(payload, _tool_use_id, _context):
         try:
-            return decide(str(payload.get("tool_name") or ""), payload.get("tool_input") or {},
-                          sid=sid, user=user, project=project, cwd=cwd, script=script,
-                          auto_rules=auto_rules, pod=mode() == POD)
+            tool = str(payload.get("tool_name") or "")
+            out = decide(tool, payload.get("tool_input") or {},
+                         sid=sid, user=user, project=project, cwd=cwd, script=script,
+                         auto_rules=auto_rules, pod=mode() == POD)
+            if (tool == "Bash" and on_bash_off is not None and mode() == HOOKS
+                    and out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"):
+                try:
+                    on_bash_off()
+                except Exception:  # noqa: BLE001 — the refusal stands regardless
+                    pass
+            return out
         except Exception as e:  # noqa: BLE001 — fail closed
             return _deny(f"Sandbox check failed: {e!r}")
 
@@ -446,7 +461,7 @@ def recheck(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str
         if mode() == POD:
             return inp
         if mode() != BWRAP:
-            return "Sandbox: Bash is not available in this project on this instance."
+            return BASH_OFF
         script = str(_data() / "sandbox" / "sessions" / f"{sid}.sh")
         cmd = str(inp.get("command") or "")
         inner = unwrap(script, cmd)

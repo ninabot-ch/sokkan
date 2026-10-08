@@ -28,7 +28,9 @@ export type AgentEvent =
   | { type: "result"; text: string; is_error: boolean; num_turns?: number; cost_usd?: number }
   | { type: "model"; model: string }
   | { type: "perm_mode"; mode: PermMode }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  // 3.2 lot 8: the project's sandbox is hooks-only (banner) / Bash was just refused (denied)
+  | { type: "sandbox"; mode: string; message: string; denied?: string };
 
 export async function createAgentSession(): Promise<string> {
   const r = await fetch("/api/agent/session", { method: "POST" });

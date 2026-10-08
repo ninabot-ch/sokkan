@@ -143,6 +143,7 @@ def test_bash_is_refused_without_an_os_sandbox(world):
     out = _decide("Bash", {"command": f"cat {world['tv_secret']}"}, world, script=None)
     assert _denied(out)
     assert "bubblewrap" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "Kubernetes runner" in out["hookSpecificOutput"]["permissionDecisionReason"]
     out = _decide("Bash", {"command": "ls"}, world, script=None)
     assert _denied(out)
 
@@ -258,6 +259,30 @@ def test_session_of_a_project_is_confined(world, monkeypatch):
     res = asyncio.new_event_loop().run_until_complete(
         s._can_use_tool("Bash", {"command": "id"}, None))
     assert type(res).__name__ == "PermissionResultDeny"       # hooks-only: no Bash
+
+
+def test_hooks_only_bash_refusal_is_explicit_in_the_session(world, monkeypatch):
+    """The refusal stays (invariant) but says why and what to do — to the model (hook
+    reason) and to the person (a `sandbox` event: banner at start, one note on refusal)."""
+    import board
+    import sandbox
+    board.add_sdk_session("sid-radio2", "t", project="radio")
+    s, opts = _start("sid-radio2", monkeypatch)
+    assert sandbox.mode() == "hooks-only"
+    assert s.events[0] == {"type": "sandbox", "mode": "hooks-only", "message": sandbox.BASH_OFF}
+    assert "SOKKAN_FEATURE_SANDBOX" in sandbox.BASH_OFF and "OPERATIONS.md § 4.1" in sandbox.BASH_OFF
+    (m,) = [m for m in opts.hooks["PreToolUse"] if m.matcher == sandbox.HOOK_MATCHER]
+    loop = asyncio.new_event_loop()
+    for _ in range(2):   # the model retries: one note for the person, a reason every time
+        out = loop.run_until_complete(m.hooks[0](
+            {"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None))
+        assert _denied(out)
+        assert out["hookSpecificOutput"]["permissionDecisionReason"].startswith(sandbox.BASH_OFF)
+    res = loop.run_until_complete(s._can_use_tool("Bash", {"command": "id"}, None))
+    assert type(res).__name__ == "PermissionResultDeny" and res.message == sandbox.BASH_OFF
+    notes = [e for e in s.events if e.get("type") == "sandbox" and e.get("denied") == "Bash"]
+    assert notes == [{"type": "sandbox", "mode": "hooks-only", "message": sandbox.BASH_OFF,
+                      "denied": "Bash"}]
 
 
 def test_default_keeps_its_behaviour(world, monkeypatch):

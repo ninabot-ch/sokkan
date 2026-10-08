@@ -448,7 +448,7 @@ Profile → Model keys: the instance admin sets, replaces or deletes the model p
 
 **Project sandbox** — beta, toggle.
 
-A session or an agent run of a project (not `default`) reaches only its project's space: file tools checked by a hook (paths resolved, symlinks followed), Bash inside bubblewrap when the host has it, refused otherwise (lot 8).
+A session or an agent run of a project (not `default`) reaches only its project's space: file tools checked by a hook (paths resolved, symlinks followed), Bash inside bubblewrap when the host has it, refused otherwise (lot 8). Hooks-only (no bubblewrap, no Kubernetes runner): Bash is disabled outside `default`, never asked to a human; the session and the agent/session UI say so (« Bash is disabled in this project: sandbox is hooks-only… ») with the fix: install bubblewrap, enable the Kubernetes runner, or work in `default` (OPERATIONS.md § 4.1).
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`

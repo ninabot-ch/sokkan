@@ -9,6 +9,7 @@ import ChatMessage from "./ChatMessage";
 import { useCan } from "@/lib/me";
 import { useFeatureOn } from "@/lib/uifeatures";
 import ShareDialog from "./ShareDialog";
+import SandboxNotice, { useBashOff } from "./SandboxNotice";
 
 interface PermReq { id: string; tool: string; title: string; input: Record<string, unknown> }
 interface QReq { id: string; questions: AgentQuestion[] }
@@ -48,6 +49,9 @@ export default function AgentChatPane({
   const [text, setText] = useState("");
   const [model, setModel] = useState<string>("");
   const [pmode, setPmode] = useState<PermMode>("default");
+  // hooks-only sandbox: known up front from the features, confirmed by the session
+  const bashOffHere = useBashOff();
+  const [sandboxMsg, setSandboxMsg] = useState<string | null>(null);
   const sock = useRef<AgentSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -109,6 +113,10 @@ export default function AgentChatPane({
         break;
       case "error":
         push({ role: "system", kind: "note", text: `⚠ ${e.message}` });
+        break;
+      case "sandbox":
+        setSandboxMsg(e.message);
+        if (e.denied) push({ role: "system", kind: "note", text: `⛔ ${e.message}` });
         break;
       case "result":
         // fin de tour : rien à afficher (le texte est déjà streamé)
@@ -224,6 +232,7 @@ export default function AgentChatPane({
         </div>
       </header>
 
+      {(sandboxMsg || bashOffHere) && <SandboxNotice message={sandboxMsg || undefined} />}
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {messages.length === 0 && (
           <div className="mt-6 text-center text-[12px] text-mut">

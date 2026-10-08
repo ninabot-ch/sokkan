@@ -40,6 +40,12 @@ back: rolling back = `scripts/restore.sh` of that backup (or the `.bak` files be
   GitLab, revocation, sandbox, shared review, Model keys, Connect your AI, Helm and
   classification ON; Missions link OFF. Community defaults are unchanged (3.1 behaviour);
   every feature is listed with its switch in `docs/enterprise/FEATURES.md`.
+- **Sandbox hooks-only = no Bash outside `default`**: with the `sandbox` feature on (enterprise
+  default) and neither bubblewrap usable nor the Kubernetes runner, Bash is refused in every
+  project but `default`, without asking anyone (an unconfined Bash could read the other
+  projects); sessions and agents show « Bash is disabled in this project: sandbox is
+  hooks-only… ». Install bubblewrap or enable the runner before moving work to a project
+  (`docs/enterprise/OPERATIONS.md` § 4.1).
 - **docker compose**: the SSO / OIDC variables (`SOKKAN_AUTH_MODE`, `SOKKAN_OIDC_*`), the ops
   group and the Prometheus / Grafana / CortHeXis URLs are now passed to the api container —
   until 3.2 a value in `.env` did not reach it.
