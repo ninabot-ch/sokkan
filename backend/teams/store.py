@@ -209,6 +209,26 @@ def map_channel(channel_id: str, project: str, level: int = 2, name: str = "", b
     c.close()
 
 
+def is_stub_name(name: str) -> bool:
+    """The readable stub the mapping gets when no name is known (api._channel_name)."""
+    n = (name or "").strip()
+    return not n or n.startswith("channel …")
+
+
+def name_channel_if_stub(channel_id: str, name: str) -> bool:
+    """3.4.3 — give a mapping its real name once known (Teams activity, Graph); a name an
+    admin typed is never replaced. True when written."""
+    name = (name or "").strip()[:200]
+    if not name or is_stub_name(name):
+        return False
+    c = con()
+    with c:
+        n = c.execute("UPDATE channel_map SET name=? WHERE channel_id=? AND (name='' OR "
+                      "name LIKE 'channel …%')", (name, channel_id)).rowcount
+    c.close()
+    return n > 0
+
+
 def unmap_channel(channel_id: str) -> None:
     c = con()
     with c:

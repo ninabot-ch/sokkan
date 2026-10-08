@@ -218,7 +218,11 @@ tariff. Hence (`backend/agentcost.py`):
   2. in managed inference, the gateway's tier catalogue (`chf_per_mtok_in/out`, CHF).
   CHF is converted with `SOKKAN_FX_USD_PER_CHF` (default 1.30, deliberately on the high
   side so a CHF-priced run never overspends a USD budget). The run stops (`budget`) when
-  the computed cost reaches `budget_usd`; the SDK's `max_budget_usd` is not passed.
+  the computed cost reaches `budget_usd` — and, since 3.4.3, **before** the next call would
+  pass it: the cost of a message is only known once it exists and the context only grows, so
+  the run stops as soon as the budget no longer covers a call as dear as the dearest one so
+  far (« would be exceeded by the next call »; a $0.10 run used to end at $0.198). The SDK's
+  `max_budget_usd` is not passed.
 * **Unknown price** → the budget applies in tokens: `SOKKAN_AGENTS_MAX_TOKENS_PER_RUN`
   (default 5,000,000 — input + output + cache; 0 or an invalid value falls back to the
   default, never "unlimited"). The token cap also backs up a known price on a non-Claude

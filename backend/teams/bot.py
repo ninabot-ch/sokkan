@@ -192,7 +192,12 @@ def handle(activity: dict) -> dict | None:
         payload = route(ctx, text)
     except Stop as s:
         payload = connector.text(str(s))
-    connector.reply(activity, payload)
+    res = connector.reply(activity, payload)
+    try:        # 3.4.3: an approval card answered here is replaced when decided elsewhere
+        from teams import proactive
+        proactive.track_reply(activity, payload, str((res or {}).get("id") or ""))
+    except Exception as e:  # noqa: BLE001 — bookkeeping never fails an answer
+        print(f"[teams] reply not tracked: {e!r}", flush=True)
     return None
 
 
@@ -339,6 +344,13 @@ def decision(ctx: Ctx, text: str) -> dict:
         f"({_lv().label(level)})."))
 
 
+def _viewer_ids(ctx: Ctx) -> list[str]:
+    """3.4.3 — `refresh.userIds` of a card answered to a person: Teams refreshes THEIR copy
+    (verb `refresh`) when they look at it, so a decision taken by someone else shows."""
+    fid = str(((ctx.activity.get("from") or {}).get("id")) or "")
+    return [fid] if fid else []
+
+
 def propose_run(ctx: Ctx, agent_ref: str) -> dict:
     import agents
     _need(ctx, "dev")
@@ -365,7 +377,8 @@ def propose_run(ctx: Ctx, agent_ref: str) -> dict:
     tok = signing.issue("agent.run", str(a["id"]), ctx.project, ctx.email, card=spec)
     _audit(ctx, "teams.approval.request", a["name"], "run")
     return connector.card(cards.approval(spec["title"], spec["facts"], tok, spec["note"],
-                                         spec["open_url"], lang=ctx.lang),
+                                         spec["open_url"], user_ids=_viewer_ids(ctx),
+                                         lang=ctx.lang),
                           _t(ctx.lang, f"Approve a run of {a['name']}",
                              f"Approuver un run de {a['name']}"))
 
@@ -373,6 +386,42 @@ def propose_run(ctx: Ctx, agent_ref: str) -> dict:
 def _open(path: str) -> str:
     base = teams.public_url()
     return f"{base}{path}" if base.startswith("https://") else ""
+
+
+_FIELD = {"budget_usd": ("Budget", "Budget"), "max_minutes": ("Duration", "Durée"),
+          "model": ("Model", "Modèle"), "tools": ("Tools", "Outils"), "mcp": ("MCP", "MCP"),
+          "trigger": ("Trigger", "Déclencheur"), "schedule": ("Schedule", "Horaire"),
+          "purpose": ("Purpose", "Objet"), "deliverable": ("Deliverable", "Livrable"),
+          "secrets": ("Secrets", "Secrets"), "auto_approve": ("Auto-approve", "Auto-approbation"),
+          "name": ("Name", "Nom"), "prompt": ("Prompt", "Prompt")}
+
+
+def _fmt_value(key: str, v, lang: str = "en") -> str:
+    if v is None or v == "" or v == []:
+        return "—"
+    if key == "budget_usd":
+        return f"{float(v):.2f} USD"
+    if key == "max_minutes":
+        return f"{int(v)} min"
+    if isinstance(v, (list, tuple)):
+        return ", ".join(str(x) for x in v)
+    if isinstance(v, dict):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)[:120]
+
+
+def change_facts(a: dict, lang: str = "en") -> list[tuple[str, str]]:
+    """3.4.3 — what an « Apply the change » approval changes, field by field: before → after
+    (the card showed the project, the owner and the trigger, never the change itself)."""
+    pc = a.get("pending_change") or {}
+    out = []
+    for k, new in pc.items():
+        old = a.get(k)
+        if old == new:
+            continue
+        label = _FIELD.get(k, (k, k))[1 if lang == "fr" else 0]
+        out.append((label, f"{_fmt_value(k, old, lang)} → {_fmt_value(k, new, lang)}"))
+    return out
 
 
 def approvals(ctx: Ctx) -> dict:
@@ -391,16 +440,19 @@ def approvals(ctx: Ctx) -> dict:
                      else f"Apply the change to the agent {a['name']}?")
         else:
             title = f"Activer l'agent {a['name']} ?" if fr else f"Activate the agent {a['name']}?"
-        spec = {"title": title,
-                "facts": [(_t(ctx.lang, "Project", "Projet"), ctx.project),
-                          (_t(ctx.lang, "Owner", "Propriétaire"), a.get("owner") or ""),
-                          (_t(ctx.lang, "Trigger", "Déclencheur"), json.dumps(a.get("trigger"))
-                           if not isinstance(a.get("trigger"), str) else a["trigger"])],
+        facts = [(_t(ctx.lang, "Project", "Projet"), ctx.project),
+                 (_t(ctx.lang, "Owner", "Propriétaire"), a.get("owner") or ""),
+                 (_t(ctx.lang, "Trigger", "Déclencheur"), json.dumps(a.get("trigger"))
+                  if not isinstance(a.get("trigger"), str) else a["trigger"])]
+        if a.get("pending_change"):
+            facts += change_facts(a, ctx.lang) or [(_t(ctx.lang, "Change", "Modification"),
+                                                     _t(ctx.lang, "no difference", "aucune différence"))]
+        spec = {"title": title, "facts": facts,
                 "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}"), "lang": ctx.lang}
         tok = signing.issue("agent.activate", str(a["id"]), ctx.project, a.get("owner") or "",
                             card=spec)
         atts.append(cards.approval(spec["title"], spec["facts"], tok, "", spec["open_url"],
-                                   lang=ctx.lang))
+                                   user_ids=_viewer_ids(ctx), lang=ctx.lang))
     return {"type": "message", "summary": _t(ctx.lang, "Approvals", "Approbations"),
             "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
                              "content": c} for c in atts]}

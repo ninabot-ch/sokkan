@@ -72,8 +72,62 @@ def remember(activity: dict) -> None:
                   "service_url, conversation_id=excluded.conversation_id, updated_at=excluded."
                   "updated_at", (key, surl, ch, time.time()))
     c.close()
-    store.remember_names(key, str((cd.get("channel") or {}).get("name") or "")[:200],
-                         str((cd.get("team") or {}).get("aadGroupId") or "")[:120])
+    name = str((cd.get("channel") or {}).get("name") or "")[:200]
+    store.remember_names(key, name, str((cd.get("team") or {}).get("aadGroupId") or "")[:120])
+    if name:    # 3.4.3: a mapping named « channel …xxxx » takes the name Teams just sent
+        store.name_channel_if_stub(key, name)
+
+
+def _nonces_of(payload: dict) -> list[tuple[str, str]]:
+    """(nonce, title) of every approval card of a bot message."""
+    out = []
+    for att in payload.get("attachments") or []:
+        c = att.get("content") or {}
+        data = (((c.get("refresh") or {}).get("action") or {}).get("data") or {})
+        tok = data.get("token") if data.get("sokkan") == "approval" else None
+        if not tok:
+            continue
+        try:
+            n = signing.peek(tok, allow_expired=True)["n"]
+        except signing.Invalid:
+            continue
+        title = next((b.get("text") for b in c.get("body") or [] if b.get("type") == "TextBlock"), "")
+        out.append((n, title or ""))
+    return out
+
+
+def track_reply(activity: dict, payload: dict, activity_id: str) -> int:
+    """3.4.3 — remember the approval cards the bot ANSWERED in a thread (« run X »,
+    « approvals »), with the id Teams gave the message: when the approval is decided by
+    someone else (another click, the cockpit), `sync` replaces this copy too — the
+    requester's card used to stay « Approve / Refuse » for ever. Returns how many."""
+    if not activity_id or not payload.get("attachments"):
+        return 0
+    surl = activity.get("serviceUrl") or ""
+    conv = (activity.get("conversation") or {}).get("id", "")
+    if not conv or not botauth.service_url_ok(surl):
+        return 0
+    from teams import bot
+    n = 0
+    c = store.con()
+    with c:
+        for nonce, title in _nonces_of(payload):
+            row = signing.row(nonce) or {}
+            c.execute("INSERT OR REPLACE INTO proactive(key, item, kind, ref, project, "
+                      "channel_id, service_url, conversation_id, activity_id, nonce, title, "
+                      "level, state, posted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?)",
+                      (f"reply:{nonce}@{activity_id}", f"reply:{nonce}", row.get("kind") or "",
+                       row.get("ref") or "", row.get("project") or "", bot.channel_key(activity),
+                       surl, conv, activity_id, nonce, title, 2, time.time()))
+            n += 1
+    c.close()
+    return n
+
+
+def _reply_waits(row: dict) -> bool:
+    """A tracked reply stays as it is while its approval is neither used nor expired."""
+    s = signing.row(row["nonce"]) or {}
+    return not s.get("used_at") and float(s.get("expires_at") or 0) > time.time()
 
 
 def _reach(channel_id: str) -> tuple[str, str]:
@@ -109,6 +163,10 @@ def collect() -> dict[str, dict]:
             continue
         change = bool(a.get("pending_change"))
         trig = a.get("trigger")
+        diff: list = []
+        if change:
+            from teams import bot
+            diff = bot.change_facts(a) or [("Change", "no difference")]
         out[f"agent.activate:{aid}"] = {
             "kind": "agent.activate", "ref": str(aid), "project": a.get("project") or "default",
             "level": 2,
@@ -120,7 +178,7 @@ def collect() -> dict[str, dict]:
                       ("Proposed by", (a.get("pending_change_by") if change
                                        else a.get("proposed_by")) or ""),
                       ("Trigger", trig if isinstance(trig, str) else json.dumps(trig)),
-                      ("Purpose", (a.get("purpose") or "")[:200])],
+                      ("Purpose", (a.get("purpose") or "")[:200]), *diff],
             "open": _open_url(f"/?plane=build&tab=crew&agent={aid}"),
         }
     if runs:
@@ -161,6 +219,24 @@ def _outcome(item_key: str, row: dict) -> tuple[str, str, str]:
             return "refuse", "", "sent back to draft in SOKKAN"
         return "closed", "", f"no longer waiting (agent {a.get('status', 'removed')})"
     return "closed", "", "decided in SOKKAN, or the run moved on"
+
+
+def _name_stub_channels() -> None:
+    """3.4.3 — a mapping still named « channel …xxxx » (mapped before any activity, Graph not
+    reachable then): the name Teams sent since, else Graph with the team id seen since."""
+    for ch in store.channels():
+        if not store.is_stub_name(ch.get("name") or ""):
+            continue
+        seen = store.remembered(ch["channel_id"])
+        name = seen["channel_name"]
+        if not name and seen["team_id"]:
+            try:
+                from teams import graph
+                name = graph.channel_name(seen["team_id"], ch["channel_id"])
+            except Exception:  # noqa: BLE001 — Graph is optional here
+                name = ""
+        if name:
+            store.name_channel_if_stub(ch["channel_id"], name)
 
 
 def sync() -> dict:
@@ -228,8 +304,14 @@ def _sync() -> dict:
             import audit
             audit.log("teams", "teams.approval.post", item_key, ch["channel_id"][:120],
                       project=it["project"])
+    _name_stub_channels()
     for key, row in rows.items():
-        if row["state"] != "open" or row["item"] in pending:
+        if row["state"] != "open":
+            continue
+        if row["item"].startswith("reply:"):
+            if _reply_waits(row):
+                continue
+        elif row["item"] in pending:
             continue
         decision, by, detail = _outcome(row["item"], row)
         if row["nonce"]:

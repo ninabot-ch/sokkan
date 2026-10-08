@@ -447,7 +447,8 @@ def test_price_table_usd_and_chf(env, monkeypatch):
     meter.add({"input_tokens": 1000, "output_tokens": 500}, "a")
     # (1000 × 2 + 500 × 6) / 1e6 CHF = 0.005 CHF → × 1.25 = 0.00625 USD
     assert meter.cost_usd == pytest.approx(0.00625)
-    assert meter.over() is None
+    # 3.4.3: another call as dear as this one would pass $0.01 → stop now, under the cap
+    assert "would be exceeded by the next call" in meter.over() and "CHF" in meter.over()
     meter.add({"input_tokens": 2000, "output_tokens": 0}, "b")
     assert "run budget $0.01 reached" in meter.over() and "CHF" in meter.over()
     m2 = agentcost.metering("kimi-k2")
@@ -577,3 +578,27 @@ def test_history_transcript_route_masks_the_run_secrets(env, monkeypatch, tmp_pa
         assert "[secret:GH_TOKEN]" in body.text
     finally:
         appmod.app.dependency_overrides.clear()
+
+
+def test_meter_stops_before_the_next_call_would_exceed_the_budget(env, monkeypatch):
+    """3.4.3 — seen live: $0.198 spent for a $0.10 cap. The cost of a message is known once it
+    exists; the context only grows, so the run stops while the budget still covers a call
+    as dear as the dearest one so far."""
+    import agentcost
+    _llm(env, {"mode": "custom", "base_url": "https://llm.internal", "auth_token": "t",
+               "model": "kimi-k2"})
+    table = env.tmp / "prices.json"
+    table.write_text(json.dumps({"models": {"kimi-k2": {"currency": "USD", "input": 1.0, "output": 1.0}}}))
+    monkeypatch.setenv("SOKKAN_MODEL_PRICES", str(table))
+    meter = agentcost.Meter(agentcost.metering(None), budget_usd=0.10)
+    meter.add({"input_tokens": 20_000, "output_tokens": 0}, "a")          # $0.02
+    assert meter.over() is None and meter.max_msg_usd == pytest.approx(0.02)
+    meter.add({"input_tokens": 40_000, "output_tokens": 0}, "b")          # $0.04 → $0.06 so far
+    assert meter.over() is None
+    meter.add({"input_tokens": 30_000, "output_tokens": 0}, "c")          # $0.03 → $0.09 so far
+    why = meter.over()                                                    # + $0.04 next > $0.10
+    assert why and "would be exceeded by the next call" in why and "$0.0900" in why
+    assert meter.cost_usd < 0.10                                          # stopped under the cap
+    # the plain « reached » message still wins once the cap is passed
+    meter.add({"input_tokens": 20_000, "output_tokens": 0}, "d")
+    assert "run budget $0.10 reached" in meter.over()

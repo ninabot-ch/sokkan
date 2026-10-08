@@ -219,6 +219,17 @@ waiting (hooks in `agents`, debounced) and by a periodic safety net
   with an `Action.Submit` fallback carrying the verb for older clients, `refresh`
   (verb `refresh`: any viewer gets the current state — decided, expired — without deciding;
   automatic for ≤ 60 members, « Refresh card » beyond), `fallbackText`, `msteams.width = Full`.
+* **The card answered to a person follows too (3.4.3).** « @Nina run X » and « approvals »
+  answer a card in the requester's thread; it is tracked like a pushed one (`proactive`,
+  `reply:<nonce>`, with the message id Teams gave it) and replaced by the decided card at the
+  next sync when someone else approves or refuses (from their own copy, or in the cockpit);
+  its `refresh.userIds` names the requester, so Teams also refreshes it when they look at
+  it. An « Apply the change » card lists the change itself, field by field, before → after
+  (« Budget 0.10 USD → 0.50 USD », « Duration 2 min → 3 min »).
+* **Channel names (3.4.3).** A mapping made before any activity in the channel (Graph not
+  reachable then) was named « channel …xxxx » for ever: it now takes the name Teams sends
+  with the next activity, else the Graph name (`Channel.ReadBasic.All`) once the team id has
+  been seen — at the next sync. A name an admin typed is never replaced.
 
 ## 10. Nina asks for help (3.4.1)
 
@@ -236,8 +247,13 @@ action); a question (« how do I get help… ») goes to Nina as usual. Nina ans
   roles), minus the requester and the assignee of the card; each with their availability now
   and why: Teams presence (`Presence.Read.All`, for people linked to Entra by their SOKKAN
   sign-in) and today's calendar (`Calendars.Read`: busy / out of office now, next free slot,
-  in `SOKKAN_TZ`). Ranked available › free (calendar only) › unknown › away › busy › out of
-  office. Graph down, permission missing, no link → « availability unknown », never an error;
+  in `SOKKAN_TZ`). Ranked available › free (calendar only) › unknown › away › busy › offline ›
+  out of office. The state is Graph's `availability` (never `activity`): Available /
+  AvailableIdle → available, Away / BeRightBack → away, Busy / BusyIdle / DoNotDisturb → busy,
+  Offline → offline, PresenceUnknown → unknown (3.4.3). Graph down, permission missing, no
+  link → « availability unknown », never an error. People are named by their IAM name, else
+  the display name of their sign-in (`name` / `preferred_username`) or the one Teams sends
+  with their activities, else the local part of their address (3.4.3);
 * **where** — the channel mapped to the project; several → the widest audience whose level
   allows the subject; none → Nina says so (Setup › Organization › Teams) and still shows who
   is available;

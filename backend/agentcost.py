@@ -176,6 +176,7 @@ class Meter:
         self.budget_usd = float(budget_usd or 0)
         self._by_msg: dict[str, dict] = {}
         self._loose: list[dict] = []
+        self.max_msg_usd = 0.0      # the most expensive single API message so far (3.4.3)
 
     @property
     def active(self) -> bool:
@@ -190,8 +191,10 @@ class Meter:
         if message_id:
             prev = self._by_msg.get(message_id) or {}
             self._by_msg[message_id] = {k: max(v, prev.get(k, 0)) for k, v in u.items()}
+            self.max_msg_usd = max(self.max_msg_usd, self._cost_of(self._by_msg[message_id]))
         else:
             self._loose.append(u)
+            self.max_msg_usd = max(self.max_msg_usd, self._cost_of(u))
 
     @property
     def seen(self) -> bool:
@@ -209,16 +212,18 @@ class Meter:
     def tokens(self) -> int:
         return sum(self._sum().values())
 
-    @property
-    def cost_usd(self) -> float:
+    def _cost_of(self, t: dict) -> float:
         p = self.m.get("price")
         if not p:
             return 0.0
-        t = self._sum()
-        native = (t["input_tokens"] * p["input"] + t["output_tokens"] * p["output"]
-                  + t["cache_read_input_tokens"] * p["cache_read"]
-                  + t["cache_creation_input_tokens"] * p["cache_write"]) / 1e6
+        native = (t.get("input_tokens", 0) * p["input"] + t.get("output_tokens", 0) * p["output"]
+                  + t.get("cache_read_input_tokens", 0) * p["cache_read"]
+                  + t.get("cache_creation_input_tokens", 0) * p["cache_write"]) / 1e6
         return native * (fx_usd_per_chf() if p["currency"] == "CHF" else 1.0)
+
+    @property
+    def cost_usd(self) -> float:
+        return self._cost_of(self._sum()) if self.m.get("price") else 0.0
 
     def over(self) -> str | None:
         """Why the run must stop now, or None."""
@@ -232,5 +237,15 @@ class Meter:
         if self.m.get("price") and self.budget_usd and self.cost_usd >= self.budget_usd:
             return (f"run budget ${self.budget_usd:.2f} reached (${self.cost_usd:.4f} computed by "
                     f"SOKKAN from tokens × the {self.m['price']['currency']} price of "
+                    f"{self.m.get('model')})")
+        # 3.4.3: the cost of a message is known only once it exists, so a run used to end
+        # well past its budget ($0.198 for a $0.10 cap, seen live). The context only grows:
+        # the next call costs at least as much as the dearest one so far — stop while the
+        # budget still covers it.
+        if self.m.get("price") and self.budget_usd and self.max_msg_usd \
+                and self.cost_usd + self.max_msg_usd > self.budget_usd:
+            return (f"run budget ${self.budget_usd:.2f} would be exceeded by the next call "
+                    f"(${self.cost_usd:.4f} so far, the dearest call cost ${self.max_msg_usd:.4f}; "
+                    f"computed by SOKKAN from tokens × the {self.m['price']['currency']} price of "
                     f"{self.m.get('model')})")
         return None

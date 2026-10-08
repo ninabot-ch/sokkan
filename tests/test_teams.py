@@ -394,3 +394,33 @@ def test_french_run_proposal_card_and_its_decision_stay_french(tw, monkeypatch):
     card = msg["attachments"][0]["content"]
     assert card["body"][0]["text"] == f"Run the agent {a['name']}?"
     assert [x["title"] for x in cards.actions_of(card)][:2] == ["Approve", "Refuse"]
+
+
+# ---- 3.4.3: the « Apply the change » card shows the change -----------------------------
+def test_apply_the_change_card_shows_before_and_after(tw, monkeypatch):
+    import agents
+    import classification
+    import projectgate
+    from teams import bot
+    a = _agent(tw)                                      # active, budget/duration unset
+    pu = projectgate.project_user(classification.user_for("carol@x"), "radio")
+    agents.update(pu, a["id"], {"budget_usd": 0.10, "max_minutes": 2})
+    a = agents.get(a["id"])
+    assert a["budget_usd"] == 0.10 and a["max_minutes"] == 2 and not a.get("pending_change")
+    # a session's edit on an approved agent waits for a human: the card must show the diff
+    agents.update(pu, a["id"], {"budget_usd": 0.50, "max_minutes": 3}, from_session=True)
+    a = agents.get(a["id"])
+    assert a["pending_change"] == {"budget_usd": 0.5, "max_minutes": 3}
+    assert bot.change_facts(a) == [("Budget", "0.10 USD → 0.50 USD"), ("Duration", "2 min → 3 min")]
+    assert bot.change_facts(a, "fr") == [("Budget", "0.10 USD → 0.50 USD"), ("Durée", "2 min → 3 min")]
+    card = _say(tw, "carol@x", "approvals")[0]["attachments"][0]["content"]
+    assert card["body"][0]["text"] == "Apply the change to the agent radio-check?"
+    facts = {f["title"]: f["value"] for f in card["body"][1]["facts"]}
+    assert facts["Budget"] == "0.10 USD → 0.50 USD" and facts["Duration"] == "2 min → 3 min"
+    card = _say(tw, "carol@x", "approbations")[0]["attachments"][0]["content"]
+    facts = {f["title"]: f["value"] for f in card["body"][1]["facts"]}
+    assert facts["Durée"] == "2 min → 3 min"
+    # the card pushed by the proactive loop carries the same facts
+    from teams import proactive
+    it = proactive.collect()[f"agent.activate:{a['id']}"]
+    assert ("Budget", "0.10 USD → 0.50 USD") in it["facts"] and it["title"].startswith("Apply the change")

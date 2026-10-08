@@ -439,3 +439,68 @@ def test_client_secret_from_a_file(tw, monkeypatch, tmp_path):
     c.close()
     assert connector.app_token(connector.BOT_SCOPE).startswith("tok-")
     assert tw["sim"].token_calls[-1]["client_secret"] == "sim-secret"
+
+
+# ---- 3.4.3 -----------------------------------------------------------------------------
+def test_a_stub_channel_name_is_resolved_from_the_first_activity_or_graph(pro):
+    """A channel mapped before any activity (Graph not reachable then) stayed « channel …xxxx »
+    for ever; the name Teams sends with an activity, or Graph once the team id is known,
+    gives it its name. A name an admin typed is never replaced."""
+    from teams import proactive, store
+    other = "19:other@thread.tacv2"
+    store.map_channel(other, "radio", 2, "channel …read.tacv2", "admin@x")
+    assert store.is_stub_name(store.channel(other)["name"])
+    _say(pro, "alice@x", "status", channel=other, channel_name="radio · Ops")
+    assert store.channel(other)["name"] == "radio · Ops"
+    # mapped with a stub, no name in the activities, but the team id seen → Graph
+    third = "19:third@thread.tacv2"
+    store.map_channel(third, "radio", 2, "channel …ird.tacv2", "admin@x")
+    pro["sim"].channel_names[third] = "radio · Graph-named"
+    _say(pro, "alice@x", "status", channel=third)                  # remembers the team id
+    assert store.remembered(third)["team_id"]
+    proactive.sync()
+    assert store.channel(third)["name"] == "radio · Graph-named"
+    # a typed name stays
+    assert not store.name_channel_if_stub(CHANNEL, "something else")
+    assert store.channel(CHANNEL)["name"] == "radio · General"
+
+
+def test_the_requester_copy_of_a_run_card_follows_a_decision_by_someone_else(pro, monkeypatch):
+    """Seen live: a 2nd person approves a run, the card in the requester's thread stays
+    « Approve / Refuse ». The reply is tracked (its activity id) and replaced (PUT) by the
+    decided card at the next sync; the card also names the requester in refresh.userIds."""
+    import agents
+    from teams import proactive, store
+    from teams.cards import actions_of
+    sim = pro["sim"]
+    import classification
+    import projectgate
+    pu = projectgate.project_user(classification.user_for("carol@x"), "radio")
+    monkeypatch.setenv("SOKKAN_FEATURE_FOUR_EYES", "0")     # the owner activates it alone
+    agents.create(pu, {"name": "radio-check", "purpose": "check the player", "deliverable": "d",
+                       "trigger": "manual"}, activate=True)
+    monkeypatch.setenv("SOKKAN_FEATURE_FOUR_EYES", "1")     # … but a run needs another person
+    sim.sent.clear()
+    reply = _say(pro, "carol@x", "run radio-check")[0]
+    assert "attachments" in reply, reply.get("text")
+    card = reply["attachments"][0]["content"]
+    assert card["refresh"]["userIds"] == ["29:aad-carol"]
+    tok = next(x for x in actions_of(card) if x["type"] == "Action.Execute")["data"]["token"]
+    import sqlite3
+    rows = sqlite3.connect(store.db_path()).execute(
+        "SELECT item, kind, state, activity_id FROM proactive WHERE item LIKE 'reply:%'").fetchall()
+    assert len(rows) == 1 and rows[0][1] == "agent.run" and rows[0][2] == "open" and rows[0][3]
+    aid = rows[0][3]
+    assert proactive.sync()["closed"] == 0            # nothing decided yet: the card stays
+    assert _posts(sim, "PUT") == []
+    # max approves from his own copy (invoke): the requester's reply is replaced
+    act = sim.activity("", "aad-max", kind="invoke", name="adaptiveCard/action",
+                       value={"action": {"type": "Action.Execute", "verb": "approve",
+                                         "data": {"sokkan": "approval", "token": tok}}})
+    assert pro["post"](act).status_code == 200
+    proactive.sync()
+    puts = [m for m in sim.sent if m.get("method") == "PUT" and m["path"].endswith(f"/activities/{aid}")]
+    assert len(puts) == 1
+    body = puts[0]["attachments"][0]["content"]["body"]
+    assert body[0]["text"] == "Run the agent radio-check?" and "Approved by max@x" in body[1]["text"]
+    assert proactive.sync()["closed"] == 0            # once

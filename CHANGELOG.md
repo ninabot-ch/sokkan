@@ -58,6 +58,26 @@ Notable changes, newest first. Versions: semver + release hash (see
   ranking); PresenceUnknown, '' or an error → unknown — a presence that was read is never
   promoted to available. `outreach.presence_state`, the simulator answers `activity` too,
   one test per value.
+- **Teams: the « Apply the change » card shows the change.** It listed the project, the
+  owner and the trigger, never what changes: now one fact per field, before → after
+  (« Budget 0.10 USD → 0.50 USD », « Duration 2 min → 3 min »), in the answer to
+  « approvals » and in the pushed card. `bot.change_facts`.
+- **Teams: a channel mapping stops being « channel …xxxx ».** Mapped before any activity
+  (Graph not reachable without the team id), the stub name was never resolved: the name
+  Teams sends with the next activity, else Graph once the team id has been seen (at the next
+  proactive sync), names it; a name typed by an admin is never replaced.
+  `store.name_channel_if_stub`, `proactive._name_stub_channels`.
+- **Teams: the requester's copy of a run card follows the decision.** « @Nina run X » answers
+  a card in the requester's thread; when a second person approved from their own copy, that
+  card stayed « Approve / Refuse » (only the pushed copies were tracked). The answered card
+  is now tracked with the id Teams gave it (`proactive`, `reply:<nonce>`) and replaced by the
+  decided card at the next sync; its `refresh.userIds` names the requester so Teams
+  refreshes it when they look at it. `proactive.track_reply`.
+- **Agent run budget: stop before the next call passes it.** A $0.10 run ended at $0.198:
+  the meter compared the spent cost to the budget only once a message's usage existed. It now
+  also stops when the budget no longer covers a call as dear as the dearest one so far
+  (« run budget $0.10 would be exceeded by the next call »). `agentcost.Meter.max_msg_usd`,
+  AGENTS.md § Budget.
 
 ## 3.4.2 — 2026-10-08 — "Bridge"
 
