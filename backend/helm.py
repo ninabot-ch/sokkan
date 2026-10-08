@@ -1108,6 +1108,13 @@ def rebaseline(card_id: int, user: str) -> dict | None:
 
 
 # ---- project creation (Nina's proposal, validated by a human) -------------------------
+_NBSP = str.maketrans({"\u00a0": " ", "\u202f": " ", "\u2007": " ", "\u2011": "-"})
+
+
+def _plain(text: str) -> str:
+    return (text or "").translate(_NBSP)
+
+
 def create_project(user: str, project: str, title: str, intent: str = "", scope: str = "",
                    constraints: str = "", deadline: str = "", team: list[str] | None = None,
                    decisions: list[str] | None = None, children: list[dict] | None = None,
@@ -1116,6 +1123,10 @@ def create_project(user: str, project: str, title: str, intent: str = "", scope:
     validated). The baseline is set AFTER the children: they are the agreed scope."""
     if not (title or "").strip():
         raise ValueError("title is required")
+    # 3.4: models write non-breaking spaces (U+00A0, U+202F, U+2011…) — a card title made of
+    # them never wraps; the proposal is plain text, normalise it once here
+    title = _plain(title)
+    children = [{**ch, "title": _plain(ch.get("title") or "")} for ch in (children or [])]
     if deadline and not re.match(r"^\d{4}-\d{2}-\d{2}$", deadline):
         raise ValueError("deadline: YYYY-MM-DD")
     desc = []

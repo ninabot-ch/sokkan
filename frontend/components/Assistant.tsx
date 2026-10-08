@@ -5,6 +5,7 @@ import type { ProjectProposal } from "@/lib/helm";
 import { useEffect, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import MiniMarkdown from "./MiniMarkdown";
+import LevelBadge from "./LevelBadge";
 
 // 3.4: the panel's own words follow the browser's language (the cockpit is English, Nina
 // answers in the person's language) — a French greeting in an English UI confused a manager
@@ -23,7 +24,7 @@ const T = FR ? {
   thinking: "Nina is thinking…", placeholder: "Your question…", unknown: "unknown error",
 };
 
-type Msg = { role: string; content: string; ts?: number };
+type Msg = { role: string; content: string; ts?: number; level?: string };
 
 // Nina — l'agente d'assistance embarquée (S1) : bouton flottant + panneau.
 // Feature-gated serveur (SOKKAN_FEATURE_ASSISTANT) — le flag front ne fait
@@ -105,6 +106,7 @@ export default function Assistant({ tab }: { tab: string }) {
       const decoder = new TextDecoder();
       let buf = "";
       let started = false;
+      let level: string | undefined;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -124,13 +126,15 @@ export default function Assistant({ tab }: { tab: string }) {
             continue;
           }
           if (ev === "error") throw new Error(payload.detail || T.unknown);
+          if (ev === "level" && payload.text) level = payload.text;
           // `first` is captured NOW: React may run the updater after `started` flipped —
           // reading `started` inside it replaced the person's own message (08.10)
           if (ev === "delta" && payload.text) {
             const chunk = payload.text;
             const first = !started;
+            const lv = level;
             setMsgs((m) => {
-              if (first) return [...m, { role: "assistant", content: chunk }];
+              if (first) return [...m, { role: "assistant", content: chunk, level: lv }];
               const last = m[m.length - 1];
               return [...m.slice(0, -1), { ...last, content: last.content + chunk }];
             });
@@ -141,10 +145,11 @@ export default function Assistant({ tab }: { tab: string }) {
           if (ev === "done" && payload.text) {
             const full = payload.text;
             const replace = started;
+            const lv = level;
             setMsgs((m) =>
               replace
-                ? [...m.slice(0, -1), { role: "assistant", content: full }]
-                : [...m, { role: "assistant", content: full }],
+                ? [...m.slice(0, -1), { role: "assistant", content: full, level: lv }]
+                : [...m, { role: "assistant", content: full, level: lv }],
             );
             started = true;
           }
@@ -211,6 +216,11 @@ export default function Assistant({ tab }: { tab: string }) {
                     : "mr-6 rounded-xl border border-line bg-panel px-3 py-2 text-[13px] leading-relaxed text-slate-200"
                 }
               >
+                {m.role === "assistant" && m.level && m.level !== "project" && (
+                  <div className="mb-1 flex items-center gap-1.5 text-[10.5px] text-mut">
+                    <LevelBadge level={m.level} /> built from notes at this level — share it accordingly
+                  </div>
+                )}
                 {m.role === "assistant" ? <AssistantText text={m.content} /> : m.content}
               </div>
             ))}

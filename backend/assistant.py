@@ -680,7 +680,8 @@ def chat(user_email: str, message: str, scope=None, channel: str = "nina") -> di
 
 
 def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
-    """Un tour de chat en flux. Émet ('delta', texte) puis ('done', réponse complète).
+    """Un tour de chat en flux. Émet ('level', niveau) si connu, ('delta', texte) puis
+    ('done', réponse complète).
 
     Pourquoi : sur du silicium maison le décodage plafonne à ~32-36 tok/s, donc
     une réponse détaillée met 20-40 s à s'écrire — alors que le PREMIER token
@@ -692,7 +693,12 @@ def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
     Le basculement vers le repli n'est possible qu'AVANT le premier octet —
     après, le flux est engagé (même règle que la passerelle d'inférence).
     """
-    cfg, fb, system, msgs = _prepare(user_email, message, meta={})
+    meta: dict = {}
+    cfg, fb, system, msgs = _prepare(user_email, message, meta=meta)
+    if meta.get("level"):
+        # 3.4: the answer inherits the highest level of the notes it was built from — the
+        # cockpit marks it before the first word arrives
+        yield "level", meta["level"]
     global _primary_down_until
     chain = [cfg] if not fb else ([fb] if time.time() < _primary_down_until else [cfg, fb])
     last_err: Exception | None = None

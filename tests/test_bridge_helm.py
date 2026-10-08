@@ -283,3 +283,23 @@ def test_suggestions_about_a_classified_card_are_not_shown(env, classified, monk
     assert c.post(f"/api/helm/suggestions/{sid}/ignore").status_code == 404
     who["email"] = "lea@x"
     assert "HSM" in json.dumps(c.get(f"/api/helm/cards/{classified['pub']['id']}").json()["suggestions"])
+
+
+def test_a_proposal_s_non_breaking_spaces_become_plain(env):
+    import helm
+    out = helm.create_project("mia@x", "radio", "SOKKAN 3.4 Bridge",
+                              children=[{"title": "back‑channel logout"}])
+    assert out["card"]["title"] == "SOKKAN 3.4 Bridge"
+    assert out["children"][0]["title"] == "back-channel logout"
+
+
+def test_a_streamed_answer_announces_its_level_first(monkeypatch):
+    def prep(user, message, scope=None, meta=None, via="nina"):
+        meta["level"] = "confidential"
+        return {"url": "http://x/v1", "token": "t", "api": "openai", "model": "m"}, None, "S", []
+    monkeypatch.setattr(assistant, "_prepare", prep)
+    monkeypatch.setattr(assistant.httpx, "stream", lambda *a, **k: _sse(
+        ['data: {"choices":[{"delta":{"content":"CHF 48 000"}}]}']))
+    monkeypatch.setattr(assistant, "_persist", lambda *a: None)
+    ev = list(assistant.chat_stream("lea@x", "what does the POC cost?"))
+    assert ev[0] == ("level", "confidential") and ev[-1] == ("done", "CHF 48 000")
