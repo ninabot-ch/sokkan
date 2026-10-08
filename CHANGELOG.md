@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.2 — unreleased
+## 3.4.2 — 2026-10-08 — "Bridge"
 
 ### Fixed
 - **No more phantom memory on the 2.x index.** On an instance kept on
