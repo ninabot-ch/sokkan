@@ -6,8 +6,9 @@ Tout vit sous ~/.sokkan/magnitude/ :
   models/      GGUF téléchargés (<model_id>.gguf)
   run/         logs des process (llama-server.log)
 
-- Prebuilt : release GitHub ggml-org/llama.cpp — tag `MAGNITUDE_LLAMA_TAG` ou
-  `latest`. Asset par plateforme : macos-arm64 / ubuntu-vulkan-x64 (fallback
+- Prebuilt : release GitHub ggml-org/llama.cpp — tag `MAGNITUDE_LLAMA_TAG`, sinon un
+  build déjà extrait, sinon la release la plus récente (pré-releases comprises) qui a
+  l'asset de la plateforme. Asset par plateforme : macos-arm64 / ubuntu-vulkan-x64 (fallback
   ubuntu-x64) / win-vulkan-x64. Les binaires sont à la racine ou dans
   build/bin/ selon l'archive → recherche par walk.
 - Bench : llama-bench -p 512 -n 128 -r 2 -o json, PowerSampler nvidia-smi si
@@ -120,8 +121,47 @@ def _extract(archive: Path, dest: Path) -> None:
                 pass
 
 
+def _has_asset(rel: dict) -> bool:
+    try:
+        _pick_asset(rel.get("assets") or [])
+        return True
+    except RuntimeError:
+        return False
+
+
+def _resolve_release() -> dict:
+    """The newest llama.cpp release that ships a build for this platform.
+
+    Since Oct. 2026 upstream publishes its `bNNNNN` builds as PRE-releases and
+    `releases/latest` points at a source-only release (v0.6.0, one asset): asking for
+    « latest » made every first Run/Benchmark fail with « no llama.cpp prebuilt asset ».
+    The release list includes pre-releases; the first one carrying our asset wins."""
+    rels = _http_json(f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=30")
+    for rel in rels if isinstance(rels, list) else []:
+        if not rel.get("draft") and _has_asset(rel):
+            return rel
+    raise RuntimeError("no recent llama.cpp release ships a build for this platform "
+                       f"(wanted one of {_asset_substrings()}): set MAGNITUDE_LLAMA_TAG to a "
+                       "release that has one, or install Docker (Intel cards: SYCL image)")
+
+
+def _local_build():
+    """Newest llama.cpp already extracted under BIN_DIR (bNNNNN sorted numerically)."""
+    def key(d: Path):
+        n = d.name[1:] if d.name[:1] == "b" else ""
+        return (1, int(n)) if n.isdigit() else (0, 0)
+    for d in sorted((x for x in BIN_DIR.glob("*") if x.is_dir()), key=key, reverse=True):
+        bindir = _find_bindir(d)
+        if bindir:
+            return bindir
+    return None
+
+
 def ensure_llama(progress_cb=None) -> Path:
-    """Retourne le dossier binaire llama.cpp, en le téléchargeant si besoin."""
+    """Retourne le dossier binaire llama.cpp, en le téléchargeant si besoin.
+
+    MAGNITUDE_LLAMA_TAG (pin) > a build already on the machine (no silent upgrade between
+    two runs: a bench must compare like with like) > the newest release with our asset."""
     tag = os.environ.get("MAGNITUDE_LLAMA_TAG", "")
     if tag:
         bindir = _find_bindir(BIN_DIR / tag)
@@ -129,20 +169,16 @@ def ensure_llama(progress_cb=None) -> Path:
             return bindir
         rel = _http_json(f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag}")
     else:
+        local = _local_build()
+        if local:
+            return local
         try:
-            rel = _http_json(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-        except (OSError, ValueError):
-            # offline : réutiliser une extraction existante si possible
-            for d in sorted(BIN_DIR.glob("*"), reverse=True):
-                bindir = _find_bindir(d)
-                if bindir:
-                    return bindir
-            raise RuntimeError("cannot reach GitHub for llama.cpp and no local build found")
+            rel = _resolve_release()
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"cannot reach GitHub for llama.cpp and no local build found ({e})") from e
         tag = rel.get("tag_name", "latest")
-        bindir = _find_bindir(BIN_DIR / tag)
-        if bindir:
-            return bindir
     name, url = _pick_asset(rel.get("assets", []))
+    print(f"[magnitude] llama.cpp {tag}: {name}", flush=True)
     archive = BIN_DIR / name
     _download(url, archive, progress_cb)
     _extract(archive, BIN_DIR / tag)
@@ -321,6 +357,57 @@ def bench(bindir: Path, gguf: Path, timeout=900, gpu=True) -> dict:
 
 # ---------------------------------------------------------------------- serve
 
+DOCKER_NAME = "sokkan-magnitude-llama"
+DOCKER_IMAGES = {"intel": "ghcr.io/ggml-org/llama.cpp:server-intel"}   # SYCL (oneAPI) build
+
+
+def _server_args(ctx: str) -> list:
+    """llama-server options shared by the prebuilt and the docker runtimes."""
+    args = ["-c", ctx, "--jinja",
+            # host RAM prompt cache: 8 GiB PER SERVER by default upstream — on a machine
+            # that runs other things it grows for weeks (seen on rog1, 06.10.2026)
+            "--cache-ram", os.environ.get("MAGNITUDE_CACHE_RAM", "2048")]
+    kv = os.environ.get("MAGNITUDE_KV", "")
+    if kv:
+        args += ["-ctk", kv, "-ctv", kv, "-fa", "on"]
+    # échappatoire tuning (rope-scaling yarn, -np, etc.) sans multiplier les env vars
+    extra = os.environ.get("MAGNITUDE_SERVER_ARGS", "")
+    if extra:
+        args += extra.split()
+    return args
+
+
+def docker_ok() -> bool:
+    if not shutil.which("docker"):
+        return False
+    try:
+        return subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
+                              capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def runtime_for(profile: dict) -> str:
+    """How Magnitude runs llama.cpp on this node — the order of preference per backend:
+
+    - Intel discrete cards with at least one card allowed → `docker` (the SYCL image
+      ggml-org/llama.cpp:server-intel, the build rog1's own engines use; there is no
+      Linux SYCL prebuilt that runs without oneAPI) when the Docker daemon answers, else
+      the Vulkan prebuilt;
+    - NVIDIA / AMD / other Vulkan GPUs → Vulkan prebuilt (CUDA prebuilts need a matching
+      driver + cudart; Vulkan measured 91 tok/s on a 2080 Ti);
+    - Apple Silicon → Metal prebuilt; no GPU, or no card allowed → CPU (prebuilt,
+      --device none).
+    MAGNITUDE_RUNTIME=prebuilt|docker forces it."""
+    forced = (os.environ.get("MAGNITUDE_RUNTIME") or "auto").strip().lower()
+    if forced in ("prebuilt", "docker"):
+        return forced
+    g = profile.get("gpu") or {}
+    if g.get("vendor") == "intel" and g.get("run_devices") != [] and docker_ok():
+        return "docker"
+    return "prebuilt"
+
+
 def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     """Lance llama-server (127.0.0.1:8791). --jinja = chat template natif,
     requis pour le tool calling. -ngl 999 = tout offloader si GPU."""
@@ -329,15 +416,7 @@ def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     # les petites VRAM : MAGNITUDE_KV=q8_0 le divise par 2 (impose flash attn).
     ctx = os.environ.get("MAGNITUDE_CTX", "16384")
     cmd = [_bin(bindir, "llama-server"), "-m", str(gguf),
-           "--host", "127.0.0.1", "--port", str(LLAMA_PORT),
-           "-c", ctx, "--jinja"]
-    kv = os.environ.get("MAGNITUDE_KV", "")
-    if kv:
-        cmd += ["-ctk", kv, "-ctv", kv, "-fa", "on"]
-    # échappatoire tuning (rope-scaling yarn, -np, etc.) sans multiplier les env vars
-    extra = os.environ.get("MAGNITUDE_SERVER_ARGS", "")
-    if extra:
-        cmd += extra.split()
+           "--host", "127.0.0.1", "--port", str(LLAMA_PORT), *_server_args(ctx)]
     dev_args, dev_env = _device_args(gpu)
     cmd += dev_args
     RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -352,14 +431,66 @@ def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
         log.close()  # le fd est dupliqué par Popen
 
 
+def docker_command(gguf: Path, cards: list, vendor: str = "intel") -> list:
+    """`docker run` of the SYCL llama-server on the allowed cards only (ZE_AFFINITY_MASK /
+    ONEAPI_DEVICE_SELECTOR), the GGUF read-only, the port on loopback only."""
+    if not cards:
+        raise RuntimeError("the docker runtime needs at least one card allowed "
+                           "(MAGNITUDE_GPU_DEVICES)")
+    mask = ",".join(str(c) for c in cards)
+    ctx = os.environ.get("MAGNITUDE_CTX", "16384")
+    return ["docker", "run", "--rm", "--name", DOCKER_NAME,
+            "--device", "/dev/dri", "-v", "/dev/dri/by-path:/dev/dri/by-path:ro",
+            "-v", f"{gguf.parent}:/models:ro",
+            "-e", f"ZE_AFFINITY_MASK={mask}",
+            "-e", "ONEAPI_DEVICE_SELECTOR=level_zero:" + ("*" if len(cards) > 1 else "0"),
+            "-p", f"127.0.0.1:{LLAMA_PORT}:8080",
+            "--memory", os.environ.get("MAGNITUDE_DOCKER_MEMORY", "16g"),
+            "--cpus", os.environ.get("MAGNITUDE_DOCKER_CPUS", "8"),
+            os.environ.get("MAGNITUDE_DOCKER_IMAGE", DOCKER_IMAGES.get(vendor, DOCKER_IMAGES["intel"])),
+            "-m", f"/models/{gguf.name}", "--host", "0.0.0.0", "--port", "8080",
+            "-ngl", "99", *_server_args(ctx)]
+
+
+def start_docker_server(gguf: Path, cards: list, vendor: str = "intel") -> subprocess.Popen:
+    """Same contract as start_server (a Popen; wait_healthy/stop_server work on it)."""
+    subprocess.run(["docker", "rm", "-f", DOCKER_NAME], capture_output=True, timeout=30)
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    log = open(RUN_DIR / "llama-server.log", "ab")
+    try:
+        proc = subprocess.Popen(docker_command(gguf, cards, vendor), stdout=log,
+                                stderr=subprocess.STDOUT)
+    finally:
+        log.close()
+    proc.container = DOCKER_NAME   # stop_server also stops the container
+    return proc
+
+
+def _log_reason(max_len=160) -> str:
+    """The line of llama-server.log that says why it stopped (shown in the cockpit,
+    instead of a bare « exited early » — e.g. an option it rejects, an OOM)."""
+    try:
+        with open(RUN_DIR / "llama-server.log", "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 8192))
+            lines = [x.strip() for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()]
+    except OSError:
+        return "no log"
+    for line in reversed(lines):
+        low = line.lower()
+        if any(k in low for k in ("error", "failed", "invalid", "out of memory", "unable")):
+            return line[:max_len]
+    return lines[-1][:max_len] if lines else "empty log"
+
+
 def wait_healthy(proc: subprocess.Popen, timeout=120) -> None:
     """Poll GET /health jusqu'à 200 (un 70B met du temps à charger)."""
     deadline = time.time() + timeout
     url = f"http://127.0.0.1:{LLAMA_PORT}/health"
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"llama-server exited early (code {proc.returncode}) "
-                               f"— see {RUN_DIR / 'llama-server.log'}")
+            raise RuntimeError(f"llama-server exited early (code {proc.returncode}): "
+                               f"{_log_reason()} — see {RUN_DIR / 'llama-server.log'}")
         try:
             with urllib.request.urlopen(url, timeout=2) as r:
                 if r.status == 200:
@@ -371,7 +502,15 @@ def wait_healthy(proc: subprocess.Popen, timeout=120) -> None:
 
 
 def stop_server(proc) -> None:
-    if proc is None or proc.poll() is not None:
+    if proc is None:
+        return
+    name = getattr(proc, "container", None)
+    if name:   # docker runtime: stop the container itself, not only the CLI attached to it
+        try:
+            subprocess.run(["docker", "stop", "-t", "10", name], capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if proc.poll() is not None:
         return
     proc.terminate()
     try:

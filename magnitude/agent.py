@@ -66,6 +66,8 @@ class Agent:
             self.profile["gpu"]["run_devices"] = engine.run_devices(
                 [d.get("index") for d in self.profile["gpu"].get("devices") or []]
                 or list(range(int(self.profile["gpu"].get("count") or 1))))
+        # 0.3: how a Run executes here (docker SYCL image / prebuilt Vulkan-Metal-CPU)
+        self.profile["runtime"] = engine.runtime_for(self.profile)
         try:  # profil mémoire recommandé (CortHeXis), remonté avec le profil hardware
             from . import memprofile
             mem = memprofile.detect()
@@ -180,11 +182,13 @@ class Agent:
                 with self._lock:
                     self._outbox["error"] = msg
 
-    def _prepare(self, model_id: str):
+    def _prepare(self, model_id: str, for_run: bool = False):
         """llama.cpp + GGUF présents localement, avec progression remontée."""
-        bindir = engine.ensure_llama(
-            progress_cb=lambda pct: self._set_status(
-                "downloading", model=model_id, pct=pct, detail="llama.cpp runtime"))
+        bindir = None
+        if not (for_run and engine.runtime_for(self.profile or {}) == "docker"):
+            bindir = engine.ensure_llama(
+                progress_cb=lambda pct: self._set_status(
+                    "downloading", model=model_id, pct=pct, detail="llama.cpp runtime"))
         entry = catalog.get(model_id)
         gguf = engine.ensure_gguf(
             entry, progress_cb=lambda pct: self._set_status(
@@ -212,12 +216,22 @@ class Agent:
         self._set_idle()
 
     def _do_run(self, model_id: str) -> None:
-        entry, bindir, gguf = self._prepare(model_id)
+        entry, bindir, gguf = self._prepare(model_id, for_run=True)
         self._teardown_serving()  # un seul modèle servi à la fois
         self._set_status("starting", model=model_id)
-        self._server = engine.start_server(bindir, gguf, gpu=self._gpu_run())
+        g = (self.profile or {}).get("gpu") or {}
+        runtime = engine.runtime_for(self.profile or {})
+        if runtime == "docker":
+            cards = g.get("run_devices")
+            if cards is None:
+                cards = [d.get("index") for d in g.get("devices") or []]
+            self._set_status("starting", model=model_id,
+                             detail=f"docker {g.get('vendor')} image on card(s) {','.join(map(str, cards))}")
+            self._server = engine.start_docker_server(gguf, cards, g.get("vendor") or "intel")
+        else:
+            self._server = engine.start_server(bindir, gguf, gpu=self._gpu_run())
         try:
-            engine.wait_healthy(self._server)
+            engine.wait_healthy(self._server, timeout=300 if getattr(self._server, "container", None) else 120)
         except Exception:
             engine.stop_server(self._server)
             self._server = None

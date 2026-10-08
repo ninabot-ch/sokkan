@@ -40,9 +40,12 @@ function Progress({ pct }: { pct: number | null | undefined }) {
 }
 
 /** Labelled usage bar (CPU, RAM, GPU busy, VRAM). Amber from 85 %, red from 95 %. */
-function Meter({ label, pct, value, title }: { label: string; pct: number | null | undefined; value: string; title?: string }) {
+function Meter({ label, pct, value, title, alarm = true }: {
+  label: string; pct: number | null | undefined; value: string; title?: string; alarm?: boolean;
+}) {
   const p = pct == null ? null : Math.min(100, Math.max(0, pct));
-  const tone = p == null ? "bg-line" : p >= 95 ? "bg-red-400" : p >= 85 ? "bg-amber-400" : "bg-sea";
+  // a busy GPU is a working GPU: only memory gets warning colours
+  const tone = p == null ? "bg-line" : !alarm ? "bg-sky-400/80" : p >= 95 ? "bg-red-400" : p >= 85 ? "bg-amber-400" : "bg-sea";
   return (
     <div title={title}>
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
@@ -153,6 +156,13 @@ function OpBanner({ status, label }: { status: MagnitudeStatus; label: string })
       ? `Starting ${label}…`
       : status.detail || "Something went wrong on the agent";
   const isError = status.phase === "error";
+  const d = (status.detail || "").toLowerCase();
+  const hint = !isError ? "" : d.includes("prebuilt") || d.includes("no recent llama.cpp")
+    ? "On the machine: install Docker (Intel cards use the SYCL image), or set MAGNITUDE_LLAMA_TAG to a llama.cpp release that has a build for it."
+    : d.includes("exited early") || d.includes("not healthy")
+    ? "The reason is in ~/.sokkan/magnitude/run/llama-server.log on the machine. Out of memory: a smaller model, or a lower MAGNITUDE_CTX."
+    : d.includes("docker") ? "Check that the Docker daemon runs and that the agent's user may use it."
+    : d.includes("cannot reach github") ? "The machine needs internet access once to download llama.cpp, or a build copied under ~/.sokkan/magnitude/bin." : "";
   return (
     <div
       className={`rounded-2xl border p-5 backdrop-blur transition-all duration-500 ${
@@ -166,6 +176,7 @@ function OpBanner({ status, label }: { status: MagnitudeStatus; label: string })
         </div>
       )}
       {!isError && status.detail && <div className="mt-2 text-[12px] text-mut">{status.detail}</div>}
+      {hint && <div className="mt-2 text-[12.5px] leading-relaxed text-slate-300">{hint}</div>}
     </div>
   );
 }
@@ -200,7 +211,7 @@ function CardTile({ d, live, engines, allowed, hist }: {
         <div className="mt-2.5 space-y-2">
           <Meter label="VRAM" pct={pctOf(live.vram_used_gb, total)}
             value={live.vram_used_gb != null && total ? `${live.vram_used_gb.toFixed(1)} / ${total.toFixed(1)} GB` : "—"} />
-          <Meter label="busy" pct={live.util_pct} value={live.util_pct != null ? `${Math.round(live.util_pct)} %` : "—"} />
+          <Meter label="busy" alarm={false} pct={live.util_pct} value={live.util_pct != null ? `${Math.round(live.util_pct)} %` : "—"} />
           <Spark values={hist} label={`card ${d.index} busy over the last 2 minutes`} />
           <div className="flex gap-3 text-[11px] tabular-nums text-mut">
             {live.temp_c != null && <span className={live.temp_c >= 90 ? "text-red-300" : live.temp_c >= 80 ? "text-amber-300" : ""}>{Math.round(live.temp_c)} °C</span>}
@@ -247,7 +258,7 @@ function RunScope({ profile, target, engines }: { profile: MagnitudeProfile; tar
 function NodeLoad({ m, cores }: { m: MagnitudeMetrics; cores: number }) {
   return (
     <div className="mt-5 grid grid-cols-2 gap-4" aria-label="Machine load">
-      <Meter label={`CPU · ${cores} cores${m.load1 != null ? ` · load ${m.load1.toFixed(1)}` : ""}`} pct={m.cpu_pct}
+      <Meter label={`CPU · ${cores} cores${m.load1 != null ? ` · load ${m.load1.toFixed(1)}` : ""}`} pct={m.cpu_pct} alarm={false}
         value={m.cpu_pct != null ? `${Math.round(m.cpu_pct)} %` : "—"} />
       <Meter label="RAM" pct={pctOf(m.ram_used_gb, m.ram_total_gb)}
         value={m.ram_used_gb != null && m.ram_total_gb ? `${m.ram_used_gb.toFixed(0)} / ${m.ram_total_gb.toFixed(0)} GB` : "—"} />
@@ -305,7 +316,7 @@ function HardwareCard({ profile, online, lastSeen, engines, metrics, target }: {
           <Meter label="VRAM" pct={pctOf(single.vram_used_gb, single.vram_total_gb ?? g.vram_total_gb)}
             value={single.vram_used_gb != null ? `${single.vram_used_gb.toFixed(1)} / ${(single.vram_total_gb ?? g.vram_total_gb ?? 0).toFixed(1)} GB` : "—"} />
           <Meter label={`GPU busy${single.temp_c != null ? ` · ${Math.round(single.temp_c)} °C` : ""}${single.power_w != null ? ` · ${Math.round(single.power_w)} W` : ""}`}
-            pct={single.util_pct} value={single.util_pct != null ? `${Math.round(single.util_pct)} %` : "—"} />
+            pct={single.util_pct} alarm={false} value={single.util_pct != null ? `${Math.round(single.util_pct)} %` : "—"} />
         </div>
       ) : g.vram_total_gb != null && (
         /* older agents: no live figures — free memory from the profile when known */
@@ -332,9 +343,9 @@ function HardwareCard({ profile, online, lastSeen, engines, metrics, target }: {
 }
 
 function ServingCard({
-  serving, label, connected, admin, online, busy, onConnect, onStop,
+  serving, label, connected, admin, online, busy, onConnect, onStop, where,
 }: {
-  serving: MagnitudeServing; label: string; connected: boolean; admin: boolean;
+  serving: MagnitudeServing; label: string; connected: boolean; admin: boolean; where?: string;
   online: boolean; busy: boolean; onConnect: () => void; onStop: () => void;
 }) {
   return (
@@ -346,7 +357,7 @@ function ServingCard({
             {label} is live on this machine
           </div>
           <div className="mt-0.5 text-[13px] tabular-nums text-mut">
-            {serving.external ? `${ENGINE_LABEL[serving.engine || ""] || serving.engine} on port ${serving.port} · attached ` : "up "}
+            {serving.external ? `${ENGINE_LABEL[serving.engine || ""] || serving.engine} on port ${serving.port} · attached ` : `${where ? `${where} · ` : ""}up `}
             {upFor(serving.since)}{serving.external ? " ago" : ""}
           </div>
         </div>
@@ -574,7 +585,8 @@ function whereText(p: MagnitudeProfile, t: MagnitudeRunTarget | null | undefined
     return `On the CPU${room}.`;
   }
   const cards = t.cards?.length ? ` card${t.cards.length > 1 ? "s" : ""} ${t.cards.map((c) => `#${c}`).join(", ")}` : " the GPU";
-  return `On${cards}${room}. Fit is computed on that memory, with room for the context.`;
+  const how = p.runtime === "docker" ? " with the llama.cpp SYCL image (Docker)" : p.gpu?.offload === "vulkan" || p.gpu?.backend === "vulkan" ? " with llama.cpp Vulkan" : "";
+  return `On${cards}${how}${room}. Fit is computed on that memory, with room for the context.`;
 }
 
 function NodeSection({
@@ -625,6 +637,7 @@ function NodeSection({
           busy={busy}
           onConnect={() => act(() => magnitudeConnect(node.id), "connect failed — model not serving or LLM config is operator-managed")}
           onStop={() => act(() => magnitudeCmd(node.id, "stop"), "stop failed")}
+          where={node.run_target?.where === "cpu" ? "on the CPU" : node.run_target?.cards?.length ? `on card ${node.run_target.cards.map((c) => `#${c}`).join("+")}` : undefined}
         />
       )}
 
@@ -727,7 +740,11 @@ export default function Magnitude() {
   const act = async (fn: () => Promise<unknown>, failMsg: string) => {
     setBusy(true);
     setErr("");
-    try { await fn(); } catch { setErr(failMsg); } finally { setBusy(false); }
+    try { await fn(); } catch (e) {
+      // the server says why (e.g. « qwen3-32b does not fit on the CPU (12.6 GB available) »)
+      const m = (e as Error)?.message || "";
+      setErr(m && !m.includes(" → ") ? `${failMsg}: ${m}` : failMsg);
+    } finally { setBusy(false); }
   };
 
   const pair = () =>
