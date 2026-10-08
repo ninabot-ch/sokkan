@@ -67,6 +67,7 @@ export interface HelmCosts {
 }
 
 export interface ProjectProposal {
+  project?: string;
   title: string;
   intent?: string;
   scope?: string;
@@ -113,7 +114,20 @@ export const helmBaseline = (id: number) => call<Card>(`/api/helm/cards/${id}/ba
 export const helmApprove = (sid: number) => call<Suggestion & { reframe_card: Card }>(`/api/helm/suggestions/${sid}/approve`, "POST");
 export const helmIgnore = (sid: number) => call<Suggestion>(`/api/helm/suggestions/${sid}/ignore`, "POST");
 export const helmCreateProject = (p: ProjectProposal) =>
-  call<{ card: Card; children: Card[] }>("/api/helm/projects", "POST", p);
+  call<{ card: Card; children: Card[]; project: string; dropped_owners: { title: string; assignee: string }[] }>("/api/helm/projects", "POST", p);
+
+/** 3.4 — where the person can create a project card (developer+), whether they steer it
+ *  there (then it shows in their Helm), and who can own its cards. Steered projects first. */
+export interface HelmTarget { slug: string; name: string; role: string; steers: boolean; people: { email: string; name: string }[] }
+export const helmTargets = () => call<HelmTarget[]>("/api/helm/targets");
+
+export interface HelmBrief { project: string; person: string; team: string; markdown: string; since: number; now: number }
+export const helmBrief = (project: string, opts: { person?: string; team?: string; all?: boolean } = {}) =>
+  call<HelmBrief>(`/api/helm/brief${qs({ project, person: opts.person || "", team: opts.team || "", all: opts.all ? "1" : "" })}`);
+
+/** Opens Nina (the floating assistant) on the current tab and sends `message`. */
+export const askNina = (message: string) =>
+  window.dispatchEvent(new CustomEvent("sokkan:nina", { detail: { message } }));
 export const agentTemplates = () =>
   call<{ id: string; label: string; description: string; params: Record<string, string> }[]>("/api/agent-templates");
 export const agentTemplate = (id: string, person = "", team = "") =>

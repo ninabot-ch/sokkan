@@ -106,7 +106,7 @@ def test_fallback_kicks_in_then_sticks(monkeypatch):
     monkeypatch.setattr(assistant, "_primary_down_until", 0.0)
     calls = []
 
-    def fake_ask(cfg, system, msgs, user_email):
+    def fake_ask(cfg, system, msgs, user_email, state=None):
         calls.append(cfg["url"])
         if cfg["url"] == "xpu":
             raise assistant.httpx.ConnectError("XPU éteint")
@@ -245,7 +245,7 @@ def test_stream_falls_back_before_first_byte(monkeypatch):
                         lambda u, m, **kw: ({"url": "xpu"}, {"url": "gw"}, "S", []))
     monkeypatch.setattr(assistant, "_persist", lambda *a: None)
 
-    def fake_stream(cfg, system, msgs, user_email):
+    def fake_stream(cfg, system, msgs, user_email, state=None):
         if cfg["url"] == "xpu":
             raise assistant.httpx.ConnectError("éteint")
         yield "de "

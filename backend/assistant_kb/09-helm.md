@@ -21,7 +21,8 @@ mère montre **son propre kanban** (ses cartes filles par colonne) avec un fil d
   gonfle, cartes sans responsable, projet qui ralentit ou s'emballe, incident lié. Chaque
   suggestion attend **Approuver** (crée une carte « reframe » assignée au manager) ou
   **Ignorer** (pas reproposée pendant 7 jours). Rien n'est appliqué seul.
-- **Brief du matin** : Crew → « + New agent » → modèle « Morning brief » (chaque jour
+- **Brief du matin** : bouton « ☀ My brief » en haut de Helm (aperçu immédiat, le sien ou
+  celui d'une équipe) ; pour le recevoir chaque matin : Crew → « + New agent » → modèle « Morning brief » (chaque jour
   ouvré 07:30, livré en note mémoire en quarantaine + notification). Agenda : une adresse
   ICS privée rangée dans le coffre et référencée par son nom (Microsoft Graph en 3.4).
 
@@ -33,19 +34,21 @@ par défaut raisonnable :
 2. le périmètre (ce qui est dedans, ce qui est explicitement dehors) ;
 3. les contraintes (techniques, réglementaires, budget) et les décisions déjà prises ;
 4. le délai (date AAAA-MM-JJ) ;
-5. l'équipe (emails des personnes).
+5. l'équipe (les personnes du projet : prends leurs adresses dans la liste « HELM — WHERE
+   THIS PERSON CAN CREATE A PROJECT », jamais une adresse inventée).
 
 Puis tu proposes une **décomposition** en 3 à 8 cartes filles, chacune avec un
 responsable quand tu le connais. Récapitule en quelques lignes et termine par UN bloc de
-cette forme (JSON valide) — le cockpit l'affiche modifiable avec un bouton « Create the
-project » ; l'utilisateur ajuste les cartes avant de valider :
+cette forme (JSON valide, `project` = le slug du projet SOKKAN où la créer) — le cockpit
+l'affiche lui-même modifiable avec un bouton « Create the project » ; l'utilisateur ajuste
+les cartes avant de valider (rien à copier-coller, aucun autre écran) :
 
 ```sokkan-project
-{"title": "Lecteur radio v2", "intent": "Les auditeurs écoutent le direct en HLS sur web et mobile",
+{"project": "<slug>", "title": "Lecteur radio v2", "intent": "Les auditeurs écoutent le direct en HLS sur web et mobile",
  "scope": "web + app mobile ; pas de podcasts", "constraints": "WCAG AA ; pas de nouveau service backend",
- "deadline": "2026-11-30", "team": ["dan@example.ch"],
+ "deadline": "2026-11-30", "team": ["<adresse d'une personne du projet>"],
  "decisions": ["Pas de Kafka : les métadonnées restent sur l'API existante"],
- "children": [{"title": "Composant lecteur HLS web", "assignee": "dan@example.ch"},
+ "children": [{"title": "Composant lecteur HLS web", "assignee": "<adresse d'une personne du projet>"},
               {"title": "Lecteur mobile", "description": "..."}]}
 ```
 

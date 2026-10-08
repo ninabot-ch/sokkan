@@ -42,7 +42,10 @@ import llm
 KB_DIR = Path(__file__).parent / "assistant_kb"
 DB = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))) / "assistant.db"
 DAILY_LIMIT = env_num("SOKKAN_ASSISTANT_DAILY_LIMIT", 50)
-MAX_TOKENS = 800
+# 3.4: a reasoning model (gpt-oss, Qwen3…) spends part of the budget thinking, and a
+# project proposal (```sokkan-project```, 5-8 cards) is ~1 000 tokens of JSON: 800 left
+# answers EMPTY or cut in the middle of the block (manager journey of 08.10).
+MAX_TOKENS = max(256, env_num("SOKKAN_ASSISTANT_MAX_TOKENS", 2048))
 # Le flux peut durer : sur du silicium maison une réponse détaillée met 40 s.
 # Ce n'est pas un problème tant qu'elle s'écrit à l'écran.
 STREAM_TIMEOUT = 300
@@ -243,7 +246,8 @@ PRIMARY_RETRY_S = 120
 _primary_down_until = 0.0
 
 
-def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
+def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str,
+         state: dict | None = None) -> str:
     """Un aller-retour modèle. Deux dialectes, une seule sortie texte."""
     hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
     if cfg.get("api") == "openai":
@@ -255,10 +259,15 @@ def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
             timeout=120,  # un modèle local sur GPU maison est plus lent qu'une API
         )
         r.raise_for_status()
-        m = (r.json().get("choices") or [{}])[0].get("message") or {}
+        ch = (r.json().get("choices") or [{}])[0]
+        m = ch.get("message") or {}
         # les modèles à raisonnement rendent content=None et tout mettent dans
-        # reasoning_content (piège déjà vu sur la passerelle d'inférence)
-        return (m.get("content") or m.get("reasoning_content") or "").strip()
+        # reasoning_content (piège déjà vu sur la passerelle d'inférence). `reasoning`
+        # (vLLM ≥ 0.10, gpt-oss) est la réflexion du modèle : jamais montrée.
+        out = (m.get("content") or m.get("reasoning_content") or "").strip()
+        if ch.get("finish_reason") == "length" and state is not None:
+            state["cut"] = True
+        return out
     r = httpx.post(
         f"{cfg['url']}/v1/messages",
         headers={"x-api-key": cfg["token"], "anthropic-version": "2023-06-01", **hdr_user},
@@ -267,7 +276,10 @@ def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str) -> str:
         timeout=60,
     )
     r.raise_for_status()
-    return "".join(b.get("text", "") for b in r.json().get("content", [])
+    data = r.json()
+    if data.get("stop_reason") == "max_tokens" and state is not None:
+        state["cut"] = True
+    return "".join(b.get("text", "") for b in data.get("content", [])
                    if b.get("type") == "text").strip()
 
 
@@ -275,7 +287,8 @@ def configured() -> bool:
     return (_llm_config() or _fallback_config()) is not None and bool(_kb())
 
 
-def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str) -> Iterator[str]:
+def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
+            state: dict | None = None) -> Iterator[str]:
     """Lit un flux SSE et n'en rend que le texte. Deux dialectes, une sortie."""
     hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
     openai = cfg.get("api") == "openai"
@@ -298,9 +311,14 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str) -> Iterat
             r.read()
             data = r.json()
             if openai:
-                m = (data.get("choices") or [{}])[0].get("message") or {}
+                ch0 = (data.get("choices") or [{}])[0]
+                m = ch0.get("message") or {}
                 whole = (m.get("content") or m.get("reasoning_content") or "").strip()
+                if ch0.get("finish_reason") == "length" and state is not None:
+                    state["cut"] = True
             else:
+                if data.get("stop_reason") == "max_tokens" and state is not None:
+                    state["cut"] = True
                 whole = "".join(b.get("text", "") for b in data.get("content", [])
                                 if b.get("type") == "text").strip()
             if whole:
@@ -317,27 +335,34 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str) -> Iterat
             except json.JSONDecodeError:
                 continue
             if openai:
-                d = (ev.get("choices") or [{}])[0].get("delta") or {}
-                # modèles à raisonnement : le texte peut arriver en reasoning_content
+                ch0 = (ev.get("choices") or [{}])[0]
+                d = ch0.get("delta") or {}
+                # modèles à raisonnement : le texte peut arriver en reasoning_content ;
+                # `reasoning` (vLLM, gpt-oss) = la réflexion, jamais montrée
                 chunk = d.get("content") or d.get("reasoning_content") or ""
+                if ch0.get("finish_reason") == "length" and state is not None:
+                    state["cut"] = True
             else:
                 chunk = (ev.get("delta") or {}).get("text", "") \
                     if ev.get("type") == "content_block_delta" else ""
+                if (ev.get("type") == "message_delta" and state is not None
+                        and (ev.get("delta") or {}).get("stop_reason") == "max_tokens"):
+                    state["cut"] = True
             if chunk:
                 yield chunk
 
 
 def _ask_with_fallback(cfg: dict, fb: dict | None, system: str, msgs: list[dict],
-                       user_email: str) -> tuple[str, str]:
+                       user_email: str, state: dict | None = None) -> tuple[str, str]:
     """Primaire d'abord, repli si le primaire ne répond pas. Pensé pour mettre
     Nina sur du silicium maison (vLLM-XPU) sans la rendre indisponible quand
     celui-ci ne tourne pas : « quand dispo » est une bascule, pas un pari.
     Retourne (réponse, backend qui a répondu)."""
     global _primary_down_until
     if fb and time.time() < _primary_down_until:
-        return _ask(fb, system, msgs, user_email), "fallback"
+        return _ask(fb, system, msgs, user_email, state), "fallback"
     try:
-        out = _ask(cfg, system, msgs, user_email)
+        out = _ask(cfg, system, msgs, user_email, state)
         _primary_down_until = 0.0
         return out, "primary"
     except (httpx.HTTPError, ValueError) as e:
@@ -345,7 +370,7 @@ def _ask_with_fallback(cfg: dict, fb: dict | None, system: str, msgs: list[dict]
             raise
         _primary_down_until = time.time() + PRIMARY_RETRY_S
         print(f"[assistant] primaire KO ({e}) → repli pour {PRIMARY_RETRY_S}s")
-        return _ask(fb, system, msgs, user_email), "fallback"
+        return _ask(fb, system, msgs, user_email, state), "fallback"
 
 
 # ---- dossier client (S2) — accesseurs curés, LECTURE SEULE ---------------
@@ -493,6 +518,39 @@ def _memory_scope(user_email: str | None = None) -> tuple[str, ...]:
     return classification.scope_for_email(user_email or "", projects.DEFAULT_PROJECT)
 
 
+def _helm_context(user_email: str) -> str:
+    """3.4 — the real projects and people for a project proposal (Helm). Nina invented
+    owners (« dan@example.ch ») and gave no project, so the card landed in the header's
+    project where the manager does not steer: she now gets where the person can create a
+    project card and who can own its cards, and the rules that go with it."""
+    try:
+        import features
+        if not features.enabled("helm") or not user_email:
+            return ""
+        import helm
+        import iam
+        tg = helm.targets(iam.get_user(user_email))
+    except Exception as e:  # noqa: BLE001 — the chat never dies of it
+        print(f"[assistant] helm context unavailable ({type(e).__name__})")
+        return ""
+    if not tg:
+        return ""
+    lines = ["=== HELM — WHERE THIS PERSON CAN CREATE A PROJECT (real data, read-only) ==="]
+    for t in tg[:8]:
+        who = ", ".join(f"{p['name']} <{p['email']}>" for p in t["people"][:25]) or "nobody yet"
+        lines.append(f"- project `{t['slug']}` ({t['name']}) — role {t['role']}"
+                     f"{', steers it in Helm' if t['steers'] else ', does NOT steer it in Helm'}."
+                     f" People who can own a card: {who}")
+    lines.append(
+        "Rules for a ```sokkan-project``` block: set \"project\" to one of these slugs (the one the "
+        "person names, else the first one listed); \"assignee\" and \"team\" use ONLY the addresses "
+        "above — a first name or a name the person gives = the matching address; nobody matches = "
+        "leave it empty and say so. Never invent an address. The cockpit turns the block itself "
+        "into an editable form with a « Create the project » button: never tell the person to copy, "
+        "paste, or go to another screen to create it. Keep the recap before the block short.")
+    return "\n".join(lines)
+
+
 def _memory_hits(query: str, scope, top_k: int = 4) -> list[dict]:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "memory"))
@@ -544,7 +602,13 @@ def _prepare(user_email: str, message: str, scope=None, meta: dict | None = None
     msgs = [{"role": m["role"], "content": m["content"]}
             for m in history(user_email, HISTORY_TURNS)]
     msgs.append({"role": "user", "content": message})
-    system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb_for(message)}"
+    # 3.4: the KB sections follow the CONVERSATION, not the last line — an answer in the
+    # middle of the project interview (« scope: … ») no longer drops the Helm section
+    topic = " ".join([m["content"][:400] for m in msgs[-7:-1] if m["role"] == "user"] + [message])
+    system = f"{PERSONA}\n\n=== BASE DE CONNAISSANCE PRODUIT ===\n\n{_kb_for(topic)}"
+    helm_ctx = _helm_context(user_email)
+    if helm_ctx:
+        system += f"\n\n{helm_ctx}"
     dossier = _dossier()
     if dossier:
         system += f"\n\n=== DOSSIER CLIENT (état réel, lecture seule) ===\n\n{dossier}"
@@ -568,6 +632,28 @@ def _prepare(user_email: str, message: str, scope=None, meta: dict | None = None
     return cfg, fb, system, msgs
 
 
+def _is_fr(message: str) -> bool:
+    return _language_directive(message).endswith("FRANÇAIS.")
+
+
+def _empty_reply(message: str, cut: bool) -> str:
+    """What Nina says when the model gave no text — never a bare « (réponse vide) »."""
+    if _is_fr(message):
+        return ("(Je n'ai rien pu écrire : le modèle a épuisé son budget de réponse avant de "
+                "répondre. Reformulez plus court, ou demandez à l'admin de relever "
+                "SOKKAN_ASSISTANT_MAX_TOKENS.)" if cut else
+                "(Réponse vide du modèle — reposez la question.)")
+    return ("(I could not write anything: the model used its whole answer budget before "
+            "replying. Ask again more briefly, or ask the admin to raise "
+            "SOKKAN_ASSISTANT_MAX_TOKENS.)" if cut else "(Empty answer from the model — please ask again.)")
+
+
+def _cut_notice(message: str) -> str:
+    return ("\n\n_(Réponse coupée : limite de longueur atteinte — écrivez « continue ».)_"
+            if _is_fr(message) else
+            "\n\n_(Answer cut: length limit reached — type « continue ».)_")
+
+
 def _persist(user_email: str, message: str, reply: str) -> None:
     now = time.time()
     con = _con()
@@ -584,8 +670,10 @@ def chat(user_email: str, message: str, scope=None, channel: str = "nina") -> di
     3.4 : ``level`` = le niveau le plus élevé des notes qui ont servi (la réponse en hérite)."""
     meta: dict = {}
     cfg, fb, system, msgs = _prepare(user_email, message, scope=scope, meta=meta, via=channel)
-    reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email)
-    reply = reply or "(réponse vide)"
+    st: dict = {}
+    reply, via = _ask_with_fallback(cfg, fb, system, msgs, user_email, st)
+    reply = (reply + (_cut_notice(message) if st.get("cut") else "")) if reply \
+        else _empty_reply(message, bool(st.get("cut")))
     _persist(user_email, message, reply)
     return {"reply": reply, "via": via, "level": meta.get("level", "project"),
             "sources": meta.get("sources", [])}
@@ -610,8 +698,9 @@ def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
     last_err: Exception | None = None
     for i, c in enumerate(chain):
         parts: list[str] = []
+        st: dict = {}
         try:
-            for delta in _stream(c, system, msgs, user_email):
+            for delta in _stream(c, system, msgs, user_email, st):
                 if not parts and c is cfg:
                     _primary_down_until = 0.0
                 parts.append(delta)
@@ -626,11 +715,16 @@ def chat_stream(user_email: str, message: str) -> Iterator[tuple[str, str]]:
                 _primary_down_until = time.time() + PRIMARY_RETRY_S
                 print(f"[assistant] primaire KO ({e}) → repli pour {PRIMARY_RETRY_S}s")
             continue
-        reply = "".join(parts).strip() or "(réponse vide)"
+        reply = "".join(parts).strip()
+        if reply and st.get("cut"):
+            notice = _cut_notice(message)
+            yield "delta", notice
+            reply += notice
+        reply = reply or _empty_reply(message, bool(st.get("cut")))
         _persist(user_email, message, reply)
         yield "done", reply
         return
-    reply = "(réponse vide)"
+    reply = _empty_reply(message, False)
     _persist(user_email, message, reply)
     yield "done", reply
     if last_err:

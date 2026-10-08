@@ -75,6 +75,12 @@ def install(app, current_user, require) -> None:
             raise HTTPException(404, f"no project '{project}' for you")
         return helm.deck(u, project=project, team=team, person=person.strip().lower())
 
+    @app.get("/api/helm/targets")
+    def helm_targets(u: dict = Depends(current_user), _f: None = Depends(feature_helm)) -> list[dict]:
+        """Where the person can create a project card (developer+), whether they steer it
+        there, and the people who can own its cards — for Nina's editable proposal."""
+        return helm.targets(u)
+
     @app.get("/api/helm/filters")
     def helm_filters(u: dict = Depends(current_user), _f: None = Depends(feature_helm)) -> dict:
         return helm.filters(u)
@@ -186,15 +192,18 @@ def install(app, current_user, require) -> None:
 
     @app.get("/api/helm/brief")
     def helm_brief(request: Request, project: str = "", person: str = "", team: str = "",
-                   u: dict = Depends(current_user), _f: None = Depends(feature_helm)) -> dict:
+                   all: bool = False, u: dict = Depends(current_user),  # noqa: A002
+                   _f: None = Depends(feature_helm)) -> dict:
         """Preview of a morning brief. One's own brief: any member of the project; someone
-        else's or a team's: the project's managers."""
+        else's, a team's or the whole project's (``all=1``, 3.4): the project's managers."""
         slug = project or projectgate.requested_project(request)
         if projects.effective_role(u, slug) is None:
             raise HTTPException(404, f"no project '{slug}' for you")
         person = (person or "").strip().lower()
-        if (team or (person and person != u["email"])) and not helm.can_steer(u, slug):
+        if (all or team or (person and person != u["email"])) and not helm.can_steer(u, slug):
             raise HTTPException(403, "only the project's managers read someone else's brief")
+        if all:
+            return helm.morning_brief(slug)
         return helm.morning_brief(slug, person=person or ("" if team else u["email"]), team=team)
 
     @app.get("/api/helm/calendar")

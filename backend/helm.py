@@ -141,6 +141,46 @@ def viewable_projects(user: dict) -> list[str]:
     return [p["slug"] for p in projects.work_projects() if can_view(user, p["slug"])]
 
 
+def project_people(project: str) -> list[dict]:
+    """The people of a project who can own a card (developer role or above): direct user
+    grants and the members of the teams granted on it, with their display name. Used by
+    Nina's proposal (owners chosen from it, never invented) and the morning brief."""
+    import iam
+    import projects
+    out: dict[str, str] = {}
+    pr = projects.get(project) or {}
+    if pr.get("access_source") == "instance":     # e.g. `default`: the instance role decides
+        for u in iam.list_users():
+            if projects.prank(projects.effective_role(u, project)) >= projects.prank("dev"):
+                out[u["email"].lower()] = (u.get("name") or "").strip()
+    for g in projects.list_grants(project):
+        if projects.prank(g["role"]) < projects.prank("dev"):
+            continue
+        emails = ([g["principal"]] if g["principal_kind"] == "user"
+                  else projects.team_members(g["principal"]) if g["principal_kind"] == "team" else [])
+        for e in emails:
+            e = (e or "").strip().lower()
+            if "@" in e and e not in out:
+                out[e] = (iam.get_user(e).get("name") or "").strip()
+    return [{"email": e, "name": n or e.split("@")[0]} for e, n in sorted(out.items(), key=lambda x: (x[1] or x[0]).lower())]
+
+
+def targets(user: dict) -> list[dict]:
+    """Where this person can create a project card (developer role or above in a working
+    project), whether they steer it there (then it shows in their Helm), and who can own
+    its cards. Steered projects first."""
+    import projects
+    out = []
+    for p in projects.work_projects():
+        role = projects.effective_role(user, p["slug"])
+        if role is None or projects.prank(role) < projects.prank("dev"):
+            continue
+        out.append({"slug": p["slug"], "name": p.get("name") or p["slug"], "role": role,
+                    "steers": can_steer(user, p["slug"]), "people": project_people(p["slug"])})
+    out.sort(key=lambda t: (not t["steers"], t["slug"] == projects.DEFAULT_PROJECT, t["name"].lower()))
+    return out
+
+
 # ---- signals (links of a card, resolved live) ----------------------------------------
 _RUN_ACTIVE = ("queued", "running")
 _RUN_FAILED = ("failed", "timeout", "budget", "incomplete")
@@ -1020,6 +1060,10 @@ def rebaseline(card_id: int, user: str) -> dict | None:
     con.execute("UPDATE cards SET baseline_at=?, updated_at=? WHERE id=?", (time.time(), time.time(), card_id))
     board._event(con, card_id, user, "scope accepted",
                  f"baseline = {len(board.children(card_id))} card(s)", {"via": "web"})
+    # 3.4: the « scope grows » suggestion of this card is answered by it — it no longer waits
+    # for the next periodic check to disappear (manager journey of 08.10)
+    con.execute("UPDATE helm_suggestions SET status='resolved', updated_at=? WHERE card_id=? AND "
+                "kind='scope' AND status='open'", (time.time(), card_id))
     con.commit()
     con.close()
     return board.get_card(card_id)
@@ -1046,7 +1090,8 @@ def create_project(user: str, project: str, title: str, intent: str = "", scope:
                        due=deadline or "", user=user, origin=origin, project=project, kind="project",
                        intent=intent, constraints=constraints, decisions=decisions or [],
                        assignee=user if "@" in user else "")
-    made = []
+    made, dropped = [], []
+    members = {x["email"] for x in project_people(project)}
     for ch in (children or [])[:40]:
         t = (ch.get("title") or "").strip()
         if not t:
@@ -1054,8 +1099,11 @@ def create_project(user: str, project: str, title: str, intent: str = "", scope:
         assignee = (ch.get("assignee") or "").strip()
         if assignee:
             try:
-                assignee = board.validate_assignee(assignee)
+                assignee = board.validate_assignee(assignee, project)
+                if "@" in assignee and assignee.lower() not in members:
+                    raise ValueError("not a member of the project")
             except ValueError:
+                dropped.append({"title": t[:200], "assignee": (ch.get("assignee") or "").strip()})
                 assignee = ""
         made.append(board.add_card(t[:200], (ch.get("description") or "").strip(),
                                    tag=(ch.get("tag") or tag), bucket="Backlog",
@@ -1068,7 +1116,8 @@ def create_project(user: str, project: str, title: str, intent: str = "", scope:
     con.close()
     note = write_context_note(p["id"])
     refresh(p["id"])
-    return {"card": board.get_card(p["id"]), "children": made, "note": note}
+    return {"card": board.get_card(p["id"]), "children": made, "note": note,
+            "project": project, "dropped_owners": dropped}
 
 
 # ---- morning brief --------------------------------------------------------------------

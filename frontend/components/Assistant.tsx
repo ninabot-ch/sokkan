@@ -4,6 +4,24 @@ import HelmProposal from "./HelmProposal";
 import type { ProjectProposal } from "@/lib/helm";
 import { useEffect, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
+import MiniMarkdown from "./MiniMarkdown";
+
+// 3.4: the panel's own words follow the browser's language (the cockpit is English, Nina
+// answers in the person's language) — a French greeting in an English UI confused a manager
+const FR = typeof navigator !== "undefined" && /^fr\b/i.test(navigator.language || "");
+const T = FR ? {
+  tagline: "Votre ingénieure DevOps — projets, produit, mémoire, coûts.",
+  hello: "Bonjour 👋 Je connais SOKKAN par cœur. Par exemple :",
+  ex: ["« Comment importer mon projet ? »", "« Comment semer la mémoire de ce projet ? »", "« Worker ou plan supérieur, comment choisir ? »"],
+  exHelm: "« Crée un projet avec moi » — je le découpe en cartes",
+  thinking: "Nina réfléchit…", placeholder: "Votre question…", unknown: "erreur inconnue",
+} : {
+  tagline: "Your DevOps engineer — projects, product, memory, costs.",
+  hello: "Hello 👋 I know SOKKAN inside out. For example:",
+  ex: ["“How do I import my project?”", "“How do I seed this project's memory?”", "“Why is this agent waiting?”"],
+  exHelm: "“Create a project with me” — I break it into cards",
+  thinking: "Nina is thinking…", placeholder: "Your question…", unknown: "unknown error",
+};
 
 type Msg = { role: string; content: string; ts?: number };
 
@@ -27,26 +45,46 @@ export default function Assistant({ tab }: { tab: string }) {
   const [err, setErr] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(false);
+  const [historyReady, setHistoryReady] = useState(false);
 
   useEffect(() => {
     if (!open || loaded.current) return;
     loaded.current = true;
     fetch("/api/assistant/history", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
-      .then(setMsgs)
-      .catch(() => {});
+      // keep what was typed meanwhile — the history used to overwrite a message sent at once
+      .then((h: Msg[]) => setMsgs((m) => [...(Array.isArray(h) ? h : []), ...m]))
+      .catch(() => {})
+      .finally(() => setHistoryReady(true));
   }, [open]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, busy]);
 
-  if (!features.assistant) return null;
+  // 3.4: « Create a project with Nina » (Helm) opens the panel here and asks for it
+  const [queued, setQueued] = useState<string | null>(null);
+  useEffect(() => {
+    const h = (e: Event) => {
+      const m = (e as CustomEvent<{ message?: string }>).detail?.message;
+      setOpenOn(tab);
+      if (m) setQueued(m);
+    };
+    window.addEventListener("sokkan:nina", h);
+    return () => window.removeEventListener("sokkan:nina", h);
+  }, [tab]);
+  useEffect(() => {
+    if (queued && open && historyReady && !busy) { const m = queued; setQueued(null); void send(m); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, open, historyReady, busy]);
 
-  const send = async () => {
-    const message = input.trim();
+  if (!features.assistant) return null;
+  const wide = msgs.some((m) => m.role === "assistant" && m.content.includes("```sokkan-project"));
+
+  async function send(forced?: string) {
+    const message = (forced ?? input).trim();
     if (!message || busy) return;
-    setInput("");
+    if (forced === undefined) setInput("");
     setErr(null);
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setBusy(true);
@@ -85,11 +123,14 @@ export default function Assistant({ tab }: { tab: string }) {
           } catch {
             continue;
           }
-          if (ev === "error") throw new Error(payload.detail || "erreur inconnue");
+          if (ev === "error") throw new Error(payload.detail || T.unknown);
+          // `first` is captured NOW: React may run the updater after `started` flipped —
+          // reading `started` inside it replaced the person's own message (08.10)
           if (ev === "delta" && payload.text) {
             const chunk = payload.text;
+            const first = !started;
             setMsgs((m) => {
-              if (!started) return [...m, { role: "assistant", content: chunk }];
+              if (first) return [...m, { role: "assistant", content: chunk }];
               const last = m[m.length - 1];
               return [...m.slice(0, -1), { ...last, content: last.content + chunk }];
             });
@@ -99,8 +140,9 @@ export default function Assistant({ tab }: { tab: string }) {
           }
           if (ev === "done" && payload.text) {
             const full = payload.text;
+            const replace = started;
             setMsgs((m) =>
-              started
+              replace
                 ? [...m.slice(0, -1), { role: "assistant", content: full }]
                 : [...m, { role: "assistant", content: full }],
             );
@@ -109,11 +151,11 @@ export default function Assistant({ tab }: { tab: string }) {
         }
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "erreur inconnue");
+      setErr(e instanceof Error ? e.message : T.unknown);
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   return (
     <>
@@ -133,12 +175,12 @@ export default function Assistant({ tab }: { tab: string }) {
 
       {/* panneau */}
       {open && (
-        <div className="fixed bottom-20 right-5 z-40 flex h-[min(560px,75vh)] w-[min(400px,92vw)] flex-col rounded-2xl border border-line bg-[#0d0f14] shadow-2xl">
+        <div className={`fixed bottom-20 right-5 z-40 flex flex-col rounded-2xl border border-line bg-[#0d0f14] shadow-2xl ${wide ? "h-[min(720px,82vh)] w-[min(600px,94vw)]" : "h-[min(560px,75vh)] w-[min(400px,92vw)]"}`}>
           <div className="flex items-start gap-2 border-b border-line px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-slate-100">Nina</div>
               <div className="text-[11px] text-mut">
-                Votre ingénieure DevOps — produit, mémoire, flotte, coûts.
+                {T.tagline}
               </div>
             </div>
             <button
@@ -153,11 +195,10 @@ export default function Assistant({ tab }: { tab: string }) {
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {msgs.length === 0 && !busy && (
               <div className="text-[13px] leading-relaxed text-mut">
-                Bonjour 👋 Je connais SOKKAN par cœur. Par exemple :
+                {T.hello}
                 <ul className="mt-2 list-disc pl-4">
-                  <li>« Comment importer mon projet ? »</li>
-                  <li>« Comment semer la mémoire de ce projet ? »</li>
-                  <li>« Worker ou plan supérieur, comment choisir ? »</li>
+                  {features.helm && <li>{T.exHelm}</li>}
+                  {T.ex.map((x) => <li key={x}>{x}</li>)}
                 </ul>
               </div>
             )}
@@ -167,13 +208,13 @@ export default function Assistant({ tab }: { tab: string }) {
                 className={
                   m.role === "user"
                     ? "ml-6 rounded-xl bg-blue-500/10 px-3 py-2 text-[13px] leading-relaxed text-slate-100"
-                    : "mr-6 whitespace-pre-wrap rounded-xl border border-line bg-panel px-3 py-2 text-[13px] leading-relaxed text-slate-200"
+                    : "mr-6 rounded-xl border border-line bg-panel px-3 py-2 text-[13px] leading-relaxed text-slate-200"
                 }
               >
                 {m.role === "assistant" ? <AssistantText text={m.content} /> : m.content}
               </div>
             ))}
-            {busy && <div className="mr-6 animate-pulse text-[13px] text-mut">Nina réfléchit…</div>}
+            {busy && <div className="mr-6 animate-pulse text-[13px] text-mut">{T.thinking}</div>}
             {err && <div className="text-[12px] text-red-400">{err}</div>}
             <div ref={endRef} />
           </div>
@@ -182,11 +223,11 @@ export default function Assistant({ tab }: { tab: string }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-              placeholder="Votre question…"
+              placeholder={T.placeholder}
               className="flex-1 rounded-lg border border-line bg-[#07080a] px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-blue-500/50"
             />
             <button
-              onClick={send}
+              onClick={() => void send()}
               disabled={busy || !input.trim()}
               className="rounded-lg border border-line bg-panel px-3 py-2 text-[13px] text-slate-100 disabled:opacity-40"
             >
@@ -214,25 +255,36 @@ function AssistantText({ text }: { text: string }) {
   if (pm) {
     let p: ProjectProposal | null = null;
     try { p = JSON.parse(pm[1]); } catch { p = null; }
+    const after = text.slice((pm.index || 0) + pm[0].length).trim();
     return (
       <>
-        {text.slice(0, pm.index).trimEnd()}
+        <MiniMarkdown text={text.slice(0, pm.index).trimEnd()} />
         {p ? <HelmProposal proposal={p} /> : <pre className="mt-2 whitespace-pre-wrap text-[11px] text-mut">{pm[0]}</pre>}
-        {text.slice((pm.index || 0) + pm[0].length).trim()}
+        {after && <MiniMarkdown className="mt-2" text={after} />}
+      </>
+    );
+  }
+  // a project block still being written (or cut): show it as code, not as raw prose
+  const open = text.indexOf("```sokkan-project");
+  if (open >= 0) {
+    return (
+      <>
+        <MiniMarkdown text={text.slice(0, open).trimEnd()} />
+        <pre className="mt-2 max-h-40 overflow-hidden whitespace-pre-wrap text-[11px] text-mut">{text.slice(open)}</pre>
       </>
     );
   }
   const m = text.match(AGENT_BLOCK);
-  if (!m) return <>{text}</>;
+  if (!m) return <MiniMarkdown text={text} />;
   let spec: Record<string, unknown> | null = null;
   try { spec = JSON.parse(m[1]); } catch { spec = null; }
   const before = text.slice(0, m.index).trimEnd();
   const after = text.slice((m.index || 0) + m[0].length).trim();
   return (
     <>
-      {before}
+      <MiniMarkdown text={before} />
       {spec ? <AgentProposal spec={spec} /> : <pre className="mt-2 whitespace-pre-wrap text-[11px] text-mut">{m[0]}</pre>}
-      {after && <div className="mt-2">{after}</div>}
+      {after && <MiniMarkdown className="mt-2" text={after} />}
     </>
   );
 }

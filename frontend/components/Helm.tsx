@@ -2,12 +2,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { patchCard } from "@/lib/api";
 import {
+  askNina, helmBrief, helmTargets, type HelmTarget,
   helmActivity, helmApprove, helmBaseline, helmCard, helmCosts, helmDeck, helmFilters, helmIgnore, helmRefresh,
   STATE_META, SUGGESTION_LABEL,
   type DeckItem, type HelmCosts, type HelmDeck, type HelmDetail, type HelmState, type KanbanCard, type Rollup, type Suggestion,
 } from "@/lib/helm";
 import BoardColumns from "./BoardColumns";
 import CardModal from "./CardModal";
+import MiniMarkdown from "./MiniMarkdown";
+import { useFeatures } from "@/lib/features";
+
+const NEW_PROJECT_ASK = "Create a project with me: interview me, then propose the project card and its breakdown into cards.";
 
 // « Helm » (3.3) — the management view. Every project card of the teams a manager steers,
 // in a deck with Crew's grammar: one card each, state = colour + label, the card breathes
@@ -80,6 +85,9 @@ export default function Helm({ onOpenSession, readOnly = false }: { onOpenSessio
   const [fTeam, setFTeam] = useState("");
   const [fPerson, setFPerson] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
+  const [brief, setBrief] = useState(false);
+  const features = useFeatures();
+  const canAsk = !!features.assistant && !readOnly;
 
   const reload = useCallback(() => {
     helmDeck({ project: fProject, team: fTeam, person: fPerson })
@@ -127,8 +135,16 @@ export default function Helm({ onOpenSession, readOnly = false }: { onOpenSessio
             {filters?.people.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setBrief(true)} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-slate-200 hover:border-sea/50"
+            title="Your morning brief, now: what moved, what is blocked, what waits for you, decisions, suggestions, agenda">☀ My brief</button>
+          {canAsk && (
+            <button onClick={() => askNina(NEW_PROJECT_ASK)} className="rounded-md bg-brass/90 px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-brass"
+              title="Nina interviews you, proposes the project card and its cards; you edit, then validate">✦ New project with Nina</button>
+          )}
+        </div>
         {(deck?.project_suggestions.length || 0) > 0 && (
-          <span className="ml-auto rounded-lg border border-brass/40 bg-brass/10 px-2 py-1 text-[11.5px] text-brass" title={deck!.project_suggestions.map((s) => s.title).join("\n")}>
+          <span className="rounded-lg border border-brass/40 bg-brass/10 px-2 py-1 text-[11.5px] text-brass" title={deck!.project_suggestions.map((s) => s.title).join("\n")}>
             {deck!.project_suggestions.length} project-level suggestion(s): {deck!.project_suggestions[0].title}
           </span>
         )}
@@ -151,11 +167,19 @@ export default function Helm({ onOpenSession, readOnly = false }: { onOpenSessio
       </div>
       {deck && deck.items.length === 0 && (
         <div className="mx-auto mb-10 max-w-lg rounded-xl border border-line bg-panel2/40 p-4 text-center text-[12.5px] text-mut">
-          No project card yet. Ask Nina « create a project »: she interviews you (goal, scope, constraints,
-          deadline, team), builds the project card and proposes the cards under it — you edit, then validate.
+          <div>No project card yet. Nina interviews you (goal, scope, constraints, deadline, team), builds the
+            project card and proposes the cards under it — you edit, then validate.</div>
+          {canAsk && (
+            <button onClick={() => askNina(NEW_PROJECT_ASK)} className="mt-3 rounded-md bg-brass/90 px-3 py-1.5 text-[13px] font-semibold text-ink hover:bg-brass">✦ Create a project with Nina</button>
+          )}
         </div>
       )}
-      {openId !== null && <HelmPopout id={openId} onClose={() => { setOpenId(null); reload(); }} onOpenSession={onOpenSession} />}
+      {openId !== null && <HelmPopout id={openId} onClose={() => {
+        setOpenId(null); reload();
+        const u = new URL(window.location.href);   // a closed card is not reopened by a reload / project switch
+        if (u.searchParams.has("card")) { u.searchParams.delete("card"); window.history.replaceState(null, "", u.toString()); }
+      }} onOpenSession={onOpenSession} />}
+      {brief && <BriefDialog onClose={() => setBrief(false)} />}
     </div>
     </ReadOnly.Provider>
   );
@@ -169,7 +193,7 @@ function ProjectCard({ it, onOpen }: { it: DeckItem; onOpen: () => void }) {
       aria-label={`${it.card.title}, ${r.label}${it.breathing ? ", work going on" : ""}`}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100">{it.card.title}</div>
+          <div className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100 [overflow-wrap:anywhere]" title={it.card.title}>{it.card.title}</div>
           <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mut">{it.card.intent || it.card.description}</div>
         </div>
         <StatePill state={r.state} small />
@@ -202,7 +226,10 @@ function HelmPopout({ id, onClose, onOpenSession }: { id: number; onClose: () =>
   const [cardModal, setCardModal] = useState<number | null>(null);
 
   const load = useCallback(() => {
-    helmCard(cur).then((x) => { setD(x); setMsg(""); }).catch((e) => setMsg(String(e.message || e)));
+    helmCard(cur).then((x) => { setD(x); setMsg(""); }).catch((e) => {
+      const m = String(e.message || e);
+      setMsg(/not found/i.test(m) ? `Card #${cur} is not in a project you steer (it may belong to another project, or you are not a maintainer there).` : m);
+    });
   }, [cur]);
   useEffect(() => { load(); const iv = setInterval(load, 4000); return () => clearInterval(iv); }, [load]);
   useEffect(() => {
@@ -339,7 +366,7 @@ function SuggestionsTab({ d, onChanged, onError }: { d: HelmDetail; onChanged: (
         <button disabled={off} title={ro ? RO_TIP : undefined} onClick={() => act(async () => { const r = await helmRefresh(d.id); setNote(`${r.new} new, ${r.resolved} resolved${r.notes.length ? ` — ${r.notes.join("; ")}` : ""}`); })}
           className="ml-auto rounded border border-line px-2 py-0.5 text-slate-300 hover:border-sea/50 disabled:opacity-40">↻ Check now</button>
       </div>
-      {note && <div className="text-[11px] text-mut">{note}</div>}
+      {note && <div role="status" className="rounded border border-sea/40 bg-sea/10 px-2 py-1 text-[12px] text-slate-200">{note}</div>}
       {d.suggestions.length === 0 && <div className="rounded-lg border border-line bg-panel2/40 p-4 text-[12.5px] text-mut">No reframe to suggest. 🎯</div>}
       {d.suggestions.map((s: Suggestion) => (
         <article key={s.id} className="rounded-lg border border-brass/40 bg-brass/5 p-3" aria-label={`suggestion: ${s.title}`}>
@@ -350,11 +377,11 @@ function SuggestionsTab({ d, onChanged, onError }: { d: HelmDetail; onChanged: (
           <div className="mt-1.5 text-[13px] font-medium text-slate-100">{s.title}</div>
           <div className="mt-0.5 text-[12px] text-slate-300">{s.detail}</div>
           <div className="mt-2 flex items-center gap-2">
-            <button disabled={off} onClick={() => act(() => helmApprove(s.id))} className="rounded-md bg-brass/90 px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-brass disabled:opacity-40" title={ro ? RO_TIP : "creates a « reframe » card assigned to you; the work itself is not touched"}>Approve</button>
-            <button disabled={off} onClick={() => act(() => helmIgnore(s.id))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40" title={ro ? RO_TIP : "not proposed again for 7 days"}>Ignore</button>
+            <button disabled={off} onClick={() => act(async () => { const r = await helmApprove(s.id); setNote(`Approved — reframe card #${r.reframe_card?.id ?? "?"} « ${r.reframe_card?.title ?? s.title} » created for you, in the Kanban.`); })} className="rounded-md bg-brass/90 px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-brass disabled:opacity-40" title={ro ? RO_TIP : "creates a « reframe » card assigned to you; the work itself is not touched"}>Approve → reframe card</button>
+            <button disabled={off} onClick={() => act(async () => { await helmIgnore(s.id); setNote("Ignored — not proposed again for 7 days."); })} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40" title={ro ? RO_TIP : "not proposed again for 7 days"}>Ignore</button>
             {ro && <span className="text-[11px] text-mut">{RO_TIP} — a project manager approves or ignores</span>}
             {s.kind === "scope" && s.card_id && (
-              <button disabled={off} title={ro ? RO_TIP : undefined} onClick={() => act(() => helmBaseline(s.card_id!))} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40">Accept the new scope</button>
+              <button disabled={off} title={ro ? RO_TIP : "the cards added since the baseline become the agreed scope"} onClick={() => act(async () => { await helmBaseline(s.card_id!); setNote("New scope accepted: the cards added are now the baseline."); })} className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mut hover:text-slate-200 disabled:opacity-40">Accept the new scope</button>
             )}
           </div>
         </article>
@@ -378,6 +405,66 @@ function CostsTab({ id }: { id: number }) {
           {!c.sessions.length && !c.runs.length && <tr><td colSpan={3} className="py-2 text-mut">No session or agent run linked under this card yet.</td></tr>}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---- morning brief (3.4) ------------------------------------------------------------
+// The brief was only reachable by creating a « Morning brief » agent in Crew (which needs
+// model credentials): a manager could not read it. Here it is computed on demand —
+// GET /api/helm/brief, read-only — for oneself, or for a team of a project one steers.
+function BriefDialog({ onClose }: { onClose: () => void }) {
+  const [targets, setTargets] = useState<HelmTarget[] | null>(null);
+  const [project, setProject] = useState("");
+  const [who, setWho] = useState("me");
+  const [md, setMd] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    helmTargets().then((t) => { setTargets(t); setProject((t.find((x) => x.steers) || t[0])?.slug || ""); }).catch((e) => setErr(String(e.message || e)));
+  }, []);
+  useEffect(() => {
+    if (!project) return;
+    setMd(null); setErr("");
+    helmBrief(project, { all: who === "all" }).then((b) => setMd(b.markdown)).catch((e) => setErr(String(e.message || e)));
+  }, [project, who]);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+  const t = targets?.find((x) => x.slug === project);
+  const sel = "rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200";
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 p-2 pt-[6vh] md:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label="Morning brief" className="flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl">
+        <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          <span className="text-[15px] font-semibold text-slate-100">☀ Morning brief</span>
+          <label className="flex items-center gap-1 text-[11px] text-mut">project
+            <select value={project} onChange={(e) => { setProject(e.target.value); setWho("me"); }} className={sel}>
+              {(targets || []).map((x) => <option key={x.slug} value={x.slug}>{x.name}</option>)}
+            </select>
+          </label>
+          {t?.steers && (
+            <label className="flex items-center gap-1 text-[11px] text-mut">for
+              <select value={who} onChange={(e) => setWho(e.target.value)} className={sel}>
+                <option value="me">me</option>
+                <option value="all">the whole project</option>
+              </select>
+            </label>
+          )}
+          <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-mut hover:bg-panel2 hover:text-slate-200" aria-label="close">✕</button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[12.5px] leading-relaxed text-slate-200">
+          {err && <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-red-300">{err}</div>}
+          {targets && targets.length === 0 && <div className="text-mut">No project yet.</div>}
+          {md === null && !err && targets?.length !== 0 && <div className="text-mut">Loading…</div>}
+          {md && <MiniMarkdown text={md} />}
+        </div>
+        <footer className="border-t border-line px-4 py-2 text-[11px] text-mut">
+          Get it every weekday at 07:30 as a note and a notification: <a className="text-sea hover:underline" href="/?plane=build&tab=crew">Crew → + New agent → Morning brief</a>.
+          Agenda: a private ICS address in the vault, or Microsoft 365 with Teams.
+        </footer>
+      </div>
     </div>
   );
 }
