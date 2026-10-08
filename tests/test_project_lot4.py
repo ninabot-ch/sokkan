@@ -319,6 +319,20 @@ def test_review_runs_on_the_project_corpus(review):
     assert "default-secret-plan" not in text and "nowhere-default" not in text
 
 
+def test_note_of_a_project_has_every_field_the_cockpit_reads(review, monkeypatch):
+    """3.4.3 — a note of a project other than default, with or without a review of its
+    own: the payload carries every key the side panel reads (flags, in, out, …)."""
+    keys = {"id", "file", "type", "desc", "words", "priority", "modified", "age", "date_source",
+            "chunks", "indexed", "warnings", "body", "in", "out", "flags", "classification"}
+    alice = review["as"]("alice@x", "radio")
+    n = alice.get("/api/corthexis/note/radio-note").json()
+    assert keys <= set(n) and isinstance(n["flags"], list)
+    _off(monkeypatch)
+    n = alice.get("/api/corthexis/note/radio-note").json()
+    assert keys <= set(n) and n["flags"] == [] and n["in"] == []
+    assert alice.get("/api/corthexis/review").json()["report"]["counts"]["crit"] == 0
+
+
 def test_proposals_are_per_project(review):
     import corthexis
 
@@ -335,10 +349,22 @@ def test_proposals_are_per_project(review):
     assert bob.post("/api/corthexis/proposals/pr/approve").status_code == 404
 
 
+REPORT_KEYS = {"at", "duration_ms", "score", "signature", "notes_total", "counts", "source",
+               "skipped", "findings", "flags"}
+
+
 def test_review_off_stays_default_only(review, monkeypatch):
     _off(monkeypatch)
     alice = review["as"]("alice@x", "radio")
-    assert alice.get("/api/corthexis/review").json()["report"] == {}
+    ov = alice.get("/api/corthexis/review").json()
+    rep = ov["report"]
+    # 3.4.3: an EMPTY review, never a partial one — the cockpit reads report.counts.crit,
+    # report.findings, report.skipped the moment its side panel opens (seen live: a click on
+    # a search result in a project without its own review crashed the whole page)
+    assert REPORT_KEYS <= set(rep) and rep["findings"] == [] and rep["score"] is None
+    assert rep["counts"] == {"crit": 0, "warn": 0, "info": 0} and rep["skipped"] == []
+    assert ov["per_project"] == "off" and ov["project"] == "radio"
+    assert "default-secret-plan" not in json.dumps(rep)
     assert alice.get("/api/corthexis/proposals").json() == []
     assert alice.post("/api/corthexis/review/run").status_code == 409
 

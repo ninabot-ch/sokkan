@@ -15,7 +15,7 @@ import { useCan } from "@/lib/me";
 import { currentProject } from "@/lib/project";
 import {
   cxCuration, cxDecide, cxGraph, cxNote, cxProposals, cxPropose, cxReview, cxRunReview,
-  type CxFinding, type CxGraph, type CxItem, type CxNote, type CxOverview, type CxProposal,
+  type CxFinding, type CxGraph, type CxItem, type CxNote, type CxOverview, type CxProposal, type CxReport,
   type CxProposalIn, type Severity,
 } from "@/lib/corthexis";
 import type { MemSearchResult, MemStore } from "@/lib/types";
@@ -38,6 +38,18 @@ const MODES: { id: Mode; label: string; title: string }[] = [
   { id: "health", label: "Health", title: "Only the notes flagged by the review stay lit" },
 ];
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US"));
+/** 3.4.3 — the review of a project may not have run (or cannot, on the 2.x index): every
+ *  field the panels read is defaulted here, so a partial payload never crashes the page. */
+const EMPTY_REPORT: CxReport = {
+  at: null, duration_ms: 0, score: null, signature: "", notes_total: 0,
+  counts: { crit: 0, warn: 0, info: 0 }, source: null, skipped: [], findings: [], flags: {},
+};
+const safeReport = (ov: CxOverview | null): CxReport => {
+  const r = ov?.report;
+  return { ...EMPTY_REPORT, ...(r || {}), counts: { ...EMPTY_REPORT.counts, ...(r?.counts || {}) },
+    skipped: r?.skipped ?? [], findings: r?.findings ?? [], flags: r?.flags ?? {} };
+};
+const sev = (s: Severity | undefined) => SEV[s as Severity] ?? SEV.info;
 /** 3.4.2 — how to turn the 3.0 store on (the 2.x index has no project memory). */
 export const STORE_DOC_URL = "https://github.com/ninabot-ch/sokkan/blob/main/docs/UPGRADE.md#turn-the-store-on-later-sqlite-mode";
 const when = (iso: string | null | undefined) => iso
@@ -176,7 +188,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
   }
 
   const pending = props.filter((p) => p.status === "pending");
-  const score = ov?.report.score;
+  const score = safeReport(ov).score;
   const scoreColor = score == null ? "#64748b" : score >= 80 ? "#3ecfb2" : score >= 55 ? "#ffb454" : "#ff5c6c";
   const types = useMemo(() => Object.keys(graph?.stats.types || {}).sort(), [graph]);
 
@@ -307,7 +319,7 @@ export default function Corthexis({ onOpenSession }: { onOpenSession?: (sid: str
               <button key={t} onClick={() => setPanel(t)}
                 className={`rounded-md px-3 py-1 text-[12.5px] ${panel === t ? "bg-panel2 text-slate-100 ring-1 ring-line" : "text-mut hover:text-slate-200"}`}>
                 {t === "note" ? "Note" : t === "health" ? "Health" : t === "repairs" ? "Repairs" : "Bench"}
-                {t === "health" && ov && ov.report.counts.crit > 0 && <span className="ml-1.5 rounded-full bg-[#ff5c6c] px-1.5 text-[10px] text-white">{ov.report.counts.crit}</span>}
+                {t === "health" && safeReport(ov).counts.crit > 0 && <span className="ml-1.5 rounded-full bg-[#ff5c6c] px-1.5 text-[10px] text-white">{safeReport(ov).counts.crit}</span>}
                 {t === "repairs" && pending.length > 0 && <span className="ml-1.5 rounded-full bg-brass px-1.5 text-[10px] text-ink">{pending.length}</span>}
               </button>
             ))}
@@ -400,6 +412,7 @@ function NotePanel({ note, ghost, sel, openNote, canAct, busy, propose, curate }
   if (!sel) return <div className="mt-10 text-center text-[13px] text-mut">Click a note in the graph, or ask the memory a question.</div>;
   if (!note) return <div className="mt-10 text-center text-[13px] text-mut">loading…</div>;
   const approx = note.date_source && !["frontmatter", "indexed", "transcript"].includes(note.date_source);
+  const flags = note.flags ?? [], cites = note.in ?? [], cited = note.out ?? [];
   return (
     <article>
       <h2 className="font-mono text-[15px] font-semibold text-slate-100">{note.priority && <span className="text-brass" title="pinned: boosted at recall">★ </span>}{note.id}</h2>
@@ -415,16 +428,16 @@ function NotePanel({ note, ghost, sel, openNote, canAct, busy, propose, curate }
       </div>
       {note.desc ? <p className="mt-2 text-[13px] text-slate-200">{note.desc}</p>
         : <div className="mt-2 rounded-lg border border-[#ff5c6c]/50 bg-[#ff5c6c]/5 p-2 text-[12px] text-[#ff8a96]"><b>No description.</b> This note is silent in the index.</div>}
-      {note.flags.length > 0 && (
+      {flags.length > 0 && (
         <div className="mt-3 space-y-1.5">
-          {note.flags.map((f) => (
-            <div key={f.id} className={`rounded-lg border ${SEV[f.severity].ring} bg-black/20 p-2 text-[12px]`}>
-              <div className="flex items-center gap-1.5"><i className={`h-1.5 w-1.5 rounded-full ${SEV[f.severity].dot}`} />
-                <b className={SEV[f.severity].text}>{f.title}</b></div>
-              {f.items.map((it, i) => <div key={i} className="mt-0.5 text-slate-300">{itemText(f, it)}</div>)}
+          {flags.map((f) => (
+            <div key={f.id} className={`rounded-lg border ${sev(f.severity).ring} bg-black/20 p-2 text-[12px]`}>
+              <div className="flex items-center gap-1.5"><i className={`h-1.5 w-1.5 rounded-full ${sev(f.severity).dot}`} />
+                <b className={sev(f.severity).text}>{f.title}</b></div>
+              {(f.items ?? []).map((it, i) => <div key={i} className="mt-0.5 text-slate-300">{itemText(f, it)}</div>)}
               <div className="mt-1 text-mut">{f.remedy}</div>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {f.items.map((it, i) => <ItemActions key={i} f={f} it={it} canAct={canAct} busy={busy} propose={propose} />)}
+                {(f.items ?? []).map((it, i) => <ItemActions key={i} f={f} it={it} canAct={canAct} busy={busy} propose={propose} />)}
                 {f.judgement && <button disabled={!canAct || !!busy} onClick={() => curate([f.id], [note.id])}
                   className="rounded-md border border-violet-400/40 bg-violet-400/10 px-2 py-0.5 text-[11px] text-violet-200 hover:bg-violet-400/20 disabled:opacity-40">
                   Ask a curation session</button>}
@@ -434,10 +447,10 @@ function NotePanel({ note, ghost, sel, openNote, canAct, busy, propose, curate }
         </div>
       )}
       <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
-        <div><div className="text-[10.5px] uppercase tracking-wide text-mut">{note.in.length} cite it</div>
-          {note.in.map((x) => <button key={x} onClick={() => openNote(x)} className="block truncate text-sky-300 hover:underline">{x}</button>)}</div>
-        <div><div className="text-[10.5px] uppercase tracking-wide text-mut">it cites {note.out.length}</div>
-          {note.out.map((x) => x.resolved
+        <div><div className="text-[10.5px] uppercase tracking-wide text-mut">{cites.length} cite it</div>
+          {cites.map((x) => <button key={x} onClick={() => openNote(x)} className="block truncate text-sky-300 hover:underline">{x}</button>)}</div>
+        <div><div className="text-[10.5px] uppercase tracking-wide text-mut">it cites {cited.length}</div>
+          {cited.map((x) => x.resolved
             ? <button key={x.target} onClick={() => openNote(x.resolved!)} className="block truncate text-sky-300 hover:underline">{x.target}</button>
             : <span key={x.target} className="block truncate text-[#ff8a96] line-through" title="missing note">{x.target}</span>)}</div>
       </div>
@@ -454,8 +467,8 @@ function NotePanel({ note, ghost, sel, openNote, canAct, busy, propose, curate }
 
 // ------------------------------------------------------------------ health panel
 
-function Spark({ hist }: { hist: CxOverview["history"] }) {
-  if (hist.length < 2) return <div className="text-[11px] text-mut">The curve draws itself as the reviews go (one per hour).</div>;
+function Spark({ hist }: { hist: CxOverview["history"] | undefined }) {
+  if (!hist || hist.length < 2) return <div className="text-[11px] text-mut">The curve draws itself as the reviews go (one per hour).</div>;
   const w = 420, h = 54, xs = (i: number) => 2 + (i * (w - 4)) / (hist.length - 1), ys = (v: number) => h - 3 - (v / 100) * (h - 6);
   const line = hist.map((p, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)},${ys(p.score).toFixed(1)}`).join("");
   return (
@@ -472,16 +485,18 @@ function HealthPanel({ ov, canAct, busy, rerun, openNote, light, propose, curate
   light: (names: string[]) => void; propose: (p: CxProposalIn) => void; curate: (ids: string[]) => void;
 }) {
   if (!ov) return <div className="mt-10 text-center text-[13px] text-mut">loading…</div>;
-  const r = ov.report, s = ov.summary || {};
-  const cls = r.score >= 80 ? "text-[#3ecfb2]" : r.score >= 55 ? "text-[#ffb454]" : "text-[#ff5c6c]";
+  const r = safeReport(ov), s = ov.summary || {};
+  const cls = r.score == null ? "text-mut" : r.score >= 80 ? "text-[#3ecfb2]" : r.score >= 55 ? "text-[#ffb454]" : "text-[#ff5c6c]";
   const cats = [...new Set(r.findings.map((f) => f.category))];
   const judgement = r.findings.filter((f) => f.judgement).map((f) => f.id);
   return (
     <div>
       <div className="flex items-end gap-3">
-        <span className={`font-mono text-[44px] font-semibold leading-none ${cls}`}>{r.score}</span>
+        <span className={`font-mono text-[44px] font-semibold leading-none ${cls}`}>{r.score ?? "—"}</span>
         <span className="pb-1 text-[11.5px] leading-snug text-mut">memory health · {r.notes_total} notes<br />
-          last review {when(r.at)} · {r.duration_ms} ms{r.source ? ` · ${r.source}` : ""}</span>
+          {r.at ? <>last review {when(r.at)} · {r.duration_ms} ms{r.source ? ` · ${r.source}` : ""}</>
+            : ov.per_project === "off" ? "no review of its own for this project (per-project review off, or the 2.x index)"
+            : "no review yet"}</span>
       </div>
       <Spark hist={ov.history} />
       <div className="mt-1 grid grid-cols-3 gap-1.5 text-center">
@@ -502,31 +517,31 @@ function HealthPanel({ ov, canAct, busy, rerun, openNote, light, propose, curate
           : "alerts off — add a channel in Setup › Notifications"}</span>
       </div>
       {r.skipped.length > 0 && <div className="mt-1.5 text-[11px] text-mut">Not checked: {r.skipped.join(", ")}</div>}
-      {r.findings.length === 0 && <div className="mt-8 text-center text-[13px] text-[#3ecfb2]">Nothing to report. The memory is clean.</div>}
+      {r.findings.length === 0 && r.at && <div className="mt-8 text-center text-[13px] text-[#3ecfb2]">Nothing to report. The memory is clean.</div>}
       {cats.map((cat) => (
         <section key={cat} className="mt-4">
           <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-mut">{CATEGORY[cat] || cat}</h3>
           {r.findings.filter((f) => f.category === cat).map((f) => (
-            <details key={f.id} open={f.severity === "crit"} className={`mb-1.5 rounded-lg border ${SEV[f.severity].ring} bg-black/20`}>
+            <details key={f.id} open={f.severity === "crit"} className={`mb-1.5 rounded-lg border ${sev(f.severity).ring} bg-black/20`}>
               <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-[12.5px]">
-                <i className={`h-2 w-2 shrink-0 rounded-full ${SEV[f.severity].dot}`} />
+                <i className={`h-2 w-2 shrink-0 rounded-full ${sev(f.severity).dot}`} />
                 <span className="flex-1 text-slate-100">{f.title}</span>
-                <span className={`text-[10.5px] ${SEV[f.severity].text}`}>{SEV[f.severity].label}</span>
+                <span className={`text-[10.5px] ${sev(f.severity).text}`}>{sev(f.severity).label}</span>
                 {f.count > 0 && <span className="rounded bg-panel2 px-1.5 font-mono text-[10.5px] text-slate-300">{f.count}</span>}
               </summary>
               <div className="space-y-1.5 px-2.5 pb-2.5 text-[12px]">
                 <p className="text-slate-300">{f.detail}</p>
                 <p className="rounded bg-sea/5 px-2 py-1 text-sky-200/90">{f.remedy}</p>
-                {f.notes.length > 0 && <button onClick={() => light(f.notes)} className="text-[11px] text-sea hover:underline">light up these notes in the graph</button>}
+                {(f.notes ?? []).length > 0 && <button onClick={() => light(f.notes)} className="text-[11px] text-sea hover:underline">light up these notes in the graph</button>}
                 <div className="space-y-1">
-                  {(f.items.length ? f.items : f.notes.map((n) => ({ note: n }))).slice(0, 40).map((it, i) => (
+                  {(f.items?.length ? f.items : (f.notes ?? []).map((n): CxItem => ({ note: n }))).slice(0, 40).map((it: CxItem, i: number) => (
                     <div key={i} className="flex flex-wrap items-center gap-1.5">
                       {it.note && <button onClick={() => openNote(String(it.note))} className="font-mono text-[11.5px] text-sky-300 hover:underline">{String(it.note)}</button>}
                       <span className="text-[11.5px] text-mut">{itemText(f, it)}</span>
                       <ItemActions f={f} it={it} canAct={canAct} busy={busy} propose={propose} />
                     </div>
                   ))}
-                  {f.items.length > 40 && <div className="text-[11px] text-mut">… and {f.items.length - 40} more</div>}
+                  {(f.items ?? []).length > 40 && <div className="text-[11px] text-mut">… and {f.items.length - 40} more</div>}
                 </div>
                 {f.judgement && <button onClick={() => curate([f.id])} disabled={!canAct || !!busy}
                   className="rounded-md border border-violet-400/40 bg-violet-400/10 px-2 py-0.5 text-[11px] text-violet-200 hover:bg-violet-400/20 disabled:opacity-40">

@@ -261,10 +261,20 @@ def bench_findings() -> list:
         return []
 
 
+def empty_report(project: str = "default") -> dict:
+    """3.4.3 — a review that has not run (or cannot, on this project): the SAME shape as a
+    real one, every key present, nothing found. The cockpit reads ``report.counts.crit``,
+    ``report.findings`` and ``report.skipped`` as soon as the side panel opens: an empty
+    ``{}`` here crashed the whole page on a project without its own review."""
+    return {"at": None, "duration_ms": 0, "score": None, "signature": "", "notes_total": 0,
+            "counts": {"crit": 0, "warn": 0, "info": 0}, "source": None, "skipped": [],
+            "findings": [], "flags": {}, "project": project, "ran": False}
+
+
 def current(project: str = "default") -> dict:
     if project != "default":
         if not per_project_review():
-            return {}
+            return empty_report(project)
         rep = _reports.get(project)
         if rep is None:
             try:
@@ -468,7 +478,7 @@ def note(name: str, project: str = "default") -> dict:
     modified = (ix.modified if ix else None) or n.parsed.modified
     report = current(project) if scoped(project) else {}
     flags = []
-    for f in report.get("findings", []):
+    for f in report.get("findings") or []:
         if n.name not in (f.get("notes") or []):
             continue
         items = [i for i in f.get("items") or [] if i.get("note") == n.name
@@ -489,7 +499,7 @@ def note(name: str, project: str = "default") -> dict:
 
 
 def overview(project: str = "default") -> dict:
-    rep = current(project)
+    rep = {**empty_report(project), **(current(project) or {})}
     h = history(project)
     try:
         series, summary = h.series(), h.summary()
@@ -803,8 +813,9 @@ def api_review(_u: dict = Depends(_require("viewer"))) -> dict:
 def _no_review() -> dict:
     """A project without a review of its own (feature `project_vault_budgets` off, or the
     2.x index): an empty review — never the default project's (lot 3, fail-closed)."""
-    return {"report": {}, "history": [], "summary": {}, "pending": 0, "running": False,
-            "notify": False, "digest_at": None, "per_project": "off"}
+    return {"report": empty_report(ctx_project()), "history": [], "summary": {}, "pending": 0,
+            "running": False, "notify": False, "digest_at": None, "per_project": "off",
+            "project": ctx_project()}
 
 
 def _scoped_project() -> str:

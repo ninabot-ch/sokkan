@@ -3,6 +3,23 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.3 — unreleased
+
+### Fixed
+- **CortHeXis no longer crashes on a project without its own review.** On a project other
+  than `default`, opening a note (a click on a search result, on the graph, or `?note=`)
+  took the whole cockpit down (« Application error: a client-side exception has occurred »,
+  `Cannot read properties of undefined (reading 'crit')`). Cause: `GET /api/corthexis/review`
+  answered `report: {}` when the project has no review of its own (feature
+  `project_vault_budgets` off, or the 2.x index), and the side panel reads
+  `report.counts.crit`, `report.findings`, `report.skipped` the moment it opens. The review
+  payload now always has the full shape (`counts {crit, warn, info}`, `findings []`,
+  `skipped []`, `score null`, `at null`, `per_project: "off"`, `project`), the Health tab
+  says « no review of its own for this project » instead of a score, and every panel renders
+  defensively (a missing `flags`/`in`/`out`/`items`/`severity` never throws).
+  `GET /api/memory/note/{name}` carries `project` and `level` in every case.
+  `corthexis.empty_report()`, `tests/test_project_lot4.py`.
+
 ## 3.4.2 — 2026-10-08 — "Bridge"
 
 ### Fixed

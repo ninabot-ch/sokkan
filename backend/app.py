@@ -2522,17 +2522,19 @@ def memory_note(name: str) -> dict:
         raise HTTPException(400, "invalid name")
     from core import levels as _lv
     from core import scope as _sc
+    # 3.4.3: the same keys whatever the store and the project (null when unknown)
     if store_backend.enabled():
         rec = store_backend.memory_get_record(name, projects=_ctx_scope())
         if rec is None:
-            return {"name": name, "body": None}
+            return {"name": name, "body": None, "project": _ctx_project(), "level": None}
         classification.log_access("cockpit", [rec],
                                   actor=(projectgate.current() or {}).get("email"))
         return {"name": name, "body": store_backend.render_note(rec),
                 "project": rec.project, "level": _lv.ident(getattr(rec, "level", 2))}
     body = (mem.memory_get(name) if _sc.allows(_ctx_scope(), projects.DEFAULT_PROJECT)
             else None)
-    return {"name": name, "body": body}
+    return {"name": name, "body": body, "project": projects.DEFAULT_PROJECT,
+            "level": _lv.ident(_lv.DEFAULT) if body is not None else None}
 
 
 @app.get("/api/memory/migration")

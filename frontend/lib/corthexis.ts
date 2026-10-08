@@ -22,7 +22,8 @@ export interface CxFinding {
   action: "relink" | "merge" | "rename" | "close" | null; judgement: boolean;
 }
 export interface CxReport {
-  at: string; duration_ms: number; score: number; signature: string; notes_total: number;
+  // 3.4.3: `at`/`score` are null when the review has not run (or cannot on this project)
+  at: string | null; duration_ms: number; score: number | null; signature: string; notes_total: number;
   counts: Record<Severity, number>; source: string | null; skipped: string[];
   findings: CxFinding[]; flags: Record<string, string[]>;
 }
@@ -30,6 +31,7 @@ export interface CxOverview {
   report: CxReport; history: { at: string; score: number; crit: number; warn: number; info: number }[];
   summary: { open?: number; open_over_7d?: number; fixed?: number; mean_fix_hours?: number | null };
   pending: number; running: boolean; notify: boolean; digest_at: string | null;
+  project?: string; per_project?: "off";
 }
 export interface CxNoteFlag {
   id: string; severity: Severity; category: string; title: string; remedy: string;
