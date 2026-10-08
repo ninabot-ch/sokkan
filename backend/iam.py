@@ -22,10 +22,23 @@ from pathlib import Path
 DB = Path(os.environ.get("SOKKAN_IAM_DB", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "iam.db")))
 ROLES = ["viewer", "dev", "admin", "owner"]
 # rôle attribué à un email authentifié mais absent de la table users.
-# "none" = rejeter (403) au lieu d'accorder viewer — cf. auth.current_user.
-DEFAULT_ROLE = os.environ.get("SOKKAN_DEFAULT_ROLE", "viewer").strip() or "viewer"
-if DEFAULT_ROLE not in (*ROLES, "none"):
-    raise RuntimeError(f"SOKKAN_DEFAULT_ROLE invalid: {DEFAULT_ROLE!r} (viewer|dev|admin|owner|none)")
+# "none" (3.4.1) = connecté, AUCUN rôle d'instance : la personne n'accède qu'aux projets où
+# un grant ou une équipe SSO lui donne un rôle (plus un 403 — cf. auth.instance_user).
+# Défaut par édition : enterprise → none (un IdP d'entreprise authentifie plus de monde que
+# l'instance n'en veut ; un inconnu voyait les sessions du projet `default`), community → viewer.
+
+
+def default_role() -> str:
+    v = os.environ.get("SOKKAN_DEFAULT_ROLE", "").strip()
+    if not v:
+        import features
+        v = "none" if features.edition() == "enterprise" else "viewer"
+    if v not in (*ROLES, "none"):
+        raise RuntimeError(f"SOKKAN_DEFAULT_ROLE invalid: {v!r} (viewer|dev|admin|owner|none)")
+    return v
+
+
+DEFAULT_ROLE = default_role()
 # premier utilisateur = owner, défini par l'environnement (ou fallback local)
 SEED = {
     os.environ.get("SOKKAN_OWNER_EMAIL", "owner@localhost"):

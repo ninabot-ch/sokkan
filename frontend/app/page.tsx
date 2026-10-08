@@ -16,9 +16,11 @@ import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
 import Setup from "@/components/Setup";
 import { MeProvider, useCan, useMe } from "@/lib/me";
+import type { Me, ProjectsList } from "@/lib/types";
 import { FeaturesProvider, useFeatures } from "@/lib/features";
-import { fetchSessions } from "@/lib/api";
-import { currentProject, installProjectFetch, noteTab } from "@/lib/project";
+import { fetchProjects, fetchSessions } from "@/lib/api";
+import { currentProject, installProjectFetch, noteTab, switchProject } from "@/lib/project";
+import Wordmark from "@/components/Wordmark";
 import { helmAccess } from "@/lib/helm";
 import { navLast, navRemember } from "@/lib/nav";
 import {
@@ -54,7 +56,40 @@ interface Place { plane: PlaneId | null; tab: SubTab | null; section?: string }
 
 const TABS_KEY = "sokkan_plane_tabs";
 
+/** 3.4.1 — a person with no role in the selected project (`role: none`: an SSO user the
+ *  instance does not list, or a project they lost): land on a project they can read, else a
+ *  clean empty cockpit — never the tabs of a project that answers 404 to everything. */
+function NoProjectGate({ me }: { me: Me }) {
+  const [list, setList] = useState<ProjectsList | null | undefined>(undefined);
+  useEffect(() => { fetchProjects().then(setList).catch(() => setList(null)); }, []);
+  const work = (list?.projects || []).filter((p) => !p.shared);
+  useEffect(() => { if (work.length) switchProject(work[0].slug); }, [work.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (list === undefined || work.length) {
+    return <div className="flex h-screen items-center justify-center text-[13px] text-mut">…</div>;
+  }
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-6 bg-ink px-6 text-center">
+      <Wordmark className="text-[96px]" />
+      <div className="max-w-md space-y-2">
+        <div className="text-[15px] font-semibold text-slate-100">No project yet</div>
+        <div className="text-[13px] leading-relaxed text-mut">
+          You are signed in as <span className="text-slate-200">{me.email}</span>, with no role in any project of
+          this instance. An admin grants you one in Setup › Organization › Projects &amp; teams (to you, or to a
+          team your sign-in carries); the cockpit opens on it at your next visit.
+        </div>
+      </div>
+      <a href="/api/auth/logout" className="text-[12px] text-sea hover:underline">Sign out →</a>
+    </div>
+  );
+}
+
 function Cockpit() {
+  const me = useMe();
+  if (me && me.role === "none") return <NoProjectGate me={me} />;
+  return <CockpitBody />;
+}
+
+function CockpitBody() {
   const feats = useFeatures();
   const me = useMe();
   const canDev = useCan("dev");

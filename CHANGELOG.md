@@ -3,6 +3,18 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.1 — unreleased
+
+### Security
+- **An unknown sign-in no longer lands as `viewer` of the `default` project in the enterprise
+  edition.** With `SOKKAN_DEFAULT_ROLE=none` — now the enterprise default (community keeps
+  `viewer`) — a person the instance does not list is signed in with no instance role: nothing
+  of `default` (sessions, board, project-level memory), `shared` only once a project lets
+  them in, and only the projects where a grant or an SSO team gives them a role. No project
+  at all shows a clean « No project yet » screen instead of the 3.2 403. Seen live on
+  08.10: a second user of the tenant listed the instance's sessions. Set
+  `SOKKAN_DEFAULT_ROLE=viewer` explicitly to keep the old behaviour.
+
 ## 3.4.0 — 2026-10-08 — "Bridge"
 The command bridge, and the bridge to Teams. A department head creates a project with Nina, sees
 it in Helm, follows it, acts on a reframe suggestion and reads the brief — without docs (the same

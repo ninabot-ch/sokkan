@@ -31,7 +31,7 @@ disagree, the spec wins.
 | Item | Status | Notes |
 |---|---|---|
 | OIDC single sign-on (`SOKKAN_AUTH_MODE=oidc`) | ● | any OIDC IdP; LDAPS login keeps instance roles |
-| Unknown emails rejected (`SOKKAN_DEFAULT_ROLE=none`) | ● | default `viewer`; set `none` in enterprise |
+| Unknown emails get no instance role (`SOKKAN_DEFAULT_ROLE=none`) | ● | enterprise default since 3.4.1 (community: `viewer`); access only through project grants / SSO teams |
 | `groups` claim → teams `sso:<group>` at each login | ◐ | claim name `SOKKAN_OIDC_GROUPS_CLAIM` (default `groups`) |
 | Role per project (`viewer` < `dev` < `maintainer` < `admin`) | ◐ | instance admins have **no implicit access** to project content |
 | Ops team = one SSO group (Operate infrastructure) | ◐ | bootstrap `SOKKAN_OPS_GROUP`, then the admin screen |

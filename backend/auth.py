@@ -93,42 +93,18 @@ def resolve_email(request: Request) -> str:
     raise HTTPException(500, f"unknown SOKKAN_AUTH_MODE: {MODE}")
 
 
-# 3.2 lot 5: someone whose ONLY access comes from GitLab has no role anywhere until they
-# link their GitLab account — let them reach the few routes that do that, nothing else
-_FORGE_ONBOARDING = ("/api/forge/", "/api/me", "/api/projects", "/api/features")
-
-
-def _forge_onboarding(request: Request) -> bool:
-    if not request.url.path.startswith(_FORGE_ONBOARDING):
-        return False
-    try:
-        import features
-        import projects
-        return features.enabled("gitlab") and any(
-            p["access_source"] == "forge" for p in projects.list_projects())
-    except Exception:  # noqa: BLE001 — fail-closed
-        return False
-
-
 def instance_user(request: Request) -> dict:
     """The person with their INSTANCE role (iam.py), whatever the request's project."""
     email = resolve_email(request)
     import revocation  # 3.2 lot 6: a revoked / SCIM-deactivated account is refused at once
     if revocation.is_disabled(email):
         raise HTTPException(403, "account disabled on this instance")
-    user = iam.get_user(email)
-    if not user["known"] and iam.DEFAULT_ROLE == "none":
-        # 3.2: someone the instance does not list may still be a member of a project
-        # through an SSO team or a grant — let them in, with no instance role
-        import projects
-        try:
-            if not projects.readable_projects(user) and not _forge_onboarding(request):
-                raise HTTPException(403, "account not provisioned on this instance")
-        except HTTPException:
-            raise
-        except Exception:  # noqa: BLE001 — fail-closed
-            raise HTTPException(403, "account not provisioned on this instance")
-    return user
+    # 3.4.1: someone the instance does not list gets in with the role `none` when
+    # SOKKAN_DEFAULT_ROLE=none (enterprise default): no instance role, nothing of the
+    # `default` project, only the projects where a grant or an SSO team gives them a role
+    # (projectgate answers 404 elsewhere; the cockpit shows « no project yet »). The 403
+    # of 3.2 is gone: it hid the person behind an error instead of a clean empty cockpit.
+    return iam.get_user(email)
 
 
 def current_user(request: Request) -> dict:

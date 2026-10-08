@@ -285,8 +285,10 @@ every surface above is scoped.
   per project, `shared` recalled with every project, quarantine per project.
 * **Teams**: the OIDC `groups` claim (`SOKKAN_OIDC_GROUPS_CLAIM`, default `groups`; add the
   `groups` scope / Entra "groups claim" on the IdP side) replaces the person's SSO teams at
-  each login. With `SOKKAN_DEFAULT_ROLE=none`, someone the instance does not list gets in
-  only through a project grant.
+  each login. With `SOKKAN_DEFAULT_ROLE=none` (the enterprise default since 3.4.1), someone
+  the instance does not list signs in with no instance role: nothing of `default` (access
+  source `instance`), only the projects a grant or a team gives them — and `shared` only once
+  one does. No project at all = a clean « No project yet » screen, not a 403.
 * **Admin** (Setup › Organization › Projects & teams, `/api/admin/*`): projects, grants to a person or a
   team, ops group, teams seen; an instance admin sees no content until they grant themself
   (`project.grant.self` in the journal). **Selector** in the header (hidden with one project).

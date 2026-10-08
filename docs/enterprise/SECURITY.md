@@ -21,6 +21,14 @@ administer teams, IdP mapping, projects, BYOK and audit, but **see no project co
 without granting themselves a role, which is logged. Full matrix:
 [MULTIUSER.md § Role × action matrix](../MULTIUSER.md#role--action-matrix). ◐
 
+**Unknown sign-ins (3.4.1).** An IdP authenticates more people than an instance wants. With
+`SOKKAN_DEFAULT_ROLE=none` — the enterprise default — an email the instance does not list is
+signed in with **no instance role**: the `default` project (access source `instance`) does not
+exist for them, nor `shared` until a project lets them in; they reach only the projects where
+a grant or an SSO team gives them a role, and see « No project yet » otherwise. Before 3.4.1
+the fallback was `viewer` in every edition: a second user of the tenant could list the
+instance's sessions, board and project-level memory. ●
+
 ## 3. Memory isolation (the main leak risk)
 
 * One memory directory, indexer and note namespace per project (note names unique per

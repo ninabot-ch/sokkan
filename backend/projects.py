@@ -300,8 +300,10 @@ def effective_role(user: dict, project: str, now: float | None = None) -> str | 
     email = (user.get("email") or "").lower().strip()
     if p["access_source"] == "instance":
         return INSTANCE_TO_PROJECT.get(user.get("role") or "")
-    # shared: everyone who is let in reads it; grants (maintainer…) raise that
-    floor = ["viewer"] if project == SHARED_PROJECT and email and email != "anonyme" else []
+    # shared: everyone who is let in reads it; grants (maintainer…) raise that. 3.4.1: a
+    # person with no instance role (`none`) reads it only once a project lets them in
+    floor = ["viewer"] if project == SHARED_PROJECT and email and email != "anonyme" and (
+        user.get("role") in INSTANCE_TO_PROJECT or _has_any_grant(email)) else []
     con = _con()
     try:
         rows = con.execute(
@@ -332,6 +334,21 @@ def effective_role(user: dict, project: str, now: float | None = None) -> str | 
             print(f"[sokkan] forge access of {email} on {project} unknown ({type(e).__name__}):"
                   " no forge role", file=sys.stderr)
     return _best(roles + floor)
+
+
+def _has_any_grant(email: str) -> bool:
+    """A grant on any live project, directly or through a team (3.4.1: what lets a person
+    without an instance role read `shared`)."""
+    con = _con()
+    try:
+        r = con.execute(
+            "SELECT 1 FROM project_grants g JOIN projects p ON p.slug=g.project WHERE "
+            "p.archived_at IS NULL AND p.slug != ? AND ((g.principal_kind='user' AND g.principal=?)"
+            " OR (g.principal_kind='team' AND g.principal IN (SELECT team_id FROM team_members"
+            " WHERE email=?))) LIMIT 1", (SHARED_PROJECT, email, email)).fetchone()
+    finally:
+        con.close()
+    return r is not None
 
 
 def can(user: dict, project: str, min_role: str) -> bool:

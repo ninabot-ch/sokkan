@@ -102,7 +102,7 @@ services:
       SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
       # rôle des identités inconnues (viewer par défaut ; none = 403)
-      SOKKAN_DEFAULT_ROLE: ${SOKKAN_DEFAULT_ROLE:-viewer}
+      SOKKAN_DEFAULT_ROLE: ${SOKKAN_DEFAULT_ROLE:-}   # empty = the edition's default (community viewer, enterprise none)
       # SSO (feature `sso`, docs/enterprise/OPERATIONS.md § 2) — local = jeton d'accès ;
       # oidc = IdP (Entra ID, Authentik, Keycloak…). Le secret reste dans .env (0600).
       SOKKAN_AUTH_MODE: ${SOKKAN_AUTH_MODE:-local}

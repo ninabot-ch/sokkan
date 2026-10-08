@@ -66,7 +66,7 @@ SOKKAN_OIDC_CLIENT_ID=…
 SOKKAN_OIDC_CLIENT_SECRET=…           # keep .env at 0600, never in git
 SOKKAN_OIDC_SCOPES=openid email profile   # add the scope your IdP needs to release groups
 SOKKAN_OIDC_GROUPS_CLAIM=groups       # claim that carries the groups
-SOKKAN_DEFAULT_ROLE=none              # unknown emails get 403 instead of viewer
+SOKKAN_DEFAULT_ROLE=none              # enterprise default (3.4.1): an email the instance does not list signs in with NO instance role — only the projects a grant / SSO team gives them; community default: viewer
 SOKKAN_OPS_GROUP=sokkan-ops           # bootstrap value; then Admin → Projects & teams
 ```
 

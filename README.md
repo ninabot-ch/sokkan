@@ -219,7 +219,8 @@ tools are auto-allowed. Nothing irreversible happens without a click.
 Spawning sessions, sending prompts and mutating the board require `dev`;
 managing users requires `admin`; the `owner` cannot be deleted. An
 authenticated email that is not in the users table gets `SOKKAN_DEFAULT_ROLE`
-(default `viewer`; set it to `none` to reject unknown emails with 403).
+(community default `viewer`; enterprise default `none` = signed in with no instance role,
+reaching only the projects a grant or an SSO team gives them — an empty cockpit otherwise).
 
 **Auth.** `local` (single-user token, rate-limited: 5 failures/min per IP),
 `oidc` (Authentik, Keycloak, …) or `cf-access`. WebSockets verify the browser
