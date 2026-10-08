@@ -839,14 +839,42 @@ def card_links(card_id: int) -> list[dict]:
     return out
 
 
-def card_detail(card_id: int) -> dict | None:
+def visible(card: dict | None, max_level: int | None) -> bool:
+    """3.4: a card is visible to a reader cleared up to ``max_level`` (None = no filter)."""
+    if card is None:
+        return False
+    lv = card.get("level")
+    return max_level is None or (2 if lv is None else int(lv)) <= max_level
+
+
+_REF = re.compile("#(\\d+) \u201c[^\u201d]*\u201d")
+
+
+def redact_refs(text: str, max_level: int | None) -> str:
+    """3.4: an event such as « child added: #12 “title” » names another card — its title
+    is replaced when the reader is not cleared for that card."""
+    if max_level is None or not text or "#" not in text:
+        return text
+    return _REF.sub(lambda m: m.group(0) if visible(get_card(int(m.group(1))), max_level)
+                    else f"#{m.group(1)} (classified)", text)
+
+
+def card_detail(card_id: int, max_level: int | None = None) -> dict | None:
+    """The card with its events, comments, links, ancestors and children. ``max_level``
+    (3.4): children above it are left out, an ancestor above it keeps its id but not its
+    title — the reader knows the card has a parent, never what it says."""
     c = get_card(card_id)
     if not c:
         return None
-    kids = children(card_id)
-    return {**c, "events": card_events(card_id), "comments": card_comments(card_id),
+    kids = [k for k in children(card_id) if visible(k, max_level)]
+    events = card_events(card_id)
+    if max_level is not None:
+        events = [{**e, "detail": redact_refs(e.get("detail") or "", max_level)} for e in events]
+    return {**c, "events": events, "comments": card_comments(card_id),
             "links": card_links(card_id),
-            "breadcrumb": [{"id": a["id"], "title": a["title"], "kind": a["kind"]}
+            "breadcrumb": [{"id": a["id"], "kind": a["kind"],
+                            **({"title": a["title"]} if visible(a, max_level)
+                               else {"title": "(classified)", "classified": True})}
                            for a in ancestors(card_id)],
             "children": [{"id": k["id"], "title": k["title"], "bucket": k["bucket"],
                           "assignee": k.get("assignee") or "", "kind": k["kind"]} for k in kids]}

@@ -281,7 +281,7 @@ def get_card(card_id: int) -> dict:
     """
     if _foreign(card_id):  # 3.2: a card of another project does not exist here
         return _missing(card_id)
-    d = board.card_detail(card_id)
+    d = board.card_detail(card_id, max_level=_cap())
     return d if d else _missing(card_id)
 
 
@@ -336,11 +336,12 @@ def get_card_tree(card_id: int) -> dict:
     if _foreign(card_id):
         return _missing(card_id)
     import helm
-    d = helm.detail(card_id) or {}
+    d = helm.detail(card_id, _cap()) or {}
     keep = ("id", "title", "kind", "bucket", "assignee", "intent", "constraints", "decisions",
             "parent_id", "due")
     return {"card": {k: d.get(k) for k in keep},
-            "parents": [{k: a.get(k) for k in keep} for a in board.ancestors(card_id)],
+            "parents": [{k: a.get(k) for k in keep} if board.visible(a, _cap())
+                        else {"id": a["id"], "title": "(classified)"} for a in board.ancestors(card_id)],
             "progress": d.get("rollup"),
             "children": {b: [{"id": c["id"], "title": c["title"], "assignee": c.get("assignee"),
                               "state": (c.get("rollup") or {}).get("state")} for c in cs]
@@ -364,7 +365,8 @@ def morning_brief(person: str = "", team: str = "") -> dict:
     if not _project():
         return {"error": "this session has no project: no board"}
     import helm
-    return helm.morning_brief(_project(), person=person.strip(), team=team.strip())
+    return helm.morning_brief(_project(), person=person.strip(), team=team.strip(),
+                              max_level=_cap())
 
 
 @mcp.tool()

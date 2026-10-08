@@ -283,7 +283,7 @@ def test_nina_answers_as_the_person_who_asks(world, monkeypatch):
     monkeypatch.setattr(assistant, "history", lambda *x, **k: [])
     seen = {}
 
-    def ask(cfg, fb, system, msgs, user):
+    def ask(cfg, fb, system, msgs, user, state=None):
         seen[user] = system
         return ("I see: " + ", ".join(sorted(n for n in ("radio-keys-rotation", "radio-runbook")
                                              if n in system)), "primary")

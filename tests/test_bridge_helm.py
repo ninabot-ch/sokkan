@@ -6,6 +6,10 @@ or empty, it invented the owners, it landed in the header's project where the ma
 not steer it, the brief was only reachable through an agent. Each fix has its test here.
 """
 # ruff: noqa: F811 — `env` is the 3.3 fixture, imported and requested by name
+import json
+
+import pytest
+
 from test_helm import _client, env, tree  # noqa: F401 — the 3.3 fixture and helpers
 
 import assistant
@@ -185,3 +189,97 @@ def test_non_streaming_cut_is_flagged(monkeypatch):
     assert assistant._ask({"url": "http://x/v1", "token": "t", "api": "openai", "model": "m"},
                           "S", [], "a@b", st) == "part"
     assert st == {"cut": True}
+
+
+# ---- classification × Helm: what a manager is not cleared for does not exist in Helm ----
+
+@pytest.fixture()
+def classified(env, monkeypatch):
+    """`radio`: a public project card with a confidential child, and a confidential project
+    card. mia (maintainer, clearance `project` by default) steers radio; lea (maintainer,
+    cleared confidential through user:lea@x) steers it too."""
+    import board
+    import classification
+    import helm
+    import projects
+    monkeypatch.setattr(classification, "enabled", lambda: True)
+    projects.grant("radio", "user", "lea@x", "maintainer")
+    classification.set_group_level("user:lea@x", "confidential", "radio", "root@x")
+    pub = board.add_card("Player v2", project="radio", user="mia@x", kind="project",
+                         intent="HLS everywhere", assignee="mia@x")
+    ok = board.add_card("HLS web player", project="radio", user="dan@x", parent_id=pub["id"],
+                        assignee="dan@x")
+    sec = board.add_card("Rotate the DRM keys (HSM PIN 1234)", project="radio", user="dan@x",
+                         parent_id=pub["id"], assignee="dan@x", level=3)
+    board.update_card(sec["id"], user="dan@x", bucket="Doing")
+    top = board.add_card("Acquisition of a rival radio", project="radio", user="lea@x",
+                         kind="project", level=3, assignee="lea@x",
+                         decisions=["No word to the newsroom"])
+    board.add_card("Due diligence", project="radio", user="lea@x", parent_id=top["id"], level=3)
+    for c in (pub, top):
+        helm.refresh(c["id"])
+    return {"pub": pub, "ok": ok, "sec": sec, "top": top}
+
+
+def test_helm_shows_a_manager_only_what_they_are_cleared_for(env, classified, monkeypatch):
+    pub, sec, top = classified["pub"], classified["sec"], classified["top"]
+    who = {"email": "mia@x"}
+    c, _ = _client(monkeypatch, who)
+    deck = c.get("/api/helm/deck").json()
+    assert [i["card"]["id"] for i in deck["items"]] == [pub["id"]]          # not the confidential one
+    d = c.get(f"/api/helm/cards/{pub['id']}").json()
+    kids = [k["id"] for col in d["kanban"]["cards"].values() for k in col]
+    assert sec["id"] not in kids and classified["ok"]["id"] in kids
+    assert sec["id"] not in [k["id"] for k in d["children"]]
+    assert "HSM" not in json.dumps(d)
+    assert "HSM" not in json.dumps(c.get(f"/api/helm/cards/{pub['id']}/activity").json())
+    assert c.get(f"/api/helm/cards/{sec['id']}").status_code == 404
+    assert c.get(f"/api/helm/cards/{top['id']}/activity").status_code == 404
+    brief = c.get("/api/helm/brief?project=radio&all=1").json()
+    assert "HSM" not in brief["markdown"] and "Acquisition" not in brief["markdown"]
+    assert "No word to the newsroom" not in json.dumps(brief)
+    # the board's own card dialog: the confidential child is not listed under its parent
+    assert sec["id"] not in [k["id"] for k in c.get(f"/api/board/card/{pub['id']}").json()["children"]]
+    # cleared: lea sees all of it
+    who["email"] = "lea@x"
+    assert {i["card"]["id"] for i in c.get("/api/helm/deck").json()["items"]} == {pub["id"], top["id"]}
+    d = c.get(f"/api/helm/cards/{pub['id']}").json()
+    assert sec["id"] in [k["id"] for col in d["kanban"]["cards"].values() for k in col]
+    assert "Acquisition" in c.get("/api/helm/brief?project=radio&all=1").json()["markdown"]
+
+
+def test_a_classified_ancestor_keeps_its_id_not_its_title(env, classified, monkeypatch):
+    import board
+    sec = classified["sec"]
+    under = board.add_card("Sub-task of the rotation", project="radio", user="dan@x",
+                           parent_id=sec["id"], level=3)
+    con = board._con()
+    con.execute("UPDATE cards SET level=2 WHERE id=?", (under["id"],))   # a harmless child
+    con.commit()
+    con.close()
+    d = board.card_detail(under["id"], max_level=2)
+    crumb = {b["id"]: b for b in d["breadcrumb"]}
+    assert crumb[sec["id"]]["title"] == "(classified)" and crumb[sec["id"]]["classified"]
+    assert crumb[classified["pub"]["id"]]["title"] == "Player v2"
+
+
+def test_suggestions_about_a_classified_card_are_not_shown(env, classified, monkeypatch):
+    import helm
+    sec = classified["sec"]
+    helm.init()
+    con = helm._con()
+    now = __import__("time").time()
+    con.execute("INSERT INTO helm_suggestions(project, card_id, target_id, kind, fingerprint, title,"
+                " detail, evidence, status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("radio", classified["pub"]["id"], sec["id"], "contradiction", "fp-x",
+                 f"#{sec['id']} “Rotate the DRM keys (HSM PIN 1234)” may contradict a decision",
+                 "", "{}", "open", now, now))
+    con.commit()
+    sid = con.execute("SELECT max(id) FROM helm_suggestions").fetchone()[0]
+    con.close()
+    who = {"email": "mia@x"}
+    c, _ = _client(monkeypatch, who)
+    assert "HSM" not in json.dumps(c.get(f"/api/helm/cards/{classified['pub']['id']}").json()["suggestions"])
+    assert c.post(f"/api/helm/suggestions/{sid}/ignore").status_code == 404
+    who["email"] = "lea@x"
+    assert "HSM" in json.dumps(c.get(f"/api/helm/cards/{classified['pub']['id']}").json()["suggestions"])

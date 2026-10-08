@@ -121,6 +121,17 @@ def can_steer(user: dict, project: str) -> bool:
     return role is not None and user.get("role") in ("admin", "owner")
 
 
+def _clearance(user: dict, project: str) -> int | None:
+    """3.4: the highest level ``user`` reads in ``project`` (classification; the default
+    level when the feature is off) — what Helm shows them of the project."""
+    try:
+        import classification
+        return classification.clearance(user, project)
+    except Exception as e:  # noqa: BLE001 — fail closed: the default level only
+        print(f"[helm] clearance of {user.get('email')} unknown ({type(e).__name__})", flush=True)
+        return 2
+
+
 def steerable_projects(user: dict) -> list[str]:
     import projects
     return [p["slug"] for p in projects.work_projects() if can_steer(user, p["slug"])]
@@ -549,8 +560,11 @@ def deck(user: dict, project: str = "", team: str = "", person: str = "") -> dic
         members = _team_members(team)
     else:
         granted, members = set(), set()
+    caps = {s: _clearance(user, s) for s in slugs}
     items = []
     for c in project_cards(slugs):
+        if not board.visible(c, caps.get(c["project"])):
+            continue                       # 3.4: a project card above the reader's clearance
         it = deck_item(c)
         if person and person.lower() not in it["people"]:
             continue
@@ -558,7 +572,8 @@ def deck(user: dict, project: str = "", team: str = "", person: str = "") -> dic
             continue
         items.append(it)
     return {"projects": allowed, "items": items, "states": list(STATES), "labels": STATE_LABELS,
-            "project_suggestions": [s for s in list_suggestions(slugs) if not s["card_id"]]}
+            "project_suggestions": [s for s in list_suggestions(slugs) if not s["card_id"]
+                                    and _sugg_visible(s, caps.get(s["project"]))]}
 
 
 def _team_members(team: str) -> set[str]:
@@ -580,9 +595,10 @@ def filters(user: dict) -> dict:
             "teams": teams, "people": sorted(people)}
 
 
-def kanban(card_id: int) -> dict:
-    """The card's own board: its direct children by column, each with its roll-up."""
-    kids = board.children(card_id)
+def kanban(card_id: int, cap: int | None = None) -> dict:
+    """The card's own board: its direct children by column, each with its roll-up.
+    ``cap`` (3.4): the reader's clearance — children above it are not shown."""
+    kids = [k for k in board.children(card_id) if board.visible(k, cap)]
     cols: dict[str, list] = {b: [] for b in board.BUCKETS}
     for k in kids:
         r = rollup(k["id"]) or {}
@@ -591,10 +607,11 @@ def kanban(card_id: int) -> dict:
     return {"buckets": board.BUCKETS, "cards": cols}
 
 
-def activity(card_id: int, limit: int = 120) -> list[dict]:
-    ids = [card_id] + [d["id"] for d in board.descendants(card_id, include_archived=True)]
+def activity(card_id: int, limit: int = 120, cap: int | None = None) -> list[dict]:
+    desc = [d for d in board.descendants(card_id, include_archived=True) if board.visible(d, cap)]
+    ids = [card_id] + [d["id"] for d in desc]
     titles = {card_id: (board.get_card(card_id) or {}).get("title", "")}
-    titles.update({d["id"]: d["title"] for d in board.descendants(card_id, include_archived=True)})
+    titles.update({d["id"]: d["title"] for d in desc})
     con = board._con()
     q = ",".join("?" * len(ids))
     rows = [dict(r) for r in con.execute(
@@ -603,13 +620,16 @@ def activity(card_id: int, limit: int = 120) -> list[dict]:
     con.close()
     for r in rows:
         r["card_title"] = titles.get(r["card_id"], "")
+        r["detail"] = board.redact_refs(r.get("detail") or "", cap)
     return rows
 
 
-def costs(card_id: int) -> dict:
+def costs(card_id: int, cap: int | None = None) -> dict:
     """What the work under the card cost: its sessions (usage of their transcripts) and
-    its agent runs. Estimation, like the Costs tab."""
-    ids = [card_id] + [d["id"] for d in board.descendants(card_id, include_archived=True)]
+    its agent runs. Estimation, like the Costs tab. ``cap``: cards above the reader's
+    clearance are not listed (their sessions' titles would tell)."""
+    ids = [card_id] + [d["id"] for d in board.descendants(card_id, include_archived=True)
+                       if board.visible(d, cap)]
     sessions: dict[str, dict] = {}
     runs: dict[int, dict] = {}
     for cid in ids:
@@ -648,14 +668,16 @@ def costs(card_id: int) -> dict:
             "note": "estimation (API price grid for sessions, SOKKAN cost basis for runs) — not an invoice"}
 
 
-def detail(card_id: int) -> dict | None:
-    c = board.card_detail(card_id)
+def detail(card_id: int, cap: int | None = None) -> dict | None:
+    """The popout of a card. ``cap`` (3.4) = the reader's clearance in its project: the
+    children, ancestors' titles and suggestions above it are not shown."""
+    c = board.card_detail(card_id, max_level=cap)
     if c is None:
         return None
     r = rollup(card_id) or {}
     r.pop("leaves", None)
-    return {**c, "rollup": r, "kanban": kanban(card_id),
-            "suggestions": list_suggestions([c["project"]], card_id=card_id),
+    return {**c, "rollup": r, "kanban": kanban(card_id, cap),
+            "suggestions": list_suggestions([c["project"]], card_id=card_id, cap=cap),
             "context_note": context_note_name(card_id) if (_has_context(c) or c.get("kind") == "project") else None}
 
 
@@ -978,8 +1000,24 @@ def _sugg_out(r) -> dict:
     return d
 
 
+def _sugg_visible(s: dict, cap: int | None) -> bool:
+    """A suggestion names its card and the card it concerns (and, in its text, others
+    under it): shown only when the reader is cleared for each card it is about."""
+    if cap is None:
+        return True
+    ids = [i for i in (s.get("card_id"), s.get("target_id")) if i]
+    ev = s.get("evidence") or {}
+    if isinstance(ev, dict) and isinstance(ev.get("decision_card"), int):
+        ids.append(ev["decision_card"])
+    for k in ("added", "cards", "children"):
+        v = ev.get(k) if isinstance(ev, dict) else None
+        if isinstance(v, list):
+            ids += [i for i in v if isinstance(i, int)]
+    return all(board.visible(board.get_card(i), cap) for i in ids)
+
+
 def list_suggestions(projects_: list[str], card_id: int | None = None,
-                     status: str = "open") -> list[dict]:
+                     status: str = "open", cap: int | None = None) -> list[dict]:
     if not projects_:
         return []
     con = _con()
@@ -992,7 +1030,7 @@ def list_suggestions(projects_: list[str], card_id: int | None = None,
         args += ids
     rows = [_sugg_out(r) for r in con.execute(sql + " ORDER BY created_at DESC", args)]
     con.close()
-    return rows
+    return [r for r in rows if _sugg_visible(r, cap)]
 
 
 def open_suggestion_count(card_id: int) -> int:
@@ -1133,7 +1171,8 @@ def _scope_people(project: str, person: str, team: str) -> set[str] | None:
 
 
 def morning_brief(project: str, person: str = "", team: str = "", since: float | None = None,
-                  now: float | None = None, calendar_events: list | None = None) -> dict:
+                  now: float | None = None, calendar_events: list | None = None,
+                  max_level: int | None = None) -> dict:
     """The day's brief for a person (their cards) or a team (its members' cards):
     cards that moved, blockers, approvals waiting, incidents, agents in error, recent
     decisions, and the agenda when a calendar source is configured. Read-only."""
@@ -1143,8 +1182,11 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
         since = now - (72 if wd == 0 else 24) * 3600       # Monday: since Friday morning
     people = _scope_people(project, person, team)
     con = board._con()
-    cards = [board._card_out(r) for r in con.execute(
-        "SELECT * FROM cards WHERE project=? AND archived=0", (project,))]
+    # 3.4: only the cards the READER is cleared for (``max_level``: the person who asks, or
+    # the owner of the agent that writes the brief)
+    cards = [c for c in (board._card_out(r) for r in con.execute(
+        "SELECT * FROM cards WHERE project=? AND archived=0", (project,)))
+        if board.visible(c, max_level)]
     by_id = {c["id"]: c for c in cards}
 
     def mine(c: dict) -> bool:
@@ -1156,7 +1198,7 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
                    for a in board.ancestors(c["id"]))
     scoped = {cid for cid, c in by_id.items() if mine(c)}
     # decisions: those of the person's cards AND of every card above them (they apply)
-    above = {a["id"] for cid in scoped for a in board.ancestors(cid)}
+    above = {a["id"] for cid in scoped for a in board.ancestors(cid) if a["id"] in by_id}
     watch = scoped | above
     q = ",".join("?" * len(watch)) or "NULL"
     events = [dict(r) for r in con.execute(
@@ -1205,11 +1247,12 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
         con.close()
     except Exception as e:  # noqa: BLE001 — Crew off or unreadable: the brief says nothing of it
         print(f"[helm] brief: agents unreadable: {e!r}", flush=True)
-    sugg = list_suggestions([project])
+    sugg = list_suggestions([project], cap=max_level)
     agenda = calendar_events if calendar_events is not None else _agenda(person, team, now, project)
     out = {"project": project, "person": person, "team": team, "since": since, "now": now,
            "moved": [{"card_id": cid, "title": by_id[cid]["title"], "bucket": by_id[cid]["bucket"],
-                      "events": [f"{e['action']}: {e['detail']}" for e in evs][-4:]}
+                      "events": [f"{e['action']}: {board.redact_refs(e['detail'] or '', max_level)}"
+                                 for e in evs][-4:]}
                      for cid, evs in moved.items()],
            "blocked": blocked, "waiting": waiting, "approvals": approvals,
            "suggestions": [{"id": s["id"], "title": s["title"], "kind": s["kind"]} for s in sugg],

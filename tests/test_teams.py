@@ -53,7 +53,7 @@ def tw(tmp_path, monkeypatch):
         def close(self):
             pass
     monkeypatch.setattr(assistant, "_con", lambda: _C())
-    monkeypatch.setattr(assistant, "_ask_with_fallback", lambda cfg, fb, system, msgs, user: (
+    monkeypatch.setattr(assistant, "_ask_with_fallback", lambda cfg, fb, system, msgs, user, state=None: (
         "notes: " + ",".join(n for n in ("radio-keys-rotation", "radio-runbook",
                                          "radio-incident-root-cause") if n in system), "primary"))
     c = w["c"]

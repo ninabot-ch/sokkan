@@ -57,16 +57,22 @@ def install(app, current_user, require) -> None:
 
     def _steer_card(user: dict, card_id: int) -> dict:
         c = board.get_card(card_id)
-        if c is None or not helm.can_steer(user, c.get("project") or "default"):
+        if c is None or not helm.can_steer(user, c.get("project") or "default") \
+                or not board.visible(c, helm._clearance(user, c.get("project") or "default")):
             raise HTTPException(404, "card not found")
         return c
 
     def _view_card(user: dict, card_id: int) -> dict:
-        """Read routes: can_view (= can_steer, plus project members on the Captains demo)."""
+        """Read routes: can_view (= can_steer, plus project members on the Captains demo).
+        3.4: a card above the reader's clearance does not exist for them (404)."""
         c = board.get_card(card_id)
-        if c is None or not helm.can_view(user, c.get("project") or "default"):
+        if c is None or not helm.can_view(user, c.get("project") or "default") \
+                or not board.visible(c, _cap(user, c)):
             raise HTTPException(404, "card not found")
         return c
+
+    def _cap(user: dict, card: dict) -> int | None:
+        return helm._clearance(user, card.get("project") or "default")
 
     @app.get("/api/helm/deck")
     def helm_deck(project: str = "", team: str = "", person: str = "",
@@ -100,20 +106,20 @@ def install(app, current_user, require) -> None:
     @app.get("/api/helm/cards/{card_id}")
     def helm_card(card_id: int, u: dict = Depends(current_user),
                   _f: None = Depends(feature_helm)) -> dict:
-        _view_card(u, card_id)
-        return helm.detail(card_id)
+        c = _view_card(u, card_id)
+        return helm.detail(card_id, _cap(u, c))
 
     @app.get("/api/helm/cards/{card_id}/activity")
     def helm_activity(card_id: int, u: dict = Depends(current_user),
                       _f: None = Depends(feature_helm)) -> list[dict]:
         _view_card(u, card_id)
-        return helm.activity(card_id)
+        return helm.activity(card_id, cap=_cap(u, board.get_card(card_id)))
 
     @app.get("/api/helm/cards/{card_id}/costs")
     def helm_costs(card_id: int, u: dict = Depends(current_user),
                    _f: None = Depends(feature_helm)) -> dict:
         _view_card(u, card_id)
-        return helm.costs(card_id)
+        return helm.costs(card_id, cap=_cap(u, board.get_card(card_id)))
 
     @app.post("/api/helm/cards/{card_id}/suggestions/refresh")
     def helm_refresh(card_id: int, u: dict = Depends(current_user),
@@ -123,7 +129,8 @@ def install(app, current_user, require) -> None:
         res = helm.suggest(c["project"])
         helm.refresh(card_id)
         return {"new": len(res["new"]), "resolved": res["resolved"], "notes": res["notes"],
-                "suggestions": helm.list_suggestions([c["project"]], card_id=card_id)}
+                "suggestions": helm.list_suggestions([c["project"]], card_id=card_id,
+                                                     cap=_cap(u, c))}
 
     @app.post("/api/helm/cards/{card_id}/baseline")
     def helm_baseline(card_id: int, u: dict = Depends(current_user),
@@ -136,7 +143,8 @@ def install(app, current_user, require) -> None:
 
     def _sugg(u: dict, sid: int) -> dict:
         s = helm.get_suggestion(sid)
-        if s is None or not helm.can_steer(u, s["project"]):
+        if s is None or not helm.can_steer(u, s["project"]) \
+                or not helm._sugg_visible(s, helm._clearance(u, s["project"])):
             raise HTTPException(404, "suggestion not found")
         return s
 
@@ -202,9 +210,11 @@ def install(app, current_user, require) -> None:
         person = (person or "").strip().lower()
         if (all or team or (person and person != u["email"])) and not helm.can_steer(u, slug):
             raise HTTPException(403, "only the project's managers read someone else's brief")
+        cap = helm._clearance(u, slug)       # 3.4: what the READER is cleared for
         if all:
-            return helm.morning_brief(slug)
-        return helm.morning_brief(slug, person=person or ("" if team else u["email"]), team=team)
+            return helm.morning_brief(slug, max_level=cap)
+        return helm.morning_brief(slug, person=person or ("" if team else u["email"]), team=team,
+                                  max_level=cap)
 
     @app.get("/api/helm/calendar")
     def helm_calendar_get(u: dict = Depends(current_user), _f: None = Depends(feature_helm)) -> dict:

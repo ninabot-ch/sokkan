@@ -2765,7 +2765,8 @@ def board_list(archived: int = 0) -> dict:
 
 @app.get("/api/board/card/{card_id}")
 def board_card_detail(card_id: int) -> dict:
-    c = board.card_detail(card_id)
+    # 3.4: children above the reader's clearance left out, a classified ancestor untitled
+    c = board.card_detail(card_id, max_level=classification.ctx_clearance())
     if not c:
         raise HTTPException(404, "card not found")
     return c
