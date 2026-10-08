@@ -293,7 +293,7 @@ configured), off otherwise; `0` turns it off, `1` forces it on.
   error as summary) — no storm from an agent failing every 15 minutes.
 * The next `succeeded` run resolves it; a human can also mark it resolved in Operate.
 * Notification: the incident's creation is notified once through Operate's channel
-  (kind `alert`, link `/?tab=operate&incident=<id>`, which opens Operate › Operate), instead of the agent's own failure
+  (kind `alert`, link `/?plane=operate&tab=incidents&incident=<id>`, which opens Operate › Incidents; the 3.2.1 form `/?tab=operate&incident=<id>` still works), instead of the agent's own failure
   ping for that run; later failures follow the agent's `notify_on` as before.
 * Links: an incident lists the agent runs its alert started (`run.context.incident`)
   and, for an agent incident, its failed runs — both open Crew on the run

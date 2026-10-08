@@ -238,7 +238,7 @@ projects get them only with lot 8. Enforced since lot 1 (`POST /api/spawn` → 4
 ³ `SOKKAN_CREW_VIEWER_READONLY`, per project from lot 3.
 ⁴ `four_eyes`: approver ≠ proposer ≠ owner **and** role ≥ maintainer in the agent's project.
 ⁵ And the members of the **ops team** (decision of 07.10): an SSO group named in the
-admin screen (`SOKKAN_OPS_GROUP` as the bootstrap value) gets the infrastructure sub-tabs Operate › Operate and Operate › Infra —
+admin screen (`SOKKAN_OPS_GROUP` as the bootstrap value) gets the infrastructure sub-tabs Operate › Incidents and Operate › Infra —
 read, ack, resolve, alert routing — without any project content.
 
 ## Memory isolation

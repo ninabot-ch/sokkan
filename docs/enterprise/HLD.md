@@ -59,7 +59,7 @@ Keyboard: `g` then `c` / `b` / `o` / `s`, `1`–`9` for the sub-tabs.
 | Build › Sessions | parallel Claude Code sessions (Agent SDK), native approval widgets | ● |
 | Build › Crew | agents: one card each, deck idle · armed · running · error | ● |
 | Build › Preview | the change running, for validation; share read / read-write for review | ● (project `default`) |
-| Operate › Operate | observability, alerts → incidents with a diagnosis session, runbooks | ● (ops team + instance admins) |
+| Operate › Incidents | observability, alerts → incidents with a diagnosis session, runbooks | ● (ops team + instance admins) |
 | Operate › Infra | topology, managed fleet | ● (ops team + instance admins) |
 | Operate › Costs | usage and budgets per session / day / agent run / project | ● |
 | Operate › Journal | audit trail | ● |

@@ -6,11 +6,15 @@ Notable changes, newest first. Versions: semver + release hash (see
 ## 3.2.2 — unreleased
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
   sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·
-  Preview), **Operate** (Operate — incidents and alerts · Infra · Costs · Journal) and **Setup**
+  Preview), **Operate** (Incidents · Infra · Costs · Journal) and **Setup**
   (Organization · Engines · Magnitude · Secrets · My account · Notifications). The « Profile &
   organization » dialog is gone: its sections are the Setup plane (the badge menu opens them). A
   sub-tab a person does not have (feature off, role too low) is not shown, and a plane left empty
   is not shown either.
+- **« Operate › Operate » is now « Operate › Incidents »** (alerts, incidents with their diagnosis
+  session, runbooks): the sub-tab no longer repeats its plane's name. New link
+  `/?plane=operate&tab=incidents&incident=<id>` (notifications, board links and Crew's run history
+  write it); the old `?tab=operate&incident=<id>` opens the same place.
 - **Landing plane by role**: manager / maintainer → Control, developer → Build, ops team →
   Operate, instance admin → the plane they used last (kept per user: `GET/PUT /api/me/nav`,
   `$SOKKAN_DATA_DIR/navprefs.json`). Coming back to a plane reopens its last sub-tab.

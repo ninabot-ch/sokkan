@@ -148,7 +148,7 @@ function Cockpit() {
   };
   const openAgent = (agentId: number, runId?: number) =>
     goDeep("crew", { agent: String(agentId), ...(runId ? { run: String(runId) } : {}) });
-  const openIncident = (id: number) => goDeep("operate", { incident: String(id) });
+  const openIncident = (id: number) => goDeep("incidents", { incident: String(id) });
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
 
@@ -196,7 +196,7 @@ function Cockpit() {
         <Helm onOpenSession={(sid) => openSession({ session_id: sid })} />
       ) : tab === "crew" ? (
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
-      ) : tab === "operate" ? (
+      ) : tab === "incidents" ? (
         <Operate onOpenSession={(sid) => openSession({ session_id: sid })} onOpenAgent={openAgent} />
       ) : tab === "journal" ? (
         <Journal />

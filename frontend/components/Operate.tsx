@@ -26,7 +26,8 @@ export default function Operate({ onOpenSession, onOpenAgent }: {
 }) {
   const canWrite = useCan("dev");
   const [st, setSt] = useState<ObsStatus | null>(null);
-  // lien profond : /?tab=operate&incident=12 (depuis Crew → History, ou une notification)
+  // deep link: /?plane=operate&tab=incidents&incident=12 (from Crew → History or a notification;
+  // the 3.2.1 form /?tab=operate&incident=12 still works)
   const [focus, setFocus] = useState<number | null>(null);
   const focused = useRef<HTMLDivElement | null>(null);
   useEffect(() => {

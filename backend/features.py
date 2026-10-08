@@ -275,7 +275,7 @@ REGISTRY: tuple[Feature, ...] = (
             "be granted a project role.", status="beta", defaults=_both(True), requires=("sso",),
             vars=_t("sso_teams"), config=("SOKKAN_OIDC_GROUPS_CLAIM",), doc=M),
     Feature("operate", "Operate",
-            "Operate plane (Operate › Operate): alerts, incidents, dashboards. On when Prometheus or Grafana is "
+            "Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Prometheus or Grafana is "
             "configured.", kind="integration", auto=_operate_configured,
             config=("SOKKAN_PROM", "SOKKAN_GRAFANA_URL"), doc=O),
     Feature("ops_team", "Ops team",

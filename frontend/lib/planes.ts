@@ -11,7 +11,7 @@ export type PlaneId = "control" | "build" | "operate" | "setup";
 export type SubTab =
   | "helm" | "board" | "corthexis"
   | "sessions" | "crew" | "preview"
-  | "operate" | "infra" | "costs" | "journal"
+  | "incidents" | "infra" | "costs" | "journal"
   | "organization" | "engines" | "magnitude" | "secrets" | "account" | "notifications";
 
 export interface PlaneDef {
@@ -29,7 +29,7 @@ export const PLANES: PlaneDef[] = [
   { id: "build", label: "Build", key: "b", blurb: "do: sessions, agents, previews",
     tabs: [{ id: "sessions", label: "Sessions" }, { id: "crew", label: "Crew" }, { id: "preview", label: "Preview" }] },
   { id: "operate", label: "Operate", key: "o", blurb: "run: incidents and alerts, infra, costs, journal",
-    tabs: [{ id: "operate", label: "Operate" }, { id: "infra", label: "Infra" }, { id: "costs", label: "Costs" },
+    tabs: [{ id: "incidents", label: "Incidents" }, { id: "infra", label: "Infra" }, { id: "costs", label: "Costs" },
       { id: "journal", label: "Journal" }] },
   { id: "setup", label: "Setup", key: "s", blurb: "configure: organization, engines, GPUs, secrets, you",
     tabs: [{ id: "organization", label: "Organization" }, { id: "engines", label: "Engines" },
@@ -49,7 +49,9 @@ export const LEGACY: Record<string, { tab: SubTab; section?: string }> = {
   // the 11 tabs of 3.2.1
   board: { tab: "board" }, sessions: { tab: "sessions" }, crew: { tab: "crew" }, helm: { tab: "helm" },
   preview: { tab: "preview" }, corthexis: { tab: "corthexis" }, costs: { tab: "costs" },
-  magnitude: { tab: "magnitude" }, infra: { tab: "infra" }, operate: { tab: "operate" },
+  magnitude: { tab: "magnitude" }, infra: { tab: "infra" }, incidents: { tab: "incidents" },
+  // 3.2.2: the sub-tab « Operate › Operate » became « Operate › Incidents »; old links keep working
+  operate: { tab: "incidents" }, incident: { tab: "incidents" }, alerts: { tab: "incidents" },
   journal: { tab: "journal" },
   // the Profile & organization dialog of 3.2.1
   profile: { tab: "account" }, account: { tab: "account" }, linked: { tab: "account", section: "linked" },
@@ -111,7 +113,7 @@ export function tabVisible(t: SubTab, c: VisCtx): boolean {
   switch (t) {
     case "preview": return !!c.f.preview && c.project === "default";
     case "infra": return !!c.f.infra && opsOk;
-    case "operate": return !!c.f.observe && opsOk;
+    case "incidents": return !!c.f.observe && opsOk;
     case "magnitude": return !!c.f.magnitude;
     case "crew": return !!c.f.agents && (c.canDev || !!c.f.agents_viewer_readonly);
     case "helm": return !!c.f.helm && c.steers;

@@ -16,7 +16,7 @@ test("structure validated by Nick (08.10.2026)", () => {
   assert.deepEqual(PLANES.map((p) => [p.id, p.tabs.map((t) => t.id)]), [
     ["control", ["helm", "board", "corthexis"]],
     ["build", ["sessions", "crew", "preview"]],
-    ["operate", ["operate", "infra", "costs", "journal"]],
+    ["operate", ["incidents", "infra", "costs", "journal"]],
     ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications"]],
   ]);
 });
@@ -26,7 +26,7 @@ test("every 3.2.1 tab deep link opens its new place", () => {
     board: ["control", "board"], sessions: ["build", "sessions"], crew: ["build", "crew"],
     helm: ["control", "helm"], preview: ["build", "preview"], corthexis: ["control", "corthexis"],
     costs: ["operate", "costs"], magnitude: ["setup", "magnitude"], infra: ["operate", "infra"],
-    operate: ["operate", "operate"], journal: ["operate", "journal"],
+    operate: ["operate", "incidents"], journal: ["operate", "journal"],
   };
   for (const [tab, [plane, sub]] of Object.entries(table)) {
     for (const spelled of [tab, tab.toUpperCase(), tab[0].toUpperCase() + tab.slice(1)]) {
@@ -36,7 +36,11 @@ test("every 3.2.1 tab deep link opens its new place", () => {
   }
   // the links the backend and the components write today, with their parameters
   assert.deepEqual(resolveTarget(q("tab=crew&agent=12&run=34")), { plane: "build", tab: "crew", section: undefined });
-  assert.equal(resolveTarget(q("tab=operate&incident=7"))?.plane, "operate");
+  assert.deepEqual(resolveTarget(q("tab=operate&incident=7")), { plane: "operate", tab: "incidents", section: undefined });
+  // 3.2.2: the new name, and the link the backend writes now
+  assert.deepEqual(resolveTarget(q("plane=operate&tab=incidents&incident=7")), { plane: "operate", tab: "incidents", section: undefined });
+  assert.equal(href("incidents", { incident: "7" }), "/?plane=operate&tab=incidents&incident=7");
+  assert.equal(PLANES.find((p) => p.id === "operate")?.tabs[0].label, "Incidents");
   assert.equal(resolveTarget(q("tab=corthexis&note=x"))?.tab, "corthexis");
   assert.equal(resolveTarget(q("tab=helm&card=3"))?.plane, "control");
   // every legacy entry lands in an existing plane/tab
@@ -74,9 +78,9 @@ test("visibility by feature and role: a missing sub-tab disappears, an empty pla
   // Crew: dev, or a viewer when the read-only Crew is on
   assert.deepEqual(ids(ctx({ canDev: false })).build, ["sessions", "preview"]);
   assert.deepEqual(ids(ctx({ canDev: false, f: { ...ALL, agents_viewer_readonly: true } })).build, ["sessions", "crew", "preview"]);
-  // Operate and Infra: the ops team (or not known yet); Costs and Journal for everyone
+  // Incidents and Infra: the ops team (or not known yet); Costs and Journal for everyone
   assert.deepEqual(ids(ctx({ ops: false })).operate, ["costs", "journal"]);
-  assert.deepEqual(ids(ctx({ ops: undefined })).operate, ["operate", "infra", "costs", "journal"]);
+  assert.deepEqual(ids(ctx({ ops: undefined })).operate, ["incidents", "infra", "costs", "journal"]);
   assert.deepEqual(ids(ctx({ f: { ...ALL, observe: false } })).operate, ["infra", "costs", "journal"]);
   // Magnitude off → not in Setup
   assert.ok(!ids(ctx({ f: { ...ALL, magnitude: false } })).setup.includes("magnitude"));

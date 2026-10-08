@@ -44,7 +44,7 @@ export default function ProjectsAdmin() {
       </div>
       {d.projects.map((p) => <ProjectCard key={p.slug} p={p} roles={d.roles} teams={d.teams.map((t) => t.id)} run={run} />)}
       <div className="rounded-lg border border-line bg-panel2/40 p-3">
-        <div className="text-[11px] text-mut">Ops team — the SSO group whose members get the Operate tab (with the instance admins)</div>
+        <div className="text-[11px] text-mut">Ops team — the SSO group whose members get Operate › Incidents and Infra (with the instance admins)</div>
         <div className="mt-1.5 flex gap-1.5">
           <input aria-label="Ops group" placeholder="SSO group name" value={ops} onChange={(e) => setOps(e.target.value)} className={`${inp} flex-1`} />
           <button className={btn} onClick={() => run(adminOpsGroup(ops))}>save</button>

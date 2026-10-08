@@ -346,7 +346,7 @@ Teams = the IdP's groups (claim `groups`), re-synchronised at each login; a team
 
 **Operate** — stable, integration.
 
-Operate plane (Operate › Operate): alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
+Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL`
