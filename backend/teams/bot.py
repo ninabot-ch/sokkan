@@ -376,6 +376,11 @@ def _on_action(activity: dict, action: dict) -> dict:
             title, detail = _decide_agent(pu, row, verb, email, spec)
     except (agents.AgentError, agents.Forbidden, agents.NotFound) as e:
         signing.release(row["nonce"])       # the token stays usable by someone entitled
+        # 3.4.1: a refusal is a decision of the gate (four-eyes, role, vanished object) —
+        # it was invisible in the journal during the live validation of 08.10
+        import audit
+        audit.log(email, "teams.approval.refused", f"{row['kind']} {row['ref']}",
+                  f"{verb}: {e}", project=row.get("project") or None)
         return _invoke(f"Refused for you: {e}")
     import audit
     audit.log(email, f"teams.approval.{verb}", f"{row['kind']} {row['ref']}",

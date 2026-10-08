@@ -257,6 +257,10 @@ def test_pending_agent_approvals_as_cards(tw, monkeypatch):
     from teams.cards import actions_of
     t0 = actions_of(mine)[0]["data"]["token"]
     assert "Refused for you" in _execute(tw, "carol@x", t0)["value"]   # proposer: four-eyes
+    import audit                                        # 3.4.1: the refusal is journaled
+    ev = [e for e in audit.recent(project="radio") if e["action"] == "teams.approval.refused"]
+    assert ev and ev[0]["user"] == "carol@x" and "approve" in ev[0]["detail"]
+    assert "four-eyes" in ev[0]["detail"] or "second" in ev[0]["detail"]
     assert "Approved by max@x" in str(_execute(tw, "max@x", t0)["value"])  # token given back
     assert agents.get(a["id"])["status"] == "active"
 
