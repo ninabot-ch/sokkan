@@ -27,6 +27,8 @@ export interface Features {
   revocation?: boolean;
   /** 3.2 : the feature registry (backend/features.py) — effective state and why */
   registry?: FeatureRegistry;
+  /** front only: true once /api/features answered (tab availability is then known) */
+  loaded?: boolean;
 }
 
 export interface FeatureItem {
@@ -66,7 +68,7 @@ export function FeaturesProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch("/api/features", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : DEFAULTS))
-      .then(setF)
+      .then((x: Features) => setF({ ...x, loaded: true }))
       .catch(() => {});
   }, []);
   return <Ctx.Provider value={f}>{children}</Ctx.Provider>;

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import Tabs, { type Tab } from "@/components/Tabs";
+import Tabs, { TABS, type Tab } from "@/components/Tabs";
 import SessionRail from "@/components/SessionRail";
 import ChatPane from "@/components/ChatPane";
 import AgentChatPane from "@/components/AgentChatPane";
@@ -18,7 +18,7 @@ import Magnitude from "@/components/Magnitude";
 import { MeProvider } from "@/lib/me";
 import { FeaturesProvider } from "@/lib/features";
 import { fetchSessions } from "@/lib/api";
-import { installProjectFetch } from "@/lib/project";
+import { installProjectFetch, noteTab } from "@/lib/project";
 
 // 3.2 : chaque appel /api porte le projet sélectionné (en-tête x-sokkan-project) —
 // installé avant le premier fetch (identité, features…)
@@ -37,14 +37,14 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("Sessions");
   const [open, setOpen] = useState<OpenPane[]>([]);
   const [cols, setCols] = useState(2);
-  // lien profond des notifications : /?tab=corthexis[&note=…|&proposal=…]
+  // lien profond des notifications (/?tab=corthexis[&note=…|&proposal=…]) et changement
+  // de projet (switchProject reporte l'onglet courant) : tout onglet connu, sans casse
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "corthexis") setTab("CortHeXis");
-    if (t === "crew") setTab("Crew");
-    if (t === "helm") setTab("Helm");
-    if (t === "operate") setTab("Operate");
+    const t = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
+    const hit = TABS.find((x) => x.toLowerCase() === t);
+    if (hit) setTab(hit);
   }, []);
+  useEffect(() => { noteTab(tab); }, [tab]);
 
   // liens Operate ⇄ Crew (3.1.1) : l'URL porte la cible, le composant la lit au montage
   const goDeep = (tab: Tab, params: Record<string, string>) => {
@@ -84,7 +84,7 @@ export default function Home() {
   return (
     <FeaturesProvider>
     <MeProvider>
-    <Assistant />
+    <Assistant tab={tab} />
     <div className="flex h-screen flex-col">
       <Tabs active={tab} onChange={setTab} />
       {tab === "Board" ? (

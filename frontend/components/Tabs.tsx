@@ -9,7 +9,7 @@ import ProjectSelector from "./ProjectSelector";
 import { currentProject } from "@/lib/project";
 import { helmAccess } from "@/lib/helm";
 
-const TABS = ["Board", "Sessions", "Crew", "Helm", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
+export const TABS = ["Board", "Sessions", "Crew", "Helm", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
 export type Tab = (typeof TABS)[number];
 
 export default function Tabs({
@@ -24,9 +24,13 @@ export default function Tabs({
   const me = useMe();
   // 3.3 Helm : the tab exists for the people who steer at least one project
   const [steers, setSteers] = useState(false);
+  // for which value of feats.helm `steers` is settled (null = still asking)
+  const [helmFor, setHelmFor] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!feats.helm) { setSteers(false); return; }
-    helmAccess().then((a) => setSteers(a.steers.length > 0)).catch(() => setSteers(false));
+    const h = !!feats.helm;
+    if (!h) { setSteers(false); setHelmFor(false); return; }
+    helmAccess().then((a) => setSteers(a.steers.length > 0)).catch(() => setSteers(false))
+      .finally(() => setHelmFor(true));
   }, [feats.helm]);
   const visible = TABS.filter(
     // 3.2 : Preview (dépôts de l'instance) et Infra n'existent que dans le projet par défaut / pour l'ops
@@ -38,6 +42,11 @@ export default function Tabs({
       && (t !== "Crew" || (feats.agents && (canDev || !!feats.agents_viewer_readonly)))
       && (t !== "Helm" || (!!feats.helm && steers))
   );
+  // the active tab does not exist here (e.g. after a project switch, or rights changed):
+  // fall back to Sessions — only once the rights are known, never on the loading defaults
+  const settled = !!feats.loaded && helmFor === !!feats.helm;
+  const missing = settled && !visible.includes(active);
+  useEffect(() => { if (missing) onChange("Sessions"); }, [missing, onChange]);
   return (
     <>
     {feats.demo && <DemoBanner onChange={onChange} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}

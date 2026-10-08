@@ -10,9 +10,17 @@ type Msg = { role: string; content: string; ts?: number };
 // Nina — l'agente d'assistance embarquée (S1) : bouton flottant + panneau.
 // Feature-gated serveur (SOKKAN_FEATURE_ASSISTANT) — le flag front ne fait
 // que masquer le bouton.
-export default function Assistant() {
+// 3.2 : the panel belongs to the tab where it was opened — switching tab tucks it away
+// (conversation kept, it comes back on that tab) unless it is explicitly pinned.
+export default function Assistant({ tab }: { tab: string }) {
   const features = useFeatures();
-  const [open, setOpen] = useState(false);
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const open = openOn !== null && (pinned || openOn === tab);
+  const tucked = openOn !== null && !open;
+  const toggle = () => {
+    if (open) { setOpenOn(null); setPinned(false); } else setOpenOn(tab);
+  };
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,21 +119,36 @@ export default function Assistant() {
     <>
       {/* bouton flottant */}
       <button
-        onClick={() => setOpen((o) => !o)}
-        title="Nina — assistance"
+        onClick={toggle}
+        title={tucked ? `Nina — conversation open on ${openOn}: reopen it here` : "Nina — assistance"}
+        aria-label={open ? "Close Nina" : tucked ? `Reopen Nina (conversation open on ${openOn})` : "Open Nina"}
+        aria-expanded={open}
         className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full border border-line bg-panel text-xl shadow-lg transition hover:border-amber-500/60"
       >
         {open ? "✕" : "🧭"}
+        {tucked && (
+          <span aria-hidden className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-panel bg-amber-400" />
+        )}
       </button>
 
       {/* panneau */}
       {open && (
         <div className="fixed bottom-20 right-5 z-40 flex h-[min(560px,75vh)] w-[min(400px,92vw)] flex-col rounded-2xl border border-line bg-[#0d0f14] shadow-2xl">
-          <div className="border-b border-line px-4 py-3">
-            <div className="text-sm font-semibold text-slate-100">Nina</div>
-            <div className="text-[11px] text-mut">
-              Votre ingénieure DevOps — produit, mémoire, flotte, coûts.
+          <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-100">Nina</div>
+              <div className="text-[11px] text-mut">
+                Votre ingénieure DevOps — produit, mémoire, flotte, coûts.
+              </div>
             </div>
+            <button
+              onClick={() => { setPinned((v) => !v); setOpenOn(tab); }}
+              aria-pressed={pinned}
+              title={pinned ? "Pinned: stays open on every tab — click to unpin" : "Pin: keep Nina open when switching tabs"}
+              className={`ui-focus shrink-0 rounded px-2 py-0.5 text-[11px] ring-1 ${pinned ? "bg-amber-500/15 text-amber-200 ring-amber-500/50" : "text-mut ring-line hover:text-slate-200"}`}
+            >
+              <span aria-hidden>📌</span> {pinned ? "Pinned" : "Pin"}
+            </button>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {msgs.length === 0 && !busy && (
