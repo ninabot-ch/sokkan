@@ -3,6 +3,13 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.2.1 — 2026-10-08 — "Captains"
+- **Fix: the API no longer crashes at startup when a numeric setting arrives as an empty string.** `docker compose`
+  passes `${VAR:-}` as `""`; `SOKKAN_ASSISTANT_DAILY_LIMIT` (declared in 3.1.2) made `assistant.py` fail on
+  `int("")`, which put the public demo's API in a restart loop for about 12 hours. Every numeric setting now treats
+  an empty value as its default (`features.env_num`), and a test imports the backend with every compose variable
+  set to `""`. No behaviour change otherwise.
+
 ## 3.2.0 — 2026-10-08 — "Captains"
 Several people and several projects on one instance — the base of SOKKAN Enterprise, in
 the same open-source app: every enterprise capability is a feature of the registry, off in

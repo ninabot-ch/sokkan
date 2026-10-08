@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import os
+from features import env_num
 import re
 import sys
 import time
@@ -42,8 +43,8 @@ import quarantine
 import vault
 
 TICK_S = float(os.environ.get("SOKKAN_AGENTS_TICK_S") or "15")  # "" from compose = default
-MAX_CONCURRENT = max(1, int(os.environ.get("SOKKAN_AGENTS_MAX_CONCURRENT", "2")))
-MISFIRE_S = float(os.environ.get("SOKKAN_AGENTS_MISFIRE_S", str(6 * 3600)))
+MAX_CONCURRENT = max(1, env_num("SOKKAN_AGENTS_MAX_CONCURRENT", 2))
+MISFIRE_S = env_num("SOKKAN_AGENTS_MISFIRE_S", 6 * 3600.0, float)
 DATA_DIR = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")))
 _DELIVERY_RE = re.compile(r"^\s*\**DELIVERY\**\s*:\s*\**\s*(done|incomplete)\b[\s\-—:–]*(.*)$",
                           re.IGNORECASE | re.MULTILINE)

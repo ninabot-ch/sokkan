@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from features import env_num
 import re
 import secrets
 from contextlib import asynccontextmanager
@@ -97,7 +98,7 @@ PROJECT_DIR = Path(
 )
 ACTIVE_WINDOW_S = 120  # a session whose transcript changed within this is "active"
 
-REINDEX_S = float(os.environ.get("SOKKAN_REINDEX_S", "120"))
+REINDEX_S = env_num("SOKKAN_REINDEX_S", 120.0, float)
 
 
 _index_runner = None  # 3.0: core.indexer.IndexRunner (store backend)

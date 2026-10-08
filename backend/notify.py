@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from features import env_num
 import threading
 
 import httpx
@@ -24,7 +25,7 @@ CONFIG = os.path.join(DATA_DIR, "notify.json")
 PUBLIC_URL = (os.environ.get("SOKKAN_PUBLIC_URL", "http://localhost:3009")).rstrip("/")
 # délai avant de pinguer sur une permission non résolue (tu réponds vite = pas
 # de spam ; tu es parti = ping)
-HITL_DELAY_S = float(os.environ.get("SOKKAN_NOTIFY_HITL_DELAY_S", "25"))
+HITL_DELAY_S = env_num("SOKKAN_NOTIFY_HITL_DELAY_S", 25.0, float)
 
 _lock = threading.Lock()
 

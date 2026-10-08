@@ -31,6 +31,14 @@ Keep this module free of backend imports at import time: the probes import lazil
 from __future__ import annotations
 
 import os
+
+
+def env_num(name: str, default, cast=int):
+    """Read a numeric env var; an empty string (docker compose passes `${VAR:-}` as "") means default."""
+    raw = os.environ.get(name, "")
+    if raw is None or str(raw).strip() == "":
+        return default
+    return cast(raw)
 import sys
 from dataclasses import dataclass, field
 from typing import Callable

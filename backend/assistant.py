@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+from features import env_num
 import re
 import sqlite3
 import sys
@@ -40,7 +41,7 @@ import llm
 
 KB_DIR = Path(__file__).parent / "assistant_kb"
 DB = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))) / "assistant.db"
-DAILY_LIMIT = int(os.environ.get("SOKKAN_ASSISTANT_DAILY_LIMIT", "50"))
+DAILY_LIMIT = env_num("SOKKAN_ASSISTANT_DAILY_LIMIT", 50)
 MAX_TOKENS = 800
 # Le flux peut durer : sur du silicium maison une réponse détaillée met 40 s.
 # Ce n'est pas un problème tant qu'elle s'écrit à l'écran.
