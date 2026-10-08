@@ -48,6 +48,7 @@ _lock = threading.Lock()
 _init_for: Path | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _sockets: dict[str, set] = {}     # email → live WebSockets (chat panes, terminals)
+_ws_sid: dict = {}                # WebSocket → IdP session id of the cookie that opened it
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS account_state (
@@ -57,6 +58,23 @@ CREATE TABLE IF NOT EXISTS account_state (
     reason TEXT NOT NULL DEFAULT '',
     sessions_valid_after REAL NOT NULL DEFAULT 0,
     updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oidc_sessions (
+    sid TEXT PRIMARY KEY,
+    sub TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL,
+    issued_at REAL NOT NULL,
+    logged_out_at REAL
+);
+CREATE INDEX IF NOT EXISTS oidc_sessions_sub ON oidc_sessions(sub);
+CREATE TABLE IF NOT EXISTS oidc_subjects (
+    sub TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    seen_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oidc_logout_jti (
+    jti TEXT PRIMARY KEY,
+    seen_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS scim_users (
     id TEXT PRIMARY KEY,
@@ -197,11 +215,20 @@ def disabled_accounts() -> list[dict]:
 
 # ---- live connections -----------------------------------------------------------------
 
-def track(email: str, ws) -> None:
+def track(email: str, ws, sid: str | None = None) -> None:
     _sockets.setdefault(_norm(email), set()).add(ws)
+    if sid is None:  # the IdP session of the cookie that opened it (3.4 logout by sid)
+        try:
+            import session as sess
+            sid = sess.sid_from_cookies(ws.cookies)
+        except Exception:  # noqa: BLE001 — no cookie (cf-access, local, tests)
+            sid = ""
+    if sid:
+        _ws_sid[ws] = sid
 
 
 def untrack(email: str, ws) -> None:
+    _ws_sid.pop(ws, None)
     s = _sockets.get(_norm(email))
     if s is not None:
         s.discard(ws)
@@ -209,14 +236,22 @@ def untrack(email: str, ws) -> None:
             _sockets.pop(_norm(email), None)
 
 
-async def _close_sockets(email: str) -> int:
+async def _close_sockets(email: str, sid: str | None = None) -> int:
+    """Close the person's live WebSockets — all of them, or only those opened with a
+    cookie of the IdP session `sid`."""
     n = 0
-    for ws in list(_sockets.pop(_norm(email), set())):
+    live = _sockets.get(_norm(email), set())
+    targets = [ws for ws in list(live) if sid is None or _ws_sid.get(ws) == sid]
+    for ws in targets:
+        live.discard(ws)
+        _ws_sid.pop(ws, None)
         try:
             await ws.close(code=4401)
             n += 1
         except Exception:  # noqa: BLE001 — already gone
             pass
+    if not live:
+        _sockets.pop(_norm(email), None)
     return n
 
 
@@ -382,6 +417,144 @@ def reinstate(email: str, by: str) -> None:
     import audit
     _set_state(email, disabled=False, by=by)
     audit.log(by, "user.reinstate", _norm(email), "")
+
+
+# ---- 3.4 Bridge: OIDC logout (back-channel / front-channel) ---------------------------
+# A logout is NOT a revocation: the account stays enabled, agents keep running, forge
+# tokens stay. Only the sessions born from the IdP session that ended go away.
+
+def record_login(email: str, sid: str = "", sub: str = "") -> None:
+    """At the OIDC callback: remember which IdP session (sid) and subject (sub) this
+    cockpit login came from, so that a logout token naming them finds the person."""
+    if not (sid or sub):
+        return
+    now = time.time()
+    con = _con()
+    assert con is not None
+    with con:
+        if sub:
+            con.execute("INSERT INTO oidc_subjects(sub, email, seen_at) VALUES(?,?,?) "
+                        "ON CONFLICT(sub) DO UPDATE SET email=excluded.email, "
+                        "seen_at=excluded.seen_at", (sub, _norm(email), now))
+        if sid:
+            con.execute("INSERT INTO oidc_sessions(sid, sub, email, issued_at) VALUES(?,?,?,?) "
+                        "ON CONFLICT(sid) DO UPDATE SET sub=excluded.sub, email=excluded.email,"
+                        " issued_at=excluded.issued_at, logged_out_at=NULL",
+                        (sid, sub, _norm(email), now))
+        # keep the table small: sessions older than a day are no cookie's anymore
+        con.execute("DELETE FROM oidc_sessions WHERE issued_at < ?", (now - 2 * 86400,))
+    con.close()
+
+
+def sid_ok(sid: str) -> bool:
+    """Is a cookie bound to IdP session `sid` still honoured? (False once logged out.)"""
+    con = _con(create=False)
+    if con is None:
+        return True
+    try:
+        r = con.execute("SELECT logged_out_at FROM oidc_sessions WHERE sid=?", (sid,)).fetchone()
+        return not (r and r["logged_out_at"])
+    except sqlite3.OperationalError:  # identity.db of a 3.2 without the table yet
+        return True
+    finally:
+        con.close()
+
+
+def oidc_session(sid: str) -> dict | None:
+    con = _con(create=False)
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT * FROM oidc_sessions WHERE sid=?", (sid,)).fetchone()
+        return dict(r) if r else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def emails_for_sub(sub: str) -> list[str]:
+    con = _con(create=False)
+    if con is None:
+        return []
+    try:
+        rows = {r["email"] for r in con.execute(
+            "SELECT email FROM oidc_subjects WHERE sub=? UNION "
+            "SELECT email FROM oidc_sessions WHERE sub=?", (sub, sub))}
+        return sorted(rows)
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def consume_jti(jti: str) -> bool:
+    """Record a logout token's jti; False if it was already seen (replay)."""
+    now = time.time()
+    con = _con()
+    assert con is not None
+    try:
+        with con:
+            con.execute("DELETE FROM oidc_logout_jti WHERE seen_at < ?", (now - 2 * 86400,))
+            con.execute("INSERT INTO oidc_logout_jti(jti, seen_at) VALUES(?,?)", (jti, now))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        con.close()
+
+
+def _live_sids(email: str) -> list[str]:
+    """IdP sessions of the person whose cockpit cookie may still be valid."""
+    import session as sess
+    con = _con(create=False)
+    if con is None:
+        return []
+    try:
+        st = _state(email) or {}
+        floor = max(time.time() - sess.TTL, float(st.get("sessions_valid_after") or 0))
+        return [r["sid"] for r in con.execute(
+            "SELECT sid FROM oidc_sessions WHERE email=? AND logged_out_at IS NULL "
+            "AND issued_at > ?", (_norm(email), floor))]
+    finally:
+        con.close()
+
+
+async def logout(email: str, *, sid: str | None = None, by: str = "idp",
+                 channel: str = "backchannel") -> dict:
+    """The IdP says a session ended. With `sid`: that IdP session's cookies are refused
+    and its WebSockets closed; the person's live SDK sessions are stopped cleanly only if
+    no other IdP session of theirs is still signed in (they would otherwise lose work they
+    are doing from another browser). Without `sid` (subject-wide logout): every cookie
+    issued before now is refused, every WebSocket closed, every SDK session stopped."""
+    import audit
+    email = _norm(email)
+    now = time.time()
+    con = _con()
+    assert con is not None
+    with con:
+        if sid:
+            con.execute("UPDATE oidc_sessions SET logged_out_at=? WHERE sid=?", (now, sid))
+        else:
+            con.execute("UPDATE oidc_sessions SET logged_out_at=? WHERE email=? AND "
+                        "logged_out_at IS NULL", (now, email))
+    con.close()
+    if not sid:
+        _set_state(email, disabled=None, cut_sessions=True)
+    sockets = await _close_sockets(email, sid)
+    others = _live_sids(email) if sid else []
+    stopped: list[str] = []
+    if not others:
+        sockets += await _close_sockets(email)
+        stopped = _sessions_of(email)
+        for s in stopped:
+            await _stop_session(s, "signed out at the identity provider")
+    out = {"email": email, "sid": sid or "", "sockets_closed": sockets,
+           "sessions_stopped": len(stopped), "other_idp_sessions": len(others)}
+    audit.log(by, f"auth.{channel}_logout", email,
+              f"{'sid ' + sid[:12] if sid else 'all sessions'} · sockets {sockets} · "
+              f"sessions {len(stopped)} · other signed-in sessions {len(others)}")
+    return out
 
 
 async def reconcile(email: str, by: str = "sokkan") -> dict:

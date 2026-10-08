@@ -91,6 +91,7 @@ explains each access.
 SOKKAN_FEATURE_REVOCATION=1            # on by default in the enterprise edition; needs sso_teams
 SOKKAN_SCIM_TOKEN=<openssl rand -hex 32>   # the bearer token the IdP sends; unset = SCIM closed
 SOKKAN_SCIM_GROUP_KEY=displayName      # or externalId (Entra ID sending object ids in `groups`)
+SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=0      # 1 = accept Entra ID's front-channel logout (§ 2.2)
 ```
 
 **What a revocation does** — the same effect for SCIM deactivate / delete and the admin
@@ -135,6 +136,68 @@ or *Provision on demand*; Authentik: on save). For an immediate cut, press Revok
 At each SSO login the teams are recomputed from the `groups` claim and access that was lost is
 withdrawn (sessions in projects no longer reachable closed, agents the person may no longer run
 paused). Before each run, the scheduler checks the owner still has `dev` in the agent's project.
+
+### 2.2 Sign-out at the IdP: OIDC back-channel / front-channel logout (3.4)
+
+When someone signs out at the identity provider (or an admin ends their IdP session), the
+cockpit sessions born from that IdP session end too. Part of the `revocation` feature; needs
+`SOKKAN_AUTH_MODE=oidc`. Not a revocation: the account stays enabled, agents keep running,
+forge tokens stay — the person signs in again and carries on.
+
+```
+IdP session sid ── logout ──▶ POST /api/auth/backchannel-logout  (logout_token, signed JWT)
+                                ├─ verified: JWKS signature (RS/PS/ES only), iss, aud = client id,
+                                │  iat ≤ 10 min old (exp if present), events = back-channel event,
+                                │  sid and/or sub, no nonce, jti used once (replay → 400)
+                                ├─ sid → the cockpit cookies of THAT IdP session refused,
+                                │        its chat panes / terminals closed (WebSocket 4401)
+                                ├─ sub only → every cookie of the person issued before now refused
+                                ├─ live SDK sessions interrupted then closed — only when no other
+                                │  IdP session of the person is still signed in (sid case)
+                                └─ audit: auth.backchannel_logout (idp) · 200 · Cache-Control: no-store
+```
+
+At login the callback records the id_token's `sid` and `sub` (`identity.db`, tables
+`oidc_sessions`, `oidc_subjects`, `oidc_logout_jti`; rows older than 2 days purged) and the
+cockpit cookie carries the `sid`. An IdP that sends no `sid` still works with a `sub`-only
+logout token (every session of the person ends). Answers: **200** done (also when no session
+matches: nothing left to end), **400** token refused (`{"error":"invalid_request"}`, reason in
+the API log `[sokkan] OIDC logout refused: …`), **404** feature off or OIDC not configured.
+The endpoint is under `/api/auth/` (no cookie); it must be reachable **from the IdP** (server
+to server): if Cloudflare Access or a WAF fronts SOKKAN, add a bypass for
+`/api/auth/backchannel-logout`.
+
+**Authentik** (2025.8 or later): Applications → Providers → the SOKKAN OAuth2/OpenID
+provider → **Logout URI** `https://<public host>/api/auth/backchannel-logout`, **Logout
+Method** *Back-channel*. Authentik signs with the provider's signing key (RS256, the same
+JWKS as the id_token) and sends `iss`, `sub`, `aud`, `iat`, `jti`, `events`, `sid` (no `exp`:
+SOKKAN bounds `iat` instead). It fires on user logout, on an admin's session delete and on
+token revocation. Before 2025.8 there is no back-channel: rely on SCIM (§ 2.1) and the 8 h
+cookie.
+
+**Microsoft Entra ID**: Entra does **not** implement OIDC Back-Channel Logout. It offers
+**front-channel** logout only: on sign-out the browser loads each app's *Front-channel
+logout URL* in an iframe, with `?sid=<session id>` and **no `iss`** (Entra departs from the
+spec here). SOKKAN answers it on `GET /api/auth/frontchannel-logout` when
+`SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1`:
+
+1. App registration → **Authentication** → *Front-channel logout URL*:
+   `https://<public host>/api/auth/frontchannel-logout`.
+2. App registration → **Token configuration** → *Add optional claim* → ID token → `sid`
+   (so the cockpit cookie knows its Entra session).
+3. `SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1` in the API env.
+
+The request is unsigned: the only proof is the `sid` (an opaque Entra session id), so the
+route can only **end** the matching session (never open one); `iss`, when sent, must equal
+the configured issuer. It only covers a sign-out done in the browser: an admin action in Entra
+(disable the user, *Revoke sessions*) does not reach SOKKAN that way. For those, keep **SCIM**
+provisioning (§ 2.1 — deactivation = immediate revocation, at the next provisioning cycle or
+*Provision on demand*) and, for an immediate cut, **Revoke now**. Continuous Access Evaluation
+(CAE) only applies to Microsoft resource APIs, not to a third-party app's session.
+
+Check (Authentik): sign in to SOKKAN, sign out in Authentik → the cockpit's next request
+answers 401 and `GET /api/audit?q=auth.backchannel_logout` shows the entry. A forged call
+(`curl -X POST -d logout_token=x https://<host>/api/auth/backchannel-logout`) → 400.
 
 ## 2b. GitLab: OAuth application, scopes, redirect URI, variables
 

@@ -443,7 +443,7 @@ Project access from GitLab roles read with the person's own account (OAuth PKCE;
 
 **Revocation** — beta, toggle.
 
-SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: cockpit sessions invalidated, live sessions stopped, owned agents paused, forge tokens erased; teams recomputed at each SSO login; an agent never outlives its owner's access (lot 6).
+SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: cockpit sessions invalidated, live sessions stopped, owned agents paused, forge tokens erased; teams recomputed at each SSO login; an agent never outlives its owner's access (lot 6). OIDC back-channel logout (3.4): a sign-out at the IdP ends the cockpit sessions born from that IdP session; front-channel for Entra ID with SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `sso_teams`
