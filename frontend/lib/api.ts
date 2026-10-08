@@ -301,6 +301,7 @@ export interface MagnitudeProfile {
   class: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
   class_per_card?: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
   agent_version?: string;
+  runtime?: "docker" | "prebuilt";   // agent ≥ 0.3: how a Run executes on this node
 }
 export interface MagnitudeStatus {
   phase: "idle" | "benching" | "downloading" | "starting" | "serving" | "error";
@@ -356,7 +357,7 @@ export const magnitudeUnpair = (node: string) =>
 export const magnitudeNodeConfig = (node: string, cfg: { name?: string; shim_url?: string }) =>
   mutate<MagnitudeState>(`/api/magnitude/node/${encodeURIComponent(node)}`, "POST", cfg);
 export const magnitudeCmd = (node: string, action: "bench" | "run" | "stop" | "attach", model?: string, port?: number) =>
-  mutate<MagnitudeState>("/api/magnitude/cmd", "POST",
+  mutateD<MagnitudeState>("/api/magnitude/cmd", "POST",
     { node, action, ...(model ? { model } : {}), ...(port != null ? { port } : {}) });
 export const magnitudeConnect = (node: string) =>
   mutate<MagnitudeState>("/api/magnitude/connect", "POST", { node });

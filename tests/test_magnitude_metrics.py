@@ -248,3 +248,66 @@ def test_metrics_endpoint_access(monkeypatch):
     monkeypatch.setenv("SOKKAN_METRICS_TOKEN", "s3cret")
     assert app._metrics_allowed(req("127.0.0.1")) is False
     assert app._metrics_allowed(req("10.0.0.5", [("authorization", "Bearer s3cret")])) is True
+
+
+def test_llama_release_resolution(tmp_path, monkeypatch):
+    """Upstream `releases/latest` = a source-only release since Oct. 2026: the newest
+    pre-release with our asset is used, and a build already on disk wins (no re-download)."""
+    monkeypatch.delenv("MAGNITUDE_LLAMA_TAG", raising=False)
+    monkeypatch.setattr(engine, "BIN_DIR", tmp_path / "bin")
+    monkeypatch.setattr(engine.sys, "platform", "linux")
+    asked = []
+
+    def fake_json(url):
+        asked.append(url)
+        assert "releases/latest" not in url
+        return [{"tag_name": "v0.6.0", "assets": [{"name": "source.tar.gz", "browser_download_url": "u0"}]},
+                {"tag_name": "b11498", "prerelease": True, "assets": [
+                    {"name": "llama-b11498-bin-ubuntu-cuda-12.8-x64.tar.gz", "browser_download_url": "u1"},
+                    {"name": "llama-b11498-bin-ubuntu-vulkan-x64.tar.gz", "browser_download_url": "u2"}]}]
+
+    monkeypatch.setattr(engine, "_http_json", fake_json)
+    assert engine._resolve_release()["tag_name"] == "b11498"
+    got = {}
+
+    def fake_download(url, dest, cb=None):
+        got["url"] = url
+
+    def fake_extract(archive, dest):
+        (dest / "build" / "bin").mkdir(parents=True)
+        (dest / "build" / "bin" / "llama-server").write_text("")
+
+    monkeypatch.setattr(engine, "_download", fake_download)
+    monkeypatch.setattr(engine, "_extract", fake_extract)
+    bindir = engine.ensure_llama()
+    assert got["url"] == "u2" and bindir == tmp_path / "bin" / "b11498" / "build" / "bin"
+    # second call: the local build, no network
+    asked.clear()
+    (tmp_path / "bin" / "b10344").mkdir()
+    (tmp_path / "bin" / "b10344" / "llama-server").write_text("")
+    assert engine.ensure_llama() == bindir and asked == []     # b11498 > b10344, numerically
+
+
+def test_runtime_choice_and_docker_command(monkeypatch, tmp_path):
+    """Intel + a card allowed + Docker → the SYCL image on that card only; no card
+    allowed, or no Docker → the prebuilt (CPU / Vulkan)."""
+    for v in ("MAGNITUDE_RUNTIME", "MAGNITUDE_DOCKER_IMAGE", "MAGNITUDE_CTX", "MAGNITUDE_KV",
+              "MAGNITUDE_SERVER_ARGS"):
+        monkeypatch.delenv(v, raising=False)
+    intel = {"gpu": {"vendor": "intel", "run_devices": [2]}}
+    monkeypatch.setattr(engine, "docker_ok", lambda: True)
+    assert engine.runtime_for(intel) == "docker"
+    assert engine.runtime_for({"gpu": {"vendor": "intel", "run_devices": []}}) == "prebuilt"
+    assert engine.runtime_for({"gpu": {"vendor": "nvidia", "run_devices": [0]}}) == "prebuilt"
+    monkeypatch.setenv("MAGNITUDE_RUNTIME", "prebuilt")
+    assert engine.runtime_for(intel) == "prebuilt"
+    monkeypatch.delenv("MAGNITUDE_RUNTIME")
+    monkeypatch.setattr(engine, "docker_ok", lambda: False)
+    assert engine.runtime_for(intel) == "prebuilt"
+    cmd = engine.docker_command(tmp_path / "qwen3-4b.gguf", [2])
+    j = " ".join(cmd)
+    assert "ZE_AFFINITY_MASK=2" in j and "ghcr.io/ggml-org/llama.cpp:server-intel" in j
+    assert f"127.0.0.1:{engine.LLAMA_PORT}:8080" in j and f"{tmp_path}:/models:ro" in j
+    assert "/models/qwen3-4b.gguf" in j and "--cache-ram" in cmd
+    with pytest.raises(RuntimeError):
+        engine.docker_command(tmp_path / "x.gguf", [])
