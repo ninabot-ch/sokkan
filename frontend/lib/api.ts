@@ -238,6 +238,7 @@ export interface SecretsProviderState {
   provider: "file" | "openbao" | "kubernetes"; reason: string; warning: string | null;
   available: string[]; config: Record<string, string | boolean | string[]>; error: string;
   clear_keys_on_disk?: string[]; last_test: SecretsHealth | null;
+  notice?: string | null;   // OpenBao address set but provider is file (never a silent switch)
 }
 export const secretsProvider = () => getJSON<SecretsProviderState>("/api/admin/secrets-provider");
 export const secretsProviderTest = () => mutate<SecretsHealth>("/api/admin/secrets-provider/test", "POST");

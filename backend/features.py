@@ -147,6 +147,9 @@ def _secrets_check() -> str | None:
         return f"readiness unknown: {e!r}"
     if w:
         return "file provider on an enterprise instance — " + why
+    n = secrets_provider.address_notice(feature_on=True)
+    if n:
+        return n
     return f"provider {name} ({why})"
 
 
@@ -361,9 +364,10 @@ REGISTRY: tuple[Feature, ...] = (
             "Where secrets and encryption keys live (3.3): `file` (vault.json + key files, the "
             "3.2 behaviour), `openbao` (OpenBao / HashiCorp Vault: KV v2 for project secrets, "
             "transit wraps the data keys — no clear key on disk; AppRole or Kubernetes auth) or "
-            "`kubernetes` (Secrets of the namespace). Picked by SOKKAN_SECRETS_PROVIDER; unset: "
-            "openbao when SOKKAN_OPENBAO_ADDR is configured, else file (an enterprise instance "
-            "then shows a warning in Setup › Secrets). Off: always file.",
+            "`kubernetes` (Secrets of the namespace). Picked ONLY by SOKKAN_SECRETS_PROVIDER "
+            "(explicit); unset: file, even when SOKKAN_OPENBAO_ADDR is configured (startup "
+            "warning; an enterprise instance on file shows a warning in Setup › Secrets). "
+            "Off: always file.",
             status="beta", defaults=_ed(False, True), vars=_t("secrets_provider"),
             config=("SOKKAN_SECRETS_PROVIDER", "SOKKAN_OPENBAO_ADDR", "SOKKAN_OPENBAO_AUTH",
                     "SOKKAN_OPENBAO_K8S_ROLE", "SOKKAN_OPENBAO_ROLE_ID",

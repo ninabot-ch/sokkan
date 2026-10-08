@@ -333,9 +333,18 @@ def test_selection_rules(monkeypatch):
     import secrets_provider as sp
     env = {"SOKKAN_EDITION": "enterprise"}
     assert sp.selected(env)[0] == "file" and sp.warning(env)
+    assert sp.address_notice(env) is None
+    # decision 08.10: an address alone never switches provider (no surprise 503 at restart)
     env["SOKKAN_OPENBAO_ADDR"] = "https://bao:8200"
-    assert sp.selected(env) == ("openbao", "SOKKAN_OPENBAO_ADDR is set")
-    assert sp.warning(env) is None
+    name, why = sp.selected(env)
+    assert name == "file" and "SOKKAN_OPENBAO_ADDR alone does not switch" in why
+    assert sp.warning(env)                                # enterprise on file: still warned
+    assert "OpenBao address set but provider is file" in sp.address_notice(env)
+    env["SOKKAN_SECRETS_PROVIDER"] = "openbao"
+    assert sp.selected(env) == ("openbao", "SOKKAN_SECRETS_PROVIDER=openbao")
+    assert sp.warning(env) is None and sp.address_notice(env) is None
+    env["SOKKAN_SECRETS_PROVIDER"] = "file"               # explicit file during a migration
+    assert sp.selected(env)[0] == "file" and sp.address_notice(env)
     env["SOKKAN_SECRETS_PROVIDER"] = "kubernetes"
     assert sp.selected(env)[0] == "kubernetes"
     community = {"SOKKAN_OPENBAO_ADDR": "https://bao:8200", "SOKKAN_SECRETS_PROVIDER": "openbao"}
@@ -346,6 +355,30 @@ def test_selection_rules(monkeypatch):
     assert sp.selected(community)[0] == "openbao"
     assert sp.selected({"SOKKAN_FEATURE_SECRETS_PROVIDER": "1",
                         "SOKKAN_SECRETS_PROVIDER": "nope"})[0] == "file"
+
+
+def test_address_alone_keeps_file_and_serves_secrets(data, monkeypatch):
+    """An enterprise instance that receives SOKKAN_OPENBAO_ADDR (nothing listens there) keeps
+    serving its file secrets — no 503 — and says so at startup and in Setup › Secrets."""
+    from fastapi.testclient import TestClient
+
+    import app as a
+    import secrets_provider as sp
+    import vault
+    monkeypatch.delenv("SOKKAN_SECRETS_PROVIDER", raising=False)
+    monkeypatch.setenv("SOKKAN_EDITION", "enterprise")
+    monkeypatch.setenv("SOKKAN_OPENBAO_ADDR", "http://127.0.0.1:9")
+    sp.reset()
+    assert sp.active().name == "file"
+    vault.set_secret("KEEP", "still-here")
+    assert vault.session_env(["KEEP"]) == {"KEEP": "still-here"}
+    st = sp.status()
+    assert st["provider"] == "file" and st["warning"] and "provider is file" in st["notice"]
+    lines = "\n".join(sp.startup_report())
+    assert "[secrets] provider file" in lines and "NOT READY" not in lines
+    assert "WARNING: OpenBao address set but provider is file" in lines
+    r = TestClient(a.app).get("/api/version")                 # the api answers, no 503
+    assert r.status_code == 200
 
 
 def test_file_provider_refuses_to_mint_over_wrapped_keys(data, monkeypatch):

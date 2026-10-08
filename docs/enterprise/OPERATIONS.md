@@ -398,8 +398,12 @@ Where the secrets and their keys live — files (default), **OpenBao** (referenc
 no key on the volume) or Kubernetes Secrets — is a choice made once and migrated hot:
 [SECRETS.md](SECRETS.md) (model, OpenBao setup, AppRole vs Kubernetes auth, migration,
 rotation, backups, minimal OpenBao operations). Check: Setup › Secrets → **Test connection**;
-startup log line `[secrets] provider …`. An enterprise instance still on files shows a warning
-there.
+startup log line `[secrets] provider …`. The provider is **explicit only**
+(`SOKKAN_SECRETS_PROVIDER`): `SOKKAN_OPENBAO_ADDR` alone leaves the instance on files and logs
+`OpenBao address set but provider is file` — no implicit switch, no surprise 503 at restart. An
+enterprise instance still on files shows a warning there. POC (single node, manual unseal) vs
+contract (raft cluster, transit auto-unseal) and who holds the unseal shares:
+[SECRETS.md § 6.1](SECRETS.md#61-our-cloud-and-poc).
 
 ## 6. Upgrade and roll back
 

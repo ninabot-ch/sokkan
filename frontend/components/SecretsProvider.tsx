@@ -57,6 +57,11 @@ export default function SecretsProvider() {
           <b>Keys are stored next to the data.</b> {st.warning}
         </div>
       )}
+      {st.notice && (
+        <div role="status" data-testid="secrets-address-notice" className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11.5px] text-amber-100">
+          <b>OpenBao is configured but not used.</b> {st.notice}
+        </div>
+      )}
       {st.clear_keys_on_disk && st.clear_keys_on_disk.length > 0 && (
         <div role="status" className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[11.5px] text-amber-100">
           Clear key files are still on disk ({st.clear_keys_on_disk.join(", ")}): finish the migration with

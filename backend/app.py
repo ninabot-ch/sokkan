@@ -183,16 +183,8 @@ async def _lifespan(_app: FastAPI):
     # 3.3: which secrets provider, why; an unreachable OpenBao is said, never fatal here
     # (secret reads then answer 503 — fail-closed — until it comes back)
     import secrets_provider as _sp
-    _name, _why = _sp.selected()
-    print(f"[secrets] provider {_name} ({_why})", file=sys.stderr)
-    if _sp.warning():
-        print(f"[secrets] WARNING: {_sp.warning()}", file=sys.stderr)
-    if _name != "file":
-        try:
-            _h = _sp.active().health()
-            print(f"[secrets] {'OK' if _h.ok else 'NOT READY'}: {_h.detail}", file=sys.stderr)
-        except _sp.SecretsError as e:
-            print(f"[secrets] NOT READY: {e}", file=sys.stderr)
+    for _line in _sp.startup_report():
+        print(_line, file=sys.stderr)
     try:
         notice = vault.upgrade_notice()   # 3.2 : secrets nommés par défaut — le dire au démarrage
     except _sp.SecretsError:

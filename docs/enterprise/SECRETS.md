@@ -30,9 +30,12 @@ data volume never change format between providers: a migration moves keys and se
 Selection (`secrets_provider.selected()`, logged at startup as `[secrets] provider …`):
 
 1. feature off → **file**, always (a `SOKKAN_SECRETS_PROVIDER` other than `file` is ignored, and said);
-2. `SOKKAN_SECRETS_PROVIDER=file|openbao|kubernetes`;
-3. unset → **openbao** when `SOKKAN_OPENBAO_ADDR` is set, else **file** — on an enterprise
-   instance Setup › Secrets then shows a warning with the next step.
+2. `SOKKAN_SECRETS_PROVIDER=file|openbao|kubernetes` — **the only way to leave files**;
+3. unset → **file**, always. `SOKKAN_OPENBAO_ADDR` alone changes nothing: the api logs
+   `[secrets] WARNING: OpenBao address set but provider is file` at startup and Setup › Secrets
+   shows the same notice. An instance never switches provider — and never starts refusing its
+   secrets with a 503 — because a variable appeared; the switch is a decision (§ 4 step 2). On an
+   enterprise instance still on files, Setup › Secrets shows a warning with the next step.
 
 Fail-closed rules:
 * openbao/kubernetes selected while a clear `vault.key` (etc.) is still on disk and not migrated →
@@ -101,9 +104,8 @@ The api keeps running on files during the copy; one restart switches it.
 
 ```bash
 # 0. a backup (§ 8) — with a passphrase
-# 1. the OpenBao side is ready (§ 3/§ 6); the api's env gets SOKKAN_OPENBAO_* AND, for now,
-#    SOKKAN_SECRETS_PROVIDER=file (without it an enterprise api picks openbao as soon as
-#    SOKKAN_OPENBAO_ADDR is set — and refuses to serve secrets until they are migrated)
+# 1. the OpenBao side is ready (§ 3/§ 6); the api's env gets SOKKAN_OPENBAO_* — the provider
+#    stays file until step 2 (startup log: « OpenBao address set but provider is file »)
 docker compose exec -w /app/backend api python3 -m secrets_provider.cli migrate --from file --to openbao --dry-run
 docker compose exec -w /app/backend api python3 -m secrets_provider.cli migrate --from file --to openbao
 # 2. SOKKAN_SECRETS_PROVIDER=openbao in .env, docker compose up -d api; Setup › Secrets → Test connection
@@ -174,8 +176,8 @@ only cluster-scoped object; `openbao.authDelegator=false` if your platform team 
 Minimal operating procedure:
 
 1. **Init** (once): `kubectl exec -it <rel>-sokkan-openbao-0 -- bao operator init -key-shares=5 -key-threshold=3`.
-   The 5 unseal keys go to 5 different people / safes (Vaultwarden collections, paper); the root
-   token is used in step 3 then revoked. Nobody stores all keys together.
+   The 5 unseal keys are spread as in § 6.1 (never 3 in the same place); the root token is used
+   in step 3 then revoked.
 2. **Unseal** — after every pod restart: `bao operator unseal` ×3 (three key holders). Until then
    the pod is not Ready and secret reads in SOKKAN answer 503; the cockpit runs.
 3. **Configure**: create an operator token (`bao token create -policy=root -ttl=1h` or a narrower
@@ -190,8 +192,48 @@ Minimal operating procedure:
 5. **Monitoring**: readiness = unsealed; alert on the pod not Ready > 5 min; `GET /v1/sys/health`.
 6. **Upgrade**: change `openbao.image.tag`, the pod restarts → unseal again.
 
-Out of scope here: auto-unseal (KMS / HSM / transit seal), HA (raft, 3 nodes), audit device —
-for production with SLAs, use the customer's OpenBao/Vault cluster (§ 3).
+Out of scope of the chart: auto-unseal (KMS / HSM / transit seal), HA (raft, 3 nodes), audit
+device — production under contract uses a cluster run apart (§ 6.1) or the customer's
+OpenBao/Vault (§ 3).
+
+### 6.1 Our cloud and POC
+
+Decided 08.10.2026.
+
+| | POC / trial | Under contract (production) |
+|---|---|---|
+| OpenBao | the chart's **single node** (`openbao.enabled=true`, `values-sks.yaml`) | an **OpenBao raft cluster of 3 nodes**, run apart from the SOKKAN release — or the customer's existing Vault (§ 3), which we then join |
+| Unseal | **manual**, after every pod restart, with the runbook below | **auto-unseal by transit** from a second OpenBao (the « unsealer », its own lifecycle and backups) — or whatever the customer's Vault already uses |
+| Availability | secrets unavailable (503) while sealed; the cockpit runs | survives a node loss; no human at restart |
+| SOKKAN side | `secrets.provider=openbao`, kubernetes auth | `secrets.provider=openbao`, `openbao.enabled=false`, `openbao.address` + `caSecret` |
+
+**Unseal key shares — 5 shares, threshold 3**, for every OpenBao we initialise (the POC node, the
+contract cluster's unsealer, the recovery keys of an auto-unsealed cluster):
+
+| Share | Holder |
+|---|---|
+| 1, 2 | the principal operator |
+| 3 | the second authorised person |
+| 4 | sealed in the company's password safe (a collection only the two operators can open) |
+| 5 | on paper, in the physical safe |
+
+**Never 3 shares in the same place**: no single holder, safe or device can unseal alone — the
+principal operator (2) needs one more share, from a person or a safe.
+
+**Unseal runbook (POC single node)** — when the pod restarted (upgrade, node drain, OOM):
+
+1. Notice: Setup › Secrets → Test connection says « sealed », secret reads answer 503, the pod
+   `<rel>-sokkan-openbao-0` is not Ready (alert after 5 min, § 6 step 5).
+2. `kubectl exec -it <rel>-sokkan-openbao-0 -- bao status` → `Sealed true`, `Unseal Progress 0/3`.
+3. The principal operator enters shares 1 and 2: `kubectl exec -it … -- bao operator unseal` ×2
+   (each prompts; never on the command line, never in shell history).
+4. A third share: the second authorised person, or — when they are unreachable — share 4 from
+   the password safe (two people open it), last resort share 5 from the physical safe.
+5. `bao status` → `Sealed false`; the pod turns Ready; Setup › Secrets → Test connection is green;
+   start one session that needs a secret.
+6. Log it (who, when, which shares, why it restarted) in the operations journal. A share that was
+   read from a safe is re-sealed the same day; a share seen by someone else → `bao operator
+   rekey` (new 5/3 split, same distribution).
 
 ## 7. Kubernetes provider
 

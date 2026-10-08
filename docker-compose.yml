@@ -195,6 +195,7 @@ services:
       SOKKAN_GATEWAY_ADMIN_TOKEN: ${SOKKAN_GATEWAY_ADMIN_TOKEN:-}
       SOKKAN_GATEWAY_CLIENT: ${SOKKAN_GATEWAY_CLIENT:-}
       # 3.3: secrets provider — file (default) | openbao | kubernetes (docs/enterprise/SECRETS.md).
+      # Explicit only: SOKKAN_OPENBAO_ADDR without SOKKAN_SECRETS_PROVIDER=openbao keeps files.
       # AppRole in compose: SOKKAN_OPENBAO_SECRET_ID_FILE points at a file mounted read-only.
       SOKKAN_FEATURE_SECRETS_PROVIDER: ${SOKKAN_FEATURE_SECRETS_PROVIDER:-}
       SOKKAN_SECRETS_PROVIDER: ${SOKKAN_SECRETS_PROVIDER:-}

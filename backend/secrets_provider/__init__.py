@@ -20,9 +20,11 @@ Two things go through a provider:
    * ``kubernetes``  — Kubernetes Secrets of the namespace (installs without OpenBao): one Secret
                        per project, data keys in one Secret. Encryption at rest = the cluster's.
 
-Selection: ``SOKKAN_SECRETS_PROVIDER=file|openbao|kubernetes`` (feature ``secrets_provider``);
-unset with the feature on → ``openbao`` when ``SOKKAN_OPENBAO_ADDR`` is configured, else
-``file`` (and an enterprise instance shows a warning in Setup › Secrets).
+Selection: **explicit only** — ``SOKKAN_SECRETS_PROVIDER=file|openbao|kubernetes`` (feature
+``secrets_provider``). Unset → ``file``, whatever else is configured: ``SOKKAN_OPENBAO_ADDR`` alone
+changes nothing (a startup warning says « OpenBao address set but provider is file ») — an
+instance must never switch provider, and refuse its secrets until migrated, because a variable
+appeared. An enterprise instance on ``file`` shows a warning in Setup › Secrets.
 
 Rotation: a context may hold several data keys, newest first (``vault.key.next`` in file mode,
 the ``keys`` list of a ``.wrapped`` file): encryption uses the newest, decryption tries all —
@@ -185,9 +187,23 @@ def selected(env=None, feature_on: bool | None = None) -> tuple[str, str]:
         if raw not in PROVIDERS:
             return "file", f"SOKKAN_SECRETS_PROVIDER={raw} unknown — file used"
         return raw, f"SOKKAN_SECRETS_PROVIDER={raw}"
+    # never implicit: an address alone does not switch (decision 08.10 — no surprise 503)
     if _openbao_configured(env):
-        return "openbao", "SOKKAN_OPENBAO_ADDR is set"
-    return "file", "no OpenBao configured (SOKKAN_OPENBAO_ADDR)"
+        return "file", ("SOKKAN_SECRETS_PROVIDER not set — file (SOKKAN_OPENBAO_ADDR alone does "
+                        "not switch: migrate, then set SOKKAN_SECRETS_PROVIDER=openbao)")
+    return "file", "SOKKAN_SECRETS_PROVIDER not set — file"
+
+
+def address_notice(env=None, feature_on: bool | None = None) -> str | None:
+    """Startup / Setup › Secrets: an OpenBao address is configured but the provider is file."""
+    env = os.environ if env is None else env
+    if not _openbao_configured(env):
+        return None
+    if selected(env, feature_on)[0] != "file":
+        return None
+    return ("OpenBao address set but provider is file: SOKKAN_OPENBAO_ADDR alone changes nothing. "
+            "Migrate (scripts/secrets-migrate.py --from file --to openbao), then set "
+            "SOKKAN_SECRETS_PROVIDER=openbao and restart — docs/enterprise/SECRETS.md § 4.")
 
 
 def make(name: str, env=None) -> SecretsProvider:
@@ -254,17 +270,34 @@ def warning(env=None, feature_on: bool | None = None) -> str | None:
     if name == "file" and ed == "enterprise":
         return ("Secrets and their keys are files on this server (vault.key, forge.key, teams.key "
                 "next to the data): whoever copies the data directory with its keys reads every "
-                "secret. Next step: connect OpenBao (SOKKAN_OPENBAO_ADDR), then move the secrets "
-                "with scripts/secrets-migrate.py --from file --to openbao — "
-                "docs/enterprise/SECRETS.md.")
+                "secret. Next step: connect OpenBao (SOKKAN_OPENBAO_ADDR), move the secrets with "
+                "scripts/secrets-migrate.py --from file --to openbao, then set "
+                "SOKKAN_SECRETS_PROVIDER=openbao — docs/enterprise/SECRETS.md.")
     return None
+
+
+def startup_report() -> list[str]:
+    """Lines the api logs at startup: provider and why, warnings, readiness. Never raises — an
+    unreachable OpenBao is said here; secret reads then answer 503 (fail-closed)."""
+    name, why = selected()
+    lines = [f"[secrets] provider {name} ({why})"]
+    for w in (warning(), address_notice()):
+        if w:
+            lines.append(f"[secrets] WARNING: {w}")
+    if name != "file":
+        try:
+            h = active().health()
+            lines.append(f"[secrets] {'OK' if h.ok else 'NOT READY'}: {h.detail}")
+        except SecretsError as e:
+            lines.append(f"[secrets] NOT READY: {e}")
+    return lines
 
 
 def status() -> dict:
     """Setup › Secrets: what is selected, why, its non-secret configuration, warnings."""
     name, why = selected()
     out = {"provider": name, "reason": why, "warning": warning(), "available": list(PROVIDERS),
-           "config": {}, "error": ""}
+           "config": {}, "error": "", "notice": address_notice()}
     try:
         out["config"] = active().describe()
     except SecretsError as e:
@@ -277,5 +310,5 @@ def status() -> dict:
 
 
 __all__ = ["CONTEXTS", "PROVIDERS", "Health", "InvalidToken", "SecretsError", "SecretsProvider",
-           "active", "all_data_keys", "data_key", "decrypt", "encrypt", "key_path", "make",
-           "reset", "selected", "status", "warning", "wrapped_path"]
+           "active", "address_notice", "all_data_keys", "data_key", "decrypt", "encrypt", "key_path", "make",
+           "reset", "selected", "startup_report", "status", "warning", "wrapped_path"]

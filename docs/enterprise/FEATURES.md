@@ -465,7 +465,7 @@ Setup › Engines: the instance admin sets, replaces or deletes the model provid
 
 **Secrets provider** — beta, toggle.
 
-Where secrets and encryption keys live (3.3): `file` (vault.json + key files, the 3.2 behaviour), `openbao` (OpenBao / HashiCorp Vault: KV v2 for project secrets, transit wraps the data keys — no clear key on disk; AppRole or Kubernetes auth) or `kubernetes` (Secrets of the namespace). Picked by SOKKAN_SECRETS_PROVIDER; unset: openbao when SOKKAN_OPENBAO_ADDR is configured, else file (an enterprise instance then shows a warning in Setup › Secrets). Off: always file.
+Where secrets and encryption keys live (3.3): `file` (vault.json + key files, the 3.2 behaviour), `openbao` (OpenBao / HashiCorp Vault: KV v2 for project secrets, transit wraps the data keys — no clear key on disk; AppRole or Kubernetes auth) or `kubernetes` (Secrets of the namespace). Picked ONLY by SOKKAN_SECRETS_PROVIDER (explicit); unset: file, even when SOKKAN_OPENBAO_ADDR is configured (startup warning; an enterprise instance on file shows a warning in Setup › Secrets). Off: always file.
 
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_SECRETS_PROVIDER`

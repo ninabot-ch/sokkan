@@ -3,7 +3,42 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-<<<<<<< HEAD
+## Unreleased — 3.3
+
+### Secrets provider — OpenBao as the reference (feature `secrets_provider`, beta)
+- **Where secrets live is now a choice**: `file` (default, the 3.2 files unchanged), **`openbao`**
+  (OpenBao / HashiCorp Vault: project secrets in KV v2 under `sokkan/<instance>/<project>/`, every
+  data key — vault/BYOK, forge tokens, Teams tokens — wrapped by a transit key that never leaves
+  OpenBao: no clear key on the data volume; AppRole or Kubernetes ServiceAccount auth, token
+  renewal, TLS, namespaces) or `kubernetes` (Secrets of the namespace). `SOKKAN_SECRETS_PROVIDER`
+  (explicit). docs/enterprise/SECRETS.md.
+- **Hot migration** `scripts/secrets-migrate.py --from file --to openbao` (idempotent, verified by
+  reading back, `--check`, `--purge` shreds the clear keys) and back to files; passphrase-encrypted
+  export / import.
+- **Rotation** `scripts/secrets-rotate.py`: `--master` (transit rotate + rewrap, operator token)
+  and `--data-keys` (new key, every stored value re-encrypted, old key dropped), journaled.
+- **Backups**: in openbao mode a set holds no key at all (KV secrets transit-encrypted,
+  `OPENBAO_REQUIRED.txt`); `restore.sh` checks every wrapped key unwraps before touching anything,
+  `--import-secrets`. In file mode `forge.key` and `teams.key` are no longer inside `data.tgz` in
+  clear: they are encrypted with the passphrase like `vault.key` (`--keys-dir` at restore).
+- **Helm**: optional one-node OpenBao (`openbao.enabled`, init/unseal documented, auto-unseal out
+  of scope), kubernetes auth configured by a post-install Job, the customer's own Vault
+  (`openbao.address`, `caSecret`, `auth.method` kubernetes | approle), `values-sks.yaml` on OpenBao.
+- **Setup › Secrets**: provider, why, configuration, **Test connection**; a warning on an
+  enterprise instance whose keys are files. `GET /api/admin/secrets-provider`, `POST …/test`.
+- **The provider is explicit, never implicit**: only `SOKKAN_SECRETS_PROVIDER=openbao|kubernetes`
+  leaves files. `SOKKAN_OPENBAO_ADDR` alone changes nothing — the api logs « OpenBao address set
+  but provider is file » at startup and Setup › Secrets shows it — so an instance never starts
+  answering 503 on its secrets because a variable appeared. An enterprise instance without an
+  explicit provider stays on files with the warning in Setup › Secrets.
+- **Our cloud and POC** (SECRETS.md § 6.1): the chart's single node for a POC, with an unseal
+  runbook; under contract a 3-node OpenBao raft cluster auto-unsealed by transit from a second
+  OpenBao, or the customer's Vault; unseal shares 5 / threshold 3 — 2 with the principal
+  operator, 1 with the second authorised person, 1 sealed in the company password safe, 1 on
+  paper in the physical safe, never 3 in the same place.
+- Upgrade note: nothing changes until you choose: set `SOKKAN_SECRETS_PROVIDER=openbao` after
+  the migration (SECRETS.md § 4).
+
 ## 3.2.3 — 2026-10-08 — "Captains"
 - **Operate › Costs tells what is billed, and how.** On an instance that runs Claude through a
   Pro/Max login the tab showed hundreds of dollars a day. Four causes, all fixed: (1) every
@@ -78,41 +113,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   Magnitude node can serve is no longer « too small »; the engine's servers and re-ranker are
   shown; on an instance without the 3.0 store it says the profile is set on the server and how;
   preparing a profile change requires ticking that every note will be re-read.
-=======
-## Unreleased — 3.3
-
-### Secrets provider — OpenBao as the reference (feature `secrets_provider`, beta)
-- **Where secrets live is now a choice**: `file` (default, the 3.2 files unchanged), **`openbao`**
-  (OpenBao / HashiCorp Vault: project secrets in KV v2 under `sokkan/<instance>/<project>/`, every
-  data key — vault/BYOK, forge tokens, Teams tokens — wrapped by a transit key that never leaves
-  OpenBao: no clear key on the data volume; AppRole or Kubernetes ServiceAccount auth, token
-  renewal, TLS, namespaces) or `kubernetes` (Secrets of the namespace). `SOKKAN_SECRETS_PROVIDER`,
-  or openbao automatically when `SOKKAN_OPENBAO_ADDR` is set (enterprise). docs/enterprise/SECRETS.md.
-- **Hot migration** `scripts/secrets-migrate.py --from file --to openbao` (idempotent, verified by
-  reading back, `--check`, `--purge` shreds the clear keys) and back to files; passphrase-encrypted
-  export / import.
-- **Rotation** `scripts/secrets-rotate.py`: `--master` (transit rotate + rewrap, operator token)
-  and `--data-keys` (new key, every stored value re-encrypted, old key dropped), journaled.
-- **Backups**: in openbao mode a set holds no key at all (KV secrets transit-encrypted,
-  `OPENBAO_REQUIRED.txt`); `restore.sh` checks every wrapped key unwraps before touching anything,
-  `--import-secrets`. In file mode `forge.key` and `teams.key` are no longer inside `data.tgz` in
-  clear: they are encrypted with the passphrase like `vault.key` (`--keys-dir` at restore).
-- **Helm**: optional one-node OpenBao (`openbao.enabled`, init/unseal documented, auto-unseal out
-  of scope), kubernetes auth configured by a post-install Job, the customer's own Vault
-  (`openbao.address`, `caSecret`, `auth.method` kubernetes | approle), `values-sks.yaml` on OpenBao.
-- **Setup › Secrets**: provider, why, configuration, **Test connection**; a warning on an
-  enterprise instance whose keys are files. `GET /api/admin/secrets-provider`, `POST …/test`.
-- Upgrade note: nothing changes until you choose; an **enterprise instance with
-  `SOKKAN_OPENBAO_ADDR` set switches to openbao at restart** — migrate first (SECRETS.md § 4).
-
-### Fixes (3.2.3 candidate)
 - **`GET /api/version`** (auth-free): `version` (the VERSION file baked into the image), `commit`
   (build arg `SOKKAN_COMMIT`), `dist` (`<version>+<commit>`), `image_tag` and `edition`. A rollout
   check can now require `version`/`dist` to equal what it deployed: `/api/health` alone answered
   200 from the OLD container while the new image was still building. The api image copies
   `VERSION`; build it with `--build-arg SOKKAN_COMMIT=$(git rev-parse --short HEAD)` (compose:
   `SOKKAN_COMMIT` in `.env`).
->>>>>>> d8a1b70 (fix(api): GET /api/version — version, commit and edition of the running process, auth-free)
 
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
