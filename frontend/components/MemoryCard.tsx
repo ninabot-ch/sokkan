@@ -187,9 +187,12 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
       <div className="rounded-2xl border border-line bg-panel2/40 p-5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] text-slate-300">
           <span>In use: <b className="text-slate-100">{legacy ? "2.x model (before profiles)" : mv.profiles.find((p) => p.id === current)?.label ?? current ?? "—"}</b></span>
-          <span className="text-mut">·</span>
-          <span>Recommended: <b className="text-brass">{mv.profiles.find((p) => p.id === mv.recommended)?.label ?? mv.recommended}</b>
-            <span className="text-mut">{recOn} ({mv.recommended_reason ?? mv.local.reason})</span></span>
+          {current === mv.recommended ? (
+            <span className="text-mut">— the recommended one{recOn} ({mv.recommended_reason ?? mv.local.reason})</span>
+          ) : (
+            <span>Recommended: <b className="text-brass">{mv.profiles.find((p) => p.id === mv.recommended)?.label ?? mv.recommended}</b>
+              <span className="text-mut">{recOn} ({mv.recommended_reason ?? mv.local.reason})</span></span>
+          )}
         </div>
         {engine && !engine.error && (
           <div className="mt-1 text-[12px] leading-relaxed text-mut">
@@ -284,7 +287,7 @@ export default function MemoryCard({ admin }: { admin: boolean }) {
               <button disabled={busy} onClick={() => act(async () => {
                 const r = await memoryLicence(lic.decision === "accepted" ? "declined" : "accepted");
                 setNote(r.downloading ? "Downloading the model (330 MB)…" : "");
-              }, "could not record the decision")} className="ml-2 text-sea/80 hover:text-sea">
+              }, "could not record the decision")} className="ml-2 inline-flex min-h-6 items-center px-1 text-sea/80 hover:text-sea">
                 {lic.decision === "accepted" ? "withdraw" : "accept instead"}
               </button>
             )}

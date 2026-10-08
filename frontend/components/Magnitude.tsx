@@ -409,11 +409,11 @@ function ModelCard({
   return (
     <div
       className={`flex flex-col rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500 ${
-        m.fit === "no" ? "opacity-40" : m.fit === "comfortable" ? "ring-1 ring-emerald-400/20" : ""
+        m.fit === "no" ? "border-dashed bg-panel2/20" : m.fit === "comfortable" ? "ring-1 ring-emerald-400/20" : ""
       }`}
     >
       <div className="flex items-baseline gap-2.5">
-        <span className="text-[17px] font-semibold tracking-tight text-slate-100">{m.label}</span>
+        <span className={`text-[17px] font-semibold tracking-tight ${m.fit === "no" ? "text-slate-400" : "text-slate-100"}`}>{m.label}</span>
         {live && (
           <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-300">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> live
