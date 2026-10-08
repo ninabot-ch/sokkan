@@ -194,7 +194,9 @@ REGISTRY: tuple[Feature, ...] = (
     Feature("magnitude", "Magnitude (local LLM)",
             "Hardware profile, benchmark and llama.cpp serving of a local model; memory bench.",
             defaults=_both(True),
-            vars=_t("magnitude", Var("SOKKAN_FEATURE_MAGNITUDE", parse_zero_off, True, "0 = off, anything else = on"))),
+            vars=_t("magnitude", Var("SOKKAN_FEATURE_MAGNITUDE", parse_zero_off, True, "0 = off, anything else = on")),
+            # 3.2.3: bearer of GET /metrics (sokkan_magnitude_*); unset = direct loopback only
+            config=("SOKKAN_MAGNITUDE_SHIM_URL", "SOKKAN_METRICS_TOKEN")),
     Feature("assistant", "Nina (in-app assistant)",
             "Nina, the cockpit's help agent. Needs an LLM (SOKKAN_ASSISTANT_LLM_*) and its "
             "knowledge base; paid in the guaranteed offer, the user's own model in open source.",
