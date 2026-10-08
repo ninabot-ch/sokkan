@@ -198,8 +198,15 @@ effective_role(person, project) =
 * Tests: `tests/test_revocation.py` (each path on the real middleware; mutations — removing the
   403, the cookie check, the scheduler check, the login reconcile, the session stop or the
   group reconcile — each turn a test red).
-* Not in lot 6: OIDC back-channel logout (the IdP's logout token) — SCIM covers deprovisioning;
-  the forge-side token revocation waits for lot 5's provider.
+* OIDC back-channel logout — shipped in 3.4 « Bridge »: `POST /api/auth/backchannel-logout`
+  (`backend/oidc_logout.py`; token checks in `oidc.verify_logout_token`, effect
+  `revocation.logout`). The cockpit cookie carries the id_token's `sid`; a logout token naming a
+  `sid` ends that IdP session's cookies and WebSockets, and the person's live SDK sessions when
+  no other IdP session of theirs is signed in; `sub` alone ends them all. Not a revocation
+  (account, agents, forge tokens untouched). Entra ID has no back-channel: front-channel
+  `GET /api/auth/frontchannel-logout?sid=` behind `SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1`, plus SCIM.
+  Runbook: OPERATIONS.md § 2.2. Tests: `tests/test_oidc_logout.py` (fake IdP: RSA key + JWKS,
+  real callback and middleware; every token check has a refusal case, mutations → red).
 
 ## Role × action matrix
 
@@ -597,7 +604,7 @@ in points (1 point ≈ one focused session of work with its tests).
 | **3 ✅** | SSO groups → teams at login, ops team, admin screens (projects, grants, "why"), project selector, scoping of every cockpit route (sessions, board, Crew, CortHeXis, Operate links, Nina), per-project workspace + memory directory + `MEMORY.md`, note names unique per project (migration `0012`), the `shared` project, board MCP scope, `projects.create` exposed | **high** (turns multi-project on) | 7 | a second project with two people: none sees the other's sessions, cards, agents, notes (API + UI e2e) |
 | **4 ✅** | Vault per project + instance namespace, project budgets and spend reports, agents' owner-role check before each run | medium | 3 | secrets of X never in a session of Y; budget stop per project |
 | **5 ✅** | GitLab: link account (OAuth PKCE), `forge.Provider`, access resolution + cache, credential helper, push with the person's token, read-only sessions for Reporter | **high** (external system, tokens) | 6 | against a GitLab CE container: Reporter cannot push, Developer pushes a branch + opens an MR, Maintainer pushes a protected branch |
-| **6 ◐** | Revocation: SCIM endpoint, "Revoke now", back-channel logout, audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
+| **6 ●** | Revocation: SCIM endpoint, "Revoke now", back-channel logout (3.4), audit entries | medium | 3 | SCIM delete → sessions closed, agents paused, tokens gone within a second |
 | **7 ✅** | BYOK admin screen (client admin enters their keys) | low | 1.5 | key set, masked, test call, used by sessions |
 | **8 ✅** | Optional sandbox per sensitive project (own uid / container for sessions) | high | 5 | a session of X cannot read X' files by `Bash cat` |
 

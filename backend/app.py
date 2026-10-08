@@ -55,6 +55,7 @@ import demo_captains  # 3.2.2 public demo « Captains » (write guard, org view)
 import iam
 import infra
 import oidc
+import oidc_logout  # 3.4: OIDC back-channel / front-channel logout
 import revocation  # 3.2 lot 6: SCIM, « Revoke now », owner checks
 import sandbox  # 3.2 lot 8: per-project confinement of sessions
 import agentchat
@@ -1761,8 +1762,14 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
                 teams_store.link_user(str(claims["oid"]), str(claims["tid"]), email)
         except Exception as e:  # noqa: BLE001 — un login n'échoue pas sur le lien Teams
             print(f"[sokkan] Teams link failed for {email}: {e!r}", file=sys.stderr)
+    sid = str(claims.get("sid") or "")
+    try:  # 3.4 : IdP session → cockpit cookie, for OIDC back-channel / front-channel logout
+        if revocation.enabled():
+            revocation.record_login(email, sid=sid, sub=str(claims.get("sub") or ""))
+    except Exception as e:  # noqa: BLE001 — a login never fails on this bookkeeping
+        print(f"[sokkan] OIDC session record failed for {email}: {e!r}", file=sys.stderr)
     resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
-    resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", "")),
+    resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", ""), sid=sid),
                     max_age=sess.TTL, httponly=True, secure=True, samesite="lax")
     resp.delete_cookie("sokkan_oidc_tx")
     return resp
@@ -1822,6 +1829,8 @@ def _transcripts() -> list[Path]:
 
 # 3.2 lot 6 : SCIM 2.0 (Users, Groups) + « Revoke now » (admin)
 app.include_router(revocation.router(require))
+# 3.4 : OIDC back-channel / front-channel logout (/api/auth/* : no cookie, own checks)
+app.include_router(oidc_logout.router())
 
 # banc de recall (CortHeXis → Banc) + carte « Mémoire » de Magnitude (profil, licence)
 app.include_router(memeval.router(require, feature_magnitude, _transcripts))

@@ -37,21 +37,37 @@ def _ttl() -> int:
 TTL = _ttl()
 
 
-def make(email: str, name: str = "") -> str:
+def make(email: str, name: str = "", sid: str = "") -> str:
+    """`sid` = the IdP's session id (OIDC `sid` claim) when it sent one: an OIDC
+    back-channel / front-channel logout of that IdP session then ends this cookie only."""
     now = int(time.time())
-    return jwt.encode(
-        {"email": email.lower(), "name": name or email, "iat": now, "exp": now + TTL},
-        SECRET, algorithm="HS256",
-    )
+    claims = {"email": email.lower(), "name": name or email, "iat": now, "exp": now + TTL}
+    if sid:
+        claims["sid"] = str(sid)
+    return jwt.encode(claims, SECRET, algorithm="HS256")
 
 
-def email_from_request(request: Request) -> str | None:
-    tok = request.cookies.get(COOKIE)
+def _claims(tok: str | None) -> dict | None:
     if not tok or not SECRET:
         return None
     try:
-        claims = jwt.decode(tok, SECRET, algorithms=["HS256"])
+        return jwt.decode(tok, SECRET, algorithms=["HS256"])
     except Exception:  # noqa: BLE001 — cookie absent/expiré/altéré
+        return None
+
+
+def sid_from_cookies(cookies) -> str:
+    """The IdP session id carried by a cockpit cookie ('' if none / invalid)."""
+    try:
+        c = _claims(cookies.get(COOKIE))
+    except Exception:  # noqa: BLE001
+        c = None
+    return str((c or {}).get("sid") or "")
+
+
+def email_from_request(request: Request) -> str | None:
+    claims = _claims(request.cookies.get(COOKIE))
+    if claims is None:
         return None
     # 3.2 : la durée se compte depuis l'émission avec la TTL EN VIGUEUR — un cookie de 24 h
     # émis par une 3.1 ne survit pas à la mise à jour au-delà de la nouvelle limite
@@ -61,5 +77,8 @@ def email_from_request(request: Request) -> str | None:
     # 3.2 lot 6 : « Revoke now » / SCIM — un cookie émis avant la révocation ne vaut plus rien
     import revocation
     if email and not revocation.cookie_ok(email, claims.get("iat") or 0):
+        return None
+    # 3.4 : OIDC back-channel / front-channel logout of the IdP session this cookie came from
+    if email and claims.get("sid") and not revocation.sid_ok(str(claims["sid"])):
         return None
     return email

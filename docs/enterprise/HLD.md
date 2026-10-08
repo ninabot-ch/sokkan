@@ -35,7 +35,7 @@ disagree, the spec wins.
 | `groups` claim → teams `sso:<group>` at each login | ◐ | claim name `SOKKAN_OIDC_GROUPS_CLAIM` (default `groups`) |
 | Role per project (`viewer` < `dev` < `maintainer` < `admin`) | ◐ | instance admins have **no implicit access** to project content |
 | Ops team = one SSO group (Operate infrastructure) | ◐ | bootstrap `SOKKAN_OPS_GROUP`, then the admin screen |
-| SCIM deprovisioning, "Revoke now", back-channel logout | ○ | 3.2 lot 6 |
+| SCIM deprovisioning, "Revoke now", back-channel logout | ◐ | 3.2 lot 6; OIDC back-channel logout 3.4 (Entra ID: front-channel + SCIM) |
 
 Profiles: developers, DevOps / system engineers, DBAs, QA, managers, instance admins, ops team.
 They work from the **cockpit** (browser) ●, **VS Code or the terminal** with Claude Code

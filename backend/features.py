@@ -346,9 +346,12 @@ REGISTRY: tuple[Feature, ...] = (
             "SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: "
             "cockpit sessions invalidated, live sessions stopped, owned agents paused, forge "
             "tokens erased; teams recomputed at each SSO login; an agent never outlives its "
-            "owner's access (lot 6).", status="beta", defaults=_ed(False, True),
+            "owner's access (lot 6). OIDC back-channel logout (3.4): a sign-out at the IdP "
+            "ends the cockpit sessions born from that IdP session; front-channel for Entra ID "
+            "with SOKKAN_OIDC_FRONTCHANNEL_LOGOUT=1.", status="beta", defaults=_ed(False, True),
             requires=("sso_teams",), vars=_t("revocation"),
-            config=("SOKKAN_SCIM_TOKEN", "SOKKAN_SCIM_GROUP_KEY"), doc=M,
+            config=("SOKKAN_SCIM_TOKEN", "SOKKAN_SCIM_GROUP_KEY",
+                    "SOKKAN_OIDC_FRONTCHANNEL_LOGOUT"), doc=M,
             check=lambda: __import__("revocation").readiness()),
     Feature("byok_admin", "BYOK admin screen",
             "Setup › Engines: the instance admin sets, replaces or deletes the model "
