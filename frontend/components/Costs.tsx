@@ -6,7 +6,7 @@ import type { BillingBasis, ProjectBudget, UsageSummary } from "@/lib/types";
 import { ago } from "@/lib/fmt";
 
 const usd = (v: number) =>
-  v >= 100 ? `$${Math.round(v)}` : v >= 10 ? `$${v.toFixed(1)}` : `$${v.toFixed(2)}`;
+  v >= 1000 ? `$${Math.round(v).toLocaleString("en-US")}` : v >= 100 ? `$${Math.round(v)}` : v >= 10 ? `$${v.toFixed(1)}` : `$${v.toFixed(2)}`;
 const ktok = (v: number) =>
   v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`;
 
@@ -46,7 +46,7 @@ function Tile({ label, billed, apiEquiv, sub, budget }: { label: string; billed:
 
 // 3.2 lot 4 — the selected project's day / month ceiling: spend, state, and the form a
 // project admin uses to change it (the API refuses it to anyone else).
-function BudgetPanel({ b, onSaved }: { b: ProjectBudget; onSaved: (b: ProjectBudget) => void }) {
+function BudgetPanel({ b, onSaved, subscription }: { b: ProjectBudget; onSaved: (b: ProjectBudget) => void; subscription?: boolean }) {
   const [day, setDay] = useState(String(b.day || ""));
   const [month, setMonth] = useState(String(b.month || ""));
   const [cur, setCur] = useState<string>(b.currency);
@@ -70,6 +70,9 @@ function BudgetPanel({ b, onSaved }: { b: ProjectBudget; onSaved: (b: ProjectBud
         <span className="font-medium text-slate-200">Project budget — <span className="font-mono">{b.project}</span></span>
         <span className="text-[11px] text-mut">warning at 80 %, new turns and agent runs stop at 100 %</span>
       </div>
+      {subscription && (
+        <div className="mb-2 text-[11px] text-mut">On a subscription nothing is billed per token: the budget counts the API-equivalent.</div>
+      )}
       {row("today", b.spent_day, b.day)}
       {row("month", b.spent_month, b.month)}
       {b.message && <div className={`mt-2 text-[11.5px] ${b.state === "stop" ? "text-red-300" : "text-amber-200"}`}>{b.message}</div>}
@@ -192,7 +195,7 @@ export default function Costs() {
         )}
 
         {data.project_budget && (
-          <BudgetPanel b={data.project_budget}
+          <BudgetPanel b={data.project_budget} subscription={data.billing.claude === "subscription"}
             onSaved={(b) => setData((d) => (d ? { ...d, project_budget: b } : d))} />
         )}
 
@@ -206,7 +209,7 @@ export default function Costs() {
                 <th className="px-2 pb-1 pt-2 font-medium">method</th>
                 <th className="px-2 pb-1 pt-2 text-right font-medium">turns</th>
                 <th className="px-2 pb-1 pt-2 text-right font-medium">billed</th>
-                <th className="px-4 pb-1 pt-2 text-right font-medium">API-equivalent</th>
+                <th className="whitespace-nowrap px-4 pb-1 pt-2 text-right font-medium">API-equivalent</th>
               </tr></thead>
               <tbody>
                 {data.by_basis.map((b) => (
@@ -235,13 +238,13 @@ export default function Costs() {
           <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <span className="text-[12.5px] font-medium text-slate-200">Per day — last {data.period.days} days</span>
             <span className="flex items-center gap-1.5 text-[11px] text-mut"><span className="h-2 w-3 rounded-sm bg-sea" />billed</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-mut"><span className="h-2 w-3 rounded-sm bg-sea/30" />API-equivalent</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-mut"><span className="h-2 w-3 rounded-sm bg-sea/45" />API-equivalent</span>
             <span className="ml-auto text-[11px] tabular-nums text-mut">max {usd(max)}</span>
           </div>
           <div className="flex h-40 items-end gap-[2px]">
             {series.map((d, i) => (
               <div key={d.day} className="group relative flex h-full flex-1 items-end">
-                <div className="relative w-full rounded-t bg-sea/30" style={{ height: `${Math.max(d.api > 0 ? 2 : 0, (Math.max(d.api, d.billed) / max) * 100)}%` }}>
+                <div className="relative w-full rounded-t bg-sea/45" style={{ height: `${Math.max(d.api > 0 ? 2 : 0, (Math.max(d.api, d.billed) / max) * 100)}%` }}>
                   {d.billed > 0 && (
                     <div className="absolute bottom-0 w-full rounded-t bg-sea" style={{ height: `${Math.min(100, (d.billed / Math.max(d.api, d.billed)) * 100)}%` }} />
                   )}
@@ -260,8 +263,15 @@ export default function Costs() {
               </div>
             ))}
           </div>
-          <div className="mt-1.5 flex justify-between text-[10px] text-mut">
-            {series.filter((_, i) => i % step === 0).map((d) => <span key={d.day}>{dlabel(d.day)}</span>)}
+          {/* one slot per bar: the labels sit under their bar, the last day always labelled */}
+          <div className="mt-1.5 flex gap-[2px] text-[10px] text-mut">
+            {series.map((d, i) => (
+              <div key={d.day} className="relative h-3 flex-1">
+                {(i % step === 0 && series.length - 1 - i >= step / 2) || i === series.length - 1 ? (
+                  <span className={`absolute top-0 whitespace-nowrap ${i === series.length - 1 ? "right-0" : "left-0"}`}>{dlabel(d.day)}</span>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -296,7 +306,7 @@ export default function Costs() {
                         <div className="font-mono text-[11.5px] text-slate-200">{m.model}</div>
                         <div className="text-[10.5px] text-mut">
                           {m.price ? `$${m.price.input}/$${m.price.output} per M · cache read $${m.price.cache_read}` : "no price — tokens only"}
-                          {" · "}{m.turns.toLocaleString("en-CH")} turns
+                          {" · "}{m.turns.toLocaleString("en-CH")} turn{m.turns === 1 ? "" : "s"}
                         </div>
                       </td>
                       <td className="px-2 py-1.5"><BasisChip b={m.basis} /></td>

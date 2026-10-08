@@ -156,8 +156,8 @@ function HardwareCard({ profile, online, lastSeen, engines }: {
           </span>
         </div>
         <div className="min-w-0">
-          <div className="truncate text-2xl font-semibold tracking-tight text-slate-100 md:text-3xl">
-            {g ? g.name : profile.cpu}
+          <div className="text-2xl font-semibold tracking-tight text-slate-100 md:text-3xl" title={g ? g.name : profile.cpu}>
+            {g ? (devices ? shortGpu(g.name) : g.name) : profile.cpu}
           </div>
           <div className="mt-1 text-[13px] text-mut">
             {g ? `${g.vendor} · ${g.backend.replace("_", " ")}` : "CPU inference"}
@@ -175,7 +175,7 @@ function HardwareCard({ profile, online, lastSeen, engines }: {
                 <div className="flex items-baseline gap-2">
                   <span className="text-[11px] tabular-nums text-mut">#{d.index}</span>
                   <span className="truncate text-[13px] font-medium text-slate-200" title={d.name}>{shortGpu(d.name)}</span>
-                  <span className="ml-auto text-[12px] tabular-nums text-slate-300">{gb(d.vram_gb)} GB</span>
+                  <span className="ml-auto text-[12px] tabular-nums text-slate-300">{d.vram_gb != null ? d.vram_gb.toFixed(1) : "—"} GB</span>
                 </div>
                 <div className="mt-1 truncate text-[11.5px] text-mut" title={on.map((e) => e.model).join(", ")}>
                   {on.length ? on.map((e) => e.model).join(" · ") : "no engine found on this card"}
@@ -191,14 +191,15 @@ function HardwareCard({ profile, online, lastSeen, engines }: {
           <div className="mb-1.5 flex items-baseline justify-between text-[12.5px]">
             <span className="text-mut">VRAM{devices ? ` — ${devices.length} cards` : ""}</span>
             <span className="tabular-nums text-slate-300">
-              {g.vram_free_gb != null ? `${gb(g.vram_free_gb)} GB free of ` : ""}{gb(g.vram_total_gb)} GB
+              {g.vram_free_gb != null ? `${gb(g.vram_free_gb)} GB free of ` : ""}{devices ? g.vram_total_gb.toFixed(1) : gb(g.vram_total_gb)} GB{devices && g.vram_free_gb == null ? " in total" : ""}
             </span>
           </div>
-          <Progress
-            pct={g.vram_free_gb != null && g.vram_total_gb > 0
-              ? ((g.vram_total_gb - g.vram_free_gb) / g.vram_total_gb) * 100
-              : 0}
-          />
+          {/* without a free-memory figure (Intel via OpenCL/Level Zero) a gauge would show "empty": none */}
+          {g.vram_free_gb != null && (
+            <Progress
+              pct={g.vram_total_gb > 0 ? ((g.vram_total_gb - g.vram_free_gb) / g.vram_total_gb) * 100 : 0}
+            />
+          )}
         </div>
       )}
       <div className="mt-5 text-[13px] text-mut">
@@ -348,9 +349,11 @@ function EnginesCard({
       </div>
       <ul className="mt-4 divide-y divide-line/60">
         {engines.map((e) => (
-          <li key={`${e.port}-${e.model}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+          <li key={`${e.port}-${e.model}`} className="flex items-center gap-3 py-2.5">
             <span className={`h-2 w-2 shrink-0 rounded-full ${e.healthy ? "bg-emerald-400" : "bg-amber-400"}`}
               title={e.healthy ? "healthy" : "not answering /health"} />
+            <span className="sr-only">{e.healthy ? "healthy" : "not answering"}</span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="min-w-0 font-mono text-[13px] text-slate-100">{e.model}</span>
             <span className="rounded bg-sea/15 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-200">{ENGINE_LABEL[e.engine] || e.engine}</span>
             <span className="text-[12px] tabular-nums text-mut">:{e.port}</span>
@@ -363,7 +366,8 @@ function EnginesCard({
                 {Math.round(e.ctx / 1024)}k ctx{e.ctx_ok === false ? " — short for a session" : ""}
               </span>
             )}
-            <span className="ml-auto">
+            </span>
+            <span className="shrink-0">
               {e.serving ? (
                 <span className="text-[12px] font-medium text-emerald-300">bridged ✓</span>
               ) : admin ? (
@@ -401,7 +405,7 @@ function NodeEndpoint({
         {admin && (
           <button
             onClick={() => { setUrl(node.shim_url); setEditing(true); }}
-            className="text-sea/80 transition-colors hover:text-sea"
+            className="min-h-6 px-1 text-sky-300 transition-colors hover:text-sky-200"
           >
             edit
           </button>
@@ -459,7 +463,7 @@ function NodeSection({
           </span>
         )}
         {admin && (
-          <button onClick={unpair} className="ml-auto text-[12px] text-mut transition-colors hover:text-slate-300">
+          <button onClick={unpair} className="ml-auto min-h-6 px-1 text-[12px] text-mut transition-colors hover:text-slate-300">
             Unpair
           </button>
         )}
@@ -508,6 +512,14 @@ function NodeSection({
         onSave={(url) => act(() => magnitudeNodeConfig(node.id, { shim_url: url }), "saving endpoint failed")}
       />
 
+      {node.profile && engines.length > 0 && (
+        <h3 className="pt-2 text-[15px] font-semibold tracking-tight text-slate-100">
+          Models Magnitude can download and run
+          {node.profile.gpu?.vendor === "intel" && !node.profile.gpu.offload && (
+            <span className="ml-2 text-[12px] font-normal text-mut">on CPU — no Vulkan driver for these cards</span>
+          )}
+        </h3>
+      )}
       {node.profile && (
         <div className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2">
           {node.catalog.map((m) => (
