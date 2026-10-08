@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import {
   adminClassification, adminDeleteGroupLevel, adminSetGroupLevel, adminSetRoleLevel, auditCsvUrl, fetchAudit,
-  useClassification, type AccessRow, type ClassificationAdmin as Admin,
+  invalidateClassification, useClassification, type AccessRow, type ClassificationAdmin as Admin,
 } from "@/lib/classification";
 import LevelBadge from "./LevelBadge";
 
@@ -20,7 +20,8 @@ export default function ClassificationAdmin({ instanceAdmin }: { instanceAdmin: 
   const [project, setProject] = useState("*");
   const load = () => { if (instanceAdmin) adminClassification().then(setD).catch((e) => setErr(String(e.message || e))); };
   useEffect(load, [instanceAdmin]);
-  const run = (p: Promise<unknown>) => p.then(() => { setErr(""); load(); }).catch((e) => setErr(String(e.message || e)));
+  // a mapping or a role level changed: the admin table AND « Your clearance » reload (3.4.3)
+  const run = (p: Promise<unknown>) => p.then(() => { setErr(""); load(); invalidateClassification(); }).catch((e) => setErr(String(e.message || e)));
   if (!info) return <div className="text-[12px] text-mut">…</div>;
   const scale = info.scale;
   return (

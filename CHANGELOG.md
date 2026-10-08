@@ -31,6 +31,19 @@ Notable changes, newest first. Versions: semver + release hash (see
   `SOKKAN_DATA_DIR`, `frontend/node_modules`, `frontend/.next`, `.git`, your own top-level
   files, nor the data volumes; `--dry-run`, `--no-build`; a failed download changes nothing.
   UPGRADE.md § Upgrade, `tests/test_upgrade_script.py`.
+- **`GET /api/memory/stats` counts the selected project at the reader's clearance.** On a
+  project other than `default` it counted with a bare slug — the default level — so a
+  project whose notes are confidential said « 0 notes / 0 passages » while
+  `/api/memory/notes` listed them (seen live: 8 notes captured from Teams). It now counts
+  the project's own entry of the reader's scope (`classification.own_entry`), consistent
+  with `/notes`.
+- **« Your clearance in <project> » says what applies.** Setup › Organization ›
+  Classification kept the clearance read at page load: a `user:<email>` mapping just added
+  on that screen applied to the notes but the label still said « Project » until a reload.
+  The screen now refetches the clearance after every mapping or role change
+  (`invalidateClassification()`). Backend: a `user:<email>` principal is stored lower-case
+  and compared case-insensitively (a mapping typed `user:Nick@…` before 3.4.3 applies and
+  can be deleted either way). `tests/test_classification.py`.
 
 ## 3.4.2 — 2026-10-08 — "Bridge"
 

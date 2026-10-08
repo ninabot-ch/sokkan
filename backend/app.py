@@ -2403,8 +2403,12 @@ def memory_stats() -> dict:
     project memory / classification are possible — the cockpit warns when the selected
     project cannot have a memory on this instance."""
     store = store_backend.store_info()
-    if _ctx_project() != projects.DEFAULT_PROJECT:   # counts of the selected project only
-        notes = memorykb.list_notes([_ctx_project()])
+    if _ctx_project() != projects.DEFAULT_PROJECT:
+        # counts of the selected project only — at the READER's clearance there (3.4.3: a
+        # bare slug counted at the default level, so a project of confidential notes said
+        # « 0 notes » while /api/memory/notes listed them)
+        own = classification.own_entry(_ctx_scope(), _ctx_project())
+        notes = memorykb.list_notes(own) if own else []
         return {"notes": len(notes), "chunks": sum(n.get("chunks") or 0 for n in notes),
                 "project": _ctx_project(), "store": store}
     return {**memorykb.stats(), "project": _ctx_project(), "store": store}

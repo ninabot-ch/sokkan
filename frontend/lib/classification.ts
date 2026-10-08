@@ -54,14 +54,32 @@ export const fetchAudit = (days = 30, actor = "", note = "") =>
     `/api/classification/audit?days=${days}&limit=500${actor ? `&actor=${encodeURIComponent(actor)}` : ""}${note ? `&note=${encodeURIComponent(note)}` : ""}`);
 
 let cache: Promise<ClassificationInfo> | null = null;
+let gen = 0;
+const listeners = new Set<() => void>();
+
+/** 3.4.3 — forget the cached scale/clearance (a mapping was added or removed on the admin
+ *  screen): every mounted `useClassification` refetches, so « Your clearance in <project> »
+ *  says what the backend now applies instead of what it said at page load. */
+export function invalidateClassification(): void {
+  cache = null; gen += 1;
+  listeners.forEach((l) => l());
+}
 
 /** The scale and my clearance; `enabled: false` (and no badge anywhere) when the feature is off. */
 export function useClassification(): ClassificationInfo | null {
   const [d, setD] = useState<ClassificationInfo | null>(null);
+  const [v, setV] = useState(gen);
   useEffect(() => {
-    cache = cache || fetchClassification().catch(() => ({ enabled: false, scale: [], default: "project" }));
-    cache.then(setD);
+    const l = () => setV(gen);
+    listeners.add(l);
+    return () => { listeners.delete(l); };
   }, []);
+  useEffect(() => {
+    let live = true;
+    cache = cache || fetchClassification().catch(() => ({ enabled: false, scale: [], default: "project" }));
+    cache.then((x) => { if (live) setD(x); });
+    return () => { live = false; };
+  }, [v]);
   return d;
 }
 

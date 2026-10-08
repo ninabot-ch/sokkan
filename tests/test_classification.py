@@ -270,6 +270,49 @@ def test_memory_routes_answer_within_the_clearance(world):
     assert st.last_recall_scope == ["radio"]
 
 
+def test_stats_count_the_project_at_the_reader_clearance(world):
+    """3.4.3 — seen live: a project of 8 confidential notes, `/api/memory/stats` said 0 notes
+    while `/api/memory/notes` listed them (a bare slug counted at the default level)."""
+    alice = world["as"]("alice@x")
+    own = [n for n in alice.get("/api/memory/notes").json() if n["project"] == "radio"]
+    st = alice.get("/api/memory/stats").json()
+    assert st["project"] == "radio" and st["notes"] == len(own) == 2
+    assert st["chunks"] == sum(n["chunks"] for n in own)
+    carol = world["as"]("carol@x")
+    assert carol.get("/api/memory/stats").json()["notes"] == 1          # her clearance: 2
+
+
+def test_clearance_label_follows_a_user_mapping_whatever_the_case(world):
+    """3.4.3 — the screen said « Your clearance in <project>: Project » while a
+    `user:<email>` mapping limited to the project applied to the notes."""
+    import classification as C
+    carol = world["as"]("carol@x")
+    assert carol.get("/api/classification").json()["clearance"] == "project"
+    adm = world["as"]("admin@x", "default")
+    r = adm.put("/api/admin/classification/groups",
+                json={"team": "user:Carol@X", "level": "confidential", "project": "radio"})
+    assert r.status_code == 200
+    assert next(g for g in r.json()["groups"] if g["project"] == "radio" and g["team_id"].startswith("user:")
+                )["team_id"] == "user:carol@x"                         # stored lower-case
+    carol = world["as"]("carol@x")
+    got = carol.get("/api/classification").json()
+    assert got["project"] == "radio" and got["clearance"] == "confidential"
+    # what the label says is what the memory routes apply
+    assert "radio-keys-rotation" in {n["name"] for n in carol.get("/api/memory/notes").json()}
+    assert carol.get("/api/memory/stats").json()["notes"] == 2
+    assert C.clearance(C.user_for("carol@x"), "radio") == 3
+    assert C.clearance(C.user_for("carol@x"), "default") is None       # limited to radio
+    # a mapping typed with capitals before 3.4.3 still applies, and is deleted either way
+    C.set_group_level("sso:radio-devs", "project", "*", "admin@x")
+    with C._con() as con:
+        con.execute("UPDATE clearance_groups SET team_id='user:CAROL@x' WHERE team_id='user:carol@x'")
+    assert C.clearance(C.user_for("carol@x"), "radio") == 3
+    adm = world["as"]("admin@x", "default")
+    assert adm.delete("/api/admin/classification/groups",
+                      params={"team": "user:Carol@x", "project": "radio"}).status_code == 200
+    assert world["as"]("carol@x").get("/api/classification").json()["clearance"] == "project"
+
+
 def test_nina_answers_as_the_person_who_asks(world, monkeypatch):
     """Same question, two people: two different answers (the prompt carries only what the
     person may read; the reply inherits the highest level used)."""

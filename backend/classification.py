@@ -158,6 +158,8 @@ def set_group_level(team_id: str, level, project: str = "*", by: str = "") -> li
         team_id = f"sso:{team_id}"          # a bare IdP group name
     if not _PRINCIPAL.match(team_id):
         raise ValueError("principal: sso:<group> | local:<team> | user:<email>")
+    if team_id.startswith("user:"):
+        team_id = team_id.lower()           # 3.4.3: an e-mail compares case-insensitively
     project = (project or "*").strip()
     if project != "*" and not projects.valid_slug(project):
         raise ValueError("project: a project slug or *")
@@ -174,8 +176,8 @@ def set_group_level(team_id: str, level, project: str = "*", by: str = "") -> li
 def delete_group_level(team_id: str, project: str = "*") -> list[dict]:
     con = _con()
     with con:
-        con.execute("DELETE FROM clearance_groups WHERE team_id=? AND project=?",
-                    (team_id, project or "*"))
+        con.execute("DELETE FROM clearance_groups WHERE (team_id=? OR lower(team_id)=?) "
+                    "AND project=?", (team_id, team_id.lower(), project or "*"))
     con.close()
     return group_map()
 
@@ -202,8 +204,11 @@ def clearance(user: dict, project: str) -> int | None:
         con = _con()
         try:
             q = ",".join("?" * len(principals))
-            r = con.execute(f"SELECT max(level) AS m FROM clearance_groups WHERE team_id IN ({q})"
-                            " AND project IN ('*', ?)", (*principals, project)).fetchone()
+            # `user:<email>` mappings typed before 3.4.3 may carry capitals: lower() both sides
+            r = con.execute(f"SELECT max(level) AS m FROM clearance_groups WHERE "
+                            f"(team_id IN ({q}) OR lower(team_id) IN ({q}))"
+                            " AND project IN ('*', ?)",
+                            (*principals, *[x.lower() for x in principals], project)).fetchone()
         finally:
             con.close()
         if r and r["m"] is not None:
