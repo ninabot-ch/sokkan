@@ -45,7 +45,7 @@ function Progress({ r }: { r: Rollup }) {
   const pct = Math.round((r.progress || 0) * 100);
   return (
     <div className="flex items-center gap-2" title={`${r.counts.done}/${r.total} done`}>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/60" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700/60" role="progressbar" aria-label="progress (cards done)" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="crew-dot h-full rounded-full" style={{ ...tone("done"), width: `${pct}%` }} />
       </div>
       <span className="text-[10.5px] tabular-nums text-mut">{r.counts.done}/{r.total}</span>
@@ -183,7 +183,7 @@ function ProjectCard({ it, onOpen }: { it: DeckItem; onOpen: () => void }) {
         {it.suggestions > 0 && <span className="ml-auto rounded border border-brass/50 bg-brass/10 px-1.5 font-medium text-brass">{it.suggestions} suggestion{it.suggestions > 1 ? "s" : ""}</span>}
       </div>
       <div className="mt-1 flex items-center gap-2 text-[10px] text-mut/70">
-        <span className="truncate">{it.card.project}{it.people.length ? ` · ${it.people.join(", ")}` : ""}</span>
+        <span className="truncate" title={it.people.join(", ")}>{it.card.project}{it.people.length === 1 ? ` · ${it.people[0].split("@")[0]}` : it.people.length ? ` · ${it.people.length} people` : ""}</span>
         {it.card.due && <span className="ml-auto shrink-0">due {it.card.due}</span>}
       </div>
     </button>
@@ -230,7 +230,7 @@ function HelmPopout({ id, onClose, onOpenSession }: { id: number; onClose: () =>
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-[16px] font-semibold text-slate-100">{d?.title || "…"}</span>
+                <span className="min-w-0 break-words text-[16px] font-semibold leading-snug text-slate-100">{d?.title || "…"}</span>
                 {d && <StatePill state={state} />}
                 {breathing && <span className="crew-fg flex items-center gap-1 text-[11px] font-medium"><span className="crew-dot crew-live-dot h-1.5 w-1.5 rounded-full" aria-hidden />work going on</span>}
               </div>

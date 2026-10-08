@@ -99,7 +99,7 @@ body {
   --share-write: #34d399;
   --share-approval: #fbbf24;
   --engine-ok: #34d399;
-  --engine-off: #64748b;
+  --engine-off: #8797ab;
   --engine-warn: #fbbf24;
 }
 :root[data-theme="light"] {
@@ -131,3 +131,13 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ui-attn { animation: none; box-shadow: 0 0 0 2px var(--share-approval); }
 }
+
+/* 3.2.2 (UI pass) — small sea-blue text on the panels was 4.29:1 (#3b82f6 on #1b232f, WCAG 1.4.3
+   needs 4.5): text only is lifted to #60a5fa (6:1); sea backgrounds / borders keep the brand blue. */
+.text-sea { color: #60a5fa; }
+/* read-only actions (viewer, public demo): visibly disabled — dimmed, not-allowed cursor */
+.ro-locked { cursor: not-allowed; }
+.ro-locked > button { pointer-events: none; opacity: .45; filter: saturate(.4); }
+/* 3.2.2 (UI pass) — dimmed secondary text (text-mut/60, /70) fell to 3.7:1 on the panels and the
+   « off » chip to 3.3:1 (WCAG 1.4.3): kept a step below `mut`, but above 4.5:1 */
+.text-mut\/60, .text-mut\/70 { color: rgb(138 160 182 / 0.86); }

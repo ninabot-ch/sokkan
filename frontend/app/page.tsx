@@ -22,7 +22,7 @@ import { currentProject, installProjectFetch, noteTab } from "@/lib/project";
 import { helmAccess } from "@/lib/helm";
 import { navLast, navRemember } from "@/lib/nav";
 import {
-  PLANE_OF, href, landingPlane, pickTab, planeForKey, resolveTarget, visiblePlanes,
+  PLANES, PLANE_OF, href, landingPlane, pickTab, planeForKey, resolveTarget, visiblePlanes,
   type PlaneId, type SubTab, type Target,
 } from "@/lib/planes";
 
@@ -97,8 +97,16 @@ function Cockpit() {
     const plane = place.plane && planes.some((p) => p.id === place.plane) ? place.plane
       : landingPlane({ instanceAdmin, projectRole: me?.project_role, steers, ops: me?.ops, canDev, last }, planes);
     const tab = pickTab(plane, place.plane === plane ? (place.tab ?? lastTabs.current[plane]) : lastTabs.current[plane], planes);
-    if (plane !== place.plane || tab !== place.tab) setPlace((cur) => ({ ...cur, plane, tab }));
+    if (plane !== place.plane || tab !== place.tab) {
+      // a deep link to a place this person does not have: say so instead of switching silently
+      if (asked?.tab && place.tab === asked.tab && tab !== asked.tab && !missed) {
+        const label = PLANES.flatMap((x) => x.tabs).find((x) => x.id === asked.tab)?.label ?? asked.tab;
+        setMissed(`${label} is not available to you here (role, team or feature) — showing what is.`);
+      }
+      setPlace((cur) => ({ ...cur, plane, tab }));
+    }
   }); // eslint-disable-line react-hooks/exhaustive-deps
+  const [missed, setMissed] = useState("");
 
   useEffect(() => {
     if (!place.plane || !place.tab) return;
@@ -109,9 +117,11 @@ function Cockpit() {
   const remembered = useRef<string | null>(null);
   useEffect(() => {
     if (!settled || !place.plane || remembered.current === place.plane) return;
-    if (remembered.current !== null || place.plane !== last) navRemember(place.plane);
+    // only an instance admin lands on their last plane: nobody else's choice is written
+    // (and the public demo's visitor writes nothing — it was a 403 on every page)
+    if (instanceAdmin && (remembered.current !== null || place.plane !== last)) navRemember(place.plane);
     remembered.current = place.plane;
-  }, [settled, place.plane, last]);
+  }, [settled, place.plane, last, instanceAdmin]);
 
   const goPlane = useCallback((p: PlaneId) => setPlace({ plane: p, tab: lastTabs.current[p] ?? null }), []);
   const goTab = useCallback((t: SubTab, section?: string) => setPlace({ plane: PLANE_OF[t], tab: t, section }), []);
@@ -140,7 +150,9 @@ function Cockpit() {
     return () => window.removeEventListener("keydown", onKey);
   }, [planes, place.plane, goPlane]);
 
-  const tab = place.tab;
+  // nothing is mounted before the person's rights are known (a panel they do not have would
+  // fetch, get a 403, then vanish)
+  const tab = settled && place.tab && planes.some((x) => x.tabs.some((t) => t.id === place.tab)) ? place.tab : null;
   const [open, setOpen] = useState<OpenPane[]>([]);
   const [cols, setCols] = useState(2);
 
@@ -185,6 +197,12 @@ function Cockpit() {
     <div className="flex h-screen flex-col">
       <Tabs planes={planes} plane={place.plane} tab={tab} onPlane={goPlane} onTab={(t) => goTab(t)} onGo={goTab} />
       <div id="cockpit-panel" role="tabpanel" aria-labelledby={tab ? `tab-${tab}` : undefined} className="flex min-h-0 flex-1 flex-col">
+      {missed && (
+        <div role="status" className="flex items-center gap-2 border-b border-line bg-panel2/60 px-4 py-1.5 text-[12px] text-mut">
+          <span aria-hidden>ⓘ</span>{missed}
+          <button onClick={() => setMissed("")} aria-label="dismiss" className="ui-focus ml-auto flex h-6 w-6 items-center justify-center rounded hover:text-slate-200">✕</button>
+        </div>
+      )}
       {!tab ? (
         <div className="flex flex-1 items-center justify-center text-[13px] text-mut">…</div>
       ) : tab === "board" ? (

@@ -89,7 +89,16 @@ function useReadOnly() {
   return { ro: !canWrite, tip: feats.demo ? "read-only demo" : "read-only — your role can see agents, not change them" };
 }
 function Locked({ tip, children }: { tip: string; children: React.ReactNode }) {
-  return <span title={tip} className="inline-flex cursor-not-allowed [&>button]:pointer-events-none [&>button]:opacity-45">{children}</span>;
+  // 3.2.2 UI pass: `[&>button]:opacity-45` was never generated (no opacity-45 in Tailwind 3) — the
+  // disabled buttons kept their full fill and read as clickable (demo journey 08.10). Plain CSS now.
+  return <span title={tip} aria-disabled="true" className="ro-locked inline-flex">{children}</span>;
+}
+
+/** Who may approve an agent, in words (approval mode of the instance — SOKKAN_AGENTS_APPROVAL). */
+export function approverWords(mode: string | undefined, owner: string): string {
+  if (mode === "admin") return "an instance admin";
+  if (mode === "four_eyes") return "a second person — neither the one who proposed it nor its owner";
+  return `its owner (${owner}) or an instance admin`;
 }
 
 function StatePill({ state, small }: { state: DeckState; small?: boolean }) {
@@ -291,9 +300,14 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
     <button onClick={onOpen}
       className={`crew-c-${a.deck} crew-card ${running ? "crew-breathe" : ""} group block w-full rounded-lg border border-line bg-panel2/70 p-2.5 text-left transition hover:bg-panel2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sea`}
       aria-label={`${a.name}, ${a.deck}${a.needs_approval ? ", needs approval" : ""}`}>
+      {a.needs_approval && (
+        <div className="-mx-2.5 -mt-2.5 mb-2 flex items-center gap-1.5 rounded-t-lg border-b border-brass/40 bg-brass/15 px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-brass">
+          <span aria-hidden>⏳</span>{a.pending_change ? "change waiting for approval" : "waiting for approval"}
+        </div>
+      )}
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold text-slate-100">{a.name}</div>
+          <div className="break-words text-[13px] font-semibold leading-snug text-slate-100">{a.name}</div>
           <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mut">{a.purpose}</div>
         </div>
         <StatePill state={a.deck} small />
@@ -302,7 +316,7 @@ function AgentCard({ a, onOpen }: { a: Agent; onOpen: () => void }) {
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="trigger">⏱ {triggerWords(a)}</span>
         <span className="rounded bg-panel px-1.5 py-px text-slate-300" title="model">{a.model || "default model"}</span>
         {a.secrets.length > 0 && <span className="rounded bg-panel px-1.5 py-px text-slate-300" title={`vault: ${a.secrets.join(", ")}`}>🔑 {a.secrets.length}</span>}
-        {a.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">{a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" ? a.approval.reason : "needs approval"}</span>}
+        {a.needs_approval && a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">{a.approval.reason}</span>}
         {a.waiting_for_human && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 py-px font-medium text-brass">waiting for you</span>}
         {a.status === "paused" && <span className="rounded bg-panel px-1.5 py-px text-mut">⏸ paused</span>}
         {a.status === "draft" && <span className="rounded bg-panel px-1.5 py-px text-mut">draft</span>}
@@ -368,9 +382,9 @@ function AgentPopout({ id, initialRun, draft, onClose, onCreated, onChanged, onO
         <header className="flex items-center gap-3 border-b border-line px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[16px] font-semibold text-slate-100">{a ? a.name : "New agent"}</span>
+              <span className="min-w-0 break-words text-[16px] font-semibold text-slate-100">{a ? a.name : "New agent"}</span>
               {a && <StatePill state={a.deck} />}
-              {a?.needs_approval && <span className="rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">{a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" ? a.approval.reason : "needs approval"}</span>}
+              {a?.needs_approval && <span className="shrink-0 whitespace-nowrap rounded border border-brass/50 bg-brass/10 px-1.5 text-[10.5px] font-medium text-brass">{a.approval && !a.approval.can_approve && a.approval.reason !== "read-only" ? a.approval.reason : "needs approval"}</span>}
             </div>
             {a && <div className="mt-0.5 truncate text-[11px] text-mut">⏱ {triggerWords(a)} · {a.model || "default model"} · owner {a.owner} · {a.status}{a.created_by.startsWith("session:") ? " · proposed by a session" : a.created_by.startsWith("nina:") ? " · proposed by Nina" : ""}</div>}
           </div>
@@ -474,8 +488,10 @@ function ApprovalBar({ a, ro, tip, isAdmin, onApprove, onReject, onOverride }: {
   return (
     <div className="border-b border-brass/30 bg-brass/10 px-4 py-2.5 text-[12px] text-brass">
       <div className="flex flex-wrap items-center gap-2">
-        <b>{change ? "A change is waiting for your approval" : "This agent waits for your approval — it does not run before."}</b>
+        <b>{change ? "A change is waiting for approval" : "This agent waits for approval — it does not run before."}</b>
         <span className="text-brass/80">{a.created_by.startsWith("session:") ? "Proposed from a session." : a.created_by.startsWith("nina:") ? "Proposed in Nina's chat." : ""} Review the settings below.</span>
+        <span className="basis-full text-[11.5px] text-slate-200"><b className="font-medium text-brass">Who approves:</b> {approverWords(a.approval?.mode || a.approval_mode, a.owner)}.
+          {" "}Once active, every tool call outside its allow-list still waits for a human.</span>
         <span className="ml-auto flex gap-1.5">
           {ro ? (
             <>
@@ -671,6 +687,7 @@ const EMPTY: Partial<Agent> = {
 function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
   a: Agent | null; draft?: Partial<Agent> | null; meta: AgentsMeta; readOnlyRole?: boolean; onSaved: (a: Agent) => void; onError: (m: string) => void;
 }) {
+  const feats = useFeatures();
   const [f, setF] = useState<Partial<Agent>>(() => (a ? { ...a } : { ...EMPTY, tools: meta.default_tools, ...(draft || {}) }));
   const [activate, setActivate] = useState(true);
   const [dirty, setDirty] = useState(false);
@@ -738,7 +755,7 @@ function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
           <textarea className={`${inp} h-14`} value={f.done_criteria || ""} onChange={(e) => set("done_criteria", e.target.value)} placeholder="every direct dependency has been checked" /></div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Model</label>
-            <select className={inp} value={meta.models.includes(f.model || "") || engines.some((e) => e.value === f.model) ? f.model : "__custom"} onChange={(e) => set("model", e.target.value === "__custom" ? (f.model || "") : e.target.value)}>
+            <select aria-label="Model" className={inp} value={meta.models.includes(f.model || "") || engines.some((e) => e.value === f.model) ? f.model : "__custom"} onChange={(e) => set("model", e.target.value === "__custom" ? (f.model || "") : e.target.value)}>
               <option value="">instance default</option>
               <option value="haiku">haiku — cheap, routine</option>
               <option value="sonnet">sonnet — balanced</option>
@@ -751,7 +768,7 @@ function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
               {!meta.models.includes(f.model || "") && !engines.some((e) => e.value === f.model) && <option value="__custom">{f.model}</option>}
             </select></div>
           <div><label className={lbl}>Playbook (optional)</label>
-            <select className={inp} value={f.playbook || ""} onChange={(e) => set("playbook", e.target.value)}>
+            <select aria-label="Playbook (optional)" className={inp} value={f.playbook || ""} onChange={(e) => set("playbook", e.target.value)}>
               <option value="">none</option>
               {meta.playbooks.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select></div>
@@ -804,13 +821,15 @@ function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
             <div className="flex flex-wrap gap-1.5">{secretNames.map((s) => <button type="button" key={s} className={chip((f.secrets || []).includes(s))} onClick={() => toggle("secrets", s)}>🔑 {s}</button>)}</div>}</div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Budget per run (USD)</label>
-            <input type="number" min={0} step={0.1} className={inp} value={f.budget_usd ?? 0} onChange={(e) => set("budget_usd", Number(e.target.value))} /></div>
+            <input type="number" aria-label="Budget per run (USD)" min={0} step={0.1} className={inp} value={f.budget_usd ?? 0} onChange={(e) => set("budget_usd", Number(e.target.value))} /></div>
           <div><label className={lbl}>Time limit (min)</label>
-            <input type="number" min={1} className={inp} value={f.max_minutes ?? 30} onChange={(e) => set("max_minutes", Number(e.target.value))} /></div>
+            <input type="number" aria-label="Time limit (min)" min={1} className={inp} value={f.max_minutes ?? 30} onChange={(e) => set("max_minutes", Number(e.target.value))} /></div>
         </div>
         {(() => {
           const m = (a && a.model === f.model ? a.metering : undefined) || (!f.model ? meta.metering : undefined);
           if (!m) return f.model && a && a.model !== f.model ? <div className="-mt-1 text-[11px] text-mut">Save to see how runs on {f.model} are metered.</div> : null;
+          // 3.2.2: an internal pricing warning means nothing to a demo visitor (it looked broken)
+          if (feats.demo && !m.price) return null;
           return m.basis === "sdk" ? null : (
             <div className={`-mt-1 rounded border px-2 py-1 text-[11px] ${m.price ? "border-line text-mut" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
               {m.price ? "💱 " : "⚠ "}{m.note}

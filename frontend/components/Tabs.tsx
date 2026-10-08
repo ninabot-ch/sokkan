@@ -37,18 +37,20 @@ export default function Tabs({
   const cur = planes.find((p) => p.id === plane);
   return (
     <>
-    {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}
+    {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} captains={!!feats.demo_captains} />}
     {me?.secrets_warning && (
       <div role="status" className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[12px] text-amber-100">
         ⚠ {me.secrets_warning}
       </div>
     )}
     <header className="relative z-30 shrink-0 border-b border-line bg-panel">
-      <div className="flex h-[54px] items-center gap-1.5 overflow-x-auto px-2 md:overflow-visible md:px-4">
+      {/* < md: row 1 = wordmark · project · identity, the four planes get a full-width row of their
+          own (they were hidden behind a sideways scroll at 390 px); ≥ md: one row, as before */}
+      <div className="flex flex-wrap items-center gap-x-1.5 px-2 pt-1.5 md:h-[54px] md:flex-nowrap md:px-4 md:pt-0">
         <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
         <ProjectSelector />
-        <span className="mr-1 md:mr-4" />
-        <div role="tablist" aria-label="Planes" className="flex shrink-0 items-center gap-0.5">
+        <span className="hidden md:inline md:mr-4" />
+        <div role="tablist" aria-label="Planes" className="order-last mt-1 grid w-full grid-cols-4 gap-0.5 pb-1 md:order-none md:mt-0 md:flex md:w-auto md:shrink-0 md:items-center md:pb-0">
           {planes.map((p) => {
             const on = p.id === plane;
             return (
@@ -57,7 +59,7 @@ export default function Tabs({
                 onClick={() => onPlane(p.id)}
                 onKeyDown={(e) => arrowNav(e, "plane-", planes.map((x) => x.id), p.id, onPlane)}
                 title={`${p.label} — ${p.blurb} (g ${p.key})`}
-                className={`ui-focus shrink-0 rounded-md border-b-2 px-2.5 py-1.5 text-[13px] md:px-4 md:text-[15px] ${on
+                className={`ui-focus shrink-0 rounded-md border-b-2 px-1 py-2 text-center text-[13.5px] md:px-4 md:py-1.5 md:text-[15px] ${on
                   ? "border-sea bg-panel2 font-semibold text-slate-100"
                   : "border-transparent font-medium text-slate-300 hover:bg-panel2"}`}>
                 {p.label}
@@ -66,14 +68,14 @@ export default function Tabs({
           })}
         </div>
         <span tabIndex={0} role="note" aria-label={SHORTCUTS_HELP} title={SHORTCUTS_HELP}
-          className="ui-focus ml-1 hidden shrink-0 cursor-help rounded border border-line px-1.5 text-[11px] text-mut lg:inline">
+          className="ui-focus ml-1 hidden h-6 shrink-0 cursor-help items-center rounded border border-line px-1.5 text-[11px] text-mut lg:inline-flex">
           <span aria-hidden>⌨</span></span>
         <MissionsPill enabled={feats.missions_link} />
         <Identity onGo={onGo} />
       </div>
       {cur && (
         <div id="cockpit-subtabs" role="tablist" aria-label={`${cur.label} sections`}
-          className="flex h-9 items-center gap-0.5 overflow-x-auto border-t border-line/60 bg-panel/70 px-2 md:px-4">
+          className="flex flex-wrap items-center gap-0.5 border-t border-line/60 bg-panel/70 px-2 md:h-9 md:flex-nowrap md:overflow-x-auto md:px-4">
           {cur.tabs.map((t, i) => {
             const on = t.id === tab;
             return (
@@ -82,7 +84,7 @@ export default function Tabs({
                 onClick={() => onTab(t.id)}
                 onKeyDown={(e) => arrowNav(e, "tab-", cur.tabs.map((x) => x.id), t.id, onTab)}
                 title={i < 9 ? `${t.label} (${i + 1})` : t.label}
-                className={`ui-focus h-full shrink-0 border-b-2 px-3 text-[12.5px] md:text-[13px] ${on
+                className={`ui-focus h-9 shrink-0 border-b-2 px-3 text-[12.5px] md:h-full md:text-[13px] ${on
                   ? "border-sea font-semibold text-slate-100"
                   : "border-transparent text-mut hover:text-slate-200"}`}>
                 {t.label}
@@ -99,26 +101,34 @@ export default function Tabs({
 /** Guided banner for the public read-only demo (SOKKAN_DEMO_BANNER=1) : says
  *  where the visitor is, walks the 4 signature moves, links out. Dismissable
  *  per browser (localStorage) — never shown on regular instances. */
-function DemoBanner({ onGo, crew }: { onGo: (t: SubTab) => void; crew: boolean }) {
+function DemoBanner({ onGo, crew, captains }: { onGo: (t: SubTab) => void; crew: boolean; captains: boolean }) {
   const [hidden, setHidden] = useState(true);
   useEffect(() => {
     try { setHidden(localStorage.getItem("sokkan_demo_banner") === "off"); } catch { setHidden(false); }
   }, []);
   if (hidden) return null;
   const go = (t: SubTab) => (e: React.MouseEvent) => { e.preventDefault(); onGo(t); };
-  return (
-    <div className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-100">
-      <b>You're in the live SOKKAN demo</b> — a real cloud tenant, read-only ·
-      <i> Vous êtes dans la démo publique, en lecture seule.</i>{" "}
-      Try the tour: <a href="/?plane=build&tab=sessions" onClick={go("sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (Build › Sessions — the memory recall sits at the top of each one) →{" "}
+  const tour = (<>
+      <a href="/?plane=build&tab=sessions" onClick={go("sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (Build › Sessions — the memory recall sits at the top of each one) →{" "}
       <a href="/?plane=control&tab=board" onClick={go("board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (Control › Board — cards spawn sessions) →{" "}
       <a href="/?plane=control&tab=corthexis" onClick={go("corthexis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> (Control › CortHeXis) →{" "}
       <a href="/?plane=operate&tab=costs" onClick={go("costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a> (Operate › Costs)
-      {crew && <> → <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents</a> (Build › Crew)</>}.{" "}
+      {crew && <> → <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents</a> (Build › Crew)
+        {" "}→ <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑥ who approves what</a> (open a card « waiting for approval »: it names who may approve)</>}
+      {captains && <> → <a href="/?plane=control&tab=helm" onClick={go("helm")} className="underline decoration-amber-400/60 hover:text-white">⑦ several teams, several projects</a> (Control › Helm, the project selector, Setup › Organization)</>}.{" "}
+  </>);
+  return (
+    <div className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 py-2 pl-3 pr-10 text-[12px] leading-relaxed text-amber-100">
+      <b>You're in the live SOKKAN demo</b> — a real cloud tenant, read-only ·
+      <i> Vous êtes dans la démo publique, en lecture seule.</i>{" "}
+      {/* 3.2.2: on a phone the 7-stop tour took a third of the screen — folded there */}
+      <span className="hidden md:inline">Try the tour: {tour}</span>
+      <details className="my-0.5 md:hidden"><summary className="ui-focus cursor-pointer underline decoration-amber-400/60">Take the tour (Sessions, Board, memory, costs, agents{captains ? ", projects" : ""})</summary>
+        {tour}</details>
       Want yours? <a href="https://app.sokkan.ch" target="_blank" rel="noopener" className="font-semibold underline decoration-amber-400 hover:text-white">14-day trial</a> ·{" "}
       <a href="https://sokkan.ch/install.sh" className="underline decoration-amber-400/60 hover:text-white">self-host free</a>
       <button onClick={() => { try { localStorage.setItem("sokkan_demo_banner", "off"); } catch { /* private mode */ } setHidden(true); }}
-        className="absolute right-2 top-1.5 rounded px-1.5 text-amber-300/70 hover:text-white" title="hide" aria-label="hide the demo banner">✕</button>
+        className="ui-focus absolute right-2 top-1.5 flex h-7 w-7 items-center justify-center rounded text-amber-300/70 hover:text-white" title="hide" aria-label="hide the demo banner">✕</button>
     </div>
   );
 }
@@ -170,9 +180,9 @@ function Identity({ onGo }: { onGo: (t: SubTab, section?: string) => void }) {
       <span className={motto}>the helm, not the autopilot</span>
       <button ref={btn} aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen((o) => !o)} title={`${me.name} — ${me.email} · ${me.role}`}
-        className="ui-focus flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line">
-        <span className="min-w-0 max-w-[9rem] truncate text-slate-200">{me.name}</span>
-        <span aria-hidden>·</span>
+        className="ui-focus flex min-h-[26px] max-w-[15rem] items-center gap-1 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line">
+        <span className="hidden min-w-0 max-w-[9rem] truncate text-slate-200 sm:inline">{me.name}</span>
+        <span aria-hidden className="hidden sm:inline">·</span>
         <span className={`shrink-0 ${color[me.role] || "text-mut"}`}>{me.role}</span>
         {warn && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="model not configured" />}
         <span className="text-mut" aria-hidden>▾</span>

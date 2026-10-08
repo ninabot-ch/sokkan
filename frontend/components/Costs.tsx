@@ -56,7 +56,7 @@ function BudgetPanel({ b, onSaved }: { b: ProjectBudget; onSaved: (b: ProjectBud
           className="w-24 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
         <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="per month" inputMode="decimal"
           className="w-24 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
-        <select value={cur} onChange={(e) => setCur(e.target.value)}
+        <select aria-label="Budget currency" value={cur} onChange={(e) => setCur(e.target.value)}
           className="rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100">
           <option>USD</option><option>CHF</option>
         </select>

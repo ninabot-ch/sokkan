@@ -258,11 +258,18 @@ export default function ConnectAI({ legacy }: { legacy?: React.ReactNode }) {
         <span className={`ui-chip ${governed ? "ui-c-approval" : "ui-c-read"}`}>
           <span aria-hidden>{governed ? "⛨" : "◎"}</span>{governed ? "Governed mode" : "Personal mode"}</span>
         <span className="text-[11.5px] text-mut">{governed
-          ? "Your administrator chooses which engines, zones and tiers are allowed."
-          : "Connect the engines you like. SOKKAN Router is a good start."}</span>
+          ? (v.can_admin ? "You choose which engines, zones and tiers people may use (policy below), then connect them."
+            : "Your administrator chooses which engines, zones and tiers are allowed.")
+          : v.can_admin ? "Connect the engines you like. SOKKAN Router is a good start."
+            : "The engines this instance can use. Connecting one is for the instance administrators."}</span>
       </div>
       {v.operator_managed && (
         <div className="rounded-lg border border-line bg-panel2/40 p-2 text-[11.5px] text-mut">This instance uses managed inference (operated by NINABOT): sessions keep the gateway; engines below serve Crew cards.</div>
+      )}
+      {governed && v.can_admin && !v.engines.some((e) => e.allowed) && (
+        <div role="status" className="rounded-lg border border-brass/40 bg-brass/5 p-2.5 text-[12px] text-slate-200">
+          <b>Start here:</b> no engine is allowed yet, so nothing can run. Tick at least one engine in the policy and
+          save; then pick it below to connect it (key or login).</div>
       )}
       {governed && v.can_admin && <PolicyEditor v={v} onDone={done} />}
       {governed && !shown.length && (
@@ -272,7 +279,7 @@ export default function ConnectAI({ legacy }: { legacy?: React.ReactNode }) {
         {shown.map((e) => (
           <button key={e.id} role="option" aria-selected={sel === e.id} data-selected={sel === e.id}
             onClick={() => setSel(e.id)}
-            className={`engine-card ui-focus flex items-start gap-2.5 rounded-xl border border-line bg-panel2/40 p-2.5 text-left hover:border-sea/50 ${governed && !e.allowed ? "opacity-60" : ""}`}>
+            className={`engine-card ui-focus flex items-start gap-2.5 rounded-xl border border-line bg-panel2/40 p-2.5 text-left hover:border-sea/50 ${governed && !e.allowed ? "border-dashed" : ""}`}>
             <Avatar e={e} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-slate-100">{e.label}</span>

@@ -508,9 +508,16 @@ export function OrganizationPage({ section }: { section?: string }) {
   const nav = ORG_NAV.filter(([k, , adminOnly]) => !adminOnly || instAdmin || (demo && k === "projects"));
   const [sec, setSec] = useState<OrgSection>(() =>
     (nav.find(([k]) => k === section)?.[0] ?? "org"));
+  // a deep-linked section (?section=projects) may only exist once the role / features are
+  // known (first render: not yet) — open it as soon as it appears
+  const avail = nav.map(([k]) => k).join(",");
+  const [asked, setAsked] = useState(section);
+  useEffect(() => {
+    if (asked && nav.some(([k]) => k === asked)) { setSec(asked as OrgSection); setAsked(undefined); }
+  }, [avail]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="flex flex-col gap-3 md:flex-row">
-      <nav aria-label="Organization sections" className="flex shrink-0 gap-1 overflow-x-auto md:w-44 md:flex-col">
+      <nav aria-label="Organization sections" className="flex shrink-0 flex-wrap gap-1 md:w-44 md:flex-col md:flex-nowrap">
         {nav.map(([k, label]) => (
           <button key={k} onClick={() => setSec(k)} aria-current={sec === k ? "page" : undefined}
             className={`ui-focus shrink-0 rounded-md border-l-2 px-2 py-1.5 text-left text-[12.5px] ${sec === k
