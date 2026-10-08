@@ -70,26 +70,46 @@ def con() -> sqlite3.Connection:
 
 
 # ---- key of the instance (token encryption, approval signatures) -------------------------
+# 3.3: the `teams` data key comes from the secrets provider (teams.key in file mode, wrapped by
+# OpenBao transit in openbao mode).
 def _key_path() -> Path:
-    return Path(os.environ.get("SOKKAN_TEAMS_KEY_FILE") or (_dir() / "teams.key"))
+    import secrets_provider
+    return Path(secrets_provider.key_path("teams"))
 
 
 def key() -> bytes:
-    """Fernet key of the Teams integration (generated once, 0600)."""
-    from cryptography.fernet import Fernet
-    p = _key_path()
-    with _lock:
-        if not p.exists():
-            p.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(Fernet.generate_key())
-    return p.read_bytes().strip()
+    """Primary data key of the Teams integration (file mode: generated once, 0600)."""
+    import secrets_provider
+    return secrets_provider.data_key("teams")
+
+
+def keys() -> list[bytes]:
+    """Every data key of a rotation in progress (newest first) — signatures still verify."""
+    import secrets_provider
+    return secrets_provider.all_data_keys("teams")
 
 
 def _fernet():
-    from cryptography.fernet import Fernet
-    return Fernet(key())
+    import secrets_provider
+    return secrets_provider.active().fernet("teams")
+
+
+def reencrypt() -> int:
+    """Data-key rotation: cached app tokens re-encrypted with the primary key."""
+    from cryptography.fernet import InvalidToken
+    f = _fernet()
+    n = 0
+    c = con()
+    with c:
+        for r in c.execute("SELECT name, value_enc FROM token_cache").fetchall():
+            try:
+                c.execute("UPDATE token_cache SET value_enc=? WHERE name=?",
+                          (f.rotate(r["value_enc"].encode()).decode(), r["name"]))
+                n += 1
+            except InvalidToken:
+                c.execute("DELETE FROM token_cache WHERE name=?", (r["name"],))  # refetched
+    c.close()
+    return n
 
 
 def put_token(name: str, value: str, expires_at: float) -> None:

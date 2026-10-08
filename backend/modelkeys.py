@@ -2,7 +2,8 @@
 """modelkeys.py — SOKKAN 3.2 (lot 7, `byok_admin`; also used by `connect_ai`): the model
 provider keys of the instance, stored ENCRYPTED.
 
-* encrypted with the instance vault key (Fernet, `vault._key()`), file
+* encrypted with the data key of the `vault` context (Fernet; 3.3: through the secrets
+  provider — vault.key in file mode, wrapped by OpenBao transit in openbao mode), file
   ``$SOKKAN_DATA_DIR/modelkeys.json`` (0600) — never in llm.json, never in a log;
 * a key is never served back: the API shows ``…abcd`` (4 last characters), when and who;
 * a key is keyed by ``(scope, provider)``. Scope is ``instance`` today; ``project:<slug>``
@@ -71,10 +72,30 @@ def store_path() -> str:
 
 
 def _fernet():
-    from cryptography.fernet import Fernet
+    import secrets_provider
+    return secrets_provider.active().fernet("vault")
 
-    import vault
-    return Fernet(vault._key())
+
+def reencrypt() -> int:
+    """Data-key rotation (scripts/secrets-rotate.py): every key re-encrypted with the primary."""
+    from cryptography.fernet import InvalidToken
+    f = _fernet()
+    n = 0
+    with _lock:
+        d = _load()
+        for _scope, recs in d.items():
+            if not isinstance(recs, dict):
+                continue
+            for _prov, rec in recs.items():
+                if isinstance(rec, dict) and rec.get("ct"):
+                    try:
+                        rec["ct"] = f.rotate(rec["ct"].encode()).decode()
+                        n += 1
+                    except InvalidToken:
+                        continue
+        if n:
+            _save(d)
+    return n
 
 
 def _load() -> dict:

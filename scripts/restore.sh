@@ -1,12 +1,18 @@
 #!/bin/sh
 # sokkan restore — put a set written by scripts/backup.sh back. DESTRUCTIVE.
 #
-#   ./scripts/restore.sh <backup-set-dir> --yes [--vault-key FILE] [--force-version]
+#   ./scripts/restore.sh <backup-set-dir> --yes [--vault-key FILE] [--keys-dir DIR]
+#                        [--import-secrets [--overwrite-secrets]] [--force-version]
 #
 # Checks first, touches nothing until all pass: every sha256 of the MANIFEST, the SOKKAN
-# version (VERSION here must equal the set's, unless --force-version), and the vault key
-# (vault.key.enc decrypted with SOKKAN_BACKUP_KEY_PASSPHRASE / SOKKAN_BACKUP_KEY_PASSFILE,
-# or a clear vault.key in the set, or --vault-key FILE). Then:
+# version (VERSION here must equal the set's, unless --force-version), and the keys:
+#   file provider: vault.key / forge.key / teams.key (<key>.enc decrypted with
+#     SOKKAN_BACKUP_KEY_PASSPHRASE / _PASSFILE, or clear in the set, or --vault-key FILE,
+#     or --keys-dir DIR holding them);
+#   openbao: every *.key.wrapped of data.tgz must unwrap with the OpenBao configured here
+#     (SOKKAN_OPENBAO_*; compose: the api service's) — the set holds no key;
+#     --import-secrets puts secrets.openbao.json back in KV (missing names; with
+#     --overwrite-secrets, every name). Then:
 #   compose: `docker compose stop api web`, /data emptied and replaced by data.tgz,
 #            vault.key written (0600), pg_restore --clean --if-exists in `db`, `up -d`
 #   local:   SOKKAN_DATA_DIR emptied and replaced, vault.key, pg_restore to
@@ -23,12 +29,18 @@ SETDIR=""
 YES="${SOKKAN_RESTORE_YES:-0}"
 FORCE_VERSION=0
 KEYFILE=""
+KEYSDIR=""
+IMPORT_SECRETS=0
+OVERWRITE_SECRETS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --force-version) FORCE_VERSION=1 ;;
     --vault-key) [ $# -ge 2 ] || { echo "restore: --vault-key needs a file" >&2; exit 2; }; KEYFILE="$2"; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    --keys-dir) [ $# -ge 2 ] || { echo "restore: --keys-dir needs a directory" >&2; exit 2; }; KEYSDIR="$2"; shift ;;
+    --import-secrets) IMPORT_SECRETS=1 ;;
+    --overwrite-secrets) OVERWRITE_SECRETS=1 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) echo "restore: unknown option $1" >&2; exit 2 ;;
     *) SETDIR="$1" ;;
   esac
@@ -36,7 +48,7 @@ while [ $# -gt 0 ]; do
 done
 log() { echo "restore: $*" >&2; }
 die() { echo "restore: ERROR: $*" >&2; exit 1; }
-[ -n "$SETDIR" ] || { sed -n '2,18p' "$0"; exit 2; }
+[ -n "$SETDIR" ] || { sed -n '2,26p' "$0"; exit 2; }
 [ -d "$SETDIR" ] || die "$SETDIR is not a directory"
 SETDIR="$(cd "$SETDIR" && pwd)"
 M="$SETDIR/MANIFEST"
@@ -106,24 +118,65 @@ if [ "$HAS_PG" = 1 ] && [ "$MODE" = local ]; then
   command -v pg_restore >/dev/null 2>&1 || die "pg_restore is required"
 fi
 
-# --- 3. vault key (decrypted into a private temp file before anything is touched) ------
+# --- 3. keys (decrypted / checked in a private temp dir before anything is touched) ------
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"; rm -f "$SUMS"' EXIT INT TERM
-KEY=""
-if [ -n "$KEYFILE" ]; then
-  [ -s "$KEYFILE" ] || die "--vault-key $KEYFILE: missing or empty"
-  cp "$KEYFILE" "$WORK/vault.key"; KEY="$WORK/vault.key"
-elif [ -f "$SETDIR/vault.key.enc" ]; then
-  if [ -n "${SOKKAN_BACKUP_KEY_PASSFILE:-}" ]; then PASSARG="file:$SOKKAN_BACKUP_KEY_PASSFILE"
-  elif [ -n "${SOKKAN_BACKUP_KEY_PASSPHRASE:-}" ]; then PASSARG="env:SOKKAN_BACKUP_KEY_PASSPHRASE"
-  else die "the set has vault.key.enc: set SOKKAN_BACKUP_KEY_PASSPHRASE (or _PASSFILE), or give --vault-key"; fi
-  openssl enc -d -aes-256-cbc -pbkdf2 -in "$SETDIR/vault.key.enc" -out "$WORK/vault.key" -pass "$PASSARG" 2>/dev/null ||
-    die "cannot decrypt vault.key.enc (wrong passphrase?) — nothing was changed"
-  KEY="$WORK/vault.key"
-elif [ -f "$SETDIR/vault.key" ]; then
-  KEY="$SETDIR/vault.key"
-fi
-[ -n "$KEY" ] || log "WARNING: no vault key in the set and no --vault-key: the current vault.key (if any) is kept; secrets in vault.json are unreadable unless it is the original key"
+SECRETS="$(field secrets_provider)"
+SECRETS="${SECRETS:-file}"
+PY="${SOKKAN_PYTHON:-python3}"
+KEYFILES="vault.key forge.key teams.key"
+KEYS_OK=""
+mkdir "$WORK/keys" "$WORK/wrapped"
+passarg() {
+  if [ -n "${SOKKAN_BACKUP_KEY_PASSFILE:-}" ]; then echo "file:$SOKKAN_BACKUP_KEY_PASSFILE"
+  elif [ -n "${SOKKAN_BACKUP_KEY_PASSPHRASE:-}" ]; then echo "env:SOKKAN_BACKUP_KEY_PASSPHRASE"
+  fi
+}
+case "$SECRETS" in
+  file)
+    for k in $KEYFILES; do
+      if [ "$k" = vault.key ] && [ -n "$KEYFILE" ]; then
+        [ -s "$KEYFILE" ] || die "--vault-key $KEYFILE: missing or empty"
+        cp "$KEYFILE" "$WORK/keys/$k"
+      elif [ -n "$KEYSDIR" ] && [ -s "$KEYSDIR/$k" ]; then
+        cp "$KEYSDIR/$k" "$WORK/keys/$k"
+      elif [ -f "$SETDIR/$k.enc" ]; then
+        PASSARG="$(passarg)"
+        [ -n "$PASSARG" ] || die "the set has $k.enc: set SOKKAN_BACKUP_KEY_PASSPHRASE (or _PASSFILE), or give --vault-key / --keys-dir"
+        openssl enc -d -aes-256-cbc -pbkdf2 -in "$SETDIR/$k.enc" -out "$WORK/keys/$k" -pass "$PASSARG" 2>/dev/null ||
+          die "cannot decrypt $k.enc (wrong passphrase?) — nothing was changed"
+      elif [ -f "$SETDIR/$k" ]; then
+        cp "$SETDIR/$k" "$WORK/keys/$k"
+      else
+        continue
+      fi
+      KEYS_OK="$KEYS_OK $k"
+    done
+    case " $KEYS_OK " in
+      *" vault.key "*) ;;
+      *) log "WARNING: no vault key in the set and no --vault-key: the current vault.key (if any) is kept; secrets in vault.json are unreadable unless it is the original key" ;;
+    esac ;;
+  openbao)
+    [ -z "$KEYFILE$KEYSDIR" ] || die "the set is from the openbao provider: it has no key file to replace (--vault-key / --keys-dir refused)"
+    tar xzf "$SETDIR/data.tgz" -C "$WORK/wrapped" --wildcards '*.key.wrapped' 2>/dev/null ||
+      die "the set says openbao but data.tgz holds no *.key.wrapped"
+    if [ "$MODE" = compose ]; then
+      # shellcheck disable=SC2016
+      (cd "$WORK/wrapped" && tar czf - .) | dc run --rm -T --no-deps --entrypoint sh api -c \
+        'mkdir -p /tmp/w && tar xzf - -C /tmp/w && cd /app/backend && python3 -m secrets_provider.cli unwrap-check --dir /tmp/w' ||
+        die "the wrapped keys do not unwrap with the OpenBao of the api service — nothing was changed (OPENBAO_REQUIRED.txt)"
+    else
+      "$PY" "$HERE/backend/secrets_provider/cli.py" unwrap-check --dir "$WORK/wrapped" ||
+        die "the wrapped keys do not unwrap with this OpenBao (SOKKAN_OPENBAO_*) — nothing was changed (OPENBAO_REQUIRED.txt)"
+    fi
+    if [ "$IMPORT_SECRETS" = 1 ] && [ ! -f "$SETDIR/secrets.openbao.json" ]; then
+      die "--import-secrets: the set has no secrets.openbao.json (backup taken with --no-secrets-export)"
+    fi ;;
+  kubernetes)
+    log "the set is from the kubernetes provider: keys and secrets are Secrets of the cluster (restore them with the cluster backup)" ;;
+  *) die "MANIFEST: unknown secrets_provider $SECRETS" ;;
+esac
+KEYS_OK="${KEYS_OK# }"
 
 # --- 4. confirmation --------------------------------------------------------------------
 if [ "$YES" != 1 ]; then
@@ -131,21 +184,28 @@ if [ "$YES" != 1 ]; then
 fi
 log "restoring $SETDIR (SOKKAN $BVER, mode $MODE)"
 
-# --- 5. data, key, Postgres -------------------------------------------------------------
+# --- 5. data, keys, Postgres -------------------------------------------------------------
+# file provider: a key the set does not bring is KEPT from the current data (as before);
+# openbao / kubernetes: no clear key is kept or written (the data dir is emptied)
+KEEP=""
+if [ "$SECRETS" = file ]; then
+  for k in $KEYFILES; do case " $KEYS_OK " in *" $k "*) ;; *) KEEP="$KEEP $k" ;; esac; done
+fi
 if [ "$MODE" = compose ]; then
   dc stop api web
   # shellcheck disable=SC2016  # expanded by the container's sh
   dc run --rm -T --no-deps --entrypoint sh api -c '
     set -e
-    [ -f /data/vault.key ] && cp -p /data/vault.key /tmp/kept.key
+    mkdir -p /tmp/kept
+    for k in $1; do [ -f "/data/$k" ] && cp -p "/data/$k" "/tmp/kept/$k"; done
     find /data -mindepth 1 -delete
     cd /data && tar xzf -
-    if [ "$1" = keep ] && [ -f /tmp/kept.key ]; then cp -p /tmp/kept.key /data/vault.key; fi
-    chown 1000:1000 /data' sh "$( [ -n "$KEY" ] && echo replace || echo keep )" < "$SETDIR/data.tgz"
-  if [ -n "$KEY" ]; then
+    for k in $1; do [ -f "/tmp/kept/$k" ] && cp -p "/tmp/kept/$k" "/data/$k"; done
+    chown 1000:1000 /data' sh "$KEEP" < "$SETDIR/data.tgz"
+  for k in $KEYS_OK; do
     dc run --rm -T --no-deps --entrypoint sh api -c \
-      'cat > /data/vault.key && chmod 600 /data/vault.key && chown 1000:1000 /data/vault.key' < "$KEY"
-  fi
+      "cat > /data/$k && chmod 600 /data/$k && chown 1000:1000 /data/$k" < "$WORK/keys/$k"
+  done
   if [ "$HAS_PG" = 1 ]; then
     dc up -d db
     i=0; until dc exec -T db pg_isready -U "${POSTGRES_USER:-sokkan}" >/dev/null 2>&1; do
@@ -154,16 +214,32 @@ if [ "$MODE" = compose ]; then
       --clean --if-exists --no-owner < "$SETDIR/pg.dump" || die "pg_restore failed"
   fi
   dc up -d
+  if [ "$SECRETS" = openbao ] && [ "$IMPORT_SECRETS" = 1 ]; then
+    dc exec -T -w /app/backend api python3 -m secrets_provider.cli backup-import --in - \
+      $( [ "$OVERWRITE_SECRETS" = 1 ] && echo --overwrite ) < "$SETDIR/secrets.openbao.json" ||
+      die "secrets re-import into OpenBao failed (data restored; re-run: secrets_provider.cli backup-import)"
+  fi
 else
-  [ -f "$D/vault.key" ] && [ -z "$KEY" ] && cp -p "$D/vault.key" "$WORK/kept.key"
+  mkdir -p "$WORK/kept"
+  for k in $KEEP; do [ -f "$D/$k" ] && cp -p "$D/$k" "$WORK/kept/$k"; done
   find "$D" -mindepth 1 -delete
   tar xzf "$SETDIR/data.tgz" -C "$D"
-  if [ -n "$KEY" ]; then cp "$KEY" "$D/vault.key"
-  elif [ -f "$WORK/kept.key" ]; then cp "$WORK/kept.key" "$D/vault.key"; fi
-  [ -f "$D/vault.key" ] && chmod 600 "$D/vault.key"
+  for k in $KEEP; do [ -f "$WORK/kept/$k" ] && cp -p "$WORK/kept/$k" "$D/$k"; done
+  for k in $KEYS_OK; do cp "$WORK/keys/$k" "$D/$k"; done
+  for k in $KEYFILES; do [ -f "$D/$k" ] && chmod 600 "$D/$k"; done
   if [ "$HAS_PG" = 1 ]; then
     pg_restore --clean --if-exists --no-owner -d "$DSN" "$SETDIR/pg.dump" || die "pg_restore failed"
   fi
+  if [ "$SECRETS" = openbao ] && [ "$IMPORT_SECRETS" = 1 ]; then
+    if [ "$OVERWRITE_SECRETS" = 1 ]; then
+      "$PY" "$HERE/backend/secrets_provider/cli.py" backup-import --in "$SETDIR/secrets.openbao.json" --overwrite
+    else
+      "$PY" "$HERE/backend/secrets_provider/cli.py" backup-import --in "$SETDIR/secrets.openbao.json"
+    fi || die "secrets re-import into OpenBao failed (data restored; re-run: secrets_provider.cli backup-import)"
+  fi
+fi
+if [ "$SECRETS" = openbao ] && [ "$IMPORT_SECRETS" != 1 ] && [ -f "$SETDIR/secrets.openbao.json" ]; then
+  log "project secrets NOT re-imported (OpenBao still holds them); --import-secrets puts the set's copy back"
 fi
 [ "$HAS_PG" = 1 ] || log "the set has no pg.dump (SQLite-only install): memory database not touched"
 log "done. Check: ./scripts/doctor.sh, then log in and open a secret, a board card and a memory note"

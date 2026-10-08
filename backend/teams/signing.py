@@ -19,7 +19,13 @@ class Invalid(Exception):
 
 
 def _mac_key() -> bytes:
-    return hmac.new(store.key(), b"sokkan-teams-approval-v1", hashlib.sha256).digest()
+    return _mac_keys()[0]
+
+
+def _mac_keys() -> list[bytes]:
+    """Primary first; every data key of a rotation in progress still verifies."""
+    return [hmac.new(k, b"sokkan-teams-approval-v1", hashlib.sha256).digest()
+            for k in store.keys()]
 
 
 def _b64(b: bytes) -> str:
@@ -53,8 +59,8 @@ def peek(token: str) -> dict:
         body, sig = token.split(".", 1)
     except (ValueError, AttributeError):
         raise Invalid("malformed approval")
-    want = _b64(hmac.new(_mac_key(), body.encode(), hashlib.sha256).digest())
-    if not hmac.compare_digest(want, sig):
+    if not any(hmac.compare_digest(_b64(hmac.new(k, body.encode(), hashlib.sha256).digest()), sig)
+               for k in _mac_keys()):
         raise Invalid("bad signature")
     try:
         p = json.loads(_unb64(body))

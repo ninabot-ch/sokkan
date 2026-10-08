@@ -138,6 +138,18 @@ def _gitlab_check() -> str | None:
     return None
 
 
+def _secrets_check() -> str | None:
+    try:
+        import secrets_provider
+        name, why = secrets_provider.selected(feature_on=True)
+        w = secrets_provider.warning(feature_on=True)
+    except Exception as e:  # noqa: BLE001
+        return f"readiness unknown: {e!r}"
+    if w:
+        return "file provider on an enterprise instance — " + why
+    return f"provider {name} ({why})"
+
+
 def _managed_tier() -> str | None:
     if (os.environ.get("SOKKAN_TIER") or "").strip():
         return "SOKKAN Cloud managed instance (SOKKAN_TIER is set): always on"
@@ -345,6 +357,19 @@ REGISTRY: tuple[Feature, ...] = (
             vars=_t("byok_admin"),
             config=("SOKKAN_GATEWAY_URL", "SOKKAN_GATEWAY_ADMIN_TOKEN", "SOKKAN_GATEWAY_CLIENT"),
             doc="docs/enterprise/UI-FEATURES.md"),
+    Feature("secrets_provider", "Secrets provider",
+            "Where secrets and encryption keys live (3.3): `file` (vault.json + key files, the "
+            "3.2 behaviour), `openbao` (OpenBao / HashiCorp Vault: KV v2 for project secrets, "
+            "transit wraps the data keys — no clear key on disk; AppRole or Kubernetes auth) or "
+            "`kubernetes` (Secrets of the namespace). Picked by SOKKAN_SECRETS_PROVIDER; unset: "
+            "openbao when SOKKAN_OPENBAO_ADDR is configured, else file (an enterprise instance "
+            "then shows a warning in Setup › Secrets). Off: always file.",
+            status="beta", defaults=_ed(False, True), vars=_t("secrets_provider"),
+            config=("SOKKAN_SECRETS_PROVIDER", "SOKKAN_OPENBAO_ADDR", "SOKKAN_OPENBAO_AUTH",
+                    "SOKKAN_OPENBAO_K8S_ROLE", "SOKKAN_OPENBAO_ROLE_ID",
+                    "SOKKAN_OPENBAO_SECRET_ID_FILE", "SOKKAN_OPENBAO_CACERT",
+                    "SOKKAN_OPENBAO_NAMESPACE", "SOKKAN_INSTANCE_ID"),
+            check=_secrets_check, doc="docs/enterprise/SECRETS.md"),
     Feature("sandbox", "Project sandbox",
             "A session or an agent run of a project (not `default`) reaches only its project's "
             "space: file tools checked by a hook (paths resolved, symlinks followed), Bash "

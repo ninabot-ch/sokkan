@@ -88,8 +88,11 @@ def verify(t: str) -> tuple[str, str] | None:
         sid, email = _unb64(sid_b), _unb64(email_b)
     except (ValueError, UnicodeDecodeError):
         return None
-    good = hmac.new(links.mac_key(), f"{sid}|{email}".encode(), hashlib.sha256).hexdigest()
-    return (sid, email) if hmac.compare_digest(good, sig) else None
+    msg = f"{sid}|{email}".encode()
+    for k in links.mac_keys():  # a forge data-key rotation in progress: old tickets still verify
+        if hmac.compare_digest(hmac.new(k, msg, hashlib.sha256).hexdigest(), sig):
+            return sid, email
+    return None
 
 
 def _hosts(project: str) -> list[str]:

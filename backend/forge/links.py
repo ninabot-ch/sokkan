@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken
 
 import projects
 from forge import ForgeUnauthorized, Provider, Tokens, provider_class
@@ -72,45 +72,71 @@ def provider_for(provider: str, base_url: str) -> Provider:
 
 
 # ---- encryption (the vault's scheme, own key) -------------------------------------------
+# 3.3: the `forge` data key comes from the secrets provider — forge.key (file mode, path below)
+# or a key wrapped by OpenBao transit (forge.key.wrapped, never in clear on disk).
 def _key_path() -> str:
-    d = os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))
-    return os.environ.get("SOKKAN_FORGE_KEY_FILE") or os.path.join(d, "forge.key")
-
-
-_key_lock = threading.Lock()
+    import secrets_provider
+    return secrets_provider.key_path("forge")
 
 
 def _key() -> bytes:
-    p = _key_path()
-    with _key_lock:
-        try:
-            with open(p, "rb") as f:
-                return f.read().strip()
-        except OSError:
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            k = Fernet.generate_key()
-            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(k)
-            return k
+    import secrets_provider
+    return secrets_provider.data_key("forge")
 
 
 def _enc(v: str) -> str:
-    return Fernet(_key()).encrypt(v.encode()).decode() if v else ""
+    import secrets_provider
+    return secrets_provider.encrypt("forge", v) if v else ""
 
 
 def _dec(v: str) -> str:
     if not v:
         return ""
+    import secrets_provider
     try:
-        return Fernet(_key()).decrypt(v.encode()).decode()
+        return secrets_provider.decrypt("forge", v)
     except InvalidToken:
         return ""        # key rotated without re-encryption: the link must be redone
 
 
+def mac_keys() -> list[bytes]:
+    """Keys of the session tickets (forge.gitcred), derived from the forge data keys —
+    the primary signs, every key of a rotation in progress still verifies."""
+    import secrets_provider
+    return [hashlib.sha256(b"sokkan-gitcred-v1|" + k).digest()
+            for k in secrets_provider.all_data_keys("forge")]
+
+
 def mac_key() -> bytes:
-    """Key of the session tickets (forge.gitcred), derived from the forge key."""
-    return hashlib.sha256(b"sokkan-gitcred-v1|" + _key()).digest()
+    """Key that signs new session tickets (the primary forge data key)."""
+    return mac_keys()[0]
+
+
+def reencrypt() -> int:
+    """Data-key rotation: every stored token re-encrypted with the primary forge key."""
+    import secrets_provider
+    f = secrets_provider.active().fernet("forge")
+    n = 0
+    c = _con()
+    with c:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(forge_links)")]
+        enc_cols = [x for x in ("token_enc", "refresh_enc") if x in cols]
+        for r in c.execute("SELECT rowid, " + ", ".join(enc_cols) + " FROM forge_links").fetchall():
+            row = tuple(r)
+            new = []
+            for v in row[1:]:
+                if not v:
+                    new.append(v)
+                    continue
+                try:
+                    new.append(f.rotate(v.encode()).decode())
+                    n += 1
+                except InvalidToken:
+                    new.append(v)
+            c.execute("UPDATE forge_links SET " + ", ".join(f"{x}=?" for x in enc_cols)
+                      + " WHERE rowid=?", (*new, row[0]))
+    c.close()
+    return n
 
 
 # ---- OAuth transactions (state + PKCE verifier), bound to the cockpit person ------------

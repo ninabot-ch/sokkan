@@ -47,6 +47,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`gitlab`](#gitlab) GitLab projects | beta | toggle | off | on | `multi_project`, `sso` | — | `SOKKAN_FEATURE_GITLAB` |
 | [`revocation`](#revocation) Revocation | beta | toggle | off | on | `sso_teams` | — | `SOKKAN_FEATURE_REVOCATION` |
 | [`byok_admin`](#byok_admin) BYOK admin screen | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_BYOK_ADMIN` |
+| [`secrets_provider`](#secrets_provider) Secrets provider | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_SECRETS_PROVIDER` |
 | [`sandbox`](#sandbox) Project sandbox | beta | toggle | off | on | `multi_project` | — | `SOKKAN_FEATURE_SANDBOX` |
 | [`shared_review`](#shared_review) Shared session / preview for review | beta | toggle | off | on | `preview`, `multi_project` | — | `SOKKAN_FEATURE_SHARED_REVIEW` |
 | [`helm`](#helm) Helm | beta | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
@@ -91,6 +92,7 @@ graph LR
   gitlab["GitLab projects"]
   revocation["Revocation"]
   byok_admin["BYOK admin screen"]
+  secrets_provider["Secrets provider"]
   sandbox["Project sandbox"]
   shared_review["Shared session / preview for review"]
   helm["Helm"]
@@ -458,6 +460,16 @@ Setup › Engines: the instance admin sets, replaces or deletes the model provid
 - Requires: `multi_project`
 - Switch: `SOKKAN_FEATURE_BYOK_ADMIN`
 - Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
+
+### secrets_provider
+
+**Secrets provider** — beta, toggle.
+
+Where secrets and encryption keys live (3.3): `file` (vault.json + key files, the 3.2 behaviour), `openbao` (OpenBao / HashiCorp Vault: KV v2 for project secrets, transit wraps the data keys — no clear key on disk; AppRole or Kubernetes auth) or `kubernetes` (Secrets of the namespace). Picked by SOKKAN_SECRETS_PROVIDER; unset: openbao when SOKKAN_OPENBAO_ADDR is configured, else file (an enterprise instance then shows a warning in Setup › Secrets). Off: always file.
+
+- Defaults: community **off**, enterprise **on**
+- Switch: `SOKKAN_FEATURE_SECRETS_PROVIDER`
+- Doc: [docs/enterprise/SECRETS.md](../../docs/enterprise/SECRETS.md)
 
 ### sandbox
 

@@ -9,6 +9,11 @@ l'UI, ni le LLM ne la lisent : seuls les NOMS sont exposés).
 
 Cohérent avec la philosophie : les secrets ne quittent jamais la VM du client.
 Fichiers sous $SOKKAN_DATA_DIR (chmod 0600) : vault.key + vault.json.
+
+3.3: storage goes through the active secrets provider (``secrets_provider``): ``file`` = the
+files above, unchanged; ``openbao`` = KV v2 in OpenBao (vault.json no longer used, vault.key
+wrapped by transit); ``kubernetes`` = Secrets of the namespace. This module keeps the POLICY
+(which project has a namespace, `named` vs `all`); the provider only stores.
 """
 from __future__ import annotations
 
@@ -16,8 +21,6 @@ import json
 import os
 import re
 import threading
-
-from cryptography.fernet import Fernet
 
 DATA_DIR = os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))
 KEY_PATH = os.path.join(DATA_DIR, "vault.key")
@@ -28,17 +31,15 @@ _lock = threading.RLock()
 
 
 def _key() -> bytes:
-    """Clé Fernet de l'instance (générée une fois, 0600)."""
-    try:
-        with open(KEY_PATH, "rb") as f:
-            return f.read().strip()
-    except OSError:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        k = Fernet.generate_key()
-        with open(KEY_PATH, "wb") as f:
-            f.write(k)
-        os.chmod(KEY_PATH, 0o600)
-        return k
+    """Primary data key of the `vault` context (file mode: vault.key, generated once, 0600;
+    openbao: unwrapped by transit in memory). Kept for callers that need raw key bytes."""
+    import secrets_provider
+    return secrets_provider.data_key("vault")
+
+
+def _provider():
+    import secrets_provider
+    return secrets_provider.active()
 
 
 FORMAT = 2   # {"format": 2, "projects": {slug: {NAME: token}}, "instance": {NAME: token}}
@@ -162,26 +163,19 @@ def valid_name(name: str) -> bool:
 def names(project: str = "default") -> list[str]:
     """Noms des secrets d'UN projet (JAMAIS les valeurs) — pour l'UI et le MCP."""
     ns = namespace(project)
-    return sorted((_load()["projects"].get(ns) or {}).keys()) if ns else []
+    return _provider().list(ns) if ns else []
 
 
 def set_secret(name: str, value: str, project: str = "default") -> None:
     if not valid_name(name):
         raise ValueError("le nom doit être une variable d'environnement (A-Z, 0-9, _)")
     ns = _ns_or_raise(project)
-    f = Fernet(_key())
-    with _lock:
-        d = _load()
-        d["projects"].setdefault(ns, {})[name] = f.encrypt(value.encode()).decode()
-        _save(d)
+    _provider().set(ns, name, value)
 
 
 def delete_secret(name: str, project: str = "default") -> None:
     ns = _ns_or_raise(project)
-    with _lock:
-        d = _load()
-        (d["projects"].get(ns) or {}).pop(name, None)
-        _save(d)
+    _provider().delete(ns, name)
 
 
 def session_env(only: list[str] | None = None, project: str = "default") -> dict[str, str]:
@@ -189,17 +183,11 @@ def session_env(only: list[str] | None = None, project: str = "default") -> dict
     serveur uniquement (agentchat), jamais renvoyé à l'UI ni au LLM.
     `project` (3.2 lot 4) : le coffre de CE projet seulement (rien si le projet n'en a
     pas). `only` = les seuls noms voulus (runs d'agent, mode `named`) ; None = tout le
-    coffre du projet (mode `all`)."""
+    coffre du projet (mode `all`). 3.3: a provider that cannot serve raises
+    `secrets_provider.SecretsError` (fail-closed: no session with a silently empty vault)."""
     ns = namespace(project)
     if ns is None:
         return {}
-    f = Fernet(_key())
-    out: dict[str, str] = {}
-    for k, v in (_load()["projects"].get(ns) or {}).items():
-        if only is not None and k not in only:
-            continue
-        try:
-            out[k] = f.decrypt(v.encode()).decode()
-        except Exception:  # noqa: BLE001 — secret corrompu / clé changée : on saute
-            continue
-    return out
+    if only is not None and not only:
+        return {}
+    return _provider().get_all(ns, only)

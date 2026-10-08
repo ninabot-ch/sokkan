@@ -1,19 +1,27 @@
 #!/bin/sh
 # sokkan backup — one timestamped, verifiable backup set, without stopping the API.
 #
-#   ./scripts/backup.sh [OUTPUT_DIR] [--include-plain-key]
+#   ./scripts/backup.sh [OUTPUT_DIR] [--include-plain-key] [--no-secrets-export]
 #
 # Writes OUTPUT_DIR/sokkan-backup-<UTC stamp>/ (OUTPUT_DIR: argument, else
 # $SOKKAN_BACKUP_DIR, else ./backups), directory 0700, files 0600:
 #   pg.dump        pg_dump -Fc of the CortHeXis memory store (skipped when no Postgres)
-#   data.tgz       the whole data directory (/data = SOKKAN_DATA_DIR) WITHOUT vault.key;
-#                  SQLite databases are copied with the online backup API (consistent
-#                  while the API runs)
-#   vault.key.enc  the vault key, AES-256-CBC + PBKDF2 (openssl), when a passphrase is
-#                  given: SOKKAN_BACKUP_KEY_PASSPHRASE or SOKKAN_BACKUP_KEY_PASSFILE
-#   VAULT_KEY_NOT_INCLUDED.txt  otherwise (back vault.key up separately), unless
-#                  --include-plain-key copies it in clear (vault.key, 0600)
-#   MANIFEST       SOKKAN version, date, mode, SQLite databases, sha256 of every file
+#   data.tgz       the whole data directory (/data = SOKKAN_DATA_DIR) WITHOUT any key file
+#                  (vault.key, forge.key, teams.key); SQLite databases are copied with the
+#                  online backup API (consistent while the API runs)
+#   MANIFEST       SOKKAN version, date, mode, secrets provider, sha256 of every file
+# Keys, by secrets provider (docs/enterprise/SECRETS.md):
+#   file (default) <key>.enc for each key file, AES-256-CBC + PBKDF2 (openssl), when a
+#                  passphrase is given: SOKKAN_BACKUP_KEY_PASSPHRASE or _PASSFILE;
+#                  VAULT_KEY_NOT_INCLUDED.txt otherwise, unless --include-plain-key copies
+#                  them in clear (0600)
+#   openbao        (detected: *.key.wrapped in the data directory) NO key at all: data.tgz
+#                  holds the transit-wrapped data keys, secrets.openbao.json the project
+#                  secrets each encrypted by transit (--no-secrets-export: skipped);
+#                  OPENBAO_REQUIRED.txt says what the restore needs (the same OpenBao, or
+#                  its snapshot, with the transit key). --include-plain-key is refused.
+#   kubernetes     (SOKKAN_SECRETS_PROVIDER=kubernetes) no key: the Secrets live in the
+#                  cluster — KUBERNETES_SECRETS_NOT_INCLUDED.txt says which to back up
 #
 # Modes (SOKKAN_BACKUP_MODE):
 #   compose (default when docker-compose.yml is here and the stack runs): pg_dump in the
@@ -29,10 +37,12 @@ umask 077
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT=""
 PLAIN_KEY=0
+SECRETS_EXPORT=1
 for a in "$@"; do
   case "$a" in
     --include-plain-key) PLAIN_KEY=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    --no-secrets-export) SECRETS_EXPORT=0 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     -*) echo "backup: unknown option $a" >&2; exit 2 ;;
     *) OUT="$a" ;;
   esac
@@ -71,6 +81,23 @@ case "$MODE" in
 esac
 command -v python3 >/dev/null 2>&1 || [ "$MODE" = compose ] || die "python3 is required"
 
+# --- secrets provider (decides what happens to the keys) ----------------------------------
+KEYFILES="vault.key forge.key teams.key"
+if [ "$MODE" = compose ]; then
+  PROBE="$(dc exec -T api sh -c 'ls /data/*.key.wrapped 2>/dev/null; echo "env=${SOKKAN_SECRETS_PROVIDER:-}"' 2>/dev/null ||
+           dc run --rm -T --no-deps --entrypoint sh api -c 'ls /data/*.key.wrapped 2>/dev/null; echo "env=${SOKKAN_SECRETS_PROVIDER:-}"' 2>/dev/null || true)"
+else
+  PROBE="$(ls "$SOKKAN_DATA_DIR"/*.key.wrapped 2>/dev/null || true)
+env=${SOKKAN_SECRETS_PROVIDER:-}"
+fi
+SECRETS=file
+if printf '%s\n' "$PROBE" | grep -q '\.key\.wrapped$'; then SECRETS=openbao
+elif printf '%s\n' "$PROBE" | grep -qx 'env=kubernetes'; then SECRETS=kubernetes; fi
+if [ "$SECRETS" != file ] && [ "$PLAIN_KEY" = 1 ]; then
+  die "--include-plain-key: the $SECRETS provider keeps no key in the data directory"
+fi
+PY="${SOKKAN_PYTHON:-python3}"
+
 PASSARG=""
 if [ -n "${SOKKAN_BACKUP_KEY_PASSFILE:-}" ]; then
   [ -r "$SOKKAN_BACKUP_KEY_PASSFILE" ] || die "SOKKAN_BACKUP_KEY_PASSFILE is not readable"
@@ -102,6 +129,9 @@ log "mode $MODE → $OUT/$NAME"
 cat > "$TMP/stage.py" <<'PY'
 import os, shutil, sqlite3, subprocess, sys, tarfile, tempfile
 root = sys.argv[1]
+# key files are never in data.tgz (file provider: backed up apart, encrypted; openbao: only
+# their transit-wrapped form, *.key.wrapped, which is no key)
+KEYS = {k + s for k in ("vault.key", "forge.key", "teams.key") for s in ("", ".next", ".tmp")}
 tmp = tempfile.mkdtemp(prefix="sokkan-stage-")
 try:
     def is_sqlite(p):
@@ -127,7 +157,7 @@ try:
             for n in sorted(files):
                 p = os.path.join(d, n)
                 rel = os.path.relpath(p, root)
-                if rel == "vault.key" or p in companions:
+                if rel in KEYS or p in companions:
                     continue
                 if not (os.path.islink(p) or os.path.isfile(p)):
                     continue  # sockets, fifos
@@ -160,16 +190,18 @@ if [ "$MODE" = compose ]; then
   if echo "$RUNNING" | grep -qx api; then
     dc exec -T api python3 - /data < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
       { cat "$TMP/stage.err" >&2; die "data copy failed"; }
-    dc exec -T api sh -c 'cat /data/vault.key 2>/dev/null || true' > "$TMP/vault.key"
+    for k in $KEYFILES; do dc exec -T api sh -c "cat /data/$k 2>/dev/null || true" > "$TMP/$k"; done
   else
     dc run --rm -T --no-deps --entrypoint python3 api - /data < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
       { cat "$TMP/stage.err" >&2; die "data copy failed"; }
-    dc run --rm -T --no-deps --entrypoint sh api -c 'cat /data/vault.key 2>/dev/null || true' > "$TMP/vault.key"
+    for k in $KEYFILES; do dc run --rm -T --no-deps --entrypoint sh api -c "cat /data/$k 2>/dev/null || true" > "$TMP/$k"; done
   fi
 else
   python3 "$TMP/stage.py" "$SOKKAN_DATA_DIR" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
     { cat "$TMP/stage.err" >&2; die "data copy failed"; }
-  if [ -f "$SOKKAN_DATA_DIR/vault.key" ]; then cp "$SOKKAN_DATA_DIR/vault.key" "$TMP/vault.key"; else : > "$TMP/vault.key"; fi
+  for k in $KEYFILES; do
+    if [ -f "$SOKKAN_DATA_DIR/$k" ]; then cp "$SOKKAN_DATA_DIR/$k" "$TMP/$k"; else : > "$TMP/$k"; fi
+  done
 fi
 grep -v '^SQLITE ' "$TMP/stage.err" >&2 || true
 SQLITE_LIST="$(sed -n 's/^SQLITE //p' "$TMP/stage.err" | tr '\n' ' ' | sed 's/ $//')"
@@ -197,29 +229,77 @@ else
   fi
 fi
 
-# --- vault.key ---------------------------------------------------------------------
-if [ ! -s "$TMP/vault.key" ]; then
-  KEY=absent
-  log "no vault.key in the data directory (empty vault)"
-elif [ -n "$PASSARG" ]; then
-  openssl enc -aes-256-cbc -pbkdf2 -salt -in "$TMP/vault.key" -out "$SET/vault.key.enc" -pass "$PASSARG" ||
-    die "vault.key encryption failed"
-  KEY=encrypted
-elif [ "$PLAIN_KEY" = 1 ]; then
-  cp "$TMP/vault.key" "$SET/vault.key"
-  KEY=plain
-  log "WARNING: vault.key copied IN CLEAR (--include-plain-key): whoever reads this set reads every secret"
-else
-  KEY=not-included
-  cat > "$SET/VAULT_KEY_NOT_INCLUDED.txt" <<EOF
-vault.key is NOT in this backup set: it is the only key to vault.json (the secrets).
-Back it up separately (secrets manager, offline copy), or re-run the backup with
-SOKKAN_BACKUP_KEY_PASSPHRASE / SOKKAN_BACKUP_KEY_PASSFILE to store it encrypted.
-At restore: ./scripts/restore.sh <set> --vault-key <file> --yes
+# --- keys ---------------------------------------------------------------------------
+KEYS_IN=""
+if [ "$SECRETS" != file ]; then
+  KEY=$SECRETS
+  for k in $KEYFILES; do
+    if [ -s "$TMP/$k" ]; then
+      log "WARNING: clear $k in the data directory although the provider is $SECRETS — NOT backed up (finish the migration: secrets-migrate.py --purge)"
+    fi
+  done
+  if [ "$SECRETS" = openbao ]; then
+    cat > "$SET/OPENBAO_REQUIRED.txt" <<EOF
+This set holds NO key. The data keys in data.tgz (*.key.wrapped) and the project secrets in
+secrets.openbao.json are encrypted by OpenBao transit: restoring requires the SAME OpenBao
+(or a restore of its snapshot: bao operator raft snapshot save/restore) with the instance's
+transit key and a token/AppRole allowed to decrypt with it.
+At restore: ./scripts/restore.sh <set> --yes [--import-secrets]
+  (restore.sh checks first that every wrapped key unwraps; nothing is touched otherwise)
 EOF
-  log "vault.key NOT included — back it up separately (or set SOKKAN_BACKUP_KEY_PASSPHRASE)"
+    if [ "$SECRETS_EXPORT" = 1 ]; then
+      if [ "$MODE" = compose ]; then
+        dc exec -T -w /app/backend api python3 -m secrets_provider.cli backup-export --out - > "$SET/secrets.openbao.json" ||
+          die "secrets export from OpenBao failed (--no-secrets-export to skip)"
+      else
+        "$PY" "$HERE/backend/secrets_provider/cli.py" backup-export --out "$SET/secrets.openbao.json" ||
+          die "secrets export from OpenBao failed (--no-secrets-export to skip; SOKKAN_PYTHON = a python with the backend's packages)"
+      fi
+    fi
+  else
+    cat > "$SET/KUBERNETES_SECRETS_NOT_INCLUDED.txt" <<EOF
+The kubernetes secrets provider keeps the data keys and the project secrets in Secrets of
+the namespace: <prefix>-data-keys and <prefix>-vault-<project> (prefix SOKKAN_K8S_SECRETS_PREFIX,
+default sokkan). Back them up with the cluster (Velero, etcd snapshot) — this set has no key.
+EOF
+  fi
+else
+  KEY=absent
+  for k in $KEYFILES; do
+    [ -s "$TMP/$k" ] || continue
+    KEYS_IN="$KEYS_IN $k"
+    if [ -n "$PASSARG" ]; then
+      openssl enc -aes-256-cbc -pbkdf2 -salt -in "$TMP/$k" -out "$SET/$k.enc" -pass "$PASSARG" ||
+        die "$k encryption failed"
+      [ "$k" = vault.key ] && KEY=encrypted
+    elif [ "$PLAIN_KEY" = 1 ]; then
+      cp "$TMP/$k" "$SET/$k"
+      [ "$k" = vault.key ] && KEY=plain
+    else
+      [ "$k" = vault.key ] && KEY=not-included
+    fi
+  done
+  KEYS_IN="${KEYS_IN# }"
+  if [ -z "$KEYS_IN" ]; then
+    log "no key file in the data directory (empty vault)"
+  elif [ -n "$PASSARG" ]; then
+    :
+  elif [ "$PLAIN_KEY" = 1 ]; then
+    log "WARNING: $KEYS_IN copied IN CLEAR (--include-plain-key): whoever reads this set reads every secret"
+  else
+    [ "$KEY" = absent ] && KEY=not-included
+    cat > "$SET/VAULT_KEY_NOT_INCLUDED.txt" <<EOF
+The key files ($KEYS_IN) are NOT in this backup set: vault.key is the only key to vault.json
+(the secrets) and modelkeys.json, forge.key to the forge tokens, teams.key to the Teams tokens.
+Back them up separately (secrets manager, offline copy), or re-run the backup with
+SOKKAN_BACKUP_KEY_PASSPHRASE / SOKKAN_BACKUP_KEY_PASSFILE to store them encrypted.
+At restore: ./scripts/restore.sh <set> --vault-key <file> [--keys-dir <dir>] --yes
+EOF
+    log "keys ($KEYS_IN) NOT included — back them up separately (or set SOKKAN_BACKUP_KEY_PASSPHRASE)"
+  fi
 fi
-rm -f "$TMP/vault.key"
+# key material truncated now; the temp directory itself goes with the EXIT trap
+for k in $KEYFILES; do : > "$TMP/$k"; done
 
 # --- MANIFEST ------------------------------------------------------------------------
 VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
@@ -230,6 +310,8 @@ VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
   echo "mode: $MODE"
   echo "postgres: $PG"
   echo "vault_key: $KEY"
+  echo "secrets_provider: $SECRETS"
+  echo "keys: $KEYS_IN"
   echo "sqlite: $SQLITE_LIST"
   echo "sha256:"
   for f in "$SET"/*; do
