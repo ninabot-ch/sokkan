@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.2.2 — unreleased
+## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
   sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·
   Preview), **Operate** (Incidents · Infra · Costs · Journal) and **Setup**
@@ -38,6 +38,25 @@ Notable changes, newest first. Versions: semver + release hash (see
 - The public demo's guided tour points to the new places (Build › Sessions, Control › Board,
   Control › CortHeXis, Operate › Costs, Build › Crew). Nina's knowledge base, the docs and the
   messages that said « Profile → … » now say « Setup › … ».
+
+- **Captains on the public demo** (feature `demo_captains`, requires `demo_banner` + `multi_project`, public demo
+  only): the visitor (a viewer) reads Control › Helm (project cards, hierarchy, computed progress, reframe
+  suggestions), the board, the project selector over 3 fictional projects, a « Shared with me » session, Setup ›
+  Engines and Setup › Organization — fictional people only (`@example.com`), no key, no « connected by », no base
+  URL. **Nothing is written by a visitor**: every non-read request under `/api` from someone below instance admin
+  answers 403 « read-only demo » before any route (Nina's chat excepted, capped per day); read-only actions are
+  greyed « read-only demo ». Idempotent seed `backend/demo_captains.py seed <captains.json>` (refused unless
+  `SOKKAN_DEMO_CAPTAINS=1` or `--force`; people must be `@example.com`, never admin; the agents of `demo_crew`
+  are kept). `docs/enterprise/UI-FEATURES.md` § 4.
+- **UI pass** (captures 1280 / 1440 / 390, scored critique, journey « how is an agent approved »: PARTIAL →
+  SUCCESS): at 390 px the planes get a full-width row of their own (they were hidden behind a sideways scroll);
+  the board's four columns fit 1280 px; empty columns say what goes there; Setup › Engines tells the admin where
+  to start when no engine is allowed; a Crew card waiting for approval says so at its head and its popout names
+  **who approves** (owner or instance admin, an instance admin, or a second person — per `SOKKAN_AGENTS_APPROVAL`);
+  read-only buttons are really greyed (the dimming class was never generated); no internal pricing warning on the
+  demo; the demo tour gains « ⑥ who approves what » and « ⑦ several teams, several projects » and folds on a
+  phone; a deep link to a place you do not have says so; contrast of small blue and dimmed text ≥ 4.5:1.
+- Only an instance admin's last plane is saved (`PUT /api/me/nav` is no longer called for other people).
 
 ## 3.2.1 — 2026-10-08 — "Captains"
 - **Fix: the API no longer crashes at startup when a numeric setting arrives as an empty string.** `docker compose`
