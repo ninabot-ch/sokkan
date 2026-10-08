@@ -817,3 +817,18 @@ def test_chart_configure_script_against_real_openbao(data, monkeypatch, tmp_path
         assert cli.main(["rotate", "--master"]) == 0
     finally:
         fake.close()
+
+
+def test_signatures_survive_a_rotation_in_progress(provider, data, monkeypatch):
+    """Between `add_data_key` and the end of the rotation, a git ticket or a Teams approval
+    signed with the old key still verifies (sessions do not break mid-rotation)."""
+    from forge import gitcred
+    from teams import signing
+    monkeypatch.setenv("SOKKAN_TEAMS_DB", str(data / "teams.db"))
+    tk = gitcred.ticket("sid", "dev@x.ch")
+    appr = signing.issue("run", "9", "default", "dev@x.ch")
+    provider.add_data_key("forge")
+    provider.add_data_key("teams")
+    assert gitcred.verify(tk) == ("sid", "dev@x.ch")
+    signing.peek(appr)
+    assert gitcred.verify(gitcred.ticket("sid2", "dev@x.ch")) == ("sid2", "dev@x.ch")
