@@ -107,6 +107,16 @@ def test_owner_isolation_and_viewer_blocked(client):
     assert client.get("/api/agents").status_code == 403
 
 
+def test_proposal_reports_every_missing_field_at_once(client):
+    """3.4.1 (live 08.10): purpose then deliverable were demanded one 400 at a time."""
+    r = client.post("/api/agents/proposals", json={"name": "Bad Name"})
+    assert r.status_code == 400
+    d = r.json()["detail"]
+    assert "kebab-case" in d and "purpose is required" in d and "deliverable is required" in d
+    r = client.post("/api/agents/proposals", json={"name": "ok-name", "purpose": "p"})
+    assert r.status_code == 400 and r.json()["detail"].startswith("deliverable is required")
+
+
 def test_nina_proposal_waits_for_approval(client):
     r = client.post("/api/agents/proposals", json={**AGENT, "name": "from-nina"})
     a = r.json()

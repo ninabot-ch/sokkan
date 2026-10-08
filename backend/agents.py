@@ -360,10 +360,13 @@ def validate(fields: dict, partial: bool = False, known_secrets: list[str] | Non
     def has(k: str) -> bool:
         return k in f and f[k] is not None
 
+    # 3.4.1: the required fields are reported TOGETHER (a caller — Nina, the MCP, a script —
+    # got « purpose is required » then « deliverable is required » in two round trips)
+    missing: list[str] = []
     if has("name") or not partial:
         name = (f.get("name") or "").strip().lower()
         if not _NAME_RE.match(name):
-            raise AgentError("name: kebab-case slug, 2-48 chars, e.g. 'nightly-cve-audit'")
+            missing.append("name: kebab-case slug, 2-48 chars, e.g. 'nightly-cve-audit'")
         out["name"] = name
     for k, lim in (("purpose", 6000), ("deliverable", 3000), ("done_criteria", 2000)):
         if has(k):
@@ -373,9 +376,11 @@ def validate(fields: dict, partial: bool = False, known_secrets: list[str] | Non
             out[k] = v
     if not partial:
         if not out.get("purpose"):
-            raise AgentError("purpose is required — what is this agent for?")
+            missing.append("purpose is required — what is this agent for?")
         if not out.get("deliverable"):
-            raise AgentError("deliverable is required — what must a run hand back?")
+            missing.append("deliverable is required — what must a run hand back?")
+    if missing:
+        raise AgentError("; ".join(missing))
     if has("model"):
         m = str(f["model"]).strip()
         if m and not re.match(r"^[A-Za-z0-9._:/\[\]-]{2,80}$", m):
