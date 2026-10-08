@@ -40,6 +40,43 @@ Notable changes, newest first. Versions: semver + release hash (see
   model Magnitude launched (action `attach`; the engine is not touched). New:
   `MAGNITUDE_DISCOVER_PORTS`, `MAGNITUDE_ENGINE_CARDS`, `MAGNITUDE_GPU_DEVICES`. Agents 0.1 keep
   working with this cockpit, and this agent with a 3.2.2 cockpit (unknown sync fields ignored).
+- **Magnitude can load a model again.** Two reasons nothing started: upstream llama.cpp now
+  publishes its `bNNNNN` builds as pre-releases and `releases/latest` points at a source-only
+  release, so the first Run or Benchmark on any machine failed with « no llama.cpp prebuilt
+  asset » — the agent now takes the newest release that ships a build for the platform, reuses
+  a build already on the machine (no silent upgrade between two benches) and still honours
+  `MAGNITUDE_LLAMA_TAG`; and a failed start now says why (the line of `llama-server.log`, e.g. an
+  option it rejects, out of memory), with what to do on the machine in the cockpit. Run on Intel
+  cards uses the SYCL image `ghcr.io/ggml-org/llama.cpp:server-intel` through Docker when the
+  daemon is there (on the allowed cards only, GGUF read-only, loopback port, memory/CPU caps),
+  else the Vulkan prebuilt; NVIDIA / AMD → Vulkan prebuilt; Apple → Metal; no card allowed → CPU
+  (`MAGNITUDE_RUNTIME` forces). Every server gets `--cache-ram 2048` (`MAGNITUDE_CACHE_RAM`).
+- **Magnitude shows the live load of each machine.** Agent 0.3.0 samples every 3 s, per card,
+  busy %, VRAM used / total, temperature and power (Intel `xe`: debugfs `vram_mm` or DRM fdinfo,
+  GT idle residency, hwmon; NVIDIA: `nvidia-smi`; AMD: sysfs), plus CPU %, load and RAM. The
+  node's section shows them per card (meters, two-minute history) and for the machine; samples
+  stay in memory, never in `magnitude.json`. **`GET /metrics`** (and `/api/magnitude/metrics`)
+  exposes `sokkan_magnitude_*` gauges (node up / last seen, CPU, RAM, per-GPU busy, memory,
+  temperature, power, engines up, serving) for Prometheus and Operate — `Authorization: Bearer
+  $SOKKAN_METRICS_TOKEN` when set, otherwise direct loopback clients only (proxied requests are
+  refused).
+- **Run stays off the cards that serve production.** `MAGNITUDE_GPU_DEVICES` (card numbers, or
+  `none`) is reported to the cockpit, which shows « Cards for Run: … · production: … » and tags
+  each card *Run* or *prod*; `none` runs Magnitude's models on the CPU with no backend device at
+  all (`--device none`, `MAGNITUDE_CPU_THREADS`). The catalogue's fit is computed where the run
+  would happen — the FREE memory of the allowed cards, or the RAM still available — and the API
+  refuses (409, with the reason) a Run or Benchmark that does not fit. Benches record where they
+  ran; older ones say « on the hardware of that day ».
+- **No more endless « waiting for the agent ».** A node silent for 10 minutes, or paired and never
+  connected, shows « offline since … » / « never connected » with an Unpair button. The agent
+  sends the engines it finds at every pass (0.2 sent them on change only: a cockpit upgraded
+  afterwards never showed them) and re-sends its profile or engines when the cockpit asks
+  (`resend` in the sync answer).
+- **Memory card.** The recommendation names the machine that can serve it and its reason (it
+  showed the cockpit's « 8 cores, 12.6 GB RAM » next to a GPU recommendation); a profile a
+  Magnitude node can serve is no longer « too small »; the engine's servers and re-ranker are
+  shown; on an instance without the 3.0 store it says the profile is set on the server and how;
+  preparing a profile change requires ticking that every note will be re-read.
 
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
