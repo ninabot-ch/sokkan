@@ -81,6 +81,30 @@ Notable changes, newest first. Versions: semver + release hash (see
 =======
 ## Unreleased — 3.3
 
+### Secrets provider — OpenBao as the reference (feature `secrets_provider`, beta)
+- **Where secrets live is now a choice**: `file` (default, the 3.2 files unchanged), **`openbao`**
+  (OpenBao / HashiCorp Vault: project secrets in KV v2 under `sokkan/<instance>/<project>/`, every
+  data key — vault/BYOK, forge tokens, Teams tokens — wrapped by a transit key that never leaves
+  OpenBao: no clear key on the data volume; AppRole or Kubernetes ServiceAccount auth, token
+  renewal, TLS, namespaces) or `kubernetes` (Secrets of the namespace). `SOKKAN_SECRETS_PROVIDER`,
+  or openbao automatically when `SOKKAN_OPENBAO_ADDR` is set (enterprise). docs/enterprise/SECRETS.md.
+- **Hot migration** `scripts/secrets-migrate.py --from file --to openbao` (idempotent, verified by
+  reading back, `--check`, `--purge` shreds the clear keys) and back to files; passphrase-encrypted
+  export / import.
+- **Rotation** `scripts/secrets-rotate.py`: `--master` (transit rotate + rewrap, operator token)
+  and `--data-keys` (new key, every stored value re-encrypted, old key dropped), journaled.
+- **Backups**: in openbao mode a set holds no key at all (KV secrets transit-encrypted,
+  `OPENBAO_REQUIRED.txt`); `restore.sh` checks every wrapped key unwraps before touching anything,
+  `--import-secrets`. In file mode `forge.key` and `teams.key` are no longer inside `data.tgz` in
+  clear: they are encrypted with the passphrase like `vault.key` (`--keys-dir` at restore).
+- **Helm**: optional one-node OpenBao (`openbao.enabled`, init/unseal documented, auto-unseal out
+  of scope), kubernetes auth configured by a post-install Job, the customer's own Vault
+  (`openbao.address`, `caSecret`, `auth.method` kubernetes | approle), `values-sks.yaml` on OpenBao.
+- **Setup › Secrets**: provider, why, configuration, **Test connection**; a warning on an
+  enterprise instance whose keys are files. `GET /api/admin/secrets-provider`, `POST …/test`.
+- Upgrade note: nothing changes until you choose; an **enterprise instance with
+  `SOKKAN_OPENBAO_ADDR` set switches to openbao at restart** — migrate first (SECRETS.md § 4).
+
 ### Fixes (3.2.3 candidate)
 - **`GET /api/version`** (auth-free): `version` (the VERSION file baked into the image), `commit`
   (build arg `SOKKAN_COMMIT`), `dist` (`<version>+<commit>`), `image_tag` and `edition`. A rollout

@@ -41,6 +41,15 @@ without granting themselves a role, which is logged. Full matrix:
 
 * Vault encrypted at rest (Fernet, instance key, files 0600) ●; per-project namespaces + an
   `instance` namespace sessions never receive ○ lot 4.
+* **Secrets provider** (3.3, [SECRETS.md](SECRETS.md)) ◐: with `openbao` the project secrets are in
+  OpenBao KV v2 and every data key (vault / BYOK, forge tokens, Teams tokens) is wrapped by a
+  transit key that never leaves OpenBao — a copy of the data volume or of a backup set reveals
+  nothing without OpenBao; the api's policy cannot rotate, export or delete that key nor read
+  another instance's prefix; AppRole or Kubernetes (ServiceAccount) auth, TLS verified, token
+  renewal. With `file` the keys sit next to the data (enterprise instances get a warning). An
+  unreachable or sealed OpenBao = 503 on secret reads, never a fallback to files or a new key.
+* Backups never contain a clear key unless `--include-plain-key` is asked (file provider only);
+  3.3 also removes `forge.key` / `teams.key` from `data.tgz` (they were in clear in 3.2).
 * **Named secrets**: a session or agent receives only the secrets named for it
   (`SOKKAN_SESSION_SECRETS=named`, default from 3.2) ◐; agents reference names only, a value
   that looks like a key is refused ●.

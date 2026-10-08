@@ -297,3 +297,10 @@ model endpoint went through the egress proxy (new `SOKKAN_SESSION_NO_PROXY`).
 Host note: Docker's default address pools were exhausted on gmk1 — the scripts create their
 network with an explicit subnet (`K3D_SUBNET`, default 10.251.0.0/24), and relax the kubelet
 disk-eviction thresholds (the host disk was > 90 % full).
+
+
+## Secrets provider (3.3)
+
+`secrets.provider` (file | openbao | kubernetes), the optional one-node OpenBao
+(`openbao.enabled`), the customer's Vault (`openbao.address`) and the configure Job:
+[SECRETS.md](SECRETS.md) § 6-7.

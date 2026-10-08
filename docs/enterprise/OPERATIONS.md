@@ -285,7 +285,7 @@ What holds state:
 
 | Where | Content | Criticality |
 |---|---|---|
-| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately |
+| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately. With the **openbao** provider (3.3) the volume holds no key (`*.key.wrapped` only) and the project secrets are in OpenBao: [SECRETS.md](SECRETS.md) |
 | volume `sokkan-pg` | CortHeXis (Postgres + pgvector: notes, links, versions, recall log) | critical |
 | `SOKKAN_WORKSPACE` | the code sessions work on (also in your forge) | per your forge policy |
 | `.env` | configuration and secrets (0600) | critical, store in your secrets manager |
@@ -309,9 +309,10 @@ as a hidden `.partial` directory and renamed at the end, so a failed run leaves 
 | File | Content |
 |---|---|
 | `pg.dump` | `pg_dump -Fc` of the CortHeXis store (absent on a SQLite-only install) |
-| `data.tgz` | the whole data directory (`/data`) **except `vault.key`** |
-| `vault.key.enc` | `vault.key`, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase |
-| `VAULT_KEY_NOT_INCLUDED.txt` | instead of the above when no passphrase is given: back `vault.key` up separately |
+| `data.tgz` | the whole data directory (`/data`) **except the key files** (`vault.key`, and since 3.3 `forge.key`, `teams.key`) |
+| `vault.key.enc`, `forge.key.enc`, `teams.key.enc` | each key file present, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase (file provider) |
+| `VAULT_KEY_NOT_INCLUDED.txt` | instead of the above when no passphrase is given: back the key files up separately |
+| `secrets.openbao.json`, `OPENBAO_REQUIRED.txt` | openbao provider: the KV secrets, each encrypted by transit — **no key in the set**; restoring needs the same OpenBao ([SECRETS.md § 8](SECRETS.md#8-backups)) |
 | `MANIFEST` | SOKKAN version, UTC date, mode, SQLite databases found, sha256 of every file |
 
 | Variable / option | Meaning |
@@ -373,7 +374,10 @@ SOKKAN_BACKUP_KEY_PASSFILE=/root/.sokkan-backup-pass \
   `SOKKAN_BACKUP_PG_DSN` (the database must exist).
 * Vault key, first found: `--vault-key FILE` (your separate copy), `vault.key.enc` + passphrase,
   a clear `vault.key` in the set. None: the current `vault.key` is kept and a warning says the
-  secrets are unreadable unless it is the original key.
+  secrets are unreadable unless it is the original key. `forge.key` / `teams.key` the same way
+  (`--keys-dir DIR` for separate copies).
+* openbao provider: every wrapped key of the set must unwrap with the configured OpenBao before
+  anything is touched; `--import-secrets` puts the KV values back.
 * `--yes` (or `SOKKAN_RESTORE_YES=1`) is required.
 
 After a restore: `./scripts/doctor.sh`, then log in and open a secret, a board card and a memory
@@ -387,6 +391,15 @@ note.
   anything).
 * On the customer's side: restore the latest set on a **staging** copy of the instance (other
   VM, same release) at go-live and then every quarter; log in, open a secret, search memory.
+
+### 5.1 Secrets provider (3.3)
+
+Where the secrets and their keys live — files (default), **OpenBao** (reference for enterprise:
+no key on the volume) or Kubernetes Secrets — is a choice made once and migrated hot:
+[SECRETS.md](SECRETS.md) (model, OpenBao setup, AppRole vs Kubernetes auth, migration,
+rotation, backups, minimal OpenBao operations). Check: Setup › Secrets → **Test connection**;
+startup log line `[secrets] provider …`. An enterprise instance still on files shows a warning
+there.
 
 ## 6. Upgrade and roll back
 
@@ -441,14 +454,16 @@ Severity levels, notification chain and post-mortem template: **TBD with the cus
 | Secret | Where | Rotation | Effect |
 |---|---|---|---|
 | Vault values (DB passwords, tokens) | Setup › Secrets (maintainer+ of the project in 3.2) | set the new value | sessions and runs started afterwards get it; redaction uses the current value |
-| `vault.key` (vault encryption key) | `/data/vault.key` | **TBD — no re-encryption tool** | — |
+| Data keys `vault.key`, `forge.key`, `teams.key` (file) / wrapped data keys (openbao) | `/data` | `scripts/secrets-rotate.py --data-keys` (new key, every value re-encrypted, old key dropped; journaled) | live sessions reopen to push after a `forge` rotation |
+| OpenBao transit key (master) | OpenBao | `scripts/secrets-rotate.py --master` with the operator's token (rewrap) | none |
+| AppRole `secret-id` (openbao, compose) | OpenBao + the file of `SOKKAN_OPENBAO_SECRET_ID_FILE` | new `secret-id`, replace the file, restart `api` | — |
 | Cockpit session signing (`SOKKAN_SESSION_SECRET` or `/data/session.key`) | `.env` / data volume | change and restart `api` | everyone is logged out |
 | OIDC client secret | IdP + `.env` | rotate in the IdP, update `.env`, `docker compose up -d api` | logins fail between the two steps |
 | Model API key / tenant token | cockpit model settings or `.env` | replace, restart `api` if in `.env` | — |
 | Claude BYOK key at the gateway | operated: set by the operator (encrypted) | replace; the old one is erased | — |
 | Forge tokens (lot 5) | per person, `projects.db` encrypted with `/data/forge.key` | refreshed automatically (GitLab rotates refresh tokens); unlink to erase | — |
 | GitLab OAuth application secret | GitLab + `.env` (`SOKKAN_GITLAB_CLIENT_SECRET`) | renew in GitLab, update `.env`, `docker compose up -d api` | links keep working (refresh uses the new secret) |
-| `forge.key` | `/data/forge.key` | delete it and restart: everyone links GitLab again | access re-read at the next link |
+| `forge.key` | `/data/forge.key` | `secrets-rotate.py --data-keys forge` (3.3) — or delete it and restart: everyone links GitLab again | access re-read at the next link |
 
 Rotation calendar: **TBD with the customer's policy**.
 
