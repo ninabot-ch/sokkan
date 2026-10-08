@@ -1296,9 +1296,14 @@ def brief_markdown(b: dict) -> str:
     day = datetime.fromtimestamp(b["now"], TZ)
     L = [f"# Morning brief — {who} — {day:%a %d.%m.%Y}", f"Project `{b['project']}`.", ""]
 
+    quiet: list[str] = []
+
     def sec(title, items, fmt):
+        if not items:                  # 3.4: an empty section is one word at the end, not a block
+            quiet.append(title.lower())
+            return
         L.append(f"## {title}")
-        L.extend([f"- {fmt(x)}" for x in items] if items else ["- none"])
+        L.extend(f"- {fmt(x)}" for x in items)
         L.append("")
     if b.get("agenda") is not None:
         sec("Agenda", b["agenda"], lambda e: e.get("error") or
@@ -1315,6 +1320,8 @@ def brief_markdown(b: dict) -> str:
     sec("Recent decisions", b["decisions"], lambda x: f"#{x['card_id']} {x['title']}: {x['decision']} ({x['by']})")
     if b["suggestions"]:
         sec("Helm suggestions to review", b["suggestions"], lambda x: f"{x['kind']}: {x['title']}")
+    if quiet:
+        L.append("Nothing to report: " + ", ".join(quiet) + ".")
     return "\n".join(L).strip() + "\n"
 
 

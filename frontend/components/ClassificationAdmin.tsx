@@ -99,17 +99,17 @@ function AccessLog() {
   }, [days, actor, note]);
   return (
     <div className="rounded-lg border border-line bg-panel2/40 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="mr-auto">
-          <div className="text-[13px] font-semibold text-slate-100">Access log{d ? ` — ${d.project}` : ""}</div>
-          <div className="text-[11px] text-mut">Who obtained which note of this project, and through which path. Every read is recorded.</div>
-        </div>
+      <div>
+        <div className="text-[13px] font-semibold text-slate-100">Access log{d ? ` — ${d.project}` : ""}</div>
+        <div className="text-[11px] text-mut">Who obtained which note of this project, and through which path. Every read is recorded.</div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <input aria-label="Filter by person" placeholder="person (email)" value={actor} onChange={(e) => setActor(e.target.value)} className={`${inp} w-44`} />
         <input aria-label="Filter by note" placeholder="note name" value={note} onChange={(e) => setNote(e.target.value)} className={`${inp} w-40`} />
         <select aria-label="Period" value={days} onChange={(e) => setDays(+e.target.value)} className={inp}>
           {[1, 7, 30, 90, 365].map((n) => <option key={n} value={n}>{n === 1 ? "last 24 h" : `last ${n} days`}</option>)}
         </select>
-        <a href={auditCsvUrl(days, actor.trim(), note.trim())} className="rounded border border-line px-2 py-1 text-[12px] text-sky-300 hover:border-sea/50">⤓ Export CSV</a>
+        <a href={auditCsvUrl(days, actor.trim(), note.trim())} className="ml-auto rounded border border-line px-2 py-1 text-[12px] text-sky-300 underline-offset-2 hover:border-sea/50 hover:underline">⤓ Export CSV</a>
       </div>
       {err && <div className="mt-2 text-[11.5px] text-red-300">{err}</div>}
       {d && d.hidden_above_clearance > 0 && (
@@ -117,8 +117,9 @@ function AccessLog() {
           {d.hidden_above_clearance} read(s) of notes above your clearance ({d.clearance}) are recorded but not shown to you.
         </div>
       )}
-      <div className="mt-2 max-h-80 overflow-y-auto">
-        <table className="w-full text-left text-[12px]">
+      <div className="mt-2 max-h-80 overflow-y-auto" tabIndex={0} aria-label="Access log entries">
+        <table className="w-full table-fixed text-left text-[12px]">
+          <colgroup><col className="w-[9.5rem]" /><col className="w-[10.5rem]" /><col className="w-[4.5rem]" /><col className="w-[10rem]" /><col className="w-[6.5rem]" /><col /></colgroup>
           <thead className="sticky top-0 bg-panel text-[10.5px] uppercase tracking-wide text-mut">
             <tr><th className="py-1 pr-2">when</th><th className="pr-2">who</th><th className="pr-2">through</th><th className="pr-2">note</th><th className="pr-2">level</th><th>question</th></tr>
           </thead>
@@ -126,11 +127,11 @@ function AccessLog() {
             {d?.entries.map((r, i) => (
               <tr key={i} className="align-top">
                 <td className="whitespace-nowrap py-1 pr-2 text-mut" title={r.at}>{new Date(r.at).toLocaleString()}</td>
-                <td className="pr-2 text-slate-200">{r.actor || "—"}{r.actor_source ? <span className="text-mut"> ({r.actor_source})</span> : null}</td>
+                <td className="break-words pr-2 text-slate-200">{r.actor || "—"}{r.actor_source ? <span className="text-mut"> ({r.actor_source})</span> : null}</td>
                 <td className="pr-2 text-slate-300">{r.via}</td>
-                <td className="pr-2 font-mono text-[11.5px] text-slate-200">{r.note_name}</td>
+                <td className="break-words pr-2 font-mono text-[11.5px] text-slate-200">{r.note_name}</td>
                 <td className="pr-2"><LevelBadge level={r.level} /></td>
-                <td className="max-w-[22rem] truncate text-mut" title={r.query || ""}>{r.query || ""}</td>
+                <td className="text-mut" title={r.query || ""}><span className="line-clamp-2">{r.query || ""}</span></td>
               </tr>
             ))}
             {d && d.entries.length === 0 && <tr><td colSpan={6} className="py-3 text-mut">No read in this period.</td></tr>}

@@ -60,11 +60,12 @@ export function LevelControl({ level, canWrite = true, onSet }: {
   };
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
-      <LevelBadge level={now} />
+      {!canWrite && <LevelBadge level={now} />}
       {canWrite && (
-        <select aria-label="Reclassify" value={pending ?? now} disabled={busy}
+        <select aria-label="Classification (change it to reclassify)" value={pending ?? now} disabled={busy}
+          title="Raising is immediate; lowering asks for a reason (journaled) and a maintainer cleared for the current level"
           onChange={(e) => { const v = e.target.value; if (rank(v) < rank(now)) setPending(v); else { setPending(null); if (v !== now) apply(v, ""); } }}
-          className="rounded border border-line bg-panel2 px-1 py-0.5 text-[11px] text-slate-300">
+          className={`rounded border bg-panel2 px-1 py-0.5 text-[11.5px] ${TONES[rank(pending ?? now)] ?? TONES[2]}`}>
           {info.scale.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
         </select>
       )}

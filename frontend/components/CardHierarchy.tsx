@@ -46,7 +46,7 @@ export default function CardHierarchy({ card, canWrite, patch, onOpenCard }: {
       {canWrite && (
         <div className="mb-2 flex items-center gap-1.5 text-[11.5px]">
           <span className="text-mut">move under card #</span>
-          <input value={parent} onChange={(e) => setParent(e.target.value.replace(/\D/g, ""))} placeholder="id"
+          <input aria-label="Move under card number" value={parent} onChange={(e) => setParent(e.target.value.replace(/\D/g, ""))} placeholder="id"
             className="w-16 rounded border border-line bg-panel2 px-1.5 py-0.5 text-slate-200" />
           <button disabled={!parent} onClick={() => patch({ parent_id: Number(parent) }).then(() => setParent(""))}
             className="rounded border border-line px-2 py-0.5 text-mut hover:text-slate-200 disabled:opacity-40">move</button>

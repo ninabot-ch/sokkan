@@ -119,7 +119,7 @@ export default function CardModal({
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
           <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`} title={`priority ${p.label}`} />
           <div className="min-w-0 flex-1">
-            <input
+            <input aria-label="Card title"
               key={card.id}
               ref={titleRef}
               defaultValue={card.title}
@@ -266,7 +266,7 @@ export default function CardModal({
                       setNewItem("");
                     }
                   }}
-                  placeholder="+ add an item (Enter)"
+                  placeholder="+ add an item (Enter)" aria-label="Add a checklist item"
                   className="w-full rounded border border-line/60 bg-transparent px-2 py-1 text-[12px] text-slate-200 outline-none placeholder:text-mut/60 focus:border-sea/50" />
               )}
             </div>
@@ -293,7 +293,7 @@ export default function CardModal({
               {canWrite && (
                 <div className="flex gap-2">
                   <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2}
-                    placeholder="add a comment (markdown)"
+                    placeholder="add a comment (markdown)" aria-label="Add a comment"
                     className="flex-1 rounded border border-line/60 bg-transparent px-2 py-1 text-[12px] text-slate-200 outline-none placeholder:text-mut/60 focus:border-sea/50" />
                   <button disabled={!comment.trim()}
                     onClick={() => act(async () => { await commentCard(card.id, comment.trim()); setComment(""); })}
