@@ -23,14 +23,14 @@ export default function ProjectSelector() {
   if (!list || !list.multi || work.length === 0) return null;
   const mine = work.find((p) => p.slug === cur);
   return (
-    <label className="ml-1 flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel2 px-2 py-1 text-[12px] text-slate-200"
+    <label className="ml-1 flex min-w-0 shrink items-center gap-1.5 rounded-lg border border-line bg-panel2 px-2 py-0.5 text-[12px] text-slate-200 md:shrink-0"
       title="The project you work in: sessions, board, agents and memory of this project only (+ shared, read-only)">
-      <span className="text-mut">project</span>
+      <span className="hidden text-mut sm:inline">project</span>
       <select aria-label="Project" value={cur} onChange={(e) => switchProject(e.target.value)}
-        className="max-w-[160px] bg-transparent font-medium text-slate-100 outline-none">
+        className="h-6 min-w-0 max-w-[120px] bg-transparent font-medium text-slate-100 outline-none sm:max-w-[160px]">
         {work.map((p) => <option key={p.slug} value={p.slug} className="bg-panel">{p.name}</option>)}
       </select>
-      {mine && <span className={`text-[10.5px] ${ROLE_COLOR[mine.role] || "text-mut"}`}>{mine.role}</span>}
+      {mine && <span className={`hidden text-[10.5px] sm:inline ${ROLE_COLOR[mine.role] || "text-mut"}`}>{mine.role}</span>}
     </label>
   );
 }

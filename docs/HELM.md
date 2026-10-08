@@ -1,7 +1,7 @@
 # Helm — steering a project (SOKKAN 3.3)
 
 Feature `helm` (`SOKKAN_FEATURE_HELM`, beta). Requires `multi_project` and `assistant`.
-Default: off in community, on in enterprise. Turning it off hides the Helm tab and every
+Default: off in community, on in enterprise. Turning it off hides the Control › Helm sub-tab and every
 `/api/helm/*` route (404), refuses hierarchy edits on the board (400) and stops the
 periodic job; the columns and tables it added stay, unused.
 

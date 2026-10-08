@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """connectai.py — SOKKAN `connect_ai`: « Connect your AI ».
 
-One screen (it wraps Profile → Model) where the engines a SOKKAN instance can drive are
+One screen (Setup › Engines, with the instance model keys) where the engines a SOKKAN instance can drive are
 cards: Claude (login or key), OpenAI / Codex, Gemini, OpenRouter, SOKKAN Router,
 Ollama / local, Magnitude (your GPUs). Two modes:
 
@@ -68,7 +68,7 @@ ENGINES: tuple[dict, ...] = (
     {"id": "magnitude", "label": "Magnitude", "vendor": "your GPUs", "avatar": "M",
      "auths": ["none"], "bridge": "anthropic", "provider": "custom", "base_url": "",
      "zone": "local",
-     "blurb": "Your GPUs, served by Magnitude (tab Magnitude): paste the node's endpoint."},
+     "blurb": "Your GPUs, served by Magnitude (Setup › Magnitude): paste the node's endpoint."},
 )
 BY_ID = {e["id"]: e for e in ENGINES}
 
@@ -369,7 +369,30 @@ def session_overrides(session_id: str, model: str | None) -> tuple[dict, str | N
     return env, m or ""
 
 
+def engine_providers(eid: str) -> list[str]:
+    """The model-key providers an engine's key lives under (Claude: API key or login)."""
+    e = BY_ID[eid]
+    return ["anthropic", "claude_login"] if eid == "claude" else [e["provider"]]
+
+
+def engine_keys(eid: str) -> list[dict]:
+    """The instance keys of this engine's provider(s), masked (…last4, by, when, test)."""
+    out = []
+    for prov in engine_providers(eid):
+        rec = modelkeys.record("instance", prov)
+        if rec:
+            k = modelkeys.public("instance", prov, rec)
+            k["testable"] = bool(modelkeys.PROVIDERS[prov]["test_url"])
+            out.append(k)
+    return out
+
+
 # ---- the screen ---------------------------------------------------------------------------
+
+def _demo() -> bool:
+    import demo_captains
+    return demo_captains.enabled()
+
 
 def view(user: dict, project: str | None, is_admin: bool, project_role: str | None) -> dict:
     import llm
@@ -385,10 +408,14 @@ def view(user: dict, project: str | None, is_admin: bool, project_role: str | No
         conn = None
         if c:
             k = modelkeys.record(*c["key_ref"].rsplit(":", 1)) if c.get("key_ref") else None
-            conn = {"auth": c["auth"], "base_url": c.get("base_url", ""),
+            # 3.2.2 Captains demo: a non-admin sees that an engine is connected, never by whom
+            # nor where (base URL), and never a key tail
+            hide = not is_admin and _demo()
+            conn = {"auth": c["auth"], "base_url": "" if hide else c.get("base_url", ""),
                     "model": c.get("model", ""), "small_model": c.get("small_model", ""),
-                    "by": c.get("connected_by", ""), "at": c.get("connected_at"),
-                    "masked": ("…" + k["last4"]) if k and k.get("last4") else None}
+                    "by": "" if hide else c.get("connected_by", ""), "at": c.get("connected_at"),
+                    # 3.2.2: the key's tail is the admin's business (Setup › Engines)
+                    "masked": ("…" + k["last4"]) if is_admin and k and k.get("last4") else None}
         engines.append({
             "id": e["id"], "label": e["label"], "vendor": e["vendor"], "avatar": e["avatar"],
             "auths": e["auths"], "bridge": e["bridge"], "blurb": e["blurb"],
@@ -397,7 +424,10 @@ def view(user: dict, project: str | None, is_admin: bool, project_role: str | No
             "recommended": bool(e.get("recommended")),
             "preselected": m == "personal" and bool(e.get("recommended")),
             "is_default": d.get("default") == e["id"],
-            "crew_value": f"engine:{e['id']}"})
+            "crew_value": f"engine:{e['id']}",
+            # 3.2.2 Setup › Engines: the card carries the instance key(s) of its provider for
+            # the admin — the same records as /api/admin/model-keys (one store, modelkeys)
+            "keys": engine_keys(e["id"]) if is_admin else []})
     st = llm.status()
     return {"mode": m, "engines": engines, "default": d.get("default"),
             "welcome_url": welcome_url() if m == "personal" else "",

@@ -139,6 +139,8 @@ services:
       SOKKAN_CREW_VIEWER_READONLY: ${SOKKAN_CREW_VIEWER_READONLY:-0}
       # 3.1.1 : runs SIMULÉS de la démo publique (exige SOKKAN_DEMO_BANNER=1, aucune inférence)
       SOKKAN_DEMO_CREW: ${SOKKAN_DEMO_CREW:-0}
+      # 3.2.2 : démo publique « Captains » — Helm, projets, Setup en lecture seule (exige DEMO_BANNER + projets)
+      SOKKAN_DEMO_CAPTAINS: ${SOKKAN_DEMO_CAPTAINS:-0}
       # 3.2 feature registry (backend/features.py, docs/enterprise/FEATURES.md):
       # community (default) | enterprise — empty switches = the edition's default
       SOKKAN_EDITION: ${SOKKAN_EDITION:-}
@@ -157,6 +159,7 @@ services:
       SOKKAN_FEATURE_CREW_VIEWER_READONLY: ${SOKKAN_FEATURE_CREW_VIEWER_READONLY:-}
       SOKKAN_FEATURE_DEMO_BANNER: ${SOKKAN_FEATURE_DEMO_BANNER:-}
       SOKKAN_FEATURE_DEMO_CREW: ${SOKKAN_FEATURE_DEMO_CREW:-}
+      SOKKAN_FEATURE_DEMO_CAPTAINS: ${SOKKAN_FEATURE_DEMO_CAPTAINS:-}
       SOKKAN_FEATURE_MULTI_PROJECT: ${SOKKAN_FEATURE_MULTI_PROJECT:-}
       SOKKAN_FEATURE_SSO_TEAMS: ${SOKKAN_FEATURE_SSO_TEAMS:-}
       SOKKAN_FEATURE_OPS_TEAM: ${SOKKAN_FEATURE_OPS_TEAM:-}

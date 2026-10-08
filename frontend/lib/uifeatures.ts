@@ -98,6 +98,8 @@ export interface Engine {
   bridge: "native" | "anthropic"; blurb: string; default_base_url: string; zone: string;
   allowed: boolean; connected: boolean; recommended: boolean; preselected: boolean;
   is_default: boolean; crew_value: string;
+  /** 3.2.2 — admin only: the instance key(s) of this engine's provider (same records as Model keys) */
+  keys?: (ModelKey & { testable: boolean })[];
   connection: null | { auth: string; base_url: string; model: string; small_model: string;
     by: string; at: number | null; masked: string | null };
 }
@@ -126,6 +128,10 @@ export const connectDefault = (engine: string) => call<ConnectView>("/api/connec
 export const connectPolicy = (p: EnginePolicy) => call<ConnectView>("/api/connect-ai/policy", "PUT", p);
 export const connectProject = (slug: string, engine: string | null) =>
   call<{ ok: boolean }>(`/api/connect-ai/project/${slug}`, "PUT", { engine });
+export const engineKeyTest = (id: string, provider: string) =>
+  call<{ ok: boolean | null; detail: string }>(`/api/connect-ai/engines/${id}/test?provider=${encodeURIComponent(provider)}`, "POST");
+export const engineKeyDelete = (id: string, provider: string) =>
+  call<{ ok: boolean; view: ConnectView; gateway: { pushed: boolean; detail: string } }>(`/api/connect-ai/engines/${id}/key?provider=${encodeURIComponent(provider)}`, "DELETE");
 export const crewEngines = () => call<{ value: string; label: string; model: string }[]>("/api/connect-ai/crew-engines");
 
 export const when = (ts: number | null | undefined) =>

@@ -68,9 +68,9 @@ def render() -> str:
     w("4. A feature whose required feature is off, or whose conflicting feature is on, is "
       "**turned off** with its reason. The API always starts; a feature is never half on. If "
       "it had been asked for explicitly, the API logs `[features] <id> is OFF: <reason>` at "
-      "startup and Profile → Features shows it in red.")
+      "startup and Setup › Organization › Features shows it in red.")
     w("")
-    w("State on a running instance: `GET /api/features` (`registry`) or Profile → Features "
+    w("State on a running instance: `GET /api/features` (`registry`) or Setup › Organization › Features "
       "(admins).")
     w("")
     w("## Registry")

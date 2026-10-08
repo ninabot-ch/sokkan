@@ -118,7 +118,7 @@ def test_links_only_to_objects_that_exist(env):
     links = {li["kind"]: li for li in board.card_links(c["id"])}
     assert links["agent"]["label"] == "nightly" and links["agent"]["href"] == f"/?tab=crew&agent={a['id']}"
     assert links["run"]["href"] == f"/?tab=crew&agent={a['id']}&run={run['id']}"
-    assert links["incident"]["href"] == f"/?tab=operate&incident={iid}"
+    assert links["incident"]["href"] == f"/?plane=operate&tab=incidents&incident={iid}"
     assert board.link_card(c["id"], "agent", "nightly", remove=True)["removed"] is True
     assert "agent" not in {li["kind"] for li in board.card_links(c["id"])}
 

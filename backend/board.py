@@ -778,7 +778,7 @@ def resolve_link(kind: str, ref, project: str | None = None) -> dict | None:
             if not row:
                 return None
             return {"kind": kind, "ref": str(row["id"]), "label": row["title"] or f"incident #{iid}",
-                    "status": row["status"], "href": f"/?tab=operate&incident={row['id']}"}
+                    "status": row["status"], "href": f"/?plane=operate&tab=incidents&incident={row['id']}"}
     except (ValueError, sqlite3.Error):
         return None
     return None

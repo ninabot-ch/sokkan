@@ -1,9 +1,9 @@
-# Agents — l'onglet Crew (3.1 « Crew up »)
+# Agents — Build › Crew (3.1 « Crew up »)
 
 Un **agent** est un travail qui tourne tout seul et rend un livrable : audit CVE des
 dépendances chaque nuit, tri des logs d'erreur chaque matin, revue des PR, rapport
 hebdo d'exploitation, vérification d'un backup. Chaque agent est **une carte** dans
-l'onglet **Crew**, rangée par état : **Idle** (bleu, au repos : brouillon, en attente
+**Build › Crew**, rangée par état : **Idle** (bleu, au repos : brouillon, en attente
 d'approbation, en pause ou manuel), **Armed** (vert, actif, attend son déclencheur),
 **Running** (orange, la carte « respire » pendant le run), **Error** (rouge, le dernier
 run a échoué). Clic sur une carte : onglets **Settings** (tout est modifiable), **Live**
@@ -12,7 +12,7 @@ statut, coût, durée, livrable, transcript).
 
 Chaque run est une session normale : même mémoire (rappel CortHeXis au démarrage),
 mêmes approbations humaines, même transcript. Les **secrets** viennent du coffre
-(Profil → Secrets) et sont référencés **par leur nom** seulement — la valeur n'est
+(Setup › Secrets) et sont référencés **par leur nom** seulement — la valeur n'est
 jamais demandée, jamais affichée, et elle est masquée dans le livrable. Un outil hors
 de la liste de l'agent est refusé ; tout appel qui modifie quelque chose attend un
 humain, sauf les règles « sans demander » choisies (ex. `Bash(npm audit:*)`).

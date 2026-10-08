@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import Tabs, { TABS, type Tab } from "@/components/Tabs";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Tabs from "@/components/Tabs";
 import SessionRail from "@/components/SessionRail";
 import ChatPane from "@/components/ChatPane";
 import AgentChatPane from "@/components/AgentChatPane";
@@ -14,11 +14,17 @@ import Helm from "@/components/Helm";
 import Journal from "@/components/Journal";
 import Assistant from "@/components/Assistant";
 import Costs from "@/components/Costs";
-import Magnitude from "@/components/Magnitude";
-import { MeProvider } from "@/lib/me";
-import { FeaturesProvider } from "@/lib/features";
+import Setup from "@/components/Setup";
+import { MeProvider, useCan, useMe } from "@/lib/me";
+import { FeaturesProvider, useFeatures } from "@/lib/features";
 import { fetchSessions } from "@/lib/api";
-import { installProjectFetch, noteTab } from "@/lib/project";
+import { currentProject, installProjectFetch, noteTab } from "@/lib/project";
+import { helmAccess } from "@/lib/helm";
+import { navLast, navRemember } from "@/lib/nav";
+import {
+  PLANES, PLANE_OF, href, landingPlane, pickTab, planeForKey, resolveTarget, visiblePlanes,
+  type PlaneId, type SubTab, type Target,
+} from "@/lib/planes";
 
 // 3.2 : chaque appel /api porte le projet sélectionné (en-tête x-sokkan-project) —
 // installé avant le premier fetch (identité, features…)
@@ -34,26 +40,130 @@ interface OpenPane {
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>("Sessions");
+  return (
+    <FeaturesProvider>
+    <MeProvider>
+      <Cockpit />
+    </MeProvider>
+    </FeaturesProvider>
+  );
+}
+
+/** Where the person is: plane + sub-tab (+ an Organization section from a deep link). */
+interface Place { plane: PlaneId | null; tab: SubTab | null; section?: string }
+
+const TABS_KEY = "sokkan_plane_tabs";
+
+function Cockpit() {
+  const feats = useFeatures();
+  const me = useMe();
+  const canDev = useCan("dev");
+  // the deep link asked for (?plane= / ?tab=, new or legacy) — read once, at mount
+  const [asked] = useState<Target | null>(() =>
+    typeof window === "undefined" ? null : resolveTarget(new URLSearchParams(window.location.search)));
+  const [place, setPlace] = useState<Place>(() => asked ? { plane: asked.plane, tab: asked.tab, section: asked.section } : { plane: null, tab: null });
+  // the last sub-tab of each plane (per browser): coming back to a plane opens it again
+  const lastTabs = useRef<Partial<Record<PlaneId, SubTab>>>({});
+  useEffect(() => {
+    try { lastTabs.current = JSON.parse(localStorage.getItem(TABS_KEY) || "{}"); } catch { /* private mode */ }
+  }, []);
+
+  // 3.3 Helm : the sub-tab exists for the people who steer at least one project
+  const [steers, setSteers] = useState(false);
+  // 3.2.2 Captains demo: a member reads Helm without steering it
+  const [helmRO, setHelmRO] = useState(false);
+  const [helmFor, setHelmFor] = useState<boolean | null>(null);
+  useEffect(() => {
+    const h = !!feats.helm;
+    if (!h) { setSteers(false); setHelmRO(false); setHelmFor(false); return; }
+    helmAccess().then((a) => { setSteers(a.steers.length > 0); setHelmRO(!!a.read_only && (a.reads || []).length > 0); })
+      .catch(() => { setSteers(false); setHelmRO(false); })
+      .finally(() => setHelmFor(true));
+  }, [feats.helm]);
+  // the plane this person was on last (kept per user by the API)
+  const [last, setLast] = useState<string | null | undefined>(undefined);
+  useEffect(() => { navLast().then(setLast); }, []);
+
+  const planes = visiblePlanes({ f: feats, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
+  // availability is known only once features, Helm access and the remembered plane answered —
+  // never decide on the loading defaults
+  const settled = !!feats.loaded && helmFor === !!feats.helm && last !== undefined;
+  const instanceAdmin = ["admin", "owner"].includes(me?.instance_role || "");
+
+  // land, or fall back when the place on screen does not exist here (project switch,
+  // rights changed, feature off): same plane if it is there, else the landing plane
+  useEffect(() => {
+    if (!settled) return;
+    const plane = place.plane && planes.some((p) => p.id === place.plane) ? place.plane
+      : landingPlane({ instanceAdmin, projectRole: me?.project_role, steers, ops: me?.ops, canDev, last }, planes);
+    const tab = pickTab(plane, place.plane === plane ? (place.tab ?? lastTabs.current[plane]) : lastTabs.current[plane], planes);
+    if (plane !== place.plane || tab !== place.tab) {
+      // a deep link to a place this person does not have: say so instead of switching silently
+      if (asked?.tab && place.tab === asked.tab && tab !== asked.tab && !missed) {
+        const label = PLANES.flatMap((x) => x.tabs).find((x) => x.id === asked.tab)?.label ?? asked.tab;
+        setMissed(`${label} is not available to you here (role, team or feature) — showing what is.`);
+      }
+      setPlace((cur) => ({ ...cur, plane, tab }));
+    }
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const [missed, setMissed] = useState("");
+
+  useEffect(() => {
+    if (!place.plane || !place.tab) return;
+    noteTab(place.plane, place.tab);
+    lastTabs.current[place.plane] = place.tab;
+    try { localStorage.setItem(TABS_KEY, JSON.stringify(lastTabs.current)); } catch { /* private mode */ }
+  }, [place.plane, place.tab]);
+  const remembered = useRef<string | null>(null);
+  useEffect(() => {
+    if (!settled || !place.plane || remembered.current === place.plane) return;
+    // only an instance admin lands on their last plane: nobody else's choice is written
+    // (and the public demo's visitor writes nothing — it was a 403 on every page)
+    if (instanceAdmin && (remembered.current !== null || place.plane !== last)) navRemember(place.plane);
+    remembered.current = place.plane;
+  }, [settled, place.plane, last, instanceAdmin]);
+
+  const goPlane = useCallback((p: PlaneId) => setPlace({ plane: p, tab: lastTabs.current[p] ?? null }), []);
+  const goTab = useCallback((t: SubTab, section?: string) => setPlace({ plane: PLANE_OF[t], tab: t, section }), []);
+
+  // keyboard: g then c/b/o/s = plane · 1–9 = sub-tab (never while typing)
+  const gPending = useRef(0);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (Date.now() - gPending.current < 1500) {
+        gPending.current = 0;
+        const p = planeForKey(e.key, planes);
+        if (p) { e.preventDefault(); goPlane(p); }
+        return;
+      }
+      if (e.key === "g") { gPending.current = Date.now(); return; }
+      if (/^[1-9]$/.test(e.key)) {
+        const cur = planes.find((p) => p.id === place.plane);
+        const t = cur?.tabs[Number(e.key) - 1];
+        if (t) { e.preventDefault(); setPlace({ plane: cur!.id, tab: t.id }); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [planes, place.plane, goPlane]);
+
+  // nothing is mounted before the person's rights are known (a panel they do not have would
+  // fetch, get a 403, then vanish)
+  const tab = settled && place.tab && planes.some((x) => x.tabs.some((t) => t.id === place.tab)) ? place.tab : null;
   const [open, setOpen] = useState<OpenPane[]>([]);
   const [cols, setCols] = useState(2);
-  // lien profond des notifications (/?tab=corthexis[&note=…|&proposal=…]) et changement
-  // de projet (switchProject reporte l'onglet courant) : tout onglet connu, sans casse
-  useEffect(() => {
-    const t = (new URLSearchParams(window.location.search).get("tab") || "").toLowerCase();
-    const hit = TABS.find((x) => x.toLowerCase() === t);
-    if (hit) setTab(hit);
-  }, []);
-  useEffect(() => { noteTab(tab); }, [tab]);
 
   // liens Operate ⇄ Crew (3.1.1) : l'URL porte la cible, le composant la lit au montage
-  const goDeep = (tab: Tab, params: Record<string, string>) => {
-    try { window.history.pushState(null, "", `/?${new URLSearchParams({ tab: tab.toLowerCase(), ...params })}`); } catch { /* no history API */ }
-    setTab(tab);
+  const goDeep = (t: SubTab, params: Record<string, string>) => {
+    try { window.history.pushState(null, "", href(t, params)); } catch { /* no history API */ }
+    goTab(t);
   };
   const openAgent = (agentId: number, runId?: number) =>
-    goDeep("Crew", { agent: String(agentId), ...(runId ? { run: String(runId) } : {}) });
-  const openIncident = (id: number) => goDeep("Operate", { incident: String(id) });
+    goDeep("crew", { agent: String(agentId), ...(runId ? { run: String(runId) } : {}) });
+  const openIncident = (id: number) => goDeep("incidents", { incident: String(id) });
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
 
@@ -73,7 +183,7 @@ export default function Home() {
     setOpen((cur) => (cur.some((x) => x.id === s.session_id)
       ? cur
       : [...cur, { id: s.session_id, kind: kind!, title, tag }]));
-    setTab("Sessions");
+    goTab("sessions");
   };
 
   const toggle = (s: { session_id: string; kind?: "sdk" | "tmux"; title?: string; tag?: string }) => {
@@ -82,31 +192,39 @@ export default function Home() {
   };
 
   return (
-    <FeaturesProvider>
-    <MeProvider>
-    <Assistant tab={tab} />
+    <>
+    <Assistant tab={tab ?? ""} />
     <div className="flex h-screen flex-col">
-      <Tabs active={tab} onChange={setTab} />
-      {tab === "Board" ? (
+      <Tabs planes={planes} plane={place.plane} tab={tab} onPlane={goPlane} onTab={(t) => goTab(t)} onGo={goTab} />
+      <div id="cockpit-panel" role="tabpanel" aria-labelledby={tab ? `tab-${tab}` : undefined} className="flex min-h-0 flex-1 flex-col">
+      {missed && (
+        <div role="status" className="flex items-center gap-2 border-b border-line bg-panel2/60 px-4 py-1.5 text-[12px] text-mut">
+          <span aria-hidden>ⓘ</span>{missed}
+          <button onClick={() => setMissed("")} aria-label="dismiss" className="ui-focus ml-auto flex h-6 w-6 items-center justify-center rounded hover:text-slate-200">✕</button>
+        </div>
+      )}
+      {!tab ? (
+        <div className="flex flex-1 items-center justify-center text-[13px] text-mut">…</div>
+      ) : tab === "board" ? (
         <Board onOpenSession={(sid) => openSession({ session_id: sid })} />
-      ) : tab === "Preview" ? (
+      ) : tab === "preview" ? (
         <Preview />
-      ) : tab === "CortHeXis" ? (
+      ) : tab === "corthexis" ? (
         <Corthexis onOpenSession={(sid) => openSession({ session_id: sid })} />
-      ) : tab === "Infra" ? (
+      ) : tab === "infra" ? (
         <Infra />
-      ) : tab === "Helm" ? (
-        <Helm onOpenSession={(sid) => openSession({ session_id: sid })} />
-      ) : tab === "Crew" ? (
+      ) : tab === "helm" ? (
+        <Helm onOpenSession={(sid) => openSession({ session_id: sid })} readOnly={helmRO && !steers} />
+      ) : tab === "crew" ? (
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
-      ) : tab === "Operate" ? (
+      ) : tab === "incidents" ? (
         <Operate onOpenSession={(sid) => openSession({ session_id: sid })} onOpenAgent={openAgent} />
-      ) : tab === "Journal" ? (
+      ) : tab === "journal" ? (
         <Journal />
-      ) : tab === "Costs" ? (
+      ) : tab === "costs" ? (
         <Costs />
-      ) : tab === "Magnitude" ? (
-        <Magnitude />
+      ) : PLANE_SETUP.includes(tab) ? (
+        <Setup key={tab} tab={tab} section={place.section} />
       ) : (
         <div className="flex min-h-0 flex-1">
           {/* mobile : rail plein écran tant qu'aucun pane n'est ouvert, masqué sinon */}
@@ -155,8 +273,10 @@ export default function Home() {
           </main>
         </div>
       )}
+      </div>
     </div>
-    </MeProvider>
-    </FeaturesProvider>
+    </>
   );
 }
+
+const PLANE_SETUP: SubTab[] = ["organization", "engines", "magnitude", "secrets", "account", "notifications"];

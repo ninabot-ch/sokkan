@@ -27,6 +27,12 @@ def test_backend_imports_with_every_compose_var_empty(monkeypatch, tmp_path):
         monkeypatch.setenv(name, "")
     monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
     for mod in ("features", "notify", "assistant", "agents_runtime"):
+        # re-import fresh, then put the original module back (monkeypatch restores sys.modules):
+        # a test that runs later must not see a twin module that `app` does not use
+        if mod in sys.modules:
+            monkeypatch.setitem(sys.modules, mod, sys.modules[mod])
+        else:
+            monkeypatch.delitem(sys.modules, mod, raising=False)
         sys.modules.pop(mod, None)
         importlib.import_module(mod)
 

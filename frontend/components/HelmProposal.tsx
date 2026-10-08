@@ -25,7 +25,7 @@ export default function HelmProposal({ proposal }: { proposal: ProjectProposal }
   if (state.id) {
     return (
       <div className="mt-2 rounded-lg border border-line bg-panel2/70 p-2.5 text-[11.5px]">
-        <a href={`/?tab=helm&card=${state.id}`} className="text-sea hover:underline">✓ Project card #{state.id} created with {kids.length} card(s) under it — open it in Helm →</a>
+        <a href={`/?plane=control&tab=helm&card=${state.id}`} className="text-sea hover:underline">✓ Project card #{state.id} created with {kids.length} card(s) under it — open it in Helm →</a>
       </div>
     );
   }

@@ -88,11 +88,11 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel/60 p-2">
         {canWrite && (
           <>
-            <select value={tag} onChange={(e) => setTag(e.target.value)}
+            <select aria-label="Tag of the new card" value={tag} onChange={(e) => setTag(e.target.value)}
               className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
               {tags.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
-            <select value={prio} onChange={(e) => setPrio(Number(e.target.value))}
+            <select aria-label="Priority of the new card" value={prio} onChange={(e) => setPrio(Number(e.target.value))}
               className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
               {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
@@ -107,7 +107,7 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
         )}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter…"
           className="w-36 rounded border border-line bg-panel2 px-2 py-1 text-[12px] text-slate-200 outline-none focus:border-sea/50" />
-        <select value={fTag} onChange={(e) => setFTag(e.target.value)}
+        <select aria-label="Filter by tag" value={fTag} onChange={(e) => setFTag(e.target.value)}
           className="rounded border border-line bg-panel2 px-1.5 py-1 text-[12px] text-slate-200">
           <option value="">all tags</option>
           {tags.map((t) => <option key={t} value={t}>{t}</option>)}

@@ -3,6 +3,61 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.2.2 — 2026-10-08 — "Captains"
+- **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
+  sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·
+  Preview), **Operate** (Incidents · Infra · Costs · Journal) and **Setup**
+  (Organization · Engines · Magnitude · Secrets · My account · Notifications). The « Profile &
+  organization » dialog is gone: its sections are the Setup plane (the badge menu opens them). A
+  sub-tab a person does not have (feature off, role too low) is not shown, and a plane left empty
+  is not shown either.
+- **« Operate › Operate » is now « Operate › Incidents »** (alerts, incidents with their diagnosis
+  session, runbooks): the sub-tab no longer repeats its plane's name. New link
+  `/?plane=operate&tab=incidents&incident=<id>` (notifications, board links and Crew's run history
+  write it); the old `?tab=operate&incident=<id>` opens the same place.
+- **Landing plane by role**: manager / maintainer → Control, developer → Build, ops team →
+  Operate, instance admin → the plane they used last (kept per user: `GET/PUT /api/me/nav`,
+  `$SOKKAN_DATA_DIR/navprefs.json`). Coming back to a plane reopens its last sub-tab.
+- **Deep links**: new form `/?plane=build&tab=crew`. Every older link keeps working — the 11
+  `?tab=` values (notifications, Crew ⇄ Operate links, Nina's cards, `?tab=operate&incident=…`,
+  `?tab=crew&agent=…&run=…`) and the former Profile sections (`?tab=members`, `?tab=keys`, …,
+  `?forge=` back from GitLab) — through one table (`frontend/lib/planes.ts`), tested.
+- **Setup › Engines = « Connect your AI » + « Model keys » on one page.** For the admin, each
+  engine card carries the instance key of its provider (« key …xxxx, set by X on date », Replace /
+  Remove / Test) and, in governed mode, the policy of allowed engines. One store: a key posed
+  through an engine is the one `/api/admin/model-keys` lists (that API stays), an Anthropic key
+  posed on the Claude card reaches the gateway too. New: `POST /api/connect-ai/engines/{id}/test`,
+  `DELETE /api/connect-ai/engines/{id}/key`. A non-admin no longer receives the last 4
+  characters of a connected engine's key.
+- **Readable at 1280 px**: the motto shows from 1440 px only (it wrapped on three lines), the
+  identity badge is compact (name truncated, role kept).
+- **Keyboard and accessibility**: `g` then `c` / `b` / `o` / `s` changes plane, `1`–`9` picks a
+  sub-tab (never while typing; listed in the ⌨ tooltip); planes and sub-tabs are ARIA
+  tablists (arrow keys, Home / End), focus is visible, the selected one is marked by weight and
+  an underline, not by colour alone.
+- The public demo's guided tour points to the new places (Build › Sessions, Control › Board,
+  Control › CortHeXis, Operate › Costs, Build › Crew). Nina's knowledge base, the docs and the
+  messages that said « Profile → … » now say « Setup › … ».
+
+- **Captains on the public demo** (feature `demo_captains`, requires `demo_banner` + `multi_project`, public demo
+  only): the visitor (a viewer) reads Control › Helm (project cards, hierarchy, computed progress, reframe
+  suggestions), the board, the project selector over 3 fictional projects, a « Shared with me » session, Setup ›
+  Engines and Setup › Organization — fictional people only (`@example.com`), no key, no « connected by », no base
+  URL. **Nothing is written by a visitor**: every non-read request under `/api` from someone below instance admin
+  answers 403 « read-only demo » before any route (Nina's chat excepted, capped per day); read-only actions are
+  greyed « read-only demo ». Idempotent seed `backend/demo_captains.py seed <captains.json>` (refused unless
+  `SOKKAN_DEMO_CAPTAINS=1` or `--force`; people must be `@example.com`, never admin; the agents of `demo_crew`
+  are kept). `docs/enterprise/UI-FEATURES.md` § 4.
+- **UI pass** (captures 1280 / 1440 / 390, scored critique, journey « how is an agent approved »: PARTIAL →
+  SUCCESS): at 390 px the planes get a full-width row of their own (they were hidden behind a sideways scroll);
+  the board's four columns fit 1280 px; empty columns say what goes there; Setup › Engines tells the admin where
+  to start when no engine is allowed; a Crew card waiting for approval says so at its head and its popout names
+  **who approves** (owner or instance admin, an instance admin, or a second person — per `SOKKAN_AGENTS_APPROVAL`);
+  read-only buttons are really greyed (the dimming class was never generated); no internal pricing warning on the
+  demo; the demo tour gains « ⑥ who approves what » and « ⑦ several teams, several projects » and folds on a
+  phone; a deep link to a place you do not have says so; contrast of small blue and dimmed text ≥ 4.5:1.
+- Only an instance admin's last plane is saved (`PUT /api/me/nav` is no longer called for other people).
+
 ## 3.2.1 — 2026-10-08 — "Captains"
 - **Fix: the API no longer crashes at startup when a numeric setting arrives as an empty string.** `docker compose`
   passes `${VAR:-}` as `""`; `SOKKAN_ASSISTANT_DAILY_LIMIT` (declared in 3.1.2) made `assistant.py` fail on

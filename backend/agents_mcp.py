@@ -120,7 +120,7 @@ def create_agent(name: str, purpose: str, deliverable: str, done_criteria: str =
             (sokkan-memory is always on).
         secrets: vault secret NAMES (e.g. ["GITHUB_TOKEN"]) exposed as env vars
             during runs. NEVER pass a secret value; an admin stores values in
-            Profile → Secrets.
+            Setup › Secrets.
         budget_usd: hard cost cap per run (0 = none beyond the instance budget).
         max_minutes: wall-clock cap per run (default 30).
         outputs: where the deliverable goes: any of card (board card in Review,

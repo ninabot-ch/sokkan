@@ -475,7 +475,7 @@ function HealthPanel({ ov, canAct, busy, rerun, openNote, light, propose, curate
           className="rounded-md border border-violet-400/40 bg-violet-400/10 px-2.5 py-1 text-[12px] text-violet-200 hover:bg-violet-400/20 disabled:opacity-40">
           Curation session for the {judgement.length} judgement case{judgement.length > 1 ? "s" : ""}</button>}
         <span className="text-[11px] text-mut">{ov.notify ? "alerts on: a daily digest when something changes, right away if critical"
-          : "alerts off — add a channel in Profile → Notifications"}</span>
+          : "alerts off — add a channel in Setup › Notifications"}</span>
       </div>
       {r.skipped.length > 0 && <div className="mt-1.5 text-[11px] text-mut">Not checked: {r.skipped.join(", ")}</div>}
       {r.findings.length === 0 && <div className="mt-8 text-center text-[13px] text-[#3ecfb2]">Nothing to report. The memory is clean.</div>}

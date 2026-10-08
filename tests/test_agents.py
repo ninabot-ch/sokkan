@@ -253,6 +253,6 @@ def test_nina_kb_unfolds_the_agents_section_for_an_agent_question():
     import assistant
 
     kb = assistant._kb_for("I want an agent that audits our dependencies every night")
-    assert "Agents — l'onglet Crew" in kb and "sokkan-agent" in kb
+    assert "Agents — Build › Crew" in kb and "sokkan-agent" in kb
     kb = assistant._kb_for("je veux créer un agent récurrent")
-    assert "Agents — l'onglet Crew" in kb
+    assert "Agents — Build › Crew" in kb

@@ -440,12 +440,12 @@ def validate(fields: dict, partial: bool = False, known_secrets: list[str] | Non
         for s in sec:
             if _SECRETISH.search(s) or not re.match(r"^[A-Z_][A-Z0-9_]{0,63}$", s):
                 raise AgentError("secrets: vault secret NAMES only (e.g. GITHUB_TOKEN) — "
-                                 "never a value. Store the value in Profile → Secrets first.")
+                                 "never a value. Store the value in Setup › Secrets first.")
         if known_secrets is not None:
             missing = [s for s in sec if s not in known_secrets]
             if missing:
                 raise AgentError(f"secrets not in the vault: {', '.join(missing)} — an admin "
-                                 "adds them in Profile → Secrets")
+                                 "adds them in Setup › Secrets")
         out["secrets"] = sec
     for k, lo, hi in (("budget_usd", 0, 1000), ("max_minutes", 1, 24 * 60)):
         if has(k):

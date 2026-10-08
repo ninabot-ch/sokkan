@@ -12,7 +12,7 @@ const STATE: Record<ForgeLink["state"], string> = {
   active: "text-emerald-300", expired: "text-amber-300", revoked: "text-red-300",
 };
 
-/** 3.2 lot 5 — Profile → Linked accounts: link / unlink GitLab, linked identity, scopes,
+/** 3.2 lot 5 — Setup › My account › Linked accounts: link / unlink GitLab, linked identity, scopes,
  *  token expiry (refreshed server-side), and the access GitLab gives in each project. */
 export default function LinkedAccounts() {
   const [st, setSt] = useState<ForgeStatus | null>(null);

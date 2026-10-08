@@ -125,7 +125,7 @@ _REGISTRY: dict[str, dict] = {
             "5. Tools and MCP — which tools it may use (default Read, Glob, Grep, WebFetch, "
             "WebSearch, Bash) and whether it needs the board or observability servers.\n"
             "6. Secrets — which vault secrets by NAME (list them with the names I give; never "
-            "ask me for a value: values go in Profile → Secrets).\n"
+            "ask me for a value: values go in Setup › Secrets).\n"
             "7. Budget — max cost per run (USD) and max minutes.\n"
             "8. Human approval — what may run without asking (e.g. `Bash(npm audit:*)`); "
             "everything else waits for a human.\n"

@@ -673,7 +673,7 @@ class Runtime:
         try:
             notify.send(f"SOKKAN — 🚨 agent {a['name']}: {run['status']} (run #{run['id']})",
                         (run.get("error") or "")[:900],
-                        f"{notify.PUBLIC_URL}/?tab=operate&incident={iid}", "alert")
+                        f"{notify.PUBLIC_URL}/?plane=operate&tab=incidents&incident={iid}", "alert")
         except Exception:  # noqa: BLE001
             pass
         return True

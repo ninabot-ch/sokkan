@@ -81,7 +81,7 @@ above `project`.
    (192×192) and `outline.png` (32×32, transparent) → Teams admin center → Manage apps →
    Upload; allow it for the POC users (app permission policy).
 6. Add the app to the team; get each channel id (channel ⋯ → *Get link to channel*: the
-   `19:…@thread.tacv2` part) and map it: Profile → Teams, or
+   `19:…@thread.tacv2` part) and map it: Setup › Organization › Teams, or
    `PUT /api/admin/teams/channels {"channel_id": "19:…", "project": "radio", "level": "project"}`.
 
 ## 4. Variables

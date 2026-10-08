@@ -8,9 +8,9 @@ SOKKAN Enterprise is **the same open-source app**, not a fork. Every capability 
 1. `SOKKAN_EDITION` = `community` (default) or `enterprise` picks the column of defaults.
 2. `SOKKAN_FEATURE_<ID>=1|0` turns a feature on or off. The variables used before the registry (marked *legacy*) are still read, after the canonical one: an existing installation changes nothing. An empty value counts as unset.
 3. *integration* features are on when their service is configured; *invariant* features are security properties, always on; *planned* features are declared for the roadmap and stay off whatever the environment says.
-4. A feature whose required feature is off, or whose conflicting feature is on, is **turned off** with its reason. The API always starts; a feature is never half on. If it had been asked for explicitly, the API logs `[features] <id> is OFF: <reason>` at startup and Profile → Features shows it in red.
+4. A feature whose required feature is off, or whose conflicting feature is on, is **turned off** with its reason. The API always starts; a feature is never half on. If it had been asked for explicitly, the API logs `[features] <id> is OFF: <reason>` at startup and Setup › Organization › Features shows it in red.
 
-State on a running instance: `GET /api/features` (`registry`) or Profile → Features (admins).
+State on a running instance: `GET /api/features` (`registry`) or Setup › Organization › Features (admins).
 
 ## Registry
 
@@ -33,6 +33,7 @@ State on a running instance: `GET /api/features` (`registry`) or Profile → Fea
 | [`crew_viewer_readonly`](#crew_viewer_readonly) Crew visible to viewers | stable | toggle | off | off | `agents` | — | `SOKKAN_FEATURE_CREW_VIEWER_READONLY`<br>`SOKKAN_CREW_VIEWER_READONLY` (legacy) |
 | [`demo_banner`](#demo_banner) Public demo mode | stable | toggle | off | off | — | — | `SOKKAN_FEATURE_DEMO_BANNER`<br>`SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on) |
 | [`demo_crew`](#demo_crew) Simulated demo Crew | stable | toggle | off | off | `agents`, `demo_banner` | — | `SOKKAN_FEATURE_DEMO_CREW`<br>`SOKKAN_DEMO_CREW` (legacy) |
+| [`demo_captains`](#demo_captains) Captains demo | beta | toggle | off | off | `demo_banner`, `multi_project` | — | `SOKKAN_FEATURE_DEMO_CAPTAINS`<br>`SOKKAN_DEMO_CAPTAINS` (legacy) |
 | [`sso`](#sso) Single sign-on | stable | integration | if configured | if configured | — | — | `SOKKAN_AUTH_MODE`, `SOKKAN_OIDC_ISSUER`, `SOKKAN_OIDC_CLIENT_ID` |
 | [`multi_project`](#multi_project) Projects | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_MULTI_PROJECT` |
 | [`sso_teams`](#sso_teams) SSO teams | beta | toggle | on | on | `sso` | — | `SOKKAN_FEATURE_SSO_TEAMS` |
@@ -76,6 +77,7 @@ graph LR
   crew_viewer_readonly["Crew visible to viewers"]
   demo_banner["Public demo mode"]
   demo_crew["Simulated demo Crew"]
+  demo_captains["Captains demo"]
   sso["Single sign-on"]
   multi_project["Projects"]
   sso_teams["SSO teams"]
@@ -103,6 +105,8 @@ graph LR
   crew_viewer_readonly --> agents
   demo_crew --> agents
   demo_crew --> demo_banner
+  demo_captains --> demo_banner
+  demo_captains --> multi_project
   sso_teams --> sso
   ops_team --> sso_teams
   project_vault_budgets --> multi_project
@@ -294,7 +298,7 @@ A viewer sees the whole Crew read-only (secret names, never values). Public demo
 Guided-tour banner of the public read-only demo instance.
 
 - Defaults: community **off**, enterprise **off**
-- Required by: `demo_crew`
+- Required by: `demo_crew`, `demo_captains`
 - Switch: `SOKKAN_FEATURE_DEMO_BANNER`, `SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on)
 
 ### demo_crew
@@ -307,6 +311,17 @@ Simulated agent runs (no model, no inference) for the public demo only.
 - Requires: `agents`, `demo_banner`
 - Switch: `SOKKAN_FEATURE_DEMO_CREW`, `SOKKAN_DEMO_CREW` (legacy)
 - Doc: [docs/AGENTS.md](../../docs/AGENTS.md)
+
+### demo_captains
+
+**Captains demo** — beta, toggle.
+
+Public demo only: the visitor (a viewer) sees Control › Helm and the board read-only, the project selector over 2-3 fictional projects, Setup › Engines and Organization read-only with fictional people (@example.com) and no key; every write under /api answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_captains.py.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `demo_banner`, `multi_project`
+- Switch: `SOKKAN_FEATURE_DEMO_CAPTAINS`, `SOKKAN_DEMO_CAPTAINS` (legacy)
+- Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
 
 ### sso
 
@@ -326,7 +341,7 @@ OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.
 Several isolated projects on one instance (sessions, board, agents, memory, workspace), roles per project. Off: no NEW project can be created; projects that exist keep their isolation (turning it off never opens data).
 
 - Defaults: community **off**, enterprise **on**
-- Required by: `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
+- Required by: `demo_captains`, `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
 - Switch: `SOKKAN_FEATURE_MULTI_PROJECT`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
 
@@ -346,7 +361,7 @@ Teams = the IdP's groups (claim `groups`), re-synchronised at each login; a team
 
 **Operate** — stable, integration.
 
-Observability tab: alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
+Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Prometheus or Grafana is configured.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL`
@@ -367,7 +382,7 @@ Operate / Infra open to an SSO group (the ops team) besides the instance admins.
 
 **Infra topology** — stable, integration.
 
-Infra tab: host topology from Prometheus.
+Operate › Infra: host topology from Prometheus.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`
@@ -376,7 +391,7 @@ Infra tab: host topology from Prometheus.
 
 **Managed fleet** — stable, integration.
 
-Infra tab: the managed client VMs of SOKKAN Cloud.
+Operate › Infra: the managed client VMs of SOKKAN Cloud.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN`
@@ -385,7 +400,7 @@ Infra tab: the managed client VMs of SOKKAN Cloud.
 
 **CortHeXis link** — stable, integration.
 
-Link from the memory tab to a CortHeXis review UI.
+Link from Control › CortHeXis to a CortHeXis review UI.
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_CORTEX_URL`
@@ -437,7 +452,7 @@ SCIM 2.0 provisioning endpoint (Users, Groups) and the admin « Revoke now »: c
 
 **BYOK admin screen** — beta, toggle.
 
-Profile → Model keys: the instance admin sets, replaces or deletes the model provider keys (Anthropic, …), stored encrypted with the vault key, never shown again (last 4 characters, date, who); optional validity test; exposed to the sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured (lot 7). Per-project keys: the field exists, planned.
+Setup › Engines: the instance admin sets, replaces or deletes the model provider keys (Anthropic, …), stored encrypted with the vault key, never shown again (last 4 characters, date, who); optional validity test; exposed to the sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured (lot 7). Per-project keys: the field exists, planned.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`
@@ -481,7 +496,7 @@ Hierarchical cards (manager's project card → engineer's cards → sub-tasks): 
 
 **Classification and clearances** — beta, toggle.
 
-Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the CortHeXis tab, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
+Notes, decisions, cards and agent deliverables carry a level (public < team < project < confidential < restricted); each person a clearance per project from their SSO groups and project role. Recall, memory_search / memory_get, the Control › CortHeXis, the board, Nina and Teams return only what the person is cleared for; derived content inherits the highest level of its sources; every note handed out is logged (audited recall). Off: nothing above `project` is reachable.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `multi_project`, `sso_teams`
@@ -504,7 +519,7 @@ Notes, decisions, cards and agent deliverables carry a level (public < team < pr
 
 **Connect your AI** — beta, toggle.
 
-One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin sets the allowed engines, zones and tiers; choice per project). A connected engine can drive a Crew card.
+Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin sets the allowed engines, zones and tiers; choice per project). A connected engine can drive a Crew card.
 
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`

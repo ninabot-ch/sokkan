@@ -178,7 +178,7 @@ def credential(t: str, protocol: str, host: str, path: str = "",
         return {}, "host is not a forge of the project"
     tok = links.access_token(email, repo.provider, repo.base_url)
     if not tok:
-        return {}, f"no {repo.provider} account linked (Profile → Linked accounts)"
+        return {}, f"no {repo.provider} account linked (Setup › My account › Linked accounts)"
     user, password = links.provider_for(repo.provider, repo.base_url).git_credentials(tok)
     return {"username": user, "password": password}, "ok"
 

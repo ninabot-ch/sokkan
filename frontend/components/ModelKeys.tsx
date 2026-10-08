@@ -1,5 +1,5 @@
 "use client";
-// 3.2 `byok_admin` (lot 7) — Profile → Model keys: the instance admin sets, replaces or
+// 3.2 `byok_admin` (lot 7) — Setup › Engines: the instance admin sets, replaces or
 // deletes the model provider keys. Stored encrypted with the vault key; never shown again
 // (…last 4, when, who); optional validity test; Anthropic key used by the sessions and
 // pushed to the SOKKAN gateway when one is configured.

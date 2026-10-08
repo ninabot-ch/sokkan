@@ -13,6 +13,14 @@ const BUCKET_TONES: Record<string, string> = {
 
 type DropAt = { bucket: string; index: number } | null;
 
+// empty column = say what goes there (an em dash said nothing)
+const EMPTY_COL: Record<string, string> = {
+  Backlog: "No card yet — describe a task above and press « + card ».",
+  Doing: "Nothing in progress. Spawn a session from a card to start it.",
+  Review: "Nothing waiting for review.",
+  Done: "Nothing done yet.",
+};
+
 export default function BoardColumns<C extends Card>({
   buckets, cards, canWrite, busy, onMove, onOpen, onOpenSession, onSpawn, extra, compact,
 }: {
@@ -58,7 +66,7 @@ export default function BoardColumns<C extends Card>({
         return (
           <div
             key={b}
-            className={`flex ${compact ? "min-w-[220px] flex-1" : "w-80 shrink-0"} flex-col rounded-xl border bg-panel ${dropAt?.bucket === b ? "border-sea/60 ring-1 ring-sea/30" : "border-line"}`}
+            className={`flex ${compact ? "min-w-[220px] flex-1" : "min-w-[17rem] flex-1 basis-0"} flex-col rounded-xl border bg-panel ${dropAt?.bucket === b ? "border-sea/60 ring-1 ring-sea/30" : "border-line"}`}
             onDragOver={(e) => { if (!draggable) return; e.preventDefault(); if (dropAt?.bucket !== b) setDropAt({ bucket: b, index: col.length }); }}
             onDrop={drop}
           >
@@ -94,7 +102,7 @@ export default function BoardColumns<C extends Card>({
               {dropAt?.bucket === b && dropAt.index >= col.length && drag != null && (
                 <div className="h-0.5 rounded bg-sea/70" />
               )}
-              {!col.length && <div className="px-2 py-6 text-center text-[11.5px] text-mut/60">—</div>}
+              {!col.length && <div className="px-2 py-6 text-center text-[11.5px] text-mut/70">{(!compact && canWrite && EMPTY_COL[b]) || "No card here."}</div>}
             </div>
           </div>
         );

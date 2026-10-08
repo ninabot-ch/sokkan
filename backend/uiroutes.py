@@ -288,6 +288,12 @@ def model_key_set(provider: str, body: ModelKeyIn, u: dict = Depends(_admin),
 @router.delete("/api/admin/model-keys/{provider}")
 def model_key_delete(provider: str, scope: str = "instance", u: dict = Depends(_admin),
                      _f=Depends(_byok)) -> dict:
+    return _drop_key(scope, provider, u, "key deleted in Model keys")
+
+
+def _drop_key(scope: str, provider: str, u: dict, why: str) -> dict:
+    """Delete an instance model key — from Setup › Engines or the Model keys route alike:
+    sessions lose it (llm.json reference cleared), the gateway forgets it (Anthropic)."""
     try:
         gone = modelkeys.delete_key(scope, provider)
     except modelkeys.KeyError_ as e:
@@ -303,7 +309,7 @@ def model_key_delete(provider: str, scope: str = "instance", u: dict = Depends(_
         raw = {}
     if raw.get("key_ref") == ref:
         llm.save({})                       # sessions no longer have that key
-        audit.log(u["email"], "llm.config", "none", "key deleted in Model keys")
+        audit.log(u["email"], "llm.config", "none", why)
     gw = modelkeys.push_gateway(scope, provider, delete=True) if provider == "anthropic" else \
         {"pushed": False, "detail": "not pushed"}
     return {"ok": True, "gateway": gw}
@@ -359,6 +365,13 @@ def connect_engine(eid: str, body: EngineIn, u: dict = Depends(_admin),
         raise HTTPException(400, str(e))
     audit.log(u["email"], "connect_ai.connect", eid,
               f"auth={body.auth} model={body.model.strip()} base={body.base_url.strip()}"[:400])
+    prov = connectai._provider_for(eid, body.auth)
+    if body.key.strip() and prov == "anthropic":
+        # one key, one behaviour: posed here or in Model keys, it reaches the gateway alike
+        gw = modelkeys.push_gateway("instance", prov)
+        if gw["pushed"]:
+            audit.log(u["email"], "byok.gateway.push", f"instance:{prov}",
+                      modelkeys.gateway_public()["client"])
     return connectai.view(u, None, True, None)
 
 
@@ -372,6 +385,50 @@ def disconnect_engine(eid: str, u: dict = Depends(_admin), _f=Depends(_connect))
         llm.save({})
     audit.log(u["email"], "connect_ai.disconnect", eid)
     return connectai.view(u, None, True, None)
+
+
+def _engine_provider(eid: str, provider: str | None) -> str:
+    if eid not in connectai.BY_ID:
+        raise HTTPException(404, "unknown engine")
+    provs = connectai.engine_providers(eid)
+    if provider is None:
+        have = [p for p in provs if modelkeys.record("instance", p)]
+        provider = have[0] if have else provs[0]
+    if provider not in provs:
+        raise HTTPException(400, f"provider: one of {', '.join(provs)}")
+    return provider
+
+
+@router.post("/api/connect-ai/engines/{eid}/test")
+def engine_key_test(eid: str, provider: str | None = None, u: dict = Depends(_admin),
+                    _f=Depends(_connect)) -> dict:
+    """3.2.2 Setup › Engines — test the instance key of this engine (same as Model keys)."""
+    prov = _engine_provider(eid, provider)
+    try:
+        res = modelkeys.test_key("instance", prov)
+    except modelkeys.KeyError_ as e:
+        raise HTTPException(400, str(e))
+    audit.log(u["email"], "byok.test", f"instance:{prov}", res["detail"])
+    return res
+
+
+@router.delete("/api/connect-ai/engines/{eid}/key")
+def engine_key_delete(eid: str, provider: str | None = None, u: dict = Depends(_admin),
+                      _f=Depends(_connect)) -> dict:
+    """3.2.2 Setup › Engines — remove the instance key of this engine: the key is erased
+    (the same record Model keys shows), the engines using it are disconnected."""
+    prov = _engine_provider(eid, provider)
+    ref = modelkeys.ref("instance", prov)
+    users = [k for k, c in (connectai._load().get("connections") or {}).items()
+             if c.get("key_ref") == ref]
+    out = _drop_key("instance", prov, u, f"key removed in Setup › Engines ({eid})")
+    for other in users:
+        was_default = connectai._load().get("default") == other
+        connectai.disconnect(other)
+        if was_default:
+            llm.save({})
+        audit.log(u["email"], "connect_ai.disconnect", other, "its key was removed")
+    return {**out, "view": connectai.view(u, None, True, None)}
 
 
 class DefaultIn(BaseModel):

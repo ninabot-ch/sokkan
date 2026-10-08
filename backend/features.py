@@ -6,7 +6,7 @@ it, its default per edition, what it requires, what it cannot run with, its stat
 doc. Everything else reads it from here:
 
 * the code asks `features.enabled("<id>")` (never the raw environment variable);
-* `GET /api/features` serves the effective state and the reason (Profile → Features);
+* `GET /api/features` serves the effective state and the reason (Setup › Organization › Features);
 * `scripts/gen-features-doc.py` generates docs/enterprise/FEATURES.md (a test fails when the
   generated doc is stale).
 
@@ -261,6 +261,14 @@ REGISTRY: tuple[Feature, ...] = (
             "Simulated agent runs (no model, no inference) for the public demo only.",
             requires=("agents", "demo_banner"),
             vars=_t("demo_crew", Var("SOKKAN_DEMO_CREW", parse_bool, True)), doc=A),
+    Feature("demo_captains", "Captains demo",
+            "Public demo only: the visitor (a viewer) sees Control › Helm and the board read-only, "
+            "the project selector over 2-3 fictional projects, Setup › Engines and Organization "
+            "read-only with fictional people (@example.com) and no key; every write under /api "
+            "answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_captains.py.",
+            status="beta", requires=("demo_banner", "multi_project"),
+            vars=_t("demo_captains", Var("SOKKAN_DEMO_CAPTAINS", parse_bool, True)),
+            doc="docs/enterprise/UI-FEATURES.md"),
     # -- multi-user (3.2)
     Feature("sso", "Single sign-on",
             "OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.",
@@ -275,18 +283,18 @@ REGISTRY: tuple[Feature, ...] = (
             "be granted a project role.", status="beta", defaults=_both(True), requires=("sso",),
             vars=_t("sso_teams"), config=("SOKKAN_OIDC_GROUPS_CLAIM",), doc=M),
     Feature("operate", "Operate",
-            "Observability tab: alerts, incidents, dashboards. On when Prometheus or Grafana is "
+            "Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Prometheus or Grafana is "
             "configured.", kind="integration", auto=_operate_configured,
             config=("SOKKAN_PROM", "SOKKAN_GRAFANA_URL"), doc=O),
     Feature("ops_team", "Ops team",
             "Operate / Infra open to an SSO group (the ops team) besides the instance admins.",
             status="beta", defaults=_both(True), requires=("sso_teams",),
             vars=_t("ops_team"), config=("SOKKAN_OPS_GROUP",), doc=M),
-    Feature("infra", "Infra topology", "Infra tab: host topology from Prometheus.",
+    Feature("infra", "Infra topology", "Operate › Infra: host topology from Prometheus.",
             kind="integration", auto=_infra_configured, config=("SOKKAN_PROM",)),
-    Feature("fleet", "Managed fleet", "Infra tab: the managed client VMs of SOKKAN Cloud.",
+    Feature("fleet", "Managed fleet", "Operate › Infra: the managed client VMs of SOKKAN Cloud.",
             kind="integration", auto=_fleet_configured, config=("SOKKAN_FLEET_URL", "SOKKAN_FLEET_TOKEN")),
-    Feature("cortex", "CortHeXis link", "Link from the memory tab to a CortHeXis review UI.",
+    Feature("cortex", "CortHeXis link", "Link from Control › CortHeXis to a CortHeXis review UI.",
             kind="integration", auto=_cortex_configured, config=("SOKKAN_CORTEX_URL",)),
     # -- execution layer (Kubernetes runner and Helm chart)
     Feature("kubernetes_runner", "Container runner (docker / Kubernetes)",
@@ -325,7 +333,7 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_SCIM_TOKEN", "SOKKAN_SCIM_GROUP_KEY"), doc=M,
             check=lambda: __import__("revocation").readiness()),
     Feature("byok_admin", "BYOK admin screen",
-            "Profile → Model keys: the instance admin sets, replaces or deletes the model "
+            "Setup › Engines: the instance admin sets, replaces or deletes the model "
             "provider keys (Anthropic, …), stored encrypted with the vault key, never shown "
             "again (last 4 characters, date, who); optional validity test; exposed to the "
             "sessions; pushed to the SOKKAN gateway's BYOK endpoint when one is configured "
@@ -368,7 +376,7 @@ REGISTRY: tuple[Feature, ...] = (
             "Notes, decisions, cards and agent deliverables carry a level (public < team < "
             "project < confidential < restricted); each person a clearance per project from "
             "their SSO groups and project role. Recall, memory_search / memory_get, the "
-            "CortHeXis tab, the board, Nina and Teams return only what the person is cleared "
+            "Control › CortHeXis, the board, Nina and Teams return only what the person is cleared "
             "for; derived content inherits the highest level of its sources; every note handed "
             "out is logged (audited recall). Off: nothing above `project` is reachable.",
             status="beta", defaults=_ed(False, True), requires=("multi_project", "sso_teams"),
@@ -385,7 +393,7 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD", "SOKKAN_TEAMS_TENANT_ID"),
             doc="docs/enterprise/TEAMS.md"),
     Feature("connect_ai", "Connect your AI",
-            "One screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
+            "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
             "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "
             "any engine, SOKKAN Router preselected) or governed mode (enterprise: the admin "
             "sets the allowed engines, zones and tiers; choice per project). A connected "

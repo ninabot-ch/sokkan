@@ -51,6 +51,7 @@ import auth
 import board
 import budgets
 import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
+import demo_captains  # 3.2.2 public demo « Captains » (write guard, org view)
 import iam
 import infra
 import oidc
@@ -305,6 +306,26 @@ def me(request: Request, user: dict = Depends(current_user)) -> dict:
             else None}
 
 
+class NavIn(BaseModel):
+    last_plane: str
+
+
+@app.get("/api/me/nav")
+def me_nav(user: dict = Depends(current_user)) -> dict:
+    """3.2.2 — the plane this person was on last (the cockpit lands an admin there)."""
+    import navprefs
+    return navprefs.get(user["email"])
+
+
+@app.put("/api/me/nav")
+def me_nav_set(body: NavIn, user: dict = Depends(current_user)) -> dict:
+    import navprefs
+    try:
+        return navprefs.set_last(user["email"], body.last_plane)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # --- 3.2 lot 3 : projets, équipes, attributions -----------------------------------------
 @app.get("/api/projects")
 def my_projects(user: dict = Depends(current_user)) -> dict:
@@ -360,7 +381,7 @@ def admin_projects(_u: dict = Depends(require("admin"))) -> dict:
 def admin_project_create(body: ProjectIn, u: dict = Depends(require("admin"))) -> dict:
     if not features.enabled("multi_project"):
         raise HTTPException(409, "feature `multi_project` is off on this instance "
-                                 "(SOKKAN_FEATURE_MULTI_PROJECT=1, see Profile → Features)")
+                                 "(SOKKAN_FEATURE_MULTI_PROJECT=1, see Setup › Organization › Features)")
     if body.access_source == "forge" and not features.enabled("gitlab"):
         raise HTTPException(400, "forge access arrives with lot 5 (GitLab); use sso_group")
     try:
@@ -1366,7 +1387,7 @@ def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
 def features_flags() -> dict:
     """Onglets/capacités actifs sur cette instance — le front masque le reste. The flat
     keys are kept for the UI (and older front-ends); `registry` = every feature of
-    backend/features.py with its effective state and WHY (Profile → Features)."""
+    backend/features.py with its effective state and WHY (Setup › Organization › Features)."""
     on = features.enabled
     return {
         # l'onglet Infra existe dès qu'il a quelque chose à montrer : topologie
@@ -1401,6 +1422,8 @@ def features_flags() -> dict:
         "revocation": on("revocation"),
         # 3.3 Helm (onglet réservé aux managers : /api/helm/access le dit par personne)
         "helm": on("helm"),
+        # 3.2.2 : démo publique « Captains » (Helm, projets, Setup en lecture seule)
+        "demo_captains": demo_captains.enabled(),
         "registry": features.as_api(),
     }
 
@@ -1715,6 +1738,11 @@ async def require_auth(request: Request, call_next):
             user = auth.instance_user(request)
             # 3.2 lot 3 : de quel projet parle la requête, avec quel rôle (projectgate)
             token = projectgate.resolve(request, user)
+            # 3.2.2 Captains demo: nothing is written by a visitor (403 before any route)
+            ro = demo_captains.guard(request.method, p, user)
+            if ro:
+                projectgate.reset(token)
+                return JSONResponse({"detail": ro}, status_code=403)
         except HTTPException as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
         except projectgate.Denied as e:
@@ -1893,7 +1921,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
                 session._emit({"type": "error", "message": (
                     f"Daily budget notice: today's estimated spend is ${spent:.2f}, "
                     f"over the ${day_budget:.2f}/day budget. This session still works — "
-                    "consider wrapping up or raising the budget (Profile → Organisation).")})
+                    "consider wrapping up or raising the budget (Setup › Organization).")})
         except Exception:  # noqa: BLE001 — le spawn ne dépend jamais du calcul de coûts
             pass
     bstate, bmsg = budgets.check(project)   # 3.2 lot 4 : budget du projet (jour / mois)
@@ -2827,3 +2855,11 @@ app.include_router(uiroutes.router)
 
 # --- 3.3 Helm : routes /api/helm/* (+ modèles d'agents) — backend/helm_api.py ----------
 helm_api.install(app, current_user, require)
+
+
+# --- 3.2.2 public demo « Captains » : Setup › Organization read-only, fictional people only
+@app.get("/api/demo/organization")
+def demo_organization(_u: dict = Depends(require("viewer"))) -> dict:
+    if not demo_captains.enabled():
+        raise HTTPException(404, "feature disabled on this instance")
+    return demo_captains.org_view()

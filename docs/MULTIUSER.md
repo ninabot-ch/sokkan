@@ -238,7 +238,7 @@ projects get them only with lot 8. Enforced since lot 1 (`POST /api/spawn` → 4
 ³ `SOKKAN_CREW_VIEWER_READONLY`, per project from lot 3.
 ⁴ `four_eyes`: approver ≠ proposer ≠ owner **and** role ≥ maintainer in the agent's project.
 ⁵ And the members of the **ops team** (decision of 07.10): an SSO group named in the
-admin screen (`SOKKAN_OPS_GROUP` as the bootstrap value) gets the infrastructure Operate tab —
+admin screen (`SOKKAN_OPS_GROUP` as the bootstrap value) gets the infrastructure sub-tabs Operate › Incidents and Operate › Infra —
 read, ack, resolve, alert routing — without any project content.
 
 ## Memory isolation
@@ -280,7 +280,7 @@ every surface above is scoped.
   `groups` scope / Entra "groups claim" on the IdP side) replaces the person's SSO teams at
   each login. With `SOKKAN_DEFAULT_ROLE=none`, someone the instance does not list gets in
   only through a project grant.
-* **Admin** (Profile → Projects & teams, `/api/admin/*`): projects, grants to a person or a
+* **Admin** (Setup › Organization › Projects & teams, `/api/admin/*`): projects, grants to a person or a
   team, ops group, teams seen; an instance admin sees no content until they grant themself
   (`project.grant.self` in the journal). **Selector** in the header (hidden with one project).
 * **Not yet per project, fail-closed meanwhile**: the vault (other projects get no secret
@@ -316,7 +316,7 @@ fail-closed lot 3 behaviour** — turning it off never opens data.
   workspace (`$SOKKAN_DATA_DIR/projects/<slug>/work`; the instance workspace = `default`).
   80 % → one warning per session; 100 % → the session refuses new turns (HITL: a project
   admin raises the ceiling), a new session is told, an agent run ends `budget` before it
-  starts. Costs tab: the selected project's totals, series, sessions, models + its budget.
+  starts. Operate › Costs: the selected project's totals, series, sessions, models + its budget.
 * **Agents**: `agents` rebuilt once with `UNIQUE(project, name)` (ids kept, one
   transaction, `agents.db.pre-lot4.bak`); names resolved in the session's / card's project.
   Before each run the owner must still be dev+ in the agent's project, else the run is
@@ -437,7 +437,7 @@ run at boot with the credentials it found: the host's Claude CLI login. Since lo
   is replayed.
 * With credentials, 3.1 behaviour is unchanged (queued runs resume, catch-up of one run
   missed less than `SOKKAN_AGENTS_MISFIRE_S` ago).
-* The Crew tab shows "Scheduler stopped: no model credentials configured for this
+* Build › Crew shows "Scheduler stopped: no model credentials configured for this
   instance" (`GET /api/agents` → `scheduler: {running, held, reason}`). The public demo's
   simulator never calls a model and is not held.
 
@@ -450,7 +450,7 @@ the new limit after the upgrade. A person disabled in the IdP loses the cockpit 
 
 ## Sessions and pushes with the person's token (lot 5)
 
-* The person links their forge account once (Profile → Linked accounts → "Link GitLab"):
+* The person links their forge account once (Setup › My account › Linked accounts → "Link GitLab"):
   OAuth 2 authorization code + PKCE, `state` bound to the SOKKAN session. Scopes (GitLab):
   `read_user`, `read_api` (membership and protected branches), `read_repository`,
   `write_repository`. Not `api`: a merge request is opened by `git push -o
@@ -542,14 +542,14 @@ names its columns); migration `0011` leaves a column 3.1 does not read.
 ## UX
 
 * **Project selector** in the header (hidden while there is one project): projects the
-  person can read, with their role; the choice is in the URL (`/?project=<slug>&tab=…`) and
-  remembered per person. Every tab shows the selected project's data; a session's pane
+  person can read, with their role; the choice is in the URL (`/?project=<slug>&plane=…&tab=…`) and
+  remembered per person. Every plane shows the selected project's data; a session's pane
   shows its project badge.
 * **Admin → Teams & projects** (instance admin): projects (create, archive, access source,
   repositories, resources, budgets), teams (SSO groups seen at login, local teams), grants
   (group or person → role), "who has access to X and why" (the resolution, source by
   source), "Revoke now".
-* **Profile → Linked accounts** (lot 5 ✅): link / unlink GitLab (and later others), linked
+* **Setup › My account › Linked accounts** (lot 5 ✅): link / unlink GitLab (and later others), linked
   identity, scopes, token expiry, state (active / expired / revoked), the role GitLab gives
   in each project, "Refresh my access". Admin → Projects & teams: access source "GitLab
   roles" and the project's repositories.

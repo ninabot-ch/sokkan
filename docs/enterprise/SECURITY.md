@@ -102,9 +102,9 @@ is `project`; the migration puts every existing note at `project` (nothing chang
 ### Clearance
 
 clearance(person, project) = max( level of their **project role** (default: every role reads
-up to `project`; `SOKKAN_CLEARANCE_ROLES=viewer=team,…` or Profile → Classification), level
+up to `project`; `SOKKAN_CLEARANCE_ROLES=viewer=team,…` or Setup › Organization › Classification), level
 mapped to any of their **SSO groups** for that project or for every project
-(`clearance_groups`, Profile → Classification, `PUT /api/admin/classification/groups`) ).
+(`clearance_groups`, Setup › Organization › Classification, `PUT /api/admin/classification/groups`) ).
 No role in the project = no clearance (the project does not exist for them).
 
 A **scope** is `(project@clearance, shared@clearance)`. The memory engine applies it at every

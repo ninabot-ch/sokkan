@@ -11,7 +11,7 @@ URLs yourself; on managed cloud a single fleet resource provisions the stack.
 
 ---
 
-## Observability (the Operate tab)
+## Observability (Operate › Incidents)
 
 Connect a Prometheus + Grafana + Loki stack and the **Operate** tab appears:
 your dashboards, a live incident feed, and your runbooks.
@@ -39,7 +39,7 @@ Point your Grafana alerting contact point at
 `POST /api/observability/alert` (Bearer `SOKKAN_OBS_ALERT_TOKEN`). When an alert
 fires, SOKKAN:
 
-1. records an **incident** (visible in the Operate tab),
+1. records an **incident** (visible in Operate › Incidents),
 2. **spawns a diagnosis session** pre-seeded with the metric, the labels, and the
    instruction to search memory, investigate, and propose a fix — **waiting for
    your go-ahead before touching anything**,
@@ -50,7 +50,7 @@ to memory, and the next occurrence starts smarter.
 
 ---
 
-## Secrets (Profile → Secrets)
+## Secrets (Setup › Secrets)
 
 Operating prod means keys. The vault stores secrets **encrypted at rest**
 (per-instance Fernet key) and injects them into every session as environment
@@ -61,20 +61,20 @@ values never returned.
 
 ---
 
-## HITL push (Profile → Notifications)
+## HITL push (Setup › Notifications)
 
 You launch nine sessions and step away; one hits a permission gate. Instead of
 blocking silently, SOKKAN pings you (Telegram or a generic webhook) after the
 request stays pending for ~25s, with a link to come click. Answer in time and no
 ping is sent. This is also the channel production alerts fan out to. Configure
-and test it in *Profile → Notifications*.
+and test it in *Setup › Notifications*.
 
 ---
 
 ## Runbooks
 
 A runbook is a memory note named `runbook-*` — your agents write them as they
-operate, same pipeline as the rest of memory. In the Operate tab, **Run** spawns
+operate, same pipeline as the rest of memory. In Operate › Incidents, **Run** spawns
 a session guided by the runbook, with the project memory, executing step by step
 and stopping for your approval on anything irreversible. Ops becomes reproducible
 and supervised, not tribal knowledge.
