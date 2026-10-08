@@ -24,6 +24,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   session over 7 / 30 / 90 days, with the method in words. Budgets count the billed cost, and the
   API-equivalent on a subscription. Reconciliation test with a synthetic transcript of known usage
   in every basis. Docs: `docs/OPERATE.md` § Costs.
+- **Host names instead of bare addresses.** Operate › Infra (topology cards, Prometheus targets),
+  the Prometheus results an agent reads (`instance_name` label), the incidents opened by an alert
+  and Magnitude's endpoints show « name (ip) ». The name comes from `SOKKAN_HOSTS` (JSON ip → name,
+  new), then `SOKKAN_INFRA_NODES`, `/etc/hosts`, `tailscale status --json` (MagicDNS name) and
+  reverse DNS (bounded to 0.5 s, cached). A node absent from `SOKKAN_INFRA_NODES` is no longer
+  shown as its IP.
 
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its

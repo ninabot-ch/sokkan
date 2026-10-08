@@ -290,8 +290,9 @@ REGISTRY: tuple[Feature, ...] = (
             "Operate / Infra open to an SSO group (the ops team) besides the instance admins.",
             status="beta", defaults=_both(True), requires=("sso_teams",),
             vars=_t("ops_team"), config=("SOKKAN_OPS_GROUP",), doc=M),
-    Feature("infra", "Infra topology", "Operate › Infra: host topology from Prometheus.",
-            kind="integration", auto=_infra_configured, config=("SOKKAN_PROM",)),
+    Feature("infra", "Infra topology", "Operate › Infra: host topology from Prometheus. Addresses are "
+            "shown with a host name (SOKKAN_HOSTS, /etc/hosts, Tailscale, reverse DNS).",
+            kind="integration", auto=_infra_configured, config=("SOKKAN_PROM", "SOKKAN_HOSTS")),
     Feature("fleet", "Managed fleet", "Operate › Infra: the managed client VMs of SOKKAN Cloud.",
             kind="integration", auto=_fleet_configured, config=("SOKKAN_FLEET_URL", "SOKKAN_FLEET_TOKEN")),
     Feature("cortex", "CortHeXis link", "Link from Control › CortHeXis to a CortHeXis review UI.",

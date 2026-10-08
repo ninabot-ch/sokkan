@@ -11,6 +11,8 @@ import os
 import urllib.parse
 import urllib.request
 
+import hostnames
+
 PROM = (os.environ.get("SOKKAN_PROM") or "").rstrip("/")
 ENABLED = bool(PROM)
 
@@ -67,14 +69,18 @@ def nodes() -> list[dict]:
     ips = list(NODES) + [ip for ip in up if ip not in NODES]
     out = []
     for ip in ips:
-        meta = NODES.get(ip, {"name": ip, "role": "?"})
+        meta = NODES.get(ip) or {}
+        # 3.2.3: a node absent from SOKKAN_INFRA_NODES is named by hostnames (SOKKAN_HOSTS,
+        # /etc/hosts, Tailscale, reverse DNS) instead of showing its bare address
+        name = meta.get("name") or hostnames.resolve(ip) or ip
         monitored = ip in up or ip in cpu
         disks = [
             {"mount": m, "total": fsz[ip][m], "avail": fav.get(ip, {}).get(m)}
             for m in sorted(fsz.get(ip, {}))
         ]
         out.append({
-            "ip": ip, "name": meta["name"], "role": meta["role"],
+            "ip": ip, "name": name, "role": meta.get("role") or "",
+            "label": f"{name} ({ip})" if name != ip else ip,
             "monitored": monitored,
             "up": (up.get(ip) == 1) if ip in up else None,
             "cpu_pct": round(cpu[ip], 1) if ip in cpu else None,
@@ -94,7 +100,9 @@ def targets() -> list[dict]:
     try:
         for r in _q("up"):
             m = r["metric"]
+            d = hostnames.describe(m.get("instance") or "")
             out.append({"job": m.get("job"), "instance": m.get("instance"),
+                        "name": d["name"], "label": d["label"],
                         "up": r["value"][1] == "1"})
     except Exception:  # noqa: BLE001
         pass

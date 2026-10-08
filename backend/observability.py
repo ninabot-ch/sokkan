@@ -59,7 +59,16 @@ def query_metrics(promql: str) -> dict:
         raise RuntimeError("Prometheus non configuré sur cette instance")
     r = httpx.get(f"{PROM}/api/v1/query", params={"query": promql}, timeout=15)
     r.raise_for_status()
-    return r.json().get("data", {})
+    data = r.json().get("data", {})
+    # 3.2.3: an agent reading `instance="100.1.2.3:9100"` should see which host it is
+    import hostnames
+    for row in data.get("result") or [] if isinstance(data, dict) else []:
+        m = row.get("metric") if isinstance(row, dict) else None
+        if isinstance(m, dict) and m.get("instance") and "instance_name" not in m:
+            name = hostnames.describe(m["instance"])["name"]
+            if name:
+                m["instance_name"] = name
+    return data
 
 
 def query_logs(logql: str, limit: int = 100, since_s: int = 3600) -> list[dict]:

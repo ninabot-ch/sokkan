@@ -216,7 +216,8 @@ export interface IamUser {
 
 export interface InfraNode {
   ip: string;
-  name: string;
+  name: string;      // SOKKAN_INFRA_NODES, else resolved (SOKKAN_HOSTS, /etc/hosts, Tailscale, reverse DNS), else the ip
+  label?: string;    // "name (ip)"
   role: string;
   monitored: boolean;
   up: boolean | null;
@@ -234,6 +235,8 @@ export interface InfraNode {
 export interface InfraTarget {
   job: string;
   instance: string;
+  name?: string | null;   // host name of the instance's address (3.2.3)
+  label?: string;         // "name (ip:port)"
   up: boolean;
 }
 

@@ -75,6 +75,7 @@ import fleet
 import fleetterm
 import instance
 import llm
+import hostnames
 import magnitude
 import memeval
 import panestate
@@ -765,6 +766,11 @@ async def observability_alert(request: Request) -> dict:
         summary = ann.get("description") or ann.get("summary") or a.get("valueString", "")
         if a.get("status") == "resolved":
             continue  # on ne spawn que sur firing
+        # 3.2.3: the incident names the host, not only its address
+        summary = hostnames.annotate_text(summary)
+        inst = labels.get("instance") if isinstance(labels, dict) else None
+        if inst and inst not in summary:
+            summary = f"{summary} — on {hostnames.describe(str(inst))['label']}".lstrip(" —")
         rid = observability.record_incident(title, summary, severity)
         # 3.1.2 : the payload is external input — framed as untrusted data
         prompt = (
