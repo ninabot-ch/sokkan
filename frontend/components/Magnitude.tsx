@@ -5,8 +5,8 @@ import {
   magnitudeState, magnitudeUnpair,
 } from "@/lib/api";
 import type {
-  MagnitudeBench, MagnitudeEngine, MagnitudeModel, MagnitudeNode, MagnitudeProfile,
-  MagnitudeServing, MagnitudeState, MagnitudeStatus,
+  MagnitudeBench, MagnitudeEngine, MagnitudeGpuMetrics, MagnitudeMetrics, MagnitudeModel, MagnitudeNode,
+  MagnitudeProfile, MagnitudeRunTarget, MagnitudeServing, MagnitudeState, MagnitudeStatus,
 } from "@/lib/api";
 import { useCan } from "@/lib/me";
 import MemoryCard from "@/components/MemoryCard";
@@ -38,6 +38,40 @@ function Progress({ pct }: { pct: number | null | undefined }) {
     </div>
   );
 }
+
+/** Labelled usage bar (CPU, RAM, GPU busy, VRAM). Amber from 85 %, red from 95 %. */
+function Meter({ label, pct, value, title }: { label: string; pct: number | null | undefined; value: string; title?: string }) {
+  const p = pct == null ? null : Math.min(100, Math.max(0, pct));
+  const tone = p == null ? "bg-line" : p >= 95 ? "bg-red-400" : p >= 85 ? "bg-amber-400" : "bg-sea";
+  return (
+    <div title={title}>
+      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+        <span className="text-mut">{label}</span>
+        <span className="tabular-nums text-slate-300">{value}</span>
+      </div>
+      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-line/60" role="progressbar"
+        aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={p == null ? undefined : Math.round(p)}>
+        {p != null && <div className={`h-full rounded-full ${tone} transition-all duration-700`} style={{ width: `${Math.max(1.5, p)}%` }} />}
+      </div>
+    </div>
+  );
+}
+
+/** Tiny busy-% history (last ~2 min). */
+function Spark({ values, label }: { values: (number | null)[]; label: string }) {
+  const pts = values.map((v, i) => (v == null ? null : [i, v] as const)).filter(Boolean) as (readonly [number, number])[];
+  if (pts.length < 2) return null;
+  const n = Math.max(values.length - 1, 1);
+  const d = pts.map(([i, v], k) => `${k ? "L" : "M"}${(i / n) * 100},${20 - (v / 100) * 18}`).join(" ");
+  return (
+    <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="h-4 w-full text-sea/70" role="img" aria-label={label}>
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+const pctOf = (used: number | null | undefined, total: number | null | undefined) =>
+  used == null || !total ? null : (used / total) * 100;
 
 function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
@@ -141,12 +175,98 @@ const ENGINE_LABEL: Record<string, string> = {
 };
 const shortGpu = (name: string) => name.replace(/\(R\)|\(TM\)/g, "").replace(/^Intel\s+/, "").replace(/\s+Graphics$/, "").replace(/\s+/g, " ").trim();
 
-function HardwareCard({ profile, online, lastSeen, engines }: {
+function CardTile({ d, live, engines, allowed, hist }: {
+  d: { index: number; name: string; vram_gb: number | null };
+  live: MagnitudeGpuMetrics | undefined; engines: MagnitudeEngine[]; allowed: boolean | null; hist: (number | null)[];
+}) {
+  const on = engines.filter((e) => e.cards?.includes(d.index));
+  const total = live?.vram_total_gb ?? d.vram_gb;
+  return (
+    <div className="rounded-xl border border-line bg-ink/40 px-3.5 py-3">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[11px] tabular-nums text-mut">#{d.index}</span>
+        <span className="truncate text-[13px] font-medium text-slate-200" title={d.name}>{shortGpu(d.name)}</span>
+        {allowed === true && (
+          <span className="ml-auto shrink-0 rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">Run</span>
+        )}
+        {allowed === false && on.length > 0 && (
+          <span className="ml-auto shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200" title="serves other engines: Magnitude's Run does not use it">prod</span>
+        )}
+      </div>
+      <div className="mt-0.5 truncate text-[11.5px] text-mut" title={on.map((e) => e.model).join(", ")}>
+        {on.length ? on.map((e) => e.model).join(" · ") : "no engine found on this card"}
+      </div>
+      {live ? (
+        <div className="mt-2.5 space-y-2">
+          <Meter label="VRAM" pct={pctOf(live.vram_used_gb, total)}
+            value={live.vram_used_gb != null && total ? `${live.vram_used_gb.toFixed(1)} / ${total.toFixed(1)} GB` : "—"} />
+          <Meter label="busy" pct={live.util_pct} value={live.util_pct != null ? `${Math.round(live.util_pct)} %` : "—"} />
+          <Spark values={hist} label={`card ${d.index} busy over the last 2 minutes`} />
+          <div className="flex gap-3 text-[11px] tabular-nums text-mut">
+            {live.temp_c != null && <span className={live.temp_c >= 90 ? "text-red-300" : live.temp_c >= 80 ? "text-amber-300" : ""}>{Math.round(live.temp_c)} °C</span>}
+            {live.power_w != null && <span>{Math.round(live.power_w)} W</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-1.5 text-[11.5px] tabular-nums text-slate-400">{d.vram_gb != null ? `${d.vram_gb.toFixed(1)} GB` : "—"}</div>
+      )}
+    </div>
+  );
+}
+
+/** One sentence: which cards Magnitude may use for Run, which ones serve other engines. */
+function RunScope({ profile, target, engines }: { profile: MagnitudeProfile; target: MagnitudeRunTarget | null | undefined; engines: MagnitudeEngine[] }) {
+  const devs = profile.gpu?.devices ?? [];
+  if (!target || devs.length === 0) return null;
+  const allowed = profile.gpu?.run_devices;
+  const prod = devs.filter((d) => engines.some((e) => e.cards?.includes(d.index))).map((d) => d.index);
+  const list = (xs: number[]) => xs.map((x) => `#${x}`).join(", ");
+  return (
+    <div className="mt-5 rounded-xl border border-line/80 bg-ink/30 px-4 py-3 text-[12.5px] leading-relaxed text-slate-300">
+      <div>
+        <span className="text-mut">Cards for Run: </span>
+        {allowed == null ? (
+          <b className="font-medium text-amber-200">all ({list(devs.map((d) => d.index))}) — not restricted</b>
+        ) : allowed.length === 0 ? (
+          <b className="font-medium text-slate-100">none — models run on the CPU</b>
+        ) : (
+          <b className="font-medium text-emerald-300">{list(allowed)}</b>
+        )}
+        {prod.length > 0 && (<><span className="text-mut"> · production: </span><span>{list(prod)}</span></>)}
+      </div>
+      <div className="mt-0.5 text-[11.5px] text-mut">
+        {allowed == null && prod.length > 0
+          ? "A Run would spread over cards that serve other engines. Set MAGNITUDE_GPU_DEVICES on the agent (e.g. 2, or none)."
+          : "Set on the machine by MAGNITUDE_GPU_DEVICES (card numbers, or none); the cockpit cannot widen it."}
+        {target.usable_gb != null && ` Room for a model: ${target.usable_gb.toFixed(1)} GB ${target.basis === "free" ? "free on those cards now" : target.basis === "ram" ? "of RAM" : "on those cards"}.`}
+      </div>
+    </div>
+  );
+}
+
+function NodeLoad({ m, cores }: { m: MagnitudeMetrics; cores: number }) {
+  return (
+    <div className="mt-5 grid grid-cols-2 gap-4" aria-label="Machine load">
+      <Meter label={`CPU · ${cores} cores${m.load1 != null ? ` · load ${m.load1.toFixed(1)}` : ""}`} pct={m.cpu_pct}
+        value={m.cpu_pct != null ? `${Math.round(m.cpu_pct)} %` : "—"} />
+      <Meter label="RAM" pct={pctOf(m.ram_used_gb, m.ram_total_gb)}
+        value={m.ram_used_gb != null && m.ram_total_gb ? `${m.ram_used_gb.toFixed(0)} / ${m.ram_total_gb.toFixed(0)} GB` : "—"} />
+    </div>
+  );
+}
+
+function HardwareCard({ profile, online, lastSeen, engines, metrics, target }: {
   profile: MagnitudeProfile; online: boolean; lastSeen: number | null; engines: MagnitudeEngine[];
+  metrics: MagnitudeMetrics | null | undefined; target: MagnitudeRunTarget | null | undefined;
 }) {
   const g = profile.gpu;
   const cls = profile.class;
   const devices = g?.devices && g.devices.length > 1 ? g.devices : null;
+  const live = (i: number, pci?: string | null) =>
+    metrics?.gpus.find((x) => (pci && x.pci ? x.pci === pci : x.index === i));
+  const allowedOf = (i: number): boolean | null => (g?.run_devices == null ? null : g.run_devices.includes(i));
+  const hist = (i: number) => (metrics?.history ?? []).map((h) => h.gpu[i] ?? null);
+  const single = !devices && g ? live(0) : undefined;
   return (
     <div className={`rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500 ${online ? "" : "opacity-60"}`}>
       <div className="flex items-center gap-5">
@@ -162,50 +282,51 @@ function HardwareCard({ profile, online, lastSeen, engines }: {
           <div className="mt-1 text-[13px] text-mut">
             {g ? `${g.vendor} · ${g.backend.replace("_", " ")}` : "CPU inference"}
             {devices && profile.class_per_card ? ` · class ${profile.class_per_card} per card` : ""}
+            {devices && g?.vram_total_gb != null ? ` · ${g.vram_total_gb.toFixed(1)} GB in total` : ""}
             {!online && <span className="ml-2 text-amber-300/80">· agent offline{lastSeen ? ` — last seen ${upFor(lastSeen)} ago` : ""}</span>}
           </div>
         </div>
       </div>
+      {/* the machine itself: CPU model, cores, RAM — always visible, live load when the agent sends it */}
+      <div className="mt-5 text-[13px] text-slate-300">
+        {profile.cpu}
+        <span className="text-mut"> · {profile.cores} cores · {gb(profile.ram_gb)} GB RAM{g?.driver ? ` · driver ${g.driver}` : ""}</span>
+      </div>
+      {metrics && <NodeLoad m={metrics} cores={profile.cores} />}
       {devices && (
-        <div className="mt-5 grid grid-cols-2 gap-2.5" aria-label="GPUs of this node">
-          {devices.map((d) => {
-            const on = engines.filter((e) => e.cards?.includes(d.index));
-            return (
-              <div key={d.index} className="rounded-xl border border-line bg-ink/40 px-3.5 py-2.5">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[11px] tabular-nums text-mut">#{d.index}</span>
-                  <span className="truncate text-[13px] font-medium text-slate-200" title={d.name}>{shortGpu(d.name)}</span>
-                  <span className="ml-auto text-[12px] tabular-nums text-slate-300">{d.vram_gb != null ? d.vram_gb.toFixed(1) : "—"} GB</span>
-                </div>
-                <div className="mt-1 truncate text-[11.5px] text-mut" title={on.map((e) => e.model).join(", ")}>
-                  {on.length ? on.map((e) => e.model).join(" · ") : "no engine found on this card"}
-                </div>
-              </div>
-            );
-          })}
+        <div className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2" aria-label="GPUs of this node">
+          {devices.map((d) => (
+            <CardTile key={d.index} d={d} live={live(d.index, d.pci)} engines={engines} allowed={allowedOf(d.index)} hist={hist(d.index)} />
+          ))}
         </div>
       )}
-      {/* vulkaninfo/lspci detection has no VRAM figures — hide the gauge then */}
-      {g && g.vram_total_gb != null && (
+      {!devices && g && (single ? (
+        <div className="mt-5 grid grid-cols-2 gap-4">
+          <Meter label="VRAM" pct={pctOf(single.vram_used_gb, single.vram_total_gb ?? g.vram_total_gb)}
+            value={single.vram_used_gb != null ? `${single.vram_used_gb.toFixed(1)} / ${(single.vram_total_gb ?? g.vram_total_gb ?? 0).toFixed(1)} GB` : "—"} />
+          <Meter label={`GPU busy${single.temp_c != null ? ` · ${Math.round(single.temp_c)} °C` : ""}${single.power_w != null ? ` · ${Math.round(single.power_w)} W` : ""}`}
+            pct={single.util_pct} value={single.util_pct != null ? `${Math.round(single.util_pct)} %` : "—"} />
+        </div>
+      ) : g.vram_total_gb != null && (
+        /* older agents: no live figures — free memory from the profile when known */
         <div className="mt-6">
           <div className="mb-1.5 flex items-baseline justify-between text-[12.5px]">
-            <span className="text-mut">VRAM{devices ? ` — ${devices.length} cards` : ""}</span>
+            <span className="text-mut">VRAM</span>
             <span className="tabular-nums text-slate-300">
-              {g.vram_free_gb != null ? `${gb(g.vram_free_gb)} GB free of ` : ""}{devices ? g.vram_total_gb.toFixed(1) : gb(g.vram_total_gb)} GB{devices && g.vram_free_gb == null ? " in total" : ""}
+              {g.vram_free_gb != null ? `${gb(g.vram_free_gb)} GB free of ` : ""}{gb(g.vram_total_gb)} GB
             </span>
           </div>
-          {/* without a free-memory figure (Intel via OpenCL/Level Zero) a gauge would show "empty": none */}
           {g.vram_free_gb != null && (
-            <Progress
-              pct={g.vram_total_gb > 0 ? ((g.vram_total_gb - g.vram_free_gb) / g.vram_total_gb) * 100 : 0}
-            />
+            <Progress pct={g.vram_total_gb > 0 ? ((g.vram_total_gb - g.vram_free_gb) / g.vram_total_gb) * 100 : 0} />
           )}
         </div>
+      ))}
+      {devices && <RunScope profile={profile} target={target} engines={engines} />}
+      {online && !metrics && (
+        <div className="mt-4 text-[11.5px] text-mut">
+          Live load (busy %, memory, temperature, power) needs agent 0.3 or later{profile.agent_version ? ` — this one is ${profile.agent_version}` : ""}.
+        </div>
       )}
-      <div className="mt-5 text-[13px] text-mut">
-        {profile.cpu} · {profile.cores} cores · {gb(profile.ram_gb)} GB RAM
-        {g?.driver ? ` · driver ${g.driver}` : ""}
-      </div>
     </div>
   );
 }
@@ -306,11 +427,19 @@ function ModelCard({
             <span className="text-[12px] text-mut">tok/s</span>
           </div>
           <div className="mt-1 text-[12px] tabular-nums text-mut">
+            {bench.on ? `${bench.on.toUpperCase()} · ` : ""}
             {bench.prefill_tok_s != null && `${Math.round(bench.prefill_tok_s)} tok/s prefill`}
             {bench.power_avg_w != null && ` · ${Math.round(bench.power_avg_w)} W`}
             {bench.eur_per_mtok_gen != null && ` · €${bench.eur_per_mtok_gen.toFixed(2)}/Mtok`}
           </div>
+          <div className="mt-0.5 text-[11px] text-mut/80">
+            measured {new Date(bench.at * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+            {!bench.on ? " — on the hardware of that day" : ""}
+          </div>
         </div>
+      )}
+      {admin && !m.fits && m.fit === "no" && (
+        <div className="mt-4 text-[11.5px] text-mut">Needs about {gb(m.weights_gb + 1.2)} GB where it would run.</div>
       )}
       {admin && m.fits && (
         <div className="mt-5 flex gap-2.5">
@@ -435,6 +564,19 @@ function NodeEndpoint({
   );
 }
 
+/** Where a Run would execute, in words (header of the catalogue). */
+function whereText(p: MagnitudeProfile, t: MagnitudeRunTarget | null | undefined): string {
+  const room = t?.usable_gb != null ? ` — ${t.usable_gb.toFixed(1)} GB ${t.basis === "free" ? "free right now" : t.basis === "ram" ? "of RAM for the model" : "available"}` : "";
+  if (!t) return "";
+  if (t.where === "cpu") {
+    if (p.gpu?.run_devices && p.gpu.run_devices.length === 0) return `On the CPU: no card is open to Magnitude on this machine${room}. Slower, but it leaves the GPUs to production.`;
+    if (p.gpu?.vendor === "intel" && !p.gpu.offload) return `On the CPU: no Vulkan driver for these cards${room}.`;
+    return `On the CPU${room}.`;
+  }
+  const cards = t.cards?.length ? ` card${t.cards.length > 1 ? "s" : ""} ${t.cards.map((c) => `#${c}`).join(", ")}` : " the GPU";
+  return `On${cards}${room}. Fit is computed on that memory, with room for the context.`;
+}
+
 function NodeSection({
   node, admin, busy, act,
 }: {
@@ -486,9 +628,31 @@ function NodeSection({
         />
       )}
 
+      {node.stale && !node.online && (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5 text-[13px] text-amber-100">
+          <div className="font-medium">
+            {node.last_seen
+              ? `Offline since ${new Date(node.last_seen * 1000).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`
+              : `Never connected — paired ${node.paired_at ? `${upFor(node.paired_at)} ago` : "a while ago"}`}
+          </div>
+          <div className="mt-1 text-[12.5px] text-amber-100/80">
+            {node.last_seen
+              ? "Its agent stopped syncing: check the magnitude-agent service on the machine (and the tunnel, if any)."
+              : "The install command was never run on a machine, or its token was lost. Unpair it, then « Pair a machine » again."}
+          </div>
+          {admin && (
+            <button onClick={unpair}
+              className="mt-3 rounded-lg border border-amber-300/40 px-4 py-1.5 text-[12.5px] text-amber-100 transition-colors hover:bg-amber-400/10">
+              Unpair {node.name}
+            </button>
+          )}
+        </div>
+      )}
+
       {node.profile ? (
-        <HardwareCard profile={node.profile} online={node.online} lastSeen={node.last_seen} engines={engines} />
-      ) : (
+        <HardwareCard profile={node.profile} online={node.online} lastSeen={node.last_seen} engines={engines}
+          metrics={node.metrics} target={node.run_target} />
+      ) : !node.stale && (
         <div className="rounded-2xl border border-line bg-panel2/40 p-6 text-[13px] text-mut transition-all duration-500">
           <span className="animate-pulse">
             {node.online ? "profiling hardware…" : "waiting for the agent…"}
@@ -512,13 +676,11 @@ function NodeSection({
         onSave={(url) => act(() => magnitudeNodeConfig(node.id, { shim_url: url }), "saving endpoint failed")}
       />
 
-      {node.profile && engines.length > 0 && (
-        <h3 className="pt-2 text-[15px] font-semibold tracking-tight text-slate-100">
-          Models Magnitude can download and run
-          {node.profile.gpu?.vendor === "intel" && !node.profile.gpu.offload && (
-            <span className="ml-2 text-[12px] font-normal text-mut">on CPU — no Vulkan driver for these cards</span>
-          )}
-        </h3>
+      {node.profile && (
+        <div className="pt-2">
+          <h3 className="text-[15px] font-semibold tracking-tight text-slate-100">Models Magnitude can download and run</h3>
+          <div className="mt-0.5 text-[12px] text-mut">{whereText(node.profile, node.run_target)}</div>
+        </div>
       )}
       {node.profile && (
         <div className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2">

@@ -1339,6 +1339,18 @@ def magnitude_cmd(body: MagnitudeCmdBody, u: dict = Depends(require("admin")),
         raise HTTPException(400, f"no engine {model!r} on port {body.port} reported by this node")
     if not magnitude.online(node):
         raise HTTPException(409, "agent is offline on this node")
+    if action in ("bench", "run"):
+        # 3.2.3: the fit is computed where the run would happen (the cards allowed by
+        # MAGNITUDE_GPU_DEVICES, their FREE memory) — never load a model that cannot fit
+        tgt = magnitude.run_target_of(body.node)
+        fit = next((m["fit"] for m in magnitude.catalog_view(node.get("profile"),
+                                                             magnitude.metrics_of(body.node))
+                    if m["id"] == model), "unknown")
+        if fit in ("no", "unknown"):
+            where = ("the CPU" if (tgt or {}).get("where") == "cpu" else
+                     "card(s) " + ", ".join(f"#{c}" for c in (tgt or {}).get("cards") or []))
+            raise HTTPException(409, f"{model} does not fit on {where} "
+                                     f"({(tgt or {}).get('usable_gb')} GB available)")
     magnitude.set_pending(body.node, action, model, port=body.port if action == "attach" else None)
     audit.log(u["email"], "magnitude.cmd", f"{body.node}:{action}",
               f"{model}:{body.port}" if action == "attach" else model)
@@ -1379,6 +1391,7 @@ class MagnitudeSyncBody(BaseModel):
     serving: dict | None = None
     error: str | None = None
     engines: list | None = None   # agent ≥ 0.2: engines already running on the node
+    metrics: dict | None = None   # agent ≥ 0.3: live load (cards, CPU, RAM)
 
 
 @app.post("/api/magnitude/agent/sync")
@@ -1391,7 +1404,33 @@ def magnitude_agent_sync(body: MagnitudeSyncBody, request: Request,
     if nid is None:
         raise HTTPException(401, "invalid magnitude token")
     cmd = magnitude.sync(nid, body.model_dump(), "serving" in body.model_fields_set)
-    return {"command": cmd}
+    resend = magnitude.resend_needed(nid)
+    return {"command": cmd, **({"resend": resend} if resend else {})}
+
+
+def _metrics_allowed(request: Request) -> bool:
+    """Prometheus scrape: `Authorization: Bearer $SOKKAN_METRICS_TOKEN` when the token is
+    set; without one, only a direct loopback client (no proxy header: the web front
+    forwards /api from 127.0.0.1 too, with x-forwarded-for)."""
+    tok = os.environ.get("SOKKAN_METRICS_TOKEN", "")
+    if tok:
+        got = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        return secrets.compare_digest(got.encode(), tok.encode())
+    host = request.client.host if request.client else ""
+    proxied = any(request.headers.get(h) for h in ("x-forwarded-for", "x-real-ip",
+                                                   "cf-connecting-ip", "forwarded"))
+    return host in ("127.0.0.1", "::1") and not proxied
+
+
+@app.get("/metrics", include_in_schema=False)
+@app.get("/api/magnitude/metrics", include_in_schema=False)
+def magnitude_prometheus(request: Request, _f: None = Depends(feature_magnitude)):
+    """`sokkan_magnitude_*` gauges (cards, CPU/RAM, engines) for Prometheus / Operate."""
+    if not _metrics_allowed(request):
+        raise HTTPException(401, "metrics: bearer SOKKAN_METRICS_TOKEN required")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(magnitude.prometheus(),
+                             media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/api/features")
@@ -1732,6 +1771,7 @@ def auth_oidc_logout():
 # pas de cookie — l'agent host n'a pas de session utilisateur.
 _AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
               "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
+              "/api/magnitude/metrics",  # Prometheus: own bearer token or direct loopback
               "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
               forge_routes.CRED_PATH,  # 3.2 lot 5 : ticket de session + loopback seulement
               "/api/scim/",  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)

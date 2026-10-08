@@ -53,6 +53,13 @@ FIT_MARGIN_GB = 1.2  # marge KV cache / compute buffers au-dessus des poids
 
 _LOCK = threading.Lock()  # sérialise les read-modify-write de l'état
 
+# 3.2.3 — live load of each node (agent ≥ 0.3), kept in memory only: a sample every few
+# seconds has no business in magnitude.json. {node_id: {"last": snap, "hist": [...]}}
+_METRICS: dict[str, dict] = {}
+METRICS_FRESH_S = 20.0      # older than that = not shown (agent stopped sampling)
+METRICS_HISTORY = 40        # ~2 min of samples at 3 s, for the sparklines
+STALE_AFTER_S = 600.0       # a node silent for 10 min is « offline since … », with Unpair
+
 # Catalogue des modèles servables — DUPLIQUÉ de magnitude/catalog.py (le
 # container ne voit pas le package host) : ids et poids strictement identiques.
 CATALOG: list[dict] = [
@@ -206,6 +213,47 @@ def catalog_get(model_id: str) -> dict | None:
     return next((m for m in CATALOG if m["id"] == model_id), None)
 
 
+def _run_target(profile: dict, metrics: dict | None = None) -> dict:
+    """Where Magnitude's own Run/Benchmark would execute, and how much memory it has.
+
+    {"where": "gpu"|"cpu", "cards": [indexes] | None, "usable_gb": float | None,
+     "basis": "free"|"total"|"ram"}. With live metrics (agent ≥ 0.3) the fit uses the
+    FREE memory of the allowed cards — a card serving another engine is not « 24 GB »."""
+    gpu = profile.get("gpu") or {}
+    allowed = gpu.get("run_devices")
+    devices = gpu.get("devices") or []
+    gpu_usable = gpu.get("backend") in ("cuda", "vulkan", "metal") or gpu.get("offload") == "vulkan"
+    if gpu.get("vendor") not in (None, "", "none") and gpu_usable and allowed != []:
+        cards = allowed if allowed is not None else [d.get("index") for d in devices] or None
+        live = {g.get("index"): g for g in (metrics or {}).get("gpus") or []}
+        if cards and live and all(c in live and live[c].get("vram_used_gb") is not None
+                                  and live[c].get("vram_total_gb") for c in cards):
+            free = sum(max(0.0, live[c]["vram_total_gb"] - live[c]["vram_used_gb"]) for c in cards)
+            return {"where": "gpu", "cards": cards, "usable_gb": round(free, 1), "basis": "free"}
+        if cards and devices and allowed is not None:
+            per = {d.get("index"): d.get("vram_gb") for d in devices}
+            tot = sum(per.get(c) or 0 for c in cards)
+            return {"where": "gpu", "cards": cards, "usable_gb": round(tot, 1) or None,
+                    "basis": "total"}
+        u = _usable_gb(profile)
+        if u is not None and (gpu.get("vendor") != "intel" or gpu_usable):
+            return {"where": "gpu", "cards": cards, "usable_gb": u, "basis": "total"}
+    # CPU: half of the RAM — or of the RAM still available when we can see it
+    ram = profile.get("ram_gb")
+    m = metrics or {}
+    if m.get("ram_total_gb") and m.get("ram_used_gb") is not None:
+        avail = m["ram_total_gb"] - m["ram_used_gb"]
+        return {"where": "cpu", "cards": [] if allowed == [] else None,
+                "usable_gb": round(min(avail * 0.8, (ram or avail) * 0.5), 1), "basis": "ram"}
+    return {"where": "cpu", "cards": [] if allowed == [] else None,
+            "usable_gb": float(ram) * 0.5 if ram else None, "basis": "ram"}
+
+
+def run_target_of(node_id: str) -> dict | None:
+    node = load()["nodes"].get(node_id) or {}
+    return _run_target(node["profile"], metrics_of(node_id)) if node.get("profile") else None
+
+
 def _usable_gb(profile: dict) -> float | None:
     """Mémoire utilisable (Go) pour les poids : VRAM GPU telle que remontée
     (hw.py donne déjà 75 % de la RAM unifiée sur Apple Silicon), sinon 50 % de
@@ -234,9 +282,10 @@ def _fit(weights_gb: float, usable: float | None) -> str:
     return "no"
 
 
-def catalog_view(profile: dict | None) -> list[dict]:
-    """Catalogue pour l'UI, annoté du fit vs profil (sans les URLs de poids)."""
-    usable = _usable_gb(profile) if profile else None
+def catalog_view(profile: dict | None, metrics: dict | None = None) -> list[dict]:
+    """Catalogue pour l'UI, annoté du fit vs profil (sans les URLs de poids) : sur les
+    cartes autorisées pour Run (mémoire libre si l'agent la remonte), sinon le CPU."""
+    usable = _run_target(profile, metrics)["usable_gb"] if profile else None
     out = []
     for m in CATALOG:
         e = {k: m[k] for k in ("id", "label", "params", "moe", "weights_gb", "note")}
@@ -332,13 +381,108 @@ def sync(node_id: str, payload: dict, serving_set: bool) -> dict | None:
         if isinstance(payload.get("engines"), list):   # agent ≥ 0.2: engines running
             node["engines"] = [_clean_engine(e) for e in payload["engines"] if isinstance(e, dict)][:50]
             node["engines_at"] = time.time()
+        if isinstance(payload.get("metrics"), dict):   # agent ≥ 0.3: live load
+            record_metrics(node_id, payload["metrics"])
         node["last_seen"] = time.time()
         cmd = node.pop("pending", None)
         save(st)
     return cmd or None
 
 
+def resend_needed(node_id: str) -> list[str]:
+    """What the cockpit does not hold for this node and asks its agent again (a cockpit
+    upgraded after its agent, a registry restored from a backup) — agents ≥ 0.3 honour it."""
+    node = load()["nodes"].get(node_id) or {}
+    return [k for k, missing in (("profile", not node.get("profile")),
+                                 ("engines", node.get("engines_at") is None)) if missing]
+
+
+def _clean_metrics(m: dict) -> dict:
+    """Known numeric fields of a load sample (untrusted input)."""
+    def f(v):
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        return x if x == x and abs(x) < 1e7 else None   # NaN / absurd → None
+    gpus = []
+    for g in (m.get("gpus") or [])[:16]:
+        if isinstance(g, dict):
+            idx = f(g.get("index"))
+            gpus.append({"index": int(idx) if idx is not None else len(gpus),
+                         "pci": str(g.get("pci") or "")[:16] or None,
+                         **{k: f(g.get(k)) for k in ("util_pct", "vram_used_gb", "vram_total_gb",
+                                                     "temp_c", "power_w")}})
+    return {"at": time.time(), **{k: f(m.get(k)) for k in ("cpu_pct", "load1", "ram_used_gb",
+                                                           "ram_total_gb")}, "gpus": gpus}
+
+
+def record_metrics(node_id: str, m: dict) -> None:
+    snap = _clean_metrics(m)
+    slot = _METRICS.setdefault(node_id, {"last": None, "hist": []})
+    slot["last"] = snap
+    slot["hist"] = (slot["hist"] + [{"at": snap["at"], "cpu": snap["cpu_pct"],
+                                     "gpu": [g["util_pct"] for g in snap["gpus"]]}])[-METRICS_HISTORY:]
+
+
+def metrics_of(node_id: str) -> dict | None:
+    slot = _METRICS.get(node_id)
+    if not slot or not slot["last"] or time.time() - slot["last"]["at"] > METRICS_FRESH_S:
+        return None
+    return {**slot["last"], "history": slot["hist"]}
+
+
+def prometheus() -> str:
+    """`sokkan_magnitude_*` gauges of every node, Prometheus text format 0.0.4."""
+    st = load()
+    lines = []
+
+    def g(name, help_, rows):
+        lines.append(f"# HELP sokkan_magnitude_{name} {help_}")
+        lines.append(f"# TYPE sokkan_magnitude_{name} gauge")
+        for labels, v in rows:
+            if v is None:
+                continue
+            lab = ",".join(f'{k}="{str(val).replace(chr(92), "").replace(chr(34), "")}"'
+                           for k, val in labels.items())
+            lines.append(f"sokkan_magnitude_{name}{{{lab}}} {v}")
+
+    nodes, fresh = [], {}
+    for nid, node in st["nodes"].items():
+        name = node_name(nid, node)
+        nodes.append((nid, name, node))
+        fresh[nid] = metrics_of(nid)
+    g("node_up", "1 when the node's agent synced in the last 15 s",
+      [({"node": n}, 1 if online(node) else 0) for _, n, node in nodes])
+    g("node_last_seen_seconds", "Unix time of the node's last sync",
+      [({"node": n}, round(node.get("last_seen") or 0, 1)) for _, n, node in nodes])
+    for key, name, help_ in (("cpu_pct", "cpu_utilization_percent", "CPU busy %, whole machine"),
+                             ("load1", "load1", "1-minute load average"),
+                             ("ram_used_gb", "ram_used_gib", "RAM in use (GiB)"),
+                             ("ram_total_gb", "ram_total_gib", "RAM installed (GiB)")):
+        g(name, help_, [({"node": n}, (fresh[i] or {}).get(key)) for i, n, _ in nodes])
+    for key, name, help_ in (("util_pct", "gpu_utilization_percent", "GPU busy % (compute engine)"),
+                             ("vram_used_gb", "gpu_memory_used_gib", "GPU memory in use (GiB)"),
+                             ("vram_total_gb", "gpu_memory_total_gib", "GPU memory size (GiB)"),
+                             ("temp_c", "gpu_temperature_celsius", "GPU package temperature"),
+                             ("power_w", "gpu_power_watts", "GPU board power (W)")):
+        g(name, help_, [({"node": n, "gpu": gg["index"], "pci": gg.get("pci") or ""}, gg.get(key))
+                        for i, n, _ in nodes for gg in (fresh[i] or {}).get("gpus") or []])
+    g("engine_up", "1 per engine found running on the node (healthy) / 0 (not answering)",
+      [({"node": n, "model": e.get("model"), "engine": e.get("engine"), "port": e.get("port")},
+        1 if e.get("healthy") else 0) for _, n, node in nodes for e in node.get("engines") or []])
+    g("serving", "1 when Magnitude serves (or bridges) a model on the node",
+      [({"node": n, "model": (node.get("serving") or {}).get("model") or ""},
+        1 if node.get("serving") else 0) for _, n, node in nodes])
+    return "\n".join(lines) + "\n"
+
+
 # --- vue UI ------------------------------------------------------------------
+def _stale(node: dict) -> bool:
+    """Never synced since pairing 10+ min ago, or silent for 10+ min: the UI says
+    « offline since … » / « never connected » with Unpair, never an endless spinner."""
+    ref = node.get("last_seen") or node.get("paired_at") or 0
+    return bool(ref) and time.time() - ref > STALE_AFTER_S
 def connected_node(state: dict | None = None) -> str | None:
     """node_id dont le shim est branché au router LLM de l'instance, sinon None."""
     c = llm.load()
@@ -385,7 +529,11 @@ def view() -> dict:
                          "port": serving.get("port"),
                          "external": bool(serving.get("external"))} if serving else None),
             "connected": nid == conn,
-            "catalog": catalog_view(node.get("profile")),
+            "catalog": catalog_view(node.get("profile"), metrics_of(nid)),
+            "run_target": _run_target(node["profile"], metrics_of(nid)) if node.get("profile") else None,
+            "metrics": metrics_of(nid),
+            "paired_at": node.get("paired_at"),
+            "stale": _stale(node),
             "engines": engines_view(node),
             "engines_at": node.get("engines_at"),
             "agent_version": (node.get("profile") or {}).get("agent_version"),
@@ -418,6 +566,23 @@ def _node_memory(profile: dict) -> dict | None:
     return {k: rec[k] for k in ("recommended", "reason", "warnings", "accel", "hardware")}
 
 
+def _profiles_with_nodes(plist: list[dict], nodes: list[dict], order) -> list[dict]:
+    """A profile the cockpit's own machine cannot hold may still be served by an online
+    node (GPU profile on a Magnitude node): `fits` is true then, `fits_on` names it."""
+    out = []
+    for p in plist:
+        q = dict(p)
+        q["fits_on"] = "this server" if p.get("fits") else None
+        if not p.get("fits"):
+            for n in nodes:
+                if n.get("online") and n.get("recommended") in order and p["id"] in order \
+                        and order.index(n["recommended"]) >= order.index(p["id"]):
+                    q["fits"], q["fits_on"] = True, n["name"]
+                    break
+        out.append(q)
+    return out
+
+
 def memory_view() -> dict:
     """État pour GET /api/magnitude/memory — l'UI (vague 2) n'a qu'à l'afficher.
 
@@ -440,8 +605,9 @@ def memory_view() -> dict:
         if mem:
             nodes.append({"id": nid, "name": node_name(nid, node), "online": online(node),
                           **mem})
-    candidates = [local["recommended"]] + [n["recommended"] for n in nodes if n["online"]]
-    best = max(candidates, key=profiles.ORDER.index)
+    candidates = [("this server", local["recommended"], local["reason"])] + [
+        (n["name"], n["recommended"], n["reason"]) for n in nodes if n["online"]]
+    best_on, best, best_reason = max(candidates, key=lambda c: profiles.ORDER.index(c[1]))
     try:
         current = embed.current_profile()
         engine = embed.describe()
@@ -451,10 +617,14 @@ def memory_view() -> dict:
     return {
         "current": current,
         "recommended": best,
+        # 3.2.3: the reason shown is the one of the machine that can serve it (was the
+        # cockpit's own « 8 cores, 12.6 GB RAM » next to a GPU recommendation)
+        "recommended_on": best_on,
+        "recommended_reason": best_reason,
         "local": {k: local[k] for k in ("recommended", "reason", "warnings", "accel",
                                         "hardware")},
         "nodes": nodes,
-        "profiles": local["profiles"],
+        "profiles": _profiles_with_nodes(local["profiles"], nodes, profiles.ORDER),
         "engine": engine,
         "models": {"active": st["active"], "installed": st["installed"],
                    "licence": {k: v for k, v in st["licence"].items() if k != "history"},
