@@ -6,8 +6,9 @@ Five ordered levels, stored as their rank (``notes.level`` smallint):
 
 ``project`` (2) is the default: every note indexed before 3.4, every note without a
 ``classification:`` key. The ids are fixed (API, frontmatter, database); what a customer
-sees can be relabelled to follow its own grid (``SOKKAN_CLASSIFICATION_LABELS``, five
-comma-separated labels in that order, e.g. ``Public,Internal,Project,Confidential,Secret``).
+sees can be relabelled to follow its own grid (``CORTHEXIS_CLASSIFICATION_LABELS``, or
+``SOKKAN_CLASSIFICATION_LABELS``: five comma-separated labels in that order, e.g.
+``Public,Internal,Project,Confidential,Secret``).
 A frontmatter value may be the id, the customer label or the rank.
 
 Fail-closed: a value that is set but not understood (a typo, a label of another grid) is
@@ -15,7 +16,7 @@ Fail-closed: a value that is set but not understood (a typo, a label of another 
 """
 from __future__ import annotations
 
-import os
+from .config import env
 
 IDS = ("public", "team", "project", "confidential", "restricted")
 DEFAULT = 2                       # project
@@ -23,7 +24,7 @@ MAX = len(IDS) - 1
 
 
 def labels() -> tuple[str, ...]:
-    raw = (os.environ.get("SOKKAN_CLASSIFICATION_LABELS") or "").split(",")
+    raw = (env("CLASSIFICATION_LABELS") or "").split(",")
     lab = tuple(x.strip() for x in raw)
     return lab if len(lab) == len(IDS) and all(lab) else tuple(i.capitalize() for i in IDS)
 
