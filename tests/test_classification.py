@@ -387,8 +387,12 @@ def test_access_log_for_project_admins_with_csv(world):
     import projects
     projects.grant("radio", "user", "boss@x", "admin")
     boss = world["as"]("boss@x")
-    rows = boss.get("/api/classification/audit").json()["entries"]
+    got = boss.get("/api/classification/audit").json()
+    rows = got["entries"]
     assert {r["note_name"] for r in rows} == {"radio-runbook"}     # boss cleared `project`
+    # 3.4 Bridge: the auditor knows that reads above their clearance exist (count, no content)
+    assert got["hidden_above_clearance"] == 1 and got["clearance"] == "project"
+    assert boss.get("/api/classification/audit", params={"format": "csv"}).headers["x-sokkan-hidden-rows"] == "1"
     assert rows[0]["actor"] == "carol@x" and rows[0]["actor_source"] == "session owner"
     import classification
     classification.set_group_level("user:boss@x", "restricted", "radio")

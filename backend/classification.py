@@ -435,9 +435,11 @@ def set_card_level(user: dict, card: dict, level, reason: str = "") -> dict:
 
 # ---- audited recall -----------------------------------------------------------------------
 def access_log(project: str, *, reader_clearance: int | None, actor: str = "", note: str = "",
-               session: str = "", since_days: int = 30, limit: int = 1000) -> list[dict]:
+               session: str = "", since_days: int = 30, limit: int = 1000,
+               stats: dict | None = None) -> list[dict]:
     """Who obtained which note of ``project`` (and of nothing else), via which path. The
-    entries about notes above the reader's own clearance are left out."""
+    entries about notes above the reader's own clearance are left out — and COUNTED in
+    ``stats["hidden"]`` (3.4): an auditor knows that reads they may not see exist."""
     import store_backend
     if not store_backend.enabled():
         return []
@@ -449,8 +451,10 @@ def access_log(project: str, *, reader_clearance: int | None, actor: str = "", n
     owners: dict[str, str] = {}
     import board
     out = []
+    hidden = 0
     for r in rows:
         if reader_clearance is not None and int(r["level"]) > reader_clearance:
+            hidden += 1
             continue
         if not r.get("actor") and r.get("session_id"):
             sid = r["session_id"]
@@ -463,6 +467,8 @@ def access_log(project: str, *, reader_clearance: int | None, actor: str = "", n
             r["actor_source"] = "session owner"
         r["level"] = _lv().ident(r["level"])
         out.append(r)
+    if stats is not None:
+        stats["hidden"] = hidden
     return out
 
 

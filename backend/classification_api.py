@@ -107,16 +107,21 @@ def access_audit(actor: str = "", note: str = "", session: str = "", days: int =
     pu = _ctx()
     if pu.get("project_role") != "admin":
         raise HTTPException(403, "the access log is for the project's admins")
+    stats: dict = {}
     rows = classification.access_log(pu["project"], reader_clearance=pu.get("clearance"),
                                      actor=actor, note=note, session=session,
-                                     since_days=days, limit=limit)
+                                     since_days=days, limit=limit, stats=stats)
+    hidden = int(stats.get("hidden") or 0)
     audit.log(u["email"], "classification.audit.read", pu["project"],
               f"{len(rows)} rows" + (" (csv)" if format == "csv" else ""))
     if format == "csv":
         return PlainTextResponse(classification.access_csv(rows), media_type="text/csv",
                                  headers={"content-disposition":
-                                          f'attachment; filename="access-{pu["project"]}.csv"'})
-    return {"project": pu["project"], "entries": rows}
+                                          f'attachment; filename="access-{pu["project"]}.csv"',
+                                          "x-sokkan-hidden-rows": str(hidden)})
+    from core import levels
+    return {"project": pu["project"], "entries": rows, "hidden_above_clearance": hidden,
+            "clearance": None if pu.get("clearance") is None else levels.ident(pu["clearance"])}
 
 
 # ---- instance administration ----------------------------------------------------------

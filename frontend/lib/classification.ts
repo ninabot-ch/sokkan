@@ -45,7 +45,13 @@ export const adminDeleteGroupLevel = (team: string, project = "*") =>
   call(`/api/admin/classification/groups?team=${encodeURIComponent(team)}&project=${encodeURIComponent(project)}`, "DELETE");
 export const adminSetRoleLevel = (role: string, level: string) =>
   call("/api/admin/classification/roles", "PUT", { role, level });
-export const auditCsvUrl = (days = 30) => `/api/classification/audit?format=csv&days=${days}`;
+export const auditCsvUrl = (days = 30, actor = "", note = "") =>
+  `/api/classification/audit?format=csv&days=${days}${actor ? `&actor=${encodeURIComponent(actor)}` : ""}${note ? `&note=${encodeURIComponent(note)}` : ""}`;
+export interface AccessRow { at: string; actor: string | null; actor_source?: string; via: string; note_name: string; level: string; session_id?: string | null; query?: string | null }
+/** 3.4 — the audited recall, consultable: who obtained which note, through which path. */
+export const fetchAudit = (days = 30, actor = "", note = "") =>
+  call<{ project: string; entries: AccessRow[]; hidden_above_clearance: number; clearance: string | null }>(
+    `/api/classification/audit?days=${days}&limit=500${actor ? `&actor=${encodeURIComponent(actor)}` : ""}${note ? `&note=${encodeURIComponent(note)}` : ""}`);
 
 let cache: Promise<ClassificationInfo> | null = null;
 

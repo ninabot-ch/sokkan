@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CardHierarchy from "./CardHierarchy";
+import { LevelControl } from "./LevelBadge";
+import { setCardLevel } from "@/lib/classification";
 import { useFeatures } from "@/lib/features";
 import { closeCard, commentCard, deleteCard, fetchCardDetail, patchCard, reopenCard, spawnCard } from "@/lib/api";
 import type { Card, CardDetail, CardLink, ChecklistItem } from "@/lib/types";
@@ -168,6 +170,13 @@ export default function CardModal({
                 className={`rounded border border-line bg-panel2 px-1.5 py-0.5 text-slate-200 ${card.due ? dueTone(card.due) : ""}`} />
               {card.due && canWrite && <button onClick={() => patch({ due: "" })} className="text-mut hover:text-slate-300">✕</button>}
             </label>
+            {card.level !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-mut">classification</span>
+                <LevelControl level={card.level} canWrite={canWrite}
+                  onSet={(lv, reason) => setCardLevel(card.id, lv, reason).then(() => onChanged?.())} />
+              </div>
+            )}
             <label className="flex items-center gap-2">
               <span className="text-mut">assignee</span>
               <input key={`a-${card.assignee ?? ""}`} defaultValue={card.assignee ?? ""} disabled={!canWrite}
