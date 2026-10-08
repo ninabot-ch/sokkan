@@ -410,16 +410,20 @@ def _inference_lines() -> list[str]:
 
 def _sessions_lines() -> list[str]:
     import usage
-    tot = (usage.summary(days_back=30) or {}).get("totals") or {}
+    summ = usage.summary(days_back=30) or {}
+    tot = summ.get("totals") or {}
     def _fmt(k: str, label: str) -> str | None:
         d = tot.get(k)
         if not d:
             return None
         return (f"  - {label} : {d.get('turns', 0)} tours, "
-                f"{d.get('out_tokens', 0)} tokens produits, ~{d.get('cost', 0):.2f} USD estimés")
+                f"{d.get('out_tokens', 0)} tokens produits, {d.get('cost', 0):.2f} USD facturés "
+                f"(équivalent API {d.get('api_equiv', d.get('cost', 0)):.2f} USD)")
     lines = [x for x in (_fmt("today", "aujourd'hui"), _fmt("7d", "7 derniers jours"),
                          _fmt("30d", "30 derniers jours")) if x]
-    return ["consommation des sessions d'agent :", *lines] if lines else []
+    basis = (summ.get("billing") or {}).get("claude_label") or ""
+    head = "consommation des sessions SOKKAN" + (f" ({basis})" if basis else "") + " :"
+    return [head, *lines] if lines else []
 
 
 def _dossier() -> str:

@@ -113,6 +113,8 @@ services:
       SOKKAN_OPS_GROUP: ${SOKKAN_OPS_GROUP:-}
       # intégrations (Infra, Operate, lien CortHeXis) — vides = désactivées
       SOKKAN_PROM: ${SOKKAN_PROM:-}
+      # noms des hôtes (3.2.3) : JSON ip → nom, prioritaire sur /etc/hosts, Tailscale, DNS inverse
+      SOKKAN_HOSTS: ${SOKKAN_HOSTS:-}
       SOKKAN_GRAFANA_URL: ${SOKKAN_GRAFANA_URL:-}
       SOKKAN_CORTEX_URL: ${SOKKAN_CORTEX_URL:-}
       # bannière de visite guidée (démo publique read-only uniquement)
@@ -120,6 +122,12 @@ services:
       # budgets de coût estimé en USD (0 = off ; modifiables aussi dans Profil)
       SOKKAN_BUDGET_SESSION_USD: ${SOKKAN_BUDGET_SESSION_USD:-0}
       SOKKAN_BUDGET_DAY_USD: ${SOKKAN_BUDGET_DAY_USD:-0}
+      # Costs (3.2.3) : base de facturation Claude forcée (api | subscription ; vide = déduite
+      # de la config), transcripts non lancés par SOKKAN comptés (include) ou non (vide),
+      # tarifs Claude ajoutés/surchargés (chemin d'un JSON, cf backend/model_prices.json)
+      SOKKAN_BILLING_BASIS: ${SOKKAN_BILLING_BASIS:-}
+      SOKKAN_USAGE_EXTERNAL: ${SOKKAN_USAGE_EXTERNAL:-}
+      SOKKAN_CLAUDE_PRICES: ${SOKKAN_CLAUDE_PRICES:-}
       # agents — onglet Crew (3.1) : ordonnanceur, concurrence, rattrapage
       SOKKAN_FEATURE_AGENTS: ${SOKKAN_FEATURE_AGENTS:-1}
       SOKKAN_AGENTS_MAX_CONCURRENT: ${SOKKAN_AGENTS_MAX_CONCURRENT:-2}

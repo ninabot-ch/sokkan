@@ -153,6 +153,11 @@ def spend(lot4, monkeypatch):
     monkeypatch.setattr(usage, "PROJECT_DIR", claude / "projects" / "-workspace")
     work = tmp / "projects" / "radio" / "work"
     work.mkdir(parents=True, exist_ok=True)
+    # 3.2.3: billed at the API price (an API key), and the default transcript is a SOKKAN
+    # session (a transcript SOKKAN did not start is `external`, out of the totals)
+    monkeypatch.setenv("SOKKAN_BILLING_BASIS", "api")
+    import board
+    board.add_sdk_session("default-cli", "cli", title="default work")
     _transcript(claude / "projects" / "-workspace", "default-cli", 5_000_000)       # $15
     _transcript(claude / "projects" / str(work).replace("/", "-"), "radio-run", 1_000_000)  # $3
     budgets._cache.clear()

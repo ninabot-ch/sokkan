@@ -1916,7 +1916,7 @@ def _spawn_sdk(tag: str, prompt: str = "", title: str = "", user: str = "",
     day_budget = instance.budgets().get("budget_day_usd", 0.0)
     if day_budget:
         try:  # avertissement (pas un blocage) — le jour est déjà bien entamé ?
-            spent = usage_mod.summary(1)["totals"]["today"]["cost"]
+            spent = usage_mod.summary(1)["totals"]["today"]["metered"]  # 3.2.3: billed, or API-equivalent on a subscription
             if spent >= day_budget:
                 session._emit({"type": "error", "message": (
                     f"Daily budget notice: today's estimated spend is ${spent:.2f}, "
@@ -2813,9 +2813,13 @@ def usage_summary(days: int = 30, _u: dict = Depends(require("viewer"))) -> dict
             mine[s["session_id"]] = s
             if s.get("claude_session_id"):
                 mine[s["claude_session_id"]] = s
-    keep_unknown = not projects.multi_project() and p == projects.DEFAULT_PROJECT
+    # 3.2.3: a transcript SOKKAN did not start (`external`) is listed only when the
+    # operator counts them (SOKKAN_USAGE_EXTERNAL=include) and only in the default project
+    keep_external = (out.get("include_external") and not projects.multi_project()
+                     and p == projects.DEFAULT_PROJECT)
     out["sessions"] = [x for x in out.get("sessions") or []
-                       if x["session_id"] in mine or keep_unknown]
+                       if x["session_id"] in mine
+                       or (keep_external and x.get("source") == "external")]
     return out
 
 

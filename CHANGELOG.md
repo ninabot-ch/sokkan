@@ -3,6 +3,28 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.2.3 — unreleased
+- **Operate › Costs tells what is billed, and how.** On an instance that runs Claude through a
+  Pro/Max login the tab showed hundreds of dollars a day. Four causes, all fixed: (1) every
+  transcript of the workspace was counted, including the operator's own Claude Code sessions run
+  in the same folder — only SOKKAN sessions (board sessions, agent runs, project workspaces, their
+  sub-agents) are counted now, the rest is one « not counted » line
+  (`SOKKAN_USAGE_EXTERNAL=include` to count it); (2) one API message was counted once per content
+  block (thinking, text, tool call — each transcript line repeats the message's usage):
+  deduplicated by message id; (3) models missing from a prefix list (`claude-opus-5-5`,
+  `claude-opus-5`) fell to the legacy Opus 15/75 tariff, cache reads included — prices now come
+  from a versioned table (`backend/model_prices.json`, public list of 2026-09-25: input, cache
+  write ×1.25 / ×2, cache read, output, per model), an unknown model is counted in tokens and
+  flagged, never priced at a guess (`SOKKAN_CLAUDE_PRICES` adds or overrides models); (4) every
+  token was valued at the API price — each figure now has a **billing basis**: API key (billed at
+  the public price), subscription (nothing billed; the API-equivalent is shown apart and labelled),
+  SOKKAN Inference (tier price + the gateway's ledger), local engine (0 + tokens), other endpoint
+  (`SOKKAN_MODEL_PRICES`). `SOKKAN_BILLING_BASIS=api|subscription` forces the Claude basis. The tab
+  shows totals by basis, by model (tokens and dollars per kind), by project, per day and per
+  session over 7 / 30 / 90 days, with the method in words. Budgets count the billed cost, and the
+  API-equivalent on a subscription. Reconciliation test with a synthetic transcript of known usage
+  in every basis. Docs: `docs/OPERATE.md` § Costs.
+
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its
   sub-tabs on a second row: **Control** (Helm · Board · CortHeXis), **Build** (Sessions · Crew ·
