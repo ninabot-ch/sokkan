@@ -20,10 +20,11 @@ export function currentProject(): string {
   return "default";
 }
 
+let activePlane = "";
 let activeTab = "";
-/** The cockpit tab on screen — a project switch lands on the same tab when the new
- *  project has it (otherwise Sessions, decided by the tab bar once rights are known). */
-export function noteTab(tab: string): void { activeTab = tab; }
+/** The cockpit plane and sub-tab on screen — a project switch lands on the same place when
+ *  the new project has it (otherwise the plane's first sub-tab, or the landing plane). */
+export function noteTab(plane: string, tab: string): void { activePlane = plane; activeTab = tab; }
 
 export function switchProject(slug: string): void {
   if (!SLUG.test(slug)) return;
@@ -32,8 +33,9 @@ export function switchProject(slug: string): void {
   url.searchParams.set("project", slug);
   // the deep-link targets of another project make no sense here
   for (const k of ["agent", "run", "chat", "incident", "note", "proposal"]) url.searchParams.delete(k);
-  if (activeTab) url.searchParams.set("tab", activeTab.toLowerCase());
-  else url.searchParams.delete("tab");
+  for (const k of ["plane", "tab", "section"]) url.searchParams.delete(k);
+  if (activePlane) url.searchParams.set("plane", activePlane);
+  if (activeTab) url.searchParams.set("tab", activeTab);
   window.location.assign(url.toString());
 }
 

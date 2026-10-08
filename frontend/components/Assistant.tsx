@@ -262,7 +262,7 @@ function AgentProposal({ spec }: { spec: Record<string, unknown> }) {
       </div>
       <div className="mt-2 flex items-center gap-2">
         {state.id ? (
-          <a href={`/?tab=crew&agent=${state.id}`} className="text-sea hover:underline">✓ Card created — review & approve it in Crew →</a>
+          <a href={`/?plane=build&tab=crew&agent=${state.id}`} className="text-sea hover:underline">✓ Card created — review & approve it in Crew →</a>
         ) : (
           <button onClick={create} disabled={state.busy} className="rounded-md bg-brass/90 px-2.5 py-1 font-semibold text-ink hover:bg-brass disabled:opacity-50">Create the card</button>
         )}

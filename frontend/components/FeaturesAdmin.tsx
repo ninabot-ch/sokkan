@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useFeatures, type FeatureItem } from "@/lib/features";
 
-/** 3.2 — Profile → Features: every feature of the registry (backend/features.py), its
+/** 3.2 — Setup › Organization › Features: every feature of the registry (backend/features.py), its
  *  effective state, what it needs and WHY it is off. Read-only: a feature is switched in
  *  the environment (SOKKAN_FEATURE_<ID>=1|0, SOKKAN_EDITION) then the API restarted —
  *  docs/enterprise/FEATURES.md. */

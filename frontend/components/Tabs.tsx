@@ -1,86 +1,96 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useMe, useCan } from "@/lib/me";
+// 3.2.2 — the cockpit bar by PLANES (lib/planes.ts): row 1 = wordmark, project, the four
+// planes, identity; row 2 = the sub-tabs of the plane on screen. A sub-tab that is not there
+// disappears; a plane without a visible sub-tab disappears.
+import { useEffect, useRef, useState } from "react";
+import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
-import Profile from "./Profile";
 import ProjectSelector from "./ProjectSelector";
-import { currentProject } from "@/lib/project";
-import { helmAccess } from "@/lib/helm";
+import { SHORTCUTS_HELP, type PlaneDef, type PlaneId, type SubTab } from "@/lib/planes";
 
-export const TABS = ["Board", "Sessions", "Crew", "Helm", "Preview", "CortHeXis", "Costs", "Magnitude", "Infra", "Operate", "Journal"] as const;
-export type Tab = (typeof TABS)[number];
+/** ←/→/Home/End inside a tablist: move the focus and activate (WAI-ARIA tabs pattern). */
+function arrowNav<T>(e: React.KeyboardEvent, prefix: string, ids: T[], cur: T, go: (t: T) => void) {
+  const i = ids.indexOf(cur);
+  const n = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1
+    : e.key === "Home" ? 0 : e.key === "End" ? ids.length - 1 : null;
+  if (n === null || !ids.length) return;
+  e.preventDefault();
+  const t = ids[(n + ids.length) % ids.length];
+  go(t);
+  requestAnimationFrame(() => (document.getElementById(`${prefix}${String(t)}`) as HTMLElement | null)?.focus());
+}
 
 export default function Tabs({
-  active,
-  onChange,
+  planes, plane, tab, onPlane, onTab, onGo,
 }: {
-  active: Tab;
-  onChange: (t: Tab) => void;
+  planes: PlaneDef[];
+  plane: PlaneId | null;
+  tab: SubTab | null;
+  onPlane: (p: PlaneId) => void;
+  onTab: (t: SubTab) => void;
+  onGo: (t: SubTab, section?: string) => void;
 }) {
   const feats = useFeatures();
-  const canDev = useCan("dev");
   const me = useMe();
-  // 3.3 Helm : the tab exists for the people who steer at least one project
-  const [steers, setSteers] = useState(false);
-  // for which value of feats.helm `steers` is settled (null = still asking)
-  const [helmFor, setHelmFor] = useState<boolean | null>(null);
-  useEffect(() => {
-    const h = !!feats.helm;
-    if (!h) { setSteers(false); setHelmFor(false); return; }
-    helmAccess().then((a) => setSteers(a.steers.length > 0)).catch(() => setSteers(false))
-      .finally(() => setHelmFor(true));
-  }, [feats.helm]);
-  const visible = TABS.filter(
-    // 3.2 : Preview (dépôts de l'instance) et Infra n'existent que dans le projet par défaut / pour l'ops
-    (t) => (t !== "Preview" || (feats.preview && currentProject() === "default"))
-      && (t !== "Infra" || (feats.infra && (!me || me.ops !== false)))
-      // 3.2 : Operate = l'équipe ops (groupe SSO) + les admins de l'instance
-      && (t !== "Operate" || (feats.observe && (!me || me.ops !== false)))
-      && (t !== "Magnitude" || feats.magnitude)
-      && (t !== "Crew" || (feats.agents && (canDev || !!feats.agents_viewer_readonly)))
-      && (t !== "Helm" || (!!feats.helm && steers))
-  );
-  // the active tab does not exist here (e.g. after a project switch, or rights changed):
-  // fall back to Sessions — only once the rights are known, never on the loading defaults
-  const settled = !!feats.loaded && helmFor === !!feats.helm;
-  const missing = settled && !visible.includes(active);
-  useEffect(() => { if (missing) onChange("Sessions"); }, [missing, onChange]);
+  const cur = planes.find((p) => p.id === plane);
   return (
     <>
-    {feats.demo && <DemoBanner onChange={onChange} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}
+    {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} />}
     {me?.secrets_warning && (
       <div role="status" className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[12px] text-amber-100">
         ⚠ {me.secrets_warning}
       </div>
     )}
-    <header className="relative z-30 flex h-[54px] shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line bg-panel px-2 md:overflow-visible md:px-4">
-      <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
-      <ProjectSelector />
-      <span className="mr-2 md:mr-6" />
-      {visible.map((t) => {
-        const enabled = true;
-        return (
-          <button
-            key={t}
-            disabled={!enabled}
-            onClick={() => enabled && onChange(t)}
-            className={`shrink-0 rounded-md px-2.5 py-1.5 text-[13px] font-medium md:px-4 md:text-[15px] ${
-              active === t
-                ? "bg-panel2 text-slate-100 ring-1 ring-line"
-                : enabled
-                ? "text-slate-300 hover:bg-panel2"
-                : "cursor-not-allowed text-mut/50"
-            }`}
-            title={enabled ? "" : "coming soon (P2+)"}
-          >
-            {t}
-          </button>
-        );
-      })}
-      <MissionsPill enabled={feats.missions_link} />
-      <Identity />
+    <header className="relative z-30 shrink-0 border-b border-line bg-panel">
+      <div className="flex h-[54px] items-center gap-1.5 overflow-x-auto px-2 md:overflow-visible md:px-4">
+        <Wordmark className="shrink-0 text-[30px] md:text-[42px]" />
+        <ProjectSelector />
+        <span className="mr-1 md:mr-4" />
+        <div role="tablist" aria-label="Planes" className="flex shrink-0 items-center gap-0.5">
+          {planes.map((p) => {
+            const on = p.id === plane;
+            return (
+              <button key={p.id} id={`plane-${p.id}`} role="tab" aria-selected={on} aria-controls="cockpit-subtabs"
+                tabIndex={on || (!plane && p === planes[0]) ? 0 : -1}
+                onClick={() => onPlane(p.id)}
+                onKeyDown={(e) => arrowNav(e, "plane-", planes.map((x) => x.id), p.id, onPlane)}
+                title={`${p.label} — ${p.blurb} (g ${p.key})`}
+                className={`ui-focus shrink-0 rounded-md border-b-2 px-2.5 py-1.5 text-[13px] md:px-4 md:text-[15px] ${on
+                  ? "border-sea bg-panel2 font-semibold text-slate-100"
+                  : "border-transparent font-medium text-slate-300 hover:bg-panel2"}`}>
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+        <span tabIndex={0} role="note" aria-label={SHORTCUTS_HELP} title={SHORTCUTS_HELP}
+          className="ui-focus ml-1 hidden shrink-0 cursor-help rounded border border-line px-1.5 text-[11px] text-mut lg:inline">
+          <span aria-hidden>⌨</span></span>
+        <MissionsPill enabled={feats.missions_link} />
+        <Identity onGo={onGo} />
+      </div>
+      {cur && (
+        <div id="cockpit-subtabs" role="tablist" aria-label={`${cur.label} sections`}
+          className="flex h-9 items-center gap-0.5 overflow-x-auto border-t border-line/60 bg-panel/70 px-2 md:px-4">
+          {cur.tabs.map((t, i) => {
+            const on = t.id === tab;
+            return (
+              <button key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={on} aria-controls="cockpit-panel"
+                tabIndex={on ? 0 : -1}
+                onClick={() => onTab(t.id)}
+                onKeyDown={(e) => arrowNav(e, "tab-", cur.tabs.map((x) => x.id), t.id, onTab)}
+                title={i < 9 ? `${t.label} (${i + 1})` : t.label}
+                className={`ui-focus h-full shrink-0 border-b-2 px-3 text-[12.5px] md:text-[13px] ${on
+                  ? "border-sea font-semibold text-slate-100"
+                  : "border-transparent text-mut hover:text-slate-200"}`}>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </header>
     </>
   );
@@ -89,26 +99,26 @@ export default function Tabs({
 /** Guided banner for the public read-only demo (SOKKAN_DEMO_BANNER=1) : says
  *  where the visitor is, walks the 4 signature moves, links out. Dismissable
  *  per browser (localStorage) — never shown on regular instances. */
-function DemoBanner({ onChange, crew }: { onChange: (t: Tab) => void; crew: boolean }) {
+function DemoBanner({ onGo, crew }: { onGo: (t: SubTab) => void; crew: boolean }) {
   const [hidden, setHidden] = useState(true);
   useEffect(() => {
     try { setHidden(localStorage.getItem("sokkan_demo_banner") === "off"); } catch { setHidden(false); }
   }, []);
   if (hidden) return null;
-  const go = (t: Tab) => (e: React.MouseEvent) => { e.preventDefault(); onChange(t); };
+  const go = (t: SubTab) => (e: React.MouseEvent) => { e.preventDefault(); onGo(t); };
   return (
     <div className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-amber-100">
       <b>You're in the live SOKKAN demo</b> — a real cloud tenant, read-only ·
       <i> Vous êtes dans la démo publique, en lecture seule.</i>{" "}
-      Try the tour: <a href="#" onClick={go("Sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (the memory recall sits at the top of each one) →{" "}
-      <a href="#" onClick={go("Board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (cards spawn sessions) →{" "}
-      <a href="#" onClick={go("CortHeXis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> →{" "}
-      <a href="#" onClick={go("Costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a>
-      {crew && <> → <a href="#" onClick={go("Crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents (Crew)</a></>}.{" "}
+      Try the tour: <a href="/?plane=build&tab=sessions" onClick={go("sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (Build › Sessions — the memory recall sits at the top of each one) →{" "}
+      <a href="/?plane=control&tab=board" onClick={go("board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (Control › Board — cards spawn sessions) →{" "}
+      <a href="/?plane=control&tab=corthexis" onClick={go("corthexis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> (Control › CortHeXis) →{" "}
+      <a href="/?plane=operate&tab=costs" onClick={go("costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a> (Operate › Costs)
+      {crew && <> → <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents</a> (Build › Crew)</>}.{" "}
       Want yours? <a href="https://app.sokkan.ch" target="_blank" rel="noopener" className="font-semibold underline decoration-amber-400 hover:text-white">14-day trial</a> ·{" "}
       <a href="https://sokkan.ch/install.sh" className="underline decoration-amber-400/60 hover:text-white">self-host free</a>
       <button onClick={() => { try { localStorage.setItem("sokkan_demo_banner", "off"); } catch { /* private mode */ } setHidden(true); }}
-        className="absolute right-2 top-1.5 rounded px-1.5 text-amber-300/70 hover:text-white" title="hide">✕</button>
+        className="absolute right-2 top-1.5 rounded px-1.5 text-amber-300/70 hover:text-white" title="hide" aria-label="hide the demo banner">✕</button>
     </div>
   );
 }
@@ -140,50 +150,49 @@ function MissionsPill({ enabled }: { enabled: boolean }) {
   );
 }
 
-function ProfileMenuItem({ onOpen }: { onOpen: () => void }) {
-  const [st, setSt] = useState<{ configured: boolean; mode: string } | null>(null);
-  useEffect(() => { llmStatus().then(setSt).catch(() => {}); }, []);
-  const warn = st && !st.configured;
-  return (
-    <button onClick={onOpen} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-slate-200 hover:bg-panel2">
-      Profile & organization
-      {warn && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" title="model not configured" />}
-    </button>
-  );
-}
-
-function Identity() {
+function Identity({ onGo }: { onGo: (t: SubTab, section?: string) => void }) {
   const me = useMe();
   const [open, setOpen] = useState(false);
-  // 3.2 lot 5: back from the GitLab consent (/?forge=…) → Profile → Linked accounts
-  const [settings, setSettings] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("forge"));
+  const [st, setSt] = useState<{ configured: boolean; mode: string } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  useEffect(() => { llmStatus().then(setSt).catch(() => {}); }, []);
   const color: Record<string, string> = {
     owner: "text-brass", admin: "text-sea", dev: "text-emerald-400", viewer: "text-mut",
   };
-  if (!me) return <span className="ml-auto text-[11px] text-mut">the helm, not the autopilot</span>;
+  const motto = "hidden shrink-0 whitespace-nowrap min-[1440px]:inline";
+  if (!me) return <span className={`ml-auto text-[11px] text-mut ${motto}`}>the helm, not the autopilot</span>;
+  const warn = st && !st.configured;
+  const go = (t: SubTab, section?: string) => { setOpen(false); onGo(t, section); };
+  const item = "ui-focus flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-slate-200 hover:bg-panel2";
   return (
-    <div className="relative ml-auto flex items-center gap-2 text-[11px] text-mut">
-      <span className="hidden sm:inline">the helm, not the autopilot</span>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line"
-      >
-        {me.name} · <span className={color[me.role] || "text-mut"}>{me.role}</span>
-        <span className="text-mut">▾</span>
+    <div className="relative ml-auto flex shrink-0 items-center gap-2 text-[11px] text-mut">
+      {/* 3.2.2 : the motto only where there is room (it wrapped on 3 lines at 1280 px) */}
+      <span className={motto}>the helm, not the autopilot</span>
+      <button ref={btn} aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen((o) => !o)} title={`${me.name} — ${me.email} · ${me.role}`}
+        className="ui-focus flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line">
+        <span className="min-w-0 max-w-[9rem] truncate text-slate-200">{me.name}</span>
+        <span aria-hidden>·</span>
+        <span className={`shrink-0 ${color[me.role] || "text-mut"}`}>{me.role}</span>
+        {warn && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="model not configured" />}
+        <span className="text-mut" aria-hidden>▾</span>
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1.5 w-52 overflow-hidden rounded-lg border border-line bg-panel shadow-xl">
+          <div role="menu" className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-lg border border-line bg-panel shadow-xl">
             <div className="border-b border-line px-3 py-2">
               <div className="truncate text-[12px] text-slate-200">{me.name}</div>
               <div className="truncate text-[10.5px] text-mut">{me.email}</div>
             </div>
-            <ProfileMenuItem onOpen={() => { setOpen(false); setSettings(true); }} />
+            <button role="menuitem" className={item} onClick={() => go("account")}>My account</button>
+            <button role="menuitem" className={item} onClick={() => go("engines")}>Engines
+              {warn && <span className="ml-auto text-[10.5px] text-amber-300">⚠ not configured</span>}</button>
+            <button role="menuitem" className={item} onClick={() => go("organization")}>Organization</button>
+            <a role="menuitem" href="/api/auth/logout" className={item}>Sign out →</a>
           </div>
         </>
       )}
-      {settings && <Profile onClose={() => setSettings(false)} />}
     </div>
   );
 }

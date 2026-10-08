@@ -166,7 +166,7 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
           {ro && <span title={tip} className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-[10.5px] text-mut">👁 read-only</span>}
           {data?.scheduler?.held && (
             <span role="status" title={data.scheduler.reason || ""} className="rounded-lg border border-red-400/40 bg-red-500/10 px-2 py-1 text-[11.5px] text-red-300">
-              ⏸ Scheduler stopped: no model credentials configured for this instance — nothing runs until they are set (Profile → Model).
+              ⏸ Scheduler stopped: no model credentials configured for this instance — nothing runs until they are set (Setup › Engines).
             </span>
           )}
           {pendingCount > 0 && (
@@ -800,7 +800,7 @@ function Settings({ a, draft, meta, readOnlyRole, onSaved, onError }: {
               {m === "sokkan-memory" ? "sokkan-memory · CortHeXis (always)" : m}
             </button>))}</div></div>
         <div><label className={lbl}>Secrets from the vault — by name, never the value</label>
-          {secretNames.length === 0 ? <div className="text-[11.5px] text-mut">The vault is empty — an admin adds secrets in Profile → Secrets.</div> :
+          {secretNames.length === 0 ? <div className="text-[11.5px] text-mut">The vault is empty — an admin adds secrets in Setup › Secrets.</div> :
             <div className="flex flex-wrap gap-1.5">{secretNames.map((s) => <button type="button" key={s} className={chip((f.secrets || []).includes(s))} onClick={() => toggle("secrets", s)}>🔑 {s}</button>)}</div>}</div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={lbl}>Budget per run (USD)</label>

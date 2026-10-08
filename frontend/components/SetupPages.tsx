@@ -19,10 +19,10 @@ import { useFeatures } from "@/lib/features";
 import { useFeatureOn } from "@/lib/uifeatures";
 import ConnectAI from "./ConnectAI";
 import ModelKeys from "./ModelKeys";
+import type { OrgSection } from "@/lib/planes";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
-type Section = "account" | "org" | "members" | "projects" | "features" | "classification" | "teams" | "model" | "keys" | "notify" | "secrets" | "linked";
 
 function Bar({ used, quota }: { used: number; quota: number }) {
   const pct = quota ? Math.min(100, (used / quota) * 100) : 0;
@@ -105,7 +105,7 @@ function Org() {
           <b>New version available: {inf.update.latest}</b>
           <span className="text-mut"> (installed: {inf.update.local_version})</span>
           {inf.tier ? (
-            <div className="mt-1 text-[11.5px]">Managed instance: <b>Infra → My fleet</b> tab → "⬆ update" (admin).</div>
+            <div className="mt-1 text-[11.5px]">Managed instance: <b>Operate › Infra → My fleet</b> → "⬆ update" (admin).</div>
           ) : (
             <div className="mt-1 text-[11.5px]">
               Self-hosted — rerun the installer from the parent directory of <code>sokkan/</code>:
@@ -490,48 +490,77 @@ function Secrets() {
   );
 }
 
-export default function Profile({ onClose }: { onClose: () => void }) {
-  // 3.2 lot 5: back from the GitLab consent (/?forge=…) → straight to Linked accounts
-  const [sec, setSec] = useState<Section>(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("forge") ? "linked" : "account");
-  const gitlab = useFeatures().registry?.items.find((i) => i.id === "gitlab")?.enabled ?? false;
+// 3.2.2 — the former « Profile & organization » dialog is now the Setup plane: these
+// pages are its sub-tabs (Setup.tsx). Organization keeps an inner nav for its sections.
+const ORG_NAV: [OrgSection, string, boolean][] = [
+  ["org", "Organization", false], ["members", "Members", false], ["projects", "Projects & teams", true],
+  ["classification", "Classification", false], ["teams", "Teams", true], ["features", "Features", true],
+];
+
+export function OrganizationPage({ section }: { section?: string }) {
   const me = useMe();
-  const featProblems = useFeatures().registry?.problems.length ?? 0;
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
-  const connectOn = useFeatureOn("connect_ai");
-  const byokOn = useFeatureOn("byok_admin");
-  const nav: [Section, string][] = [["account", "My account"], ...(gitlab ? [["linked", "Linked accounts"] as [Section, string]] : []),
-    ["org", "Organization"], ["members", "Members"],
-    ...(instAdmin ? [["projects", "Projects & teams"] as [Section, string]] : []),
-    ...(instAdmin ? [["features", "Features"] as [Section, string]] : []),
-    ["classification", "Classification"],
-    ...(instAdmin ? [["teams", "Teams"] as [Section, string]] : []),
-    ["model", connectOn ? "Connect your AI" : "Model"] as [Section, string],
-    ...(instAdmin && byokOn ? [["keys", "Model keys"] as [Section, string]] : []),
-    ["notify", "Notifications"], ["secrets", "Secrets"]];
+  const featProblems = useFeatures().registry?.problems.length ?? 0;
+  const nav = ORG_NAV.filter(([, , adminOnly]) => !adminOnly || instAdmin);
+  const [sec, setSec] = useState<OrgSection>(() =>
+    (nav.find(([k]) => k === section)?.[0] ?? "org"));
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 pt-14" onClick={onClose}>
-      <div className="flex w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="w-44 shrink-0 border-r border-line bg-panel2/40 p-2">
-          <div className="px-2 py-1.5 text-[13px] font-semibold text-slate-100">Profile & organization</div>
-          {nav.map(([k, label]) => (
-            <button key={k} onClick={() => setSec(k)}
-              className={`block w-full rounded-md px-2 py-1.5 text-left text-[12.5px] ${sec === k ? "bg-panel text-slate-100" : "text-mut hover:text-slate-200"}`}>{label}
-              {k === "features" && featProblems > 0 && (
-                <span title="features asked for but off" className="ml-1.5 rounded-full bg-red-500/80 px-1.5 text-[10px] text-white">{featProblems}</span>
-              )}</button>
-          ))}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center border-b border-line px-4 py-2.5">
-            <span className="text-[13.5px] font-medium text-slate-100">{nav.find(([k]) => k === sec)?.[1]}</span>
-            <button onClick={onClose} className="ml-auto text-mut hover:text-slate-200">✕</button>
-          </div>
-          <div className="max-h-[72vh] overflow-y-auto p-4">
-            {sec === "account" ? <Account /> : sec === "linked" ? <LinkedAccounts /> : sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin /> : sec === "features" ? <FeaturesAdmin /> : sec === "classification" ? <ClassificationAdmin instanceAdmin={instAdmin} /> : sec === "teams" ? <TeamsAdmin /> : sec === "model" ? (connectOn ? <ConnectAI legacy={<Model />} /> : <Model />) : sec === "keys" ? <ModelKeys /> : sec === "notify" ? <Notifications /> : <Secrets />}
-          </div>
-        </div>
+    <div className="flex flex-col gap-3 md:flex-row">
+      <nav aria-label="Organization sections" className="flex shrink-0 gap-1 overflow-x-auto md:w-44 md:flex-col">
+        {nav.map(([k, label]) => (
+          <button key={k} onClick={() => setSec(k)} aria-current={sec === k ? "page" : undefined}
+            className={`ui-focus shrink-0 rounded-md border-l-2 px-2 py-1.5 text-left text-[12.5px] ${sec === k
+              ? "border-sea bg-panel2 font-medium text-slate-100" : "border-transparent text-mut hover:text-slate-200"}`}>{label}
+            {k === "features" && featProblems > 0 && (
+              <span title="features asked for but off" className="ml-1.5 rounded-full bg-red-500/80 px-1.5 text-[10px] text-white">{featProblems}<span className="sr-only"> problem(s)</span></span>
+            )}</button>
+        ))}
+      </nav>
+      <div className="min-w-0 flex-1">
+        {sec === "org" ? <Org /> : sec === "members" ? <Members /> : sec === "projects" ? <ProjectsAdmin />
+          : sec === "features" ? <FeaturesAdmin /> : sec === "classification" ? <ClassificationAdmin instanceAdmin={instAdmin} />
+          : <TeamsAdmin />}
       </div>
     </div>
   );
 }
+
+/** Setup › Engines — « Connect your AI » and the instance model keys on ONE page: with
+ *  `connect_ai` on, each engine card carries its instance key for the admin (ConnectAI);
+ *  without it, the model setup and, for the admin with `byok_admin`, the keys list. */
+export function EnginesPage() {
+  const me = useMe();
+  const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
+  const connectOn = useFeatureOn("connect_ai");
+  const byokOn = useFeatureOn("byok_admin");
+  if (connectOn) return <ConnectAI legacy={<Model />} />;
+  return (
+    <div className="space-y-4">
+      <Model />
+      {instAdmin && byokOn && (
+        <section aria-label="Instance model keys" className="border-t border-line pt-3">
+          <h3 className="mb-2 text-[12.5px] font-medium text-slate-100">Instance keys</h3>
+          <ModelKeys />
+        </section>
+      )}
+    </div>
+  );
+}
+
+/** Setup › My account — identity, sign out, and the linked accounts (GitLab) when on. */
+export function AccountPage() {
+  const gitlab = useFeatures().registry?.items.find((i) => i.id === "gitlab")?.enabled ?? false;
+  return (
+    <div className="space-y-4">
+      <Account />
+      {gitlab && (
+        <section id="linked" aria-label="Linked accounts" className="border-t border-line pt-3">
+          <h3 className="mb-2 text-[12.5px] font-medium text-slate-100">Linked accounts</h3>
+          <LinkedAccounts />
+        </section>
+      )}
+    </div>
+  );
+}
+
+export { Notifications, Secrets };

@@ -1,12 +1,15 @@
 "use client";
-// « Connect your AI » (feature `connect_ai`) — wraps Profile → Model. Engine cards with an
-// avatar; personal mode (connect anything, SOKKAN Router preselected) or governed mode
+// Setup › Engines (3.2.2: « Connect your AI » and « Model keys » on ONE page; feature
+// `connect_ai`). Engine cards with an avatar; for the admin, each card carries its instance
+// key (…last4, set by, when · Replace / Remove / Test — the same records as the Model keys
+// API). Personal mode (connect anything, SOKKAN Router preselected) or governed mode
 // (the admin sets allowed engines, zones and tiers; people only see those; choice per
 // project). A connected engine can drive a Crew card (model `engine:<id>`).
 import { useEffect, useState } from "react";
 import {
   connectDefault, connectEngine, connectPolicy, connectProject, connectView, disconnectEngine, when,
-  type ConnectView, type Engine, type EnginePolicy,
+  engineKeyDelete, engineKeyTest,
+  type ConnectView, type Engine, type EnginePolicy, type ModelKey,
 } from "@/lib/uifeatures";
 
 const AVATAR: Record<string, [string, string]> = {
@@ -27,7 +30,54 @@ function Status({ e, governed }: { e: Engine; governed: boolean }) {
   return <span className="ui-chip ui-c-off"><span aria-hidden>○</span>not connected</span>;
 }
 
-function EngineForm({ e, v, onDone }: { e: Engine; v: ConnectView; onDone: (nv: ConnectView, msg: string) => void }) {
+function KeyTest({ k }: { k: ModelKey }) {
+  if (k.test_ok === null || k.test_ok === undefined)
+    return <span className="ui-chip ui-c-off"><span aria-hidden>•</span>{k.tested_at ? k.test_detail || "not tested" : "not tested"}</span>;
+  return k.test_ok
+    ? <span className="ui-chip ui-c-ok"><span aria-hidden>✓</span>valid · {when(k.tested_at)}</span>
+    : <span className="ui-chip ui-c-warn"><span aria-hidden>!</span>{k.test_detail}</span>;
+}
+
+/** The instance key(s) of an engine, for the admin: « key …xxxx, set by X on date ». */
+function EngineKeys({ e, onReplace, onDone }: {
+  e: Engine; onReplace: (provider: string) => void; onDone: (nv: ConnectView | null, msg: string) => void;
+}) {
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  if (!e.keys?.length) return null;
+  return (
+    <div className="space-y-1.5" role="group" aria-label={`${e.label} instance key`}>
+      {e.keys.map((k) => (
+        <div key={k.provider} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-ink/40 px-2.5 py-1.5">
+          <span className="text-[11.5px] text-mut">{e.keys!.length > 1 ? k.label : "instance key"}</span>
+          <code className="rounded bg-ink px-1.5 text-[11.5px] text-slate-200" aria-label={`key ending ${k.masked.slice(1)}`}>key {k.masked}</code>
+          <KeyTest k={k} />
+          {k.pushed_at && <span className="ui-chip ui-c-ok"><span aria-hidden>⇡</span>on the gateway</span>}
+          {k.push_error && <span className="ui-chip ui-c-warn"><span aria-hidden>!</span>{k.push_error}</span>}
+          <span className="w-full text-[10.5px] text-mut">set by {k.set_by} on {when(k.set_at)}</span>
+          <span className="ml-auto flex gap-1">
+            <button onClick={() => onReplace(k.provider)} className="ui-focus rounded border border-line px-2 py-0.5 text-[11px] text-mut hover:text-slate-200">Replace</button>
+            {k.testable && (
+              <button onClick={() => engineKeyTest(e.id, k.provider).then((r) => onDone(null, `Test: ${r.detail}.`)).catch((x) => setErr(String(x.message || x)))}
+                className="ui-focus rounded border border-line px-2 py-0.5 text-[11px] text-mut hover:text-slate-200">Test</button>)}
+            {confirm === k.provider ? (
+              <>
+                <button onClick={() => { setConfirm(null); engineKeyDelete(e.id, k.provider).then((r) => onDone(r.view, `Key ${k.masked} removed${r.gateway.pushed ? " (and from the gateway)" : ""}.`)).catch((x) => setErr(String(x.message || x))); }}
+                  className="ui-focus rounded bg-red-600/80 px-2 py-0.5 text-[11px] text-white">confirm remove</button>
+                <button onClick={() => setConfirm(null)} className="ui-focus rounded px-1 text-[11px] text-mut">cancel</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirm(k.provider)} className="ui-focus rounded border border-red-500/40 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-500/10">Remove</button>
+            )}
+          </span>
+        </div>
+      ))}
+      {err && <div role="alert" className="text-[11.5px] text-red-400">{err}</div>}
+    </div>
+  );
+}
+
+function EngineForm({ e, v, onDone }: { e: Engine; v: ConnectView; onDone: (nv: ConnectView | null, msg: string) => void }) {
   const c = e.connection;
   const [auth, setAuth] = useState<string>(c?.auth ?? e.auths[0]);
   const [key, setKey] = useState("");
@@ -52,6 +102,9 @@ function EngineForm({ e, v, onDone }: { e: Engine; v: ConnectView; onDone: (nv: 
           <div className="text-[11px] text-mut">{e.blurb}</div>
         </div>
       </div>
+      {!ro && <EngineKeys e={e} onDone={onDone}
+        onReplace={(prov) => { setAuth(prov === "claude_login" ? "login" : e.auths.includes("key") ? "key" : e.auths[0]); setKey("");
+          requestAnimationFrame(() => document.getElementById(`key-${e.id}`)?.focus()); }} />}
       {e.id === "sokkan_router" && v.welcome_url && (
         <a href={v.welcome_url} target="_blank" rel="noreferrer"
           className="ui-focus inline-flex items-center gap-1 rounded-full border border-brass/50 bg-brass/10 px-2.5 py-0.5 text-[11.5px] text-brass hover:bg-brass/20">
@@ -78,7 +131,7 @@ function EngineForm({ e, v, onDone }: { e: Engine; v: ConnectView; onDone: (nv: 
             </div>
           )}
           {(auth === "key" || auth === "login") && (
-            <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(x) => setKey(x.target.value)}
+            <input id={`key-${e.id}`} type="password" autoComplete="off" spellCheck={false} value={key} onChange={(x) => setKey(x.target.value)}
               aria-label={auth === "login" ? "login token" : "API key"}
               placeholder={c?.masked ? `${c.masked} — leave empty to keep it` : auth === "login" ? "token from claude setup-token" : "API key"}
               className="ui-focus w-full rounded border border-line bg-[#0b0f16] px-2 py-1.5 text-[12px] text-slate-100 outline-none" />
@@ -195,8 +248,8 @@ export default function ConnectAI({ legacy }: { legacy?: React.ReactNode }) {
   const governed = v.mode === "governed";
   const shown = v.engines.filter((e) => e.allowed || (governed && v.can_admin));
   const cur = shown.find((e) => e.id === sel) ?? null;
-  const done = (nv: ConnectView, m: string) => {
-    connectView().then(setV).catch(() => setV(nv));
+  const done = (nv: ConnectView | null, m: string) => {
+    connectView().then(setV).catch(() => { if (nv) setV(nv); });
     setMsg(m);
   };
   return (
@@ -225,7 +278,8 @@ export default function ConnectAI({ legacy }: { legacy?: React.ReactNode }) {
               <span className="block truncate text-[13px] font-semibold text-slate-100">{e.label}</span>
               <span className="block truncate text-[10.5px] text-mut">{e.vendor}{e.zone ? ` · zone ${e.zone}` : ""}</span>
               <span className="mt-1 flex flex-wrap gap-1"><Status e={e} governed={governed} />
-                {e.recommended && !governed && <span className="ui-chip ui-c-approval"><span aria-hidden>★</span>recommended</span>}</span>
+                {e.recommended && !governed && <span className="ui-chip ui-c-approval"><span aria-hidden>★</span>recommended</span>}
+                {e.keys?.map((k) => <span key={k.provider} className="ui-chip ui-c-read"><span aria-hidden>⚿</span>key {k.masked}</span>)}</span>
             </span>
           </button>
         ))}
