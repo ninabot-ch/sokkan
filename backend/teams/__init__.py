@@ -40,9 +40,30 @@ def tenant_id() -> str:
     return cfg("TENANT_ID")
 
 
+def app_password() -> str:
+    """The client secret: ``SOKKAN_TEAMS_APP_PASSWORD``, or the content of the file named by
+    ``SOKKAN_TEAMS_APP_PASSWORD_FILE`` (preferred: rendered 0600 from the secrets store, never in
+    the process environment)."""
+    v = cfg("APP_PASSWORD")
+    if v:
+        return v
+    path = cfg("APP_PASSWORD_FILE")
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError as e:
+        print(f"[teams] SOKKAN_TEAMS_APP_PASSWORD_FILE unreadable: {e.__class__.__name__}")
+        return ""
+
+
 def configured() -> list[str]:
     """Missing configuration (empty = ready)."""
-    return [f"SOKKAN_TEAMS_{n}" for n in ("APP_ID", "APP_PASSWORD", "TENANT_ID") if not cfg(n)]
+    missing = [f"SOKKAN_TEAMS_{n}" for n in ("APP_ID", "TENANT_ID") if not cfg(n)]
+    if not app_password():
+        missing.insert(1, "SOKKAN_TEAMS_APP_PASSWORD")
+    return missing
 
 
 def openid_url() -> str:

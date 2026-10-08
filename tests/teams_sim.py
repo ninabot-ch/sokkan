@@ -2,7 +2,8 @@
 
 * OpenID metadata + JWKS of the Bot Framework (one RSA key, endorsed for msteams);
 * the Entra ID token endpoint (client credentials) — counts the calls;
-* the Bot Connector (replies and proactive messages are recorded in ``sent``);
+* the Bot Connector (replies, proactive messages and updates — PUT — are recorded in
+  ``sent`` with their method; ``fail_connector`` makes it answer 503);
 * Graph ``/users/{id}/calendarView`` and ``/presence``.
 
 It is plugged as the transport of every outbound call (``teams.TRANSPORT``); inbound
@@ -41,6 +42,7 @@ class Sim:
         self.token_calls: list[dict] = []
         self.graph_calls: list[str] = []
         self.events: dict[str, list[dict]] = {}
+        self.fail_connector = False           # the Bot Connector answers 503
 
     # ---- signing of inbound activities --------------------------------------------------
     def token(self, *, aud=APP_ID, iss="https://api.botframework.com", service=SERVICE,
@@ -74,9 +76,11 @@ class Sim:
         if url.startswith(SERVICE.rstrip("/")):
             if not req.headers.get("authorization", "").startswith("Bearer tok-"):
                 return httpx.Response(401)
+            if self.fail_connector:
+                return httpx.Response(503)
             body = json.loads(req.content)
-            self.sent.append({"path": urlparse(url).path, **body})
-            return httpx.Response(200, json={"id": uuid.uuid4().hex})
+            self.sent.append({"path": urlparse(url).path, "method": req.method, **body})
+            return httpx.Response(200, json={"id": body.get("id") or uuid.uuid4().hex})
         if url.startswith(GRAPH):
             self.graph_calls.append(url)
             path = urlparse(url).path.removeprefix(urlparse(GRAPH).path)

@@ -16,6 +16,11 @@ AAD = {"alice@x": "aad-alice", "carol@x": "aad-carol", "max@x": "aad-max"}
 
 @pytest.fixture()
 def tw(tmp_path, monkeypatch):
+    return make_tw(tmp_path, monkeypatch)
+
+
+def make_tw(tmp_path, monkeypatch):
+    """The Teams world (also used by test_teams_bridge)."""
     import agents
     import teams
     from teams import botauth, store
@@ -30,6 +35,8 @@ def tw(tmp_path, monkeypatch):
     monkeypatch.setenv("SOKKAN_TEAMS_KEY_FILE", str(tmp_path / "teams.key"))
     monkeypatch.setattr(teams, "enabled", lambda: True)
     monkeypatch.setattr(teams, "TRANSPORT", sim.transport())
+    from teams import proactive
+    monkeypatch.setattr(proactive, "DEBOUNCE_S", None)   # proactive tests drive sync() themselves
     monkeypatch.setattr(agents, "_require_credentials", lambda: None)
     botauth.reset_cache()
     for email, aad in AAD.items():
@@ -209,8 +216,10 @@ def test_run_proposal_approval_is_single_use_and_four_eyes(tw, monkeypatch):
     a = _agent(tw)                                     # active (owner approval)
     monkeypatch.setenv("SOKKAN_FEATURE_FOUR_EYES", "1")
     card = _say(tw, "carol@x", "run radio-check")[0]["attachments"][0]["content"]
-    tok = card["actions"][0]["data"]["token"]
-    assert [x["verb"] for x in card["actions"]] == ["approve", "refuse"]
+    from teams.cards import actions_of
+    acts = [x for x in actions_of(card) if x["type"] == "Action.Execute"]
+    tok = acts[0]["data"]["token"]
+    assert [x["verb"] for x in acts] == ["approve", "refuse"]
     r = _execute(tw, "carol@x", tok)                   # the requester cannot approve
     assert "another person" in r["value"]
     r = _execute(tw, "max@x", tok)
@@ -245,7 +254,8 @@ def test_pending_agent_approvals_as_cards(tw, monkeypatch):
                            "trigger": "manual"}, proposal=True)
     assert agents.get(a["id"])["status"] == "pending"
     mine = _say(tw, "carol@x", "approvals")[0]["attachments"][0]["content"]
-    t0 = mine["actions"][0]["data"]["token"]
+    from teams.cards import actions_of
+    t0 = actions_of(mine)[0]["data"]["token"]
     assert "Refused for you" in _execute(tw, "carol@x", t0)["value"]   # proposer: four-eyes
     assert "Approved by max@x" in str(_execute(tw, "max@x", t0)["value"])  # token given back
     assert agents.get(a["id"])["status"] == "active"

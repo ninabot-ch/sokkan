@@ -216,10 +216,15 @@ async def _lifespan(_app: FastAPI):
     # 3.3 Helm : avancement + suggestions de recadrage (job périodique, SOKKAN_HELM_TICK_S)
     helm_stop = asyncio.Event()
     helm_task = asyncio.create_task(helm.loop(helm_stop)) if features.enabled("helm") else None
+    # 3.4 Teams : approbations en attente poussées dans le canal du projet (filet périodique)
+    from teams import proactive as teams_proactive
+    teams_task = (asyncio.create_task(teams_proactive.loop(helm_stop))
+                  if features.enabled("teams") else None)
     yield
     helm_stop.set()
-    if helm_task:
-        helm_task.cancel()
+    for t in (helm_task, teams_task):
+        if t:
+            t.cancel()
     if rt:
         await rt.stop()
 

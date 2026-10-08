@@ -26,7 +26,7 @@ def app_token(scope: str) -> str:
     url = f"{teams.login_url()}/{teams.tenant_id()}/oauth2/v2.0/token"
     with teams.http() as h:
         r = h.post(url, data={"grant_type": "client_credentials", "client_id": teams.app_id(),
-                              "client_secret": teams.cfg("APP_PASSWORD"), "scope": scope})
+                              "client_secret": teams.app_password(), "scope": scope})
     if r.status_code != 200:
         raise Error(f"token endpoint answered {r.status_code}")
     j = r.json()
@@ -34,13 +34,13 @@ def app_token(scope: str) -> str:
     return j["access_token"]
 
 
-def _post(service_url: str, path: str, payload: dict) -> dict:
+def _post(service_url: str, path: str, payload: dict, method: str = "POST") -> dict:
     if not botauth.service_url_ok(service_url):
         raise Error("refusing to send to a serviceUrl that is not a Microsoft host")
     url = service_url.rstrip("/") + path
     with teams.http() as h:
-        r = h.post(url, json=payload,
-                   headers={"authorization": f"Bearer {app_token(BOT_SCOPE)}"})
+        r = h.request(method, url, json=payload,
+                      headers={"authorization": f"Bearer {app_token(BOT_SCOPE)}"})
     if r.status_code >= 300:
         raise Error(f"Bot Connector answered {r.status_code}")
     try:
@@ -63,6 +63,12 @@ def send(service_url: str, conversation_id: str, payload: dict) -> dict:
     """Proactive message to a conversation the bot is part of."""
     return _post(service_url, f"/v3/conversations/{conversation_id}/activities",
                  {"type": "message", **payload})
+
+
+def update(service_url: str, conversation_id: str, activity_id: str, payload: dict) -> dict:
+    """Replace a message the bot posted (e.g. an approval card decided in the cockpit)."""
+    return _post(service_url, f"/v3/conversations/{conversation_id}/activities/{activity_id}",
+                 {"type": "message", "id": activity_id, **payload}, method="PUT")
 
 
 def text(t: str) -> dict:

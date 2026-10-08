@@ -3,8 +3,13 @@
 Feature `teams` (requires `assistant`, `classification`, `sso`; off by default, status
 experimental). Code: `backend/teams/` (bot, signed approvals, Graph), `backend/calendars/`
 (the calendar interface of the brief). Built and tested against a Graph / Bot Framework
-simulator (`tests/teams_sim.py`, `tests/test_teams.py`): **no real app has been registered
-yet** — § 7 lists what only a real tenant can confirm.
+simulator (`tests/teams_sim.py`, `tests/test_teams.py`, `tests/test_teams_bridge.py`): **no
+real app has been registered yet** — § 8 lists what only a real tenant can confirm,
+`tests/teams_live/` checks it, § 9 is the order of the day the tenant exists. 3.4.0
+« Bridge » adds the app package and the registration script (§ 3), Adaptive Cards checked
+against the 1.5 schema and the proactive push of pending approvals (§ 7). **Day-one
+setup on a real tenant, step by step (Developer Portal path, no Azure subscription):
+[TEAMS-SETUP.md](TEAMS-SETUP.md).**
 
 ## 1. What it does
 
@@ -17,6 +22,7 @@ yet** — § 7 lists what only a real tenant can confirm.
 | `@Nina run <agent>` / `lance l'agent …` | an approval card *Run the agent X?* | requested by the sender |
 | `@Nina approvals` / `approbations` | one card per agent waiting for activation | — |
 | click **Approve** / **Refuse** on a card | the action, as the person who clicked | the clicker (four-eyes: not the requester) |
+| *(nothing — 3.4.0)* an agent proposal, a pending change or a tool call of an agent run starts waiting | its approval card is **posted in the project's channel** (proactive) and replaced by its outcome once decided — in Teams or in the cockpit | the clicker; a tool call: the agent's owner or a project admin |
 
 In a 1:1 chat with no mapping, start with `in <project>: …` (or nothing if the person has a
 single project). The answer carries `_classification: <label>_` when it was built from notes
@@ -56,12 +62,43 @@ above `project`.
 
 ## 3. Register the app (customer's tenant)
 
-1. **Entra ID → App registrations → New registration**: *Nina (SOKKAN)*, **single tenant**
-   (Accounts in this organizational directory only). Note the *Application (client) ID* and
-   the *Directory (tenant) ID*. Certificates & secrets → a client secret (24 months max,
-   calendar the rotation).
-2. **Azure Bot** resource (*Azure Bot*, type **Single Tenant**, the app above): messaging
-   endpoint `https://<sokkan host>/api/teams/messages`; Channels → **Microsoft Teams**.
+The full day-one procedure (prerequisites, two Entra apps, Developer Portal, live checks,
+rollback) is [TEAMS-SETUP.md](TEAMS-SETUP.md); this section is the reference. Two ways, same
+result. Both need a **tenant admin** (Global Administrator, or Application
+Administrator + Teams Administrator). The Azure Bot resource needs an **Azure subscription in
+that tenant** (F0 is free, but a Microsoft 365 Business tenant has none by default) — without
+one, register the bot in the **Teams Developer Portal** instead (step 2).
+
+### 3.1 With the script
+
+`scripts/teams-register.sh --public-url https://<host> [--app-id <bot id>]` (default mode
+`portal`: no Azure CLI, changes nothing) prints the Developer Portal steps with this
+instance's values, then — given the bot id — builds the package and the env lines. With an
+Azure subscription, `--mode azure`:
+
+```bash
+az login --tenant <tenant id or domain>
+scripts/teams-register.sh --mode azure --public-url https://sokkan.example.ch --resource-group rg-sokkan \
+    [--calendar] [--presence] [--secret-file ./teams-app-secret] [--no-bot] [--dry-run]
+```
+
+It creates the single-tenant app registration and its service principal, a client secret
+(written to `--secret-file`, mode 0600, never printed), the Azure Bot (type **SingleTenant**,
+endpoint `https://<host>/api/teams/messages`, channel Microsoft Teams), the optional Graph
+application permissions (role ids looked up by name) with the admin consent, and the app
+package (`teams-app/sokkan-teams-app.zip`). It prints the `SOKKAN_TEAMS_*` lines of § 4.
+`--dry-run` prints every command and changes nothing.
+
+### 3.2 In the portals, step by step
+
+1. **Entra admin center → Identity → Applications → App registrations → New registration**:
+   *Nina (SOKKAN)*, **Accounts in this organizational directory only** (single tenant), no
+   redirect URI. Note the *Application (client) ID* and the *Directory (tenant) ID*.
+   Certificates & secrets → New client secret (24 months max; calendar the rotation).
+2. **Teams Developer Portal** (no Azure subscription — the usual case for a Microsoft 365
+   Business tenant): TEAMS-SETUP.md § 3. **With a subscription — Azure portal → Create a resource → Azure Bot**: type of app **Single Tenant**, *Use existing
+   app registration* (the id above); Configuration → messaging endpoint
+   `https://<sokkan host>/api/teams/messages`; Channels → **Microsoft Teams** → accept.
 3. **API permissions → Microsoft Graph → Application** (only what you use), then
    **Grant admin consent**:
 
@@ -70,19 +107,26 @@ above `project`.
    | `Calendars.Read` | Application | the brief reads the calendar of the person it is for | optional (brief) |
    | `Presence.Read.All` | Application | presence in the brief | optional |
 
-   Answering in Teams needs **no Graph permission** (Bot Framework only). Restrict
-   `Calendars.Read` to the people of the POC with an Exchange **application access policy**
-   (`New-ApplicationAccessPolicy -AccessRight RestrictAccess -AppId <id>
+   Answering in Teams and posting approvals needs **no Graph permission** (Bot Framework only).
+   Restrict `Calendars.Read` to the people of the POC with an Exchange **application access
+   policy** (`New-ApplicationAccessPolicy -AccessRight RestrictAccess -AppId <id>
    -PolicyScopeGroupId <mail-enabled group>`) or RBAC for Applications.
 4. **SSO**: SOKKAN's OIDC login must be Entra ID (same tenant) so that the id_token carries
-   `oid` and `tid` (default claims). Each person signs in to SOKKAN once.
-5. **Manifest**: `GET /api/admin/teams/manifest` (instance admin) gives `manifest.json`
-   (v1.17, bot scopes personal / team / groupChat, command list). Zip it with `color.png`
-   (192×192) and `outline.png` (32×32, transparent) → Teams admin center → Manage apps →
-   Upload; allow it for the POC users (app permission policy).
+   `oid` and `tid` (default claims). Each person signs in to SOKKAN once — that is what links
+   their Teams identity to their SOKKAN account.
+5. **App package**: Setup › Organization › Teams → **App package (.zip)**
+   (`GET /api/admin/teams/package`), or `scripts/teams-manifest.py --out teams-app --check`
+   (same manifest — one source, `backend/teams/manifest.py`): `manifest.json` (schema v1.17,
+   bot in personal / team / groupChat, command list, `validDomains` = the instance's host
+   only; `webApplicationInfo` only with `--sso` / `?sso=1`, when the Entra app exposes
+   `api://<host>/<app id>`), `color.png` 192×192, `outline.png` 32×32 white on transparent.
+   **Teams admin center → Teams apps → Manage apps → Upload new app**; then allow it for the
+   POC users (permission policy) and pin it if wanted (setup policy). In a small tenant,
+   check *Org-wide app settings → Custom apps* is allowed.
 6. Add the app to the team; get each channel id (channel ⋯ → *Get link to channel*: the
-   `19:…@thread.tacv2` part) and map it: Setup › Organization › Teams, or
-   `PUT /api/admin/teams/channels {"channel_id": "19:…", "project": "radio", "level": "project"}`.
+   `19:…@thread.tacv2` part) and map it: Setup › Organization › Teams (« post approvals
+   here » on by default), or
+   `PUT /api/admin/teams/channels {"channel_id": "19:…", "project": "radio", "level": "project", "approvals": true}`.
 
 ## 4. Variables
 
@@ -91,10 +135,13 @@ above `project`.
 | `SOKKAN_FEATURE_TEAMS=1` | the switch (requires `assistant`, `classification`, `sso`) |
 | `SOKKAN_TEAMS_APP_ID` | Application (client) ID = bot id |
 | `SOKKAN_TEAMS_APP_PASSWORD` | client secret (a secret: from the vault / the env file, 0600) |
+| `SOKKAN_TEAMS_APP_PASSWORD_FILE` | or: a 0600 file holding it (preferred — rendered from your secrets store, not in the environment) |
 | `SOKKAN_TEAMS_TENANT_ID` | the customer's tenant; every other tenant is refused |
 | `SOKKAN_TEAMS_PUBLIC_URL` | public base URL (default `SOKKAN_PUBLIC_URL`) |
 | `SOKKAN_TEAMS_SERVICE_HOSTS` | extra allowed serviceUrl hosts (sovereign clouds), comma list |
 | `SOKKAN_TEAMS_CALENDAR=0` | do not offer the Graph calendar to the brief |
+| `SOKKAN_TEAMS_PROACTIVE_S` | period of the proactive-approvals sync (default 60 s; it also runs on every change); `0` = no proactive post |
+| `SOKKAN_TEAMS_SERVICE_URL` | where to post in a channel Teams has not written to yet (default `https://smba.trafficmanager.net/teams/`); once a channel has sent one activity, the serviceUrl Microsoft gave is used |
 | `SOKKAN_TEAMS_OPENID_URL`, `SOKKAN_TEAMS_LOGIN_URL`, `SOKKAN_TEAMS_GRAPH_URL` | endpoints (defaults: Microsoft public cloud; the tests point them at the simulator) |
 | `SOKKAN_TEAMS_DB`, `SOKKAN_TEAMS_KEY_FILE` | default `$SOKKAN_DATA_DIR/teams.db` / `teams.key` (back them up with the data) |
 
@@ -120,14 +167,70 @@ built from project notes inherits their highest level and logs its reads with `v
 6. A request with a forged token (`curl -X POST …/api/teams/messages`) → 401 and
    `[teams] rejected request` in the API log.
 
-## 7. Limits — what needs a real app
+## 7. Proactive approvals (3.4.0)
 
-* Not verified against Microsoft yet: the exact JWT claims of the live Bot Framework
-  (`serviceurl` casing), Teams' HTML in `text`, `adaptiveCard/action` invoke payloads from
-  the desktop/mobile clients, the manifest upload, the deep-link format of a thread. The
-  simulator follows the published contracts; the first POC session must run § 6 end to end.
-* No proactive push of every new pending approval to Teams yet (on demand: `@Nina approvals`);
-  no thread reading (a decision is the sentence after the command, not a summary of the thread);
-  no Graph channel listing (channel ids are pasted by the admin).
-* Presence is exposed (`teams.graph.presence`) but not yet shown anywhere.
-* One tenant per instance; one Teams app per instance.
+`backend/teams/proactive.py`. What waits for a human in a project — an agent proposal or a
+pending change (`agent.activate`), a tool call of an agent run (`run.tool`) — is posted in
+every channel mapped to the project with « post approvals here » on, the moment it starts
+waiting (hooks in `agents`, debounced) and by a periodic safety net
+(`SOKKAN_TEAMS_PROACTIVE_S`).
+
+* One card per (approval, channel), recorded in `teams.db` (`proactive`): a sync twice posts
+  nothing new; a post that failed is retried at the next sync (journal: `teams.approval.post`).
+* When it stops waiting — decided in Teams, in the cockpit, the run moved on — the card is
+  **replaced** (`PUT /v3/conversations/{id}/activities/{activityId}`) by its outcome
+  (« Approved by max@… — decided in SOKKAN ») and its signed token is spent: a late click on
+  an old copy does nothing.
+* A tool call is decided by the agent's owner (dev+) or an admin of the project, as in the
+  cockpit; the decision reaches the live session on the API's event loop.
+* **Level**: an approval whose object is above the channel's level (a run whose session read
+  confidential notes, in a « project » channel) is announced without its content — « an
+  approval waits in <project> at level X, open SOKKAN » — with no button and no token.
+* Cards: Adaptive Cards 1.5 (`backend/teams/cards.py`) checked against the official schema
+  (vendored in `tests/fixtures/teams/`): `Action.Execute` (verb + data) in an `ActionSet`,
+  with an `Action.Submit` fallback carrying the verb for older clients, `refresh`
+  (verb `refresh`: any viewer gets the current state — decided, expired — without deciding;
+  automatic for ≤ 60 members, « Refresh card » beyond), `fallbackText`, `msteams.width = Full`.
+
+## 8. Limits — what needs a real tenant
+
+The simulator follows the published contracts; these points are confirmed only against
+Microsoft (`tests/teams_live/`, see its README):
+
+* the claim names of a live Bot Framework token (`serviceurl` casing) — recorded without
+  values in `GET /api/admin/teams` → `last_inbound.claims` at the first real request;
+  whether a single-tenant bot also receives tokens issued by the tenant (Entra) rather than
+  `api.botframework.com` (botauth accepts only the latter today);
+* Teams' HTML in `text` around the @mention; the `adaptiveCard/action` invoke payloads of the
+  desktop, web and mobile clients; the `Action.Submit` fallback on an old client;
+* posting to `/v3/conversations/{channel id}/activities` = a new thread in the channel, and
+  `PUT` of that activity (the live test does both); the default serviceUrl for a channel
+  never seen;
+* the manifest upload in the admin center; the deep-link format of a thread (decision notes).
+
+Not built: thread reading (a decision is the sentence after the command, not a summary of
+the thread); Graph channel listing (channel ids are pasted by the admin); presence is exposed
+(`teams.graph.presence`) but not shown; one tenant and one Teams app per instance.
+
+## 9. Day of the tenant — in this order
+
+Detailed in [TEAMS-SETUP.md](TEAMS-SETUP.md).
+
+1. Tenant admin account in the password manager; MFA on.
+2. `scripts/teams-register.sh --public-url …` (Developer Portal steps), or `--mode azure
+   --dry-run` then for real with a subscription. Secret → secrets store, rendered 0600.
+3. Instance env: `SOKKAN_FEATURE_TEAMS=1`, `SOKKAN_TEAMS_APP_ID`, `SOKKAN_TEAMS_APP_PASSWORD_FILE`,
+   `SOKKAN_TEAMS_TENANT_ID`, `SOKKAN_TEAMS_PUBLIC_URL` (an https host Microsoft can reach);
+   SSO through Entra ID of the same tenant (`oid`/`tid`); restart; `GET /api/admin/teams` →
+   `missing: []`.
+4. Two test users (one dev, one maintainer of a test project) sign in once to SOKKAN with
+   Entra ID (links recorded).
+5. Upload the app package (§ 3.2 step 5), add it to a team, map a channel to the test project.
+6. `SOKKAN_TEAMS_LIVE=1 python -m pytest tests/teams_live -v -s` (automatic checks), then
+   `SOKKAN_TEAMS_LIVE_MANUAL=1 … -m manual` with the two users (mention, four-eyes approval on
+   desktop then mobile, decision, approval proposed in the cockpit → posted → approved in the
+   cockpit → card replaced).
+7. Record `last_inbound.claims`, screenshots of the cards (desktop + mobile) and the results
+   in the POC report; fix what differs from the simulator, extend `tests/teams_sim.py` with
+   the real payloads.
+8. Only then: `teams` from experimental to beta (feature registry, CHANGELOG).

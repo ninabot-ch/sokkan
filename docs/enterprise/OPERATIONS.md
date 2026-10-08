@@ -233,7 +233,7 @@ switch to `0` and restart `api`.
 | 9. BYOK screen, sandbox, shared review | `byok_admin`, `sandbox`, `shared_review` | § 4.1 (sandbox), [UI-FEATURES.md](UI-FEATURES.md) | a session of X cannot `Read`/`cat` a file of Y; a key set in Model keys is masked and used; a share to a viewer is read-only | ◐ lots 7, 8 (beta) |
 | 10. Helm | `helm` | [HELM.md](../HELM.md); `SOKKAN_HELM_TICK_S`, calendar ICS by vault name | ▶ spawn of a child card carries the parent's intent and decisions; a child card's progress rolls up to its parent | ◐ 3.3 (beta) |
 | 11. Classification | `classification` | `SOKKAN_FEATURE_CLASSIFICATION=1` (enterprise default); `SOKKAN_CLASSIFICATION_LABELS` = the customer's grid; Setup › Organization › Classification: SSO group → level, role → level | same question to Nina by a `project`-cleared and a `confidential`-cleared person: different answers; `GET /api/classification/audit?format=csv` lists both | ◐ 3.4 |
-| 12. Teams | `teams` | [TEAMS.md](TEAMS.md): app registration, `SOKKAN_TEAMS_*`, admin consent, channel ↔ project mapping | `@Nina status` in a mapped channel answers as the sender; an approval card works once, for the right person | ◐ 3.4 |
+| 12. Teams | `teams` | [TEAMS.md](TEAMS.md): `scripts/teams-register.sh` (or the portals, § 3.2), `SOKKAN_TEAMS_*`, admin consent, app package (Setup › Organization › Teams), channel ↔ project mapping | `@Nina status` in a mapped channel answers as the sender; an approval card works once, for the right person; a proposal made in the cockpit appears in the channel and is replaced once approved; `tests/teams_live/` green (TEAMS.md § 9) | ◐ 3.4 |
 
 Planned features cannot be switched on: asking for one is reported, never honoured.
 

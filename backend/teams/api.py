@@ -5,8 +5,11 @@
 * ``GET  /api/admin/teams``       configuration state, channel mapping, Graph permissions
 * ``PUT|DELETE /api/admin/teams/channels``   map a channel / chat to a project (+ its level)
 * ``GET  /api/admin/teams/manifest``          the Teams app manifest to upload (admin)
+* ``GET  /api/admin/teams/package``           the zip to upload (manifest + icons)
 """
 from __future__ import annotations
+
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -16,7 +19,7 @@ import audit
 import auth
 import iam
 import teams
-from teams import botauth, bot, store
+from teams import botauth, bot, manifest, proactive, store
 
 router = APIRouter()
 
@@ -51,11 +54,18 @@ async def messages(request: Request):
     if not isinstance(activity, dict):
         raise HTTPException(400, "invalid activity")
     try:
-        botauth.verify(request.headers.get("authorization"), activity)
+        claims = botauth.verify(request.headers.get("authorization"), activity)
     except botauth.Rejected as e:
         # not the journal: an unauthenticated caller must not be able to fill it
         print(f"[teams] rejected request: {str(e)[:200]}")
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    try:
+        store.set_meta("last_inbound", {
+            "at": time.time(), "claims": sorted(claims), "type": activity.get("type"),
+            "name": activity.get("name") or "", "service_url": activity.get("serviceUrl")})
+        proactive.remember(activity)        # where to post this channel's approvals later
+    except Exception as e:  # noqa: BLE001 — bookkeeping never blocks an answer
+        print(f"[teams] could not record the conversation: {e!r}")
     import asyncio
     try:
         out = await asyncio.to_thread(bot.handle, activity)
@@ -75,6 +85,7 @@ class ChannelIn(BaseModel):
     project: str
     level: str = "project"
     name: str = ""
+    approvals: bool = True     # post the project's pending approvals in this channel
 
 
 @router.get("/api/admin/teams")
@@ -83,7 +94,10 @@ def admin_state(_u: dict = Depends(_admin)) -> dict:
             "tenant": teams.tenant_id(), "app_id": teams.app_id(),
             "endpoint": f"{teams.public_url()}/api/teams/messages",
             "channels": store.channels(), "graph_permissions": GRAPH_PERMISSIONS,
-            "bot": BOT_PERMISSIONS}
+            "bot": BOT_PERMISSIONS,
+            # first live check of a real tenant: which claim names Microsoft sent (no values)
+            "last_inbound": store.get_meta("last_inbound"),
+            "proactive": proactive.state()}
 
 
 @router.put("/api/admin/teams/channels")
@@ -98,7 +112,8 @@ def admin_map(body: ChannelIn, u: dict = Depends(_admin)) -> dict:
         lvl = classification._parse_strict(body.level)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    store.map_channel(body.channel_id.strip(), body.project, lvl, body.name, u["email"])
+    store.map_channel(body.channel_id.strip(), body.project, lvl, body.name, u["email"],
+                      body.approvals)
     audit.log(u["email"], "teams.channel.map", body.channel_id[:120], f"{body.project} @ {body.level}")
     return {"channels": store.channels()}
 
@@ -111,30 +126,21 @@ def admin_unmap(channel_id: str, u: dict = Depends(_admin)) -> dict:
 
 
 @router.get("/api/admin/teams/manifest")
-def admin_manifest(_u: dict = Depends(_admin)) -> dict:
-    """Teams app manifest (v1.17) for this instance: zip it with two icons and upload it in
-    the Teams admin center (docs/enterprise/TEAMS.md)."""
-    if not teams.app_id():
-        raise HTTPException(409, "set SOKKAN_TEAMS_APP_ID first")
-    host = (teams.public_url().split("://", 1)[-1] or "sokkan.example").split("/")[0]
-    return {
-        "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
-        "manifestVersion": "1.17", "version": "3.4.0", "id": teams.app_id(),
-        "developer": {"name": "SOKKAN", "websiteUrl": f"https://{host}",
-                      "privacyUrl": f"https://{host}", "termsOfUseUrl": f"https://{host}"},
-        "name": {"short": "Nina (SOKKAN)", "full": "Nina — SOKKAN assistant"},
-        "description": {"short": "Ask Nina about your SOKKAN projects.",
-                        "full": "Project status, cards, agent approvals and decision capture, "
-                                "answered as you, within your clearance."},
-        "icons": {"color": "color.png", "outline": "outline.png"}, "accentColor": "#0E7C86",
-        "bots": [{"botId": teams.app_id(), "scopes": ["personal", "team", "groupChat"],
-                  "supportsFiles": False, "isNotificationOnly": False,
-                  "commandLists": [{"scopes": ["team", "groupChat", "personal"], "commands": [
-                      {"title": "status", "description": "Status of the linked project"},
-                      {"title": "decision:", "description": "Note a decision in the project memory"},
-                      {"title": "card:", "description": "Create a card"},
-                      {"title": "run", "description": "Propose a run of an agent (approval)"},
-                      {"title": "approvals", "description": "Pending approvals"}]}]}],
-        "permissions": ["identity", "messageTeamMembers"], "validDomains": [host],
-        "webApplicationInfo": {"id": teams.app_id(), "resource": f"api://{host}/{teams.app_id()}"},
-    }
+def admin_manifest(sso: bool = False, _u: dict = Depends(_admin)) -> dict:
+    """Teams app manifest (v1.17) for this instance (docs/enterprise/TEAMS.md § 3).
+    ``?sso=1`` adds webApplicationInfo (only if the Entra app exposes ``api://<host>/<id>``)."""
+    try:
+        return manifest.build(teams.app_id(), teams.public_url(), sso=sso)
+    except manifest.ManifestError as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@router.get("/api/admin/teams/package")
+def admin_package(sso: bool = False, _u: dict = Depends(_admin)) -> Response:
+    """The app package to upload in the Teams admin center: manifest.json + the two icons."""
+    try:
+        m = manifest.build(teams.app_id(), teams.public_url(), sso=sso)
+    except manifest.ManifestError as e:
+        raise HTTPException(409, str(e)) from e
+    return Response(manifest.package(m), media_type="application/zip",
+                    headers={"content-disposition": 'attachment; filename="sokkan-teams-app.zip"'})
