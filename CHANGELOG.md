@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.1 — unreleased
+## 3.4.1 — 2026-10-08 — "Bridge"
 
 ### Nina asks for help in Teams (feature `teams`)
 - From the cockpit's Nina panel: « trouve-moi quelqu'un de disponible pour aider sur ‹X› »,
