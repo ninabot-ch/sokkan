@@ -198,13 +198,12 @@ OIDC single sign-on (`SOKKAN_AUTH_MODE=oidc` + `SOKKAN_OIDC_*`) and multi-user r
 
 ## Architecture
 
-```
-browser ── Next.js (web) ──/api──► FastAPI (api) ──► claude CLI (Agent SDK, stream-json)
-                                      │                   │
-                                      │                   └─ MCP: sokkan-memory · sokkan-board
-                                      ├─ SQLite: board · audit · usage · iam
-                                      └─ memory indexer (fastembed ONNX ⟷ optional remote)
-```
+<p align="center">
+  <a href="https://sokkan.ch/en/docs/architecture/"><img src="docs/architecture.png" width="900" alt="SOKKAN architecture: you → web cockpit → API → server-side memory recall → agent session (Claude Agent SDK) → model; the HITL gate routes every mutating tool back to your click; SQLite state, memory store, indexer and notes live in the same container; Crew runtime and Observability feed sessions" /></a>
+</p>
+<p align="center"><em><a href="https://sokkan.ch/en/docs/architecture/">Interactive version</a> — every box links to the source file and line at a pinned commit. Two more diagrams there: the card → approved-change workflow, and the lifecycle of a Crew agent run.</em></p>
+
+In one line: `browser → Next.js (web, proxies /api) → FastAPI (api) → claude CLI via the Agent SDK`, with the memory recall done **by the server** before the first message, and `can_use_tool` turning every mutating call into a button in your chat pane. Bundled MCP servers (`sokkan-memory`, `sokkan-board`, `sokkan-observability`, `sokkan-agents`) let sessions talk back.
 
 Everything stays on your machine: SQLite state in a Docker volume, transcripts written by the `claude` CLI itself, LLM calls straight from your container to Anthropic with your key.
 
