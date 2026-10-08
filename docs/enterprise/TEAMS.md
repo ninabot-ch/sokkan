@@ -29,6 +29,24 @@ In a 1:1 chat with no mapping, start with `in <project>: …` (or nothing if the
 single project). The answer carries `_classification: <label>_` when it was built from notes
 above `project`.
 
+**Nina answers in the language of the message** (3.4.2): French when the French trigger
+matched (`état`, `carte :`, `note la décision :`, `lance l'agent`, `approbations`, `dans
+<projet> :`) or the sentence reads as French, English otherwise — the replies, the refusals
+(not linked, no access, no agent…) and the cards' headings and buttons (*Approuver / Refuser /
+Ouvrir dans SOKKAN*). A card keeps its language until it is decided.
+
+**Prerequisite — the 3.0 memory store.** The decision capture writes into the **project's**
+memory and carries the channel's level: both need the 3.0 store (Postgres + pgvector,
+`CORTHEXIS_MEMORY_BACKEND=auto`, the default). On an instance kept on the 2.x index
+(`CORTHEXIS_MEMORY_BACKEND=sqlite`) a decision for a project other than `default`, or from a
+channel above the default level, is **refused** — Nina says so in the language of the
+message (« La mémoire par projet et la classification demandent le store 3.0 (Postgres)… —
+rien n'a été écrit ») and journals `teams.decision.refused`; nothing is written anywhere.
+Seen live on 08.10: before 3.4.2 the note landed under `projects/<slug>/memory/` where nothing
+indexed it. How to turn the store on: [UPGRADE.md § Turn the store on
+later](../UPGRADE.md#turn-the-store-on-later-sqlite-mode); the state is read in Setup › Engines
+and `GET /api/memory/stats` → `store`.
+
 ## 2. Security model
 
 * **One tenant per instance — checked by SOKKAN, not by the registration.** The bot's Entra
@@ -65,6 +83,7 @@ above `project`.
   secret stays in the environment (`SOKKAN_TEAMS_APP_PASSWORD`), never logged.
 * **Audit.** Refused requests are logged by the API (`[teams] rejected request: <reason>`,
   not in the journal: an unauthenticated caller must not fill it); `teams.status`, `teams.decision`,
+  `teams.decision.refused` (3.4.2: the store does not serve the project / the level),
   `teams.approval.request|approve|refuse`, `teams.channel.map|unmap`, `board.card.create`;
   every note Nina used: `note_access` with `via = teams` (SECURITY.md § 8).
 

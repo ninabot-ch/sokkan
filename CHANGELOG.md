@@ -3,6 +3,39 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.2 — unreleased
+
+### Fixed
+- **No more phantom memory on the 2.x index.** On an instance kept on
+  `CORTHEXIS_MEMORY_BACKEND=sqlite` (the 3.0 store not serving), a note written for a project
+  other than `default`, or above the default level, landed under `projects/<slug>/memory/`
+  where nothing indexed it — `/api/memory/notes?project=<slug>` said `[]`, stats said 0 notes,
+  `POST /api/memory/index` answered 503, and the person believed the decision was in memory
+  (seen live on 08.10: a decision captured in Teams). The 2.x index knows neither projects nor
+  levels, so such a write is now **refused before anything is written**, with one clear
+  message: « Project memory and classification need the 3.0 store (Postgres); this instance
+  serves the 2.x index — nothing was written. Enable it: `CORTHEXIS_DATABASE_URL` +
+  `CORTHEXIS_MEMORY_BACKEND=auto` ». Where: the Teams decision (Nina answers the refusal in
+  the language of the message, journal `teams.decision.refused`), `memory_write` (MCP: `ok:
+  false`, `code: memory_store_required`, `status: 409`, agent runs included — no quarantine
+  either), the approval of a quarantined deliverable (`409 memory_store_required`), the Helm
+  context note of a classified or non-default card (not written; the context block of the
+  spawn stays the guarantee). `default` without a level: the 2.x behaviour, unchanged.
+  `store_backend.require_store()`, `store_info()`, `tests/test_sqlite_honest.py`.
+- **The store is visible.** `GET /api/memory/stats` and `/api/memory/status` carry
+  `store: {mode: sqlite|postgres, project_memory, classification, migrating}`; the CortHeXis
+  tab shows a banner on a project other than `default` when the store does not serve
+  (« Project memory needs the 3.0 store », with the way to turn it on); Setup › Engines shows
+  the memory engine's state. UPGRADE.md § « Turn the store on later (sqlite mode) »,
+  TEAMS.md § 1 (prerequisite).
+- **Nina answers in the language of the message in Teams.** A French trigger (`état`,
+  `carte :`, `note la décision :`, `lance l'agent`, `approbations`, `dans <projet> :`) or a
+  French sentence got English answers (« Decision noted… », « Card #3 created… »). Replies,
+  refusals (`Stop`) and the cards' headings and buttons (status, run proposal, approvals,
+  decided — *Approuver / Refuser / Ouvrir dans SOKKAN*, *✅ Approuvé par …*) now follow the
+  detected language; a card keeps its language until decided (`lang` in its signed spec).
+  `teams.bot.detect_lang`, `teams.cards(lang=)`, TEAMS.md § 1.
+
 ## 3.4.1 — 2026-10-08 — "Bridge"
 
 ### Nina asks for help in Teams (feature `teams`)

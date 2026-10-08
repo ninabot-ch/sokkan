@@ -156,6 +156,40 @@ Options (`.env`):
   blocks the switch, as it would be lost).
 - `CORTHEXIS_MEMORY_BACKEND=sqlite` — stay on the 2.x index for now.
 
+### Turn the store on later (sqlite mode)
+
+An instance kept on `CORTHEXIS_MEMORY_BACKEND=sqlite` serves the 2.x index: **the
+`default` project only, every note at the default level**. The 2.x index knows neither
+projects nor classification, so since 3.4.2 a memory write that needs either is
+**refused rather than written where nothing indexes it** — a decision captured in Teams
+for another project, a `memory_write` with a level above the default, an agent
+deliverable approved out of quarantine for another project, a Helm context note of a
+classified card. The refusal names this section (API: `409 memory_store_required`;
+Teams: Nina answers it in the language of the message and journals
+`teams.decision.refused`); `GET /api/memory/stats` → `store.mode` says what serves, and
+the CortHeXis tab shows a banner on a project other than `default`. Nothing is lost:
+nothing was written.
+
+To turn the store on:
+
+1. **A Postgres with pgvector.** The standard install already has one: the `db` service
+   (`pgvector/pgvector:pg16`, password `SOKKAN_DB_PASSWORD` in `.env`); an external
+   server needs Postgres 14+ with the `vector` extension and a database the api can own
+   (`CREATE EXTENSION vector;` is run by the migrations).
+2. In `.env`: remove `CORTHEXIS_MEMORY_BACKEND=sqlite` (or set it to `auto`), and —
+   external server only — `CORTHEXIS_DATABASE_URL=postgresql://user:pass@host:5432/sokkan`.
+   Inside the compose stack the URL is built from `SOKKAN_DB_PASSWORD`.
+3. `docker compose up -d` — the api starts the migration described in « What happens at
+   the first start » above (archive, repairs, index, verify, switch); the 2.x index keeps
+   serving meanwhile, and the writes above stay refused until the store serves (the
+   message then says « migration in progress »). Follow it in the CortHeXis tab or
+   `GET /api/memory/migration`.
+4. Check: `GET /api/memory/stats` → `"store": {"mode": "postgres", "project_memory": true}`,
+   Setup › Engines shows « Memory store 3.0 (Postgres + pgvector) ».
+
+A decision refused meanwhile has to be captured again once the store serves: Nina kept
+nothing.
+
 ### Roll back
 
 `memory.db` is never written by 3.0. To go back to 2.3:
