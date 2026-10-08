@@ -3,7 +3,8 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.2.3 — unreleased
+<<<<<<< HEAD
+## 3.2.3 — 2026-10-08 — "Captains"
 - **Operate › Costs tells what is billed, and how.** On an instance that runs Claude through a
   Pro/Max login the tab showed hundreds of dollars a day. Four causes, all fixed: (1) every
   transcript of the workspace was counted, including the operator's own Claude Code sessions run
@@ -77,6 +78,17 @@ Notable changes, newest first. Versions: semver + release hash (see
   Magnitude node can serve is no longer « too small »; the engine's servers and re-ranker are
   shown; on an instance without the 3.0 store it says the profile is set on the server and how;
   preparing a profile change requires ticking that every note will be re-read.
+=======
+## Unreleased — 3.3
+
+### Fixes (3.2.3 candidate)
+- **`GET /api/version`** (auth-free): `version` (the VERSION file baked into the image), `commit`
+  (build arg `SOKKAN_COMMIT`), `dist` (`<version>+<commit>`), `image_tag` and `edition`. A rollout
+  check can now require `version`/`dist` to equal what it deployed: `/api/health` alone answered
+  200 from the OLD container while the new image was still building. The api image copies
+  `VERSION`; build it with `--build-arg SOKKAN_COMMIT=$(git rev-parse --short HEAD)` (compose:
+  `SOKKAN_COMMIT` in `.env`).
+>>>>>>> d8a1b70 (fix(api): GET /api/version — version, commit and edition of the running process, auth-free)
 
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its

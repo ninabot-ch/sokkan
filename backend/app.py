@@ -1769,7 +1769,7 @@ def auth_oidc_logout():
 
 # NB : /api/magnitude/agent/sync a sa propre auth (header x-magnitude-token),
 # pas de cookie — l'agent host n'a pas de session utilisateur.
-_AUTH_FREE = ("/api/auth/", "/api/health", "/api/edge/ask", "/api/observability/alert",
+_AUTH_FREE = ("/api/auth/", "/api/health", "/api/version", "/api/edge/ask", "/api/observability/alert",
               "/api/magnitude/agent/sync", "/api/magnitude/install.sh",
               "/api/magnitude/metrics",  # Prometheus: own bearer token or direct loopback
               "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
@@ -1823,6 +1823,40 @@ app.include_router(memeval.router(require, feature_magnitude, _transcripts))
 def health() -> dict:
     files = list(PROJECT_DIR.glob("*.jsonl"))
     return {"ok": True, "project_dir": str(PROJECT_DIR), "transcripts": len(files)}
+
+
+def _build_version() -> dict:
+    """What THIS process runs: the VERSION file baked into the image (repo root in dev) and the
+    commit passed at build time (SOKKAN_COMMIT). Read once — a rollout check compares it with the
+    dist it expects, so an old container still answering /api/health is caught."""
+    root = Path(__file__).resolve().parent.parent
+    ver = ""
+    for cand in (root / "VERSION", Path("/app/VERSION")):
+        try:
+            ver = cand.read_text().strip()
+            break
+        except OSError:
+            continue
+    commit = (os.environ.get("SOKKAN_COMMIT") or "").strip()
+    if not commit:
+        try:
+            commit = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+                                    capture_output=True, text=True, timeout=3).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            commit = ""
+    short = commit[:7]
+    return {"version": ver or "dev", "commit": short or "unknown",
+            "dist": f"{ver or 'dev'}+{short}" if short else (ver or "dev"),
+            "image_tag": os.environ.get("SOKKAN_VERSION", "")}
+
+
+_BUILD = _build_version()
+
+
+@app.get("/api/version")
+def version() -> dict:
+    """Auth-free: version, commit and edition of the running process (no secret, no config)."""
+    return {**_BUILD, "edition": features.edition()}
 
 
 @app.get("/api/tags")

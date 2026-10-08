@@ -27,7 +27,7 @@ x-llamacpp: &llamacpp
 
 services:
   api:
-    build: { context: ., dockerfile: docker/api.Dockerfile }
+    build: { context: ., dockerfile: docker/api.Dockerfile, args: { SOKKAN_COMMIT: "${SOKKAN_COMMIT:-unknown}" } }
     restart: unless-stopped
     environment:
       # BYOK — your Anthropic API key (or mount your ~/.claude, see README)

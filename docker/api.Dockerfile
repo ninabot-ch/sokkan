@@ -13,6 +13,7 @@ COPY backend/requirements.txt /tmp/req-backend.txt
 COPY memory/requirements.txt /tmp/req-memory.txt
 RUN pip install --no-cache-dir -r /tmp/req-backend.txt -r /tmp/req-memory.txt
 
+COPY VERSION VERSION
 COPY backend backend
 COPY memory memory
 # le package agent host n'est pas exécuté par le container, mais le backend en
@@ -36,6 +37,11 @@ RUN mkdir -p /opt/sokkan/models \
 TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', \
 cache_dir='/opt/sokkan/models')" \
  && chown -R sokkan:sokkan /opt/sokkan
+
+# commit of the build, served by GET /api/version (a rollout check compares version+commit
+# with the dist it deployed, so an old container still answering /api/health is caught)
+ARG SOKKAN_COMMIT=unknown
+ENV SOKKAN_COMMIT=${SOKKAN_COMMIT}
 
 # conventions container : workspace monté sur /workspace, état sur /data
 ENV FASTEMBED_CACHE_PATH=/opt/sokkan/models \
