@@ -7,7 +7,9 @@
 * the token's ``serviceUrl`` claim equals the activity's ``serviceUrl``, which must be an
   https URL of a Microsoft host (or one listed in ``SOKKAN_TEAMS_SERVICE_HOSTS``): replies
   carry our bot token, they never go anywhere else;
-* the activity's tenant is the customer's (``SOKKAN_TEAMS_TENANT_ID``): single-tenant app.
+* the activity's tenant is the customer's (``SOKKAN_TEAMS_TENANT_ID``) — enforced here, on
+  every activity: the bot registration is multi-tenant (a single-tenant Azure Bot would send
+  tokens issued by Entra, not by ``api.botframework.com``).
 """
 from __future__ import annotations
 

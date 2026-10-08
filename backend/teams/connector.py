@@ -1,4 +1,4 @@
-"""teams.connector — outbound calls: app tokens (client credentials, single tenant, cached
+"""teams.connector — outbound calls: app tokens (client credentials, from the customer's tenant endpoint, cached
 ENCRYPTED in teams.db) and messages to a Teams conversation (Bot Connector REST API)."""
 from __future__ import annotations
 

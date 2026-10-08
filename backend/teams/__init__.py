@@ -4,7 +4,9 @@
 project memory, channel ↔ project mapping, calendar through Microsoft Graph for the brief.
 
 Security model (docs/enterprise/TEAMS.md):
-* single-tenant app — every inbound activity's tenant must be ``SOKKAN_TEAMS_TENANT_ID``;
+* one tenant per instance, enforced here — every inbound activity's tenant must be
+  ``SOKKAN_TEAMS_TENANT_ID`` (the bot registration itself is multi-tenant: that is what makes
+  the Bot Framework sign activities with the ``api.botframework.com`` issuer we verify);
 * every inbound request carries a Bot Framework JWT, verified (signature against the
   published keys, issuer, audience = our app id, expiry, serviceUrl claim, endorsement of
   the msteams channel) before anything is read (`botauth`);

@@ -429,7 +429,8 @@ REGISTRY: tuple[Feature, ...] = (
             "approval), HITL approvals as signed single-use Adaptive Cards — also pushed to the "
             "project's channel the moment they start waiting —, decision capture "
             "into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. "
-            "Single-tenant app, admin consent, Nina answers as the identified user only.",
+            "One tenant per instance (enforced on every activity), admin consent, Nina answers "
+            "as the identified user only.",
             status="experimental", requires=("assistant", "classification", "sso"),
             vars=_t("teams"),
             config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD",

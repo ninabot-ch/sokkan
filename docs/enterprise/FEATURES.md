@@ -520,7 +520,7 @@ Notes, decisions, cards and agent deliverables carry a level (public < team < pr
 
 **Microsoft Teams** — experimental, toggle.
 
-@Nina in Teams channels and chats (project status, cards, proposed agents → approval), HITL approvals as signed single-use Adaptive Cards — also pushed to the project's channel the moment they start waiting —, decision capture into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. Single-tenant app, admin consent, Nina answers as the identified user only.
+@Nina in Teams channels and chats (project status, cards, proposed agents → approval), HITL approvals as signed single-use Adaptive Cards — also pushed to the project's channel the moment they start waiting —, decision capture into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. One tenant per instance (enforced on every activity), admin consent, Nina answers as the identified user only.
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `assistant`, `classification`, `sso`

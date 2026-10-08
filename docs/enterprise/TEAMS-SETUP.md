@@ -71,10 +71,11 @@ scripts/teams-register.sh --public-url https://<host> [--calendar] [--presence]
    secrets store (the portal never shows it again).
 4. The bot → **Channels**: Microsoft Teams present.
 5. Entra admin center → App registrations → **All applications** → the bot's app:
-   *Authentication → Supported account types* → **this organizational directory only** if the
-   portal let it be changed (SOKKAN refuses any other tenant anyway: `SOKKAN_TEAMS_TENANT_ID`);
-   write down what it shows — it is one of the points to report. Overview → *Directory
-   (tenant) ID*.
+   *Authentication → Supported account types* shows **Multiple organizations** — **leave it**:
+   the Bot Framework signs activities of a multi-tenant bot with its own issuer
+   (`api.botframework.com`), the only one SOKKAN accepts; switching to single tenant breaks
+   the bot (tokens issued by Entra, refused 401). The tenant is enforced by SOKKAN on every
+   activity (`SOKKAN_TEAMS_TENANT_ID`, TEAMS.md § 2). Overview → *Directory (tenant) ID*.
 6. Optional (the morning brief's Graph reads): same app → **API permissions → Add a
    permission → Microsoft Graph → Application permissions** → `Calendars.Read` and/or
    `Presence.Read.All` → **Grant admin consent**. Nothing else: answering and posting

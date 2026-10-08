@@ -30,8 +30,15 @@ above `project`.
 
 ## 2. Security model
 
-* **Single tenant.** Every activity whose tenant (`channelData.tenant.id`) is not
-  `SOKKAN_TEAMS_TENANT_ID` is refused (401) before anything is read.
+* **One tenant per instance — checked by SOKKAN, not by the registration.** The bot's Entra
+  app is **multi-tenant** (« Multiple organizations », what the Teams Developer Portal
+  creates; an Azure Bot of type *Multi Tenant*): the Bot Framework then signs every activity
+  with a token issued by `https://api.botframework.com`, which is the only issuer `botauth`
+  accepts. A *Single Tenant* bot would send tokens issued by the tenant's Entra endpoint and
+  be refused. The tenant itself is enforced on every activity: `channelData.tenant.id` must be
+  `SOKKAN_TEAMS_TENANT_ID`, else 401 before anything is read; and app tokens are requested
+  from that tenant's endpoint only (`login.microsoftonline.com/<tenant>`). Confirmed on a
+  real tenant (3.4.1).
 * **Signed requests.** `Authorization: Bearer <JWT>` verified on every call: RS256 key of the
   Bot Framework OpenID metadata (cached 24 h, refreshed on an unknown `kid`), issuer
   `https://api.botframework.com`, audience = `SOKKAN_TEAMS_APP_ID`, expiry (5 min leeway),
@@ -82,8 +89,8 @@ scripts/teams-register.sh --mode azure --public-url https://sokkan.example.ch --
     [--calendar] [--presence] [--secret-file ./teams-app-secret] [--no-bot] [--dry-run]
 ```
 
-It creates the single-tenant app registration and its service principal, a client secret
-(written to `--secret-file`, mode 0600, never printed), the Azure Bot (type **SingleTenant**,
+It creates the multi-tenant app registration and its service principal, a client secret
+(written to `--secret-file`, mode 0600, never printed), the Azure Bot (type **MultiTenant**,
 endpoint `https://<host>/api/teams/messages`, channel Microsoft Teams), the optional Graph
 application permissions (role ids looked up by name) with the admin consent, and the app
 package (`teams-app/sokkan-teams-app.zip`). It prints the `SOKKAN_TEAMS_*` lines of § 4.
@@ -92,11 +99,12 @@ package (`teams-app/sokkan-teams-app.zip`). It prints the `SOKKAN_TEAMS_*` lines
 ### 3.2 In the portals, step by step
 
 1. **Entra admin center → Identity → Applications → App registrations → New registration**:
-   *Nina (SOKKAN)*, **Accounts in this organizational directory only** (single tenant), no
+   *Nina (SOKKAN)*, **Accounts in any organizational directory** (multi-tenant — the token
+   issuer `botauth` expects; SOKKAN still refuses every tenant but yours, § 2), no
    redirect URI. Note the *Application (client) ID* and the *Directory (tenant) ID*.
    Certificates & secrets → New client secret (24 months max; calendar the rotation).
 2. **Teams Developer Portal** (no Azure subscription — the usual case for a Microsoft 365
-   Business tenant): TEAMS-SETUP.md § 3. **With a subscription — Azure portal → Create a resource → Azure Bot**: type of app **Single Tenant**, *Use existing
+   Business tenant): TEAMS-SETUP.md § 3. **With a subscription — Azure portal → Create a resource → Azure Bot**: type of app **Multi Tenant**, *Use existing
    app registration* (the id above); Configuration → messaging endpoint
    `https://<sokkan host>/api/teams/messages`; Channels → **Microsoft Teams** → accept.
 3. **API permissions → Microsoft Graph → Application** (only what you use), then
@@ -197,10 +205,9 @@ waiting (hooks in `agents`, debounced) and by a periodic safety net
 The simulator follows the published contracts; these points are confirmed only against
 Microsoft (`tests/teams_live/`, see its README):
 
-* the claim names of a live Bot Framework token (`serviceurl` casing) — recorded without
-  values in `GET /api/admin/teams` → `last_inbound.claims` at the first real request;
-  whether a single-tenant bot also receives tokens issued by the tenant (Entra) rather than
-  `api.botframework.com` (botauth accepts only the latter today);
+* ~~the claim names of a live Bot Framework token~~ — confirmed (3.4.1): `aud, exp, iss, nbf,
+  serviceurl` (lowercase), issuer `api.botframework.com` with a multi-tenant bot registration
+  (`GET /api/admin/teams` → `last_inbound.claims` records them without values);
 * Teams' HTML in `text` around the @mention; the `adaptiveCard/action` invoke payloads of the
   desktop, web and mobile clients; the `Action.Submit` fallback on an old client;
 * posting to `/v3/conversations/{channel id}/activities` = a new thread in the channel, and

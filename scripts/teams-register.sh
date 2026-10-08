@@ -10,8 +10,9 @@
 #    package and prints the SOKKAN_TEAMS_* lines. Changes nothing anywhere.
 #
 #  --mode azure (an Azure SUBSCRIPTION in the tenant + `az login`): does it with the Azure CLI —
-#    single-tenant app registration + service principal, a client secret (written to a 0600
-#    file, never printed), an Azure Bot (SingleTenant, F0) with the Teams channel, optional
+#    multi-tenant app registration + service principal, a client secret (written to a 0600
+#    file, never printed), an Azure Bot (MultiTenant, F0 — the Bot Framework issuer SOKKAN
+#    verifies; the tenant is enforced by SOKKAN on every activity) with the Teams channel, optional
 #    Graph permissions (--calendar / --presence) + admin consent, the package.
 #    --dry-run prints every command and changes nothing.
 #
@@ -79,8 +80,8 @@ if [ "$MODE" = portal ]; then
     secret store (never into a chat, a ticket or this shell's history).
  4. The bot → Channels: Microsoft Teams must be listed (it is by default).
  5. Entra admin center → App registrations → All applications → the bot's app:
-    - Authentication → Supported account types: « this organizational directory only »
-      (single tenant) if the portal allows it; note what it shows otherwise;
+    - Authentication → Supported account types: « Multiple organizations » — LEAVE IT
+      (SOKKAN verifies the Bot Framework issuer and enforces the tenant itself);
     - Overview: note the Directory (tenant) ID.
 STEPS
   if [ -n "$PERMS" ]; then
@@ -132,9 +133,9 @@ run() {
 echo "== tenant" >&2
 TENANT=$(PLACEHOLDER=tenant-id run az account show --query tenantId -o tsv)
 
-echo "== 1. app registration (single tenant)" >&2
+echo "== 1. app registration (multi-tenant: the Bot Framework issuer SOKKAN expects)" >&2
 APP_ID=$(PLACEHOLDER=app-id run az ad app create --display-name "$DISPLAY" \
-          --sign-in-audience AzureADMyOrg --query appId -o tsv)
+          --sign-in-audience AzureADMultipleOrgs --query appId -o tsv)
 PLACEHOLDER=sp run az ad sp create --id "$APP_ID" --query id -o tsv >/dev/null
 
 echo "== 2. client secret → $SECRET_FILE (0600, never printed)" >&2
@@ -160,9 +161,9 @@ if [ "$CALENDAR" = 1 ] || [ "$PRESENCE" = 1 ]; then
 fi
 
 if [ "$BOT" = 1 ]; then
-  echo "== 3. Azure Bot (SingleTenant) → $ENDPOINT, channel Microsoft Teams" >&2
-  run az bot create --resource-group "$RG" --name "$NAME" --app-type SingleTenant \
-      --appid "$APP_ID" --tenant-id "$TENANT" --endpoint "$ENDPOINT" --sku F0 \
+  echo "== 3. Azure Bot (MultiTenant) → $ENDPOINT, channel Microsoft Teams" >&2
+  run az bot create --resource-group "$RG" --name "$NAME" --app-type MultiTenant \
+      --appid "$APP_ID" --endpoint "$ENDPOINT" --sku F0 \
       --display-name "$DISPLAY" -o none >/dev/null
   run az bot msteams create --resource-group "$RG" --name "$NAME" -o none >/dev/null
 else

@@ -180,7 +180,7 @@ def test_register_script_azure_dry_run_prints_and_changes_nothing(tmp_path):
                          capture_output=True, text=True, cwd=tmp_path)
     assert out.returncode == 0, out.stderr
     err = out.stderr
-    assert "--sign-in-audience AzureADMyOrg" in err and "--app-type SingleTenant" in err
+    assert "--sign-in-audience AzureADMultipleOrgs" in err and "--app-type MultiTenant" in err   # 3.4.1: the Bot Framework issuer
     assert "https://sokkan.example.ch/api/teams/messages" in err
     assert "az bot msteams create" in err and "admin-consent" in err
     assert "Calendars.Read" in err and "Presence.Read.All" not in err
