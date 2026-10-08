@@ -30,6 +30,16 @@ Notable changes, newest first. Versions: semver + release hash (see
   new), then `SOKKAN_INFRA_NODES`, `/etc/hosts`, `tailscale status --json` (MagicDNS name) and
   reverse DNS (bounded to 0.5 s, cached). A node absent from `SOKKAN_INFRA_NODES` is no longer
   shown as its IP.
+- **Magnitude sees Intel GPUs and the models already running.** The agent (0.2.0) detects Intel
+  discrete cards through Level Zero / OpenCL (`xpu-smi`, `clinfo`, `sycl-ls`, PCI ids) before
+  Vulkan: every card is a device of the same node (4× Arc Pro B60 = one node, 90.8 GB, class XL,
+  L per card), with its VRAM; NVIDIA nodes with several cards are listed the same way. It also
+  finds the OpenAI-compatible engines already served on the node (vLLM, llama.cpp, ollama: model,
+  port, context, GPU cards from the container's env) every 30 s; the node's section lists them
+  under « Engines running » and **Use for sessions** bridges one to SOKKAN through the shim, like a
+  model Magnitude launched (action `attach`; the engine is not touched). New:
+  `MAGNITUDE_DISCOVER_PORTS`, `MAGNITUDE_ENGINE_CARDS`, `MAGNITUDE_GPU_DEVICES`. Agents 0.1 keep
+  working with this cockpit, and this agent with a 3.2.2 cockpit (unknown sync fields ignored).
 
 ## 3.2.2 — 2026-10-08 — "Captains"
 - **The cockpit is navigated by planes.** Eleven tabs in one row became four planes, each with its

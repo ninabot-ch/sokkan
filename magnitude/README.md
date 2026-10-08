@@ -53,7 +53,24 @@ python3 -m magnitude --profile
 - **macOS Apple Silicon** — Metal prebuilt; usable VRAM is estimated at 75 % of
   unified memory. No power sampling.
 - **Windows x86_64** — Vulkan prebuilt (best effort).
+- **Intel discrete GPUs** (Arc, Arc Pro B60, Data Center Max) — found through Level Zero /
+  OpenCL (`xpu-smi`, then `clinfo`, `sycl-ls`, PCI ids), VRAM per card. Several cards are
+  several devices of **one** node: the class is computed on the total VRAM and per card.
+  Magnitude's own models use them only through a Vulkan driver (Mesa `intel_icd`); without
+  it they run on CPU.
 - No GPU? CPU inference is still offered when the machine has ≥ 8 GB RAM.
+
+### Engines already running
+
+The agent also scans the node for OpenAI-compatible servers it did not start (vLLM,
+llama.cpp, ollama…) every 30 s: `GET /v1/models` on `MAGNITUDE_DISCOVER_PORTS` (default
+`8000-8010,11434,8790`, 127.0.0.1). Each model found is shown under the node with its
+engine, port, context and GPU cards (read from the container's `ZE_AFFINITY_MASK` /
+`ONEAPI_DEVICE_SELECTOR` / `CUDA_VISIBLE_DEVICES`, or `MAGNITUDE_ENGINE_CARDS='{"8003":"1"}'`).
+**Use for sessions** puts the shim (Anthropic ⇄ OpenAI) in front of that engine — nothing
+is downloaded or restarted — and **Connect to SOKKAN** then routes new sessions to it.
+**Detach** removes the shim; the engine keeps running. A Claude Code session opens at
+~41k tokens of prompt: an engine with a shorter context is flagged.
 
 Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
 
@@ -66,6 +83,9 @@ Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
 | `MAGNITUDE_SERVER_ARGS` | *(empty)* | Extra `llama-server` flags, space-separated. Gotcha: llama-server caps per-request context at the model's training window even with YaRN — unlock with `--override-kv <arch>.context_length=int:65536` (e.g. `qwen3.context_length`) |
 | `MAGNITUDE_LLAMA_TAG` | latest | Pin the llama.cpp release |
 | `MAGNITUDE_VISION` | `0` | `1` = the served model reads images: the shim forwards Anthropic `image` blocks (including those inside a `tool_result`, e.g. Claude Code reading a `.png`) as OpenAI `image_url` data URLs. Requires a vision model served with its `--mmproj` (pass it via `MAGNITUDE_SERVER_ARGS`). Off: each image is replaced by an explicit "image omitted" note |
+| `MAGNITUDE_DISCOVER_PORTS` | `8000-8010,11434,8790` | Ports scanned for engines already running (ranges and lists) |
+| `MAGNITUDE_ENGINE_CARDS` | *(empty)* | JSON port → GPU indices, when the container env does not say it |
+| `MAGNITUDE_GPU_DEVICES` | *(all)* | Limit Magnitude's own `llama-server` to these cards (`GGML_VK_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES`) |
 | `MAGNITUDE_HOME` | `~/.sokkan/magnitude` | Cache directory (runtimes, GGUF weights, logs) |
 
 Rule of thumb for coding sessions: weights + KV must fit — an 8B Q4 at 64k/q8

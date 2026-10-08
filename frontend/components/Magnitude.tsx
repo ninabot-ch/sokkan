@@ -5,7 +5,7 @@ import {
   magnitudeState, magnitudeUnpair,
 } from "@/lib/api";
 import type {
-  MagnitudeBench, MagnitudeModel, MagnitudeNode, MagnitudeProfile,
+  MagnitudeBench, MagnitudeEngine, MagnitudeModel, MagnitudeNode, MagnitudeProfile,
   MagnitudeServing, MagnitudeState, MagnitudeStatus,
 } from "@/lib/api";
 import { useCan } from "@/lib/me";
@@ -136,9 +136,17 @@ function OpBanner({ status, label }: { status: MagnitudeStatus; label: string })
   );
 }
 
-function HardwareCard({ profile, online, lastSeen }: { profile: MagnitudeProfile; online: boolean; lastSeen: number | null }) {
+const ENGINE_LABEL: Record<string, string> = {
+  vllm: "vLLM", "llama.cpp": "llama.cpp", ollama: "ollama", "openai-compatible": "OpenAI-compatible",
+};
+const shortGpu = (name: string) => name.replace(/\(R\)|\(TM\)/g, "").replace(/^Intel\s+/, "").replace(/\s+Graphics$/, "").replace(/\s+/g, " ").trim();
+
+function HardwareCard({ profile, online, lastSeen, engines }: {
+  profile: MagnitudeProfile; online: boolean; lastSeen: number | null; engines: MagnitudeEngine[];
+}) {
   const g = profile.gpu;
   const cls = profile.class;
+  const devices = g?.devices && g.devices.length > 1 ? g.devices : null;
   return (
     <div className={`rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500 ${online ? "" : "opacity-60"}`}>
       <div className="flex items-center gap-5">
@@ -152,16 +160,36 @@ function HardwareCard({ profile, online, lastSeen }: { profile: MagnitudeProfile
             {g ? g.name : profile.cpu}
           </div>
           <div className="mt-1 text-[13px] text-mut">
-            {g ? `${g.vendor} · ${g.backend}` : "CPU inference"}
+            {g ? `${g.vendor} · ${g.backend.replace("_", " ")}` : "CPU inference"}
+            {devices && profile.class_per_card ? ` · class ${profile.class_per_card} per card` : ""}
             {!online && <span className="ml-2 text-amber-300/80">· agent offline{lastSeen ? ` — last seen ${upFor(lastSeen)} ago` : ""}</span>}
           </div>
         </div>
       </div>
+      {devices && (
+        <div className="mt-5 grid grid-cols-2 gap-2.5" aria-label="GPUs of this node">
+          {devices.map((d) => {
+            const on = engines.filter((e) => e.cards?.includes(d.index));
+            return (
+              <div key={d.index} className="rounded-xl border border-line bg-ink/40 px-3.5 py-2.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[11px] tabular-nums text-mut">#{d.index}</span>
+                  <span className="truncate text-[13px] font-medium text-slate-200" title={d.name}>{shortGpu(d.name)}</span>
+                  <span className="ml-auto text-[12px] tabular-nums text-slate-300">{gb(d.vram_gb)} GB</span>
+                </div>
+                <div className="mt-1 truncate text-[11.5px] text-mut" title={on.map((e) => e.model).join(", ")}>
+                  {on.length ? on.map((e) => e.model).join(" · ") : "no engine found on this card"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {/* vulkaninfo/lspci detection has no VRAM figures — hide the gauge then */}
       {g && g.vram_total_gb != null && (
         <div className="mt-6">
           <div className="mb-1.5 flex items-baseline justify-between text-[12.5px]">
-            <span className="text-mut">VRAM</span>
+            <span className="text-mut">VRAM{devices ? ` — ${devices.length} cards` : ""}</span>
             <span className="tabular-nums text-slate-300">
               {g.vram_free_gb != null ? `${gb(g.vram_free_gb)} GB free of ` : ""}{gb(g.vram_total_gb)} GB
             </span>
@@ -195,7 +223,10 @@ function ServingCard({
           <div className="truncate text-xl font-semibold tracking-tight text-slate-100">
             {label} is live on this machine
           </div>
-          <div className="mt-0.5 text-[13px] tabular-nums text-mut">up {upFor(serving.since)}</div>
+          <div className="mt-0.5 text-[13px] tabular-nums text-mut">
+            {serving.external ? `${ENGINE_LABEL[serving.engine || ""] || serving.engine} on port ${serving.port} · attached ` : "up "}
+            {upFor(serving.since)}{serving.external ? " ago" : ""}
+          </div>
         </div>
       </div>
       {admin && (
@@ -216,12 +247,13 @@ function ServingCard({
             disabled={busy || !online}
             className="rounded-xl border border-line px-5 py-2.5 text-[13.5px] text-slate-300 transition-all duration-300 hover:bg-panel2 disabled:opacity-40"
           >
-            Stop
+            {serving.external ? "Detach" : "Stop"}
           </button>
         </div>
       )}
       <p className="mt-4 text-[13px] leading-relaxed text-mut">
         Every new session will run on your own hardware. Zero cloud. Zero cost per token.
+        {serving.external ? " Detach only removes Magnitude's bridge — the engine keeps running." : ""}
       </p>
     </div>
   );
@@ -301,6 +333,57 @@ function ModelCard({
   );
 }
 
+/** Engines found running on the node (vLLM, llama.cpp, ollama…), not started by Magnitude. */
+function EnginesCard({
+  engines, admin, canAct, onAttach,
+}: {
+  engines: MagnitudeEngine[]; admin: boolean; canAct: boolean;
+  onAttach: (e: MagnitudeEngine) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-line bg-panel2/40 p-6 transition-all duration-500">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[15px] font-semibold tracking-tight text-slate-100">Engines running</h3>
+        <span className="text-[12px] text-mut">already served on this machine — use one for SOKKAN sessions</span>
+      </div>
+      <ul className="mt-4 divide-y divide-line/60">
+        {engines.map((e) => (
+          <li key={`${e.port}-${e.model}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${e.healthy ? "bg-emerald-400" : "bg-amber-400"}`}
+              title={e.healthy ? "healthy" : "not answering /health"} />
+            <span className="min-w-0 font-mono text-[13px] text-slate-100">{e.model}</span>
+            <span className="rounded bg-sea/15 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-200">{ENGINE_LABEL[e.engine] || e.engine}</span>
+            <span className="text-[12px] tabular-nums text-mut">:{e.port}</span>
+            <span className="text-[12px] text-mut">
+              {e.cards?.length ? `GPU ${e.cards.map((c) => `#${c}`).join("+")}` : "card unknown"}
+            </span>
+            {e.ctx != null && (
+              <span className={`text-[12px] tabular-nums ${e.ctx_ok === false ? "text-amber-300" : "text-mut"}`}
+                title={e.ctx_ok === false ? "a Claude Code session opens at ~41k tokens of prompt: this context is too short for it" : undefined}>
+                {Math.round(e.ctx / 1024)}k ctx{e.ctx_ok === false ? " — short for a session" : ""}
+              </span>
+            )}
+            <span className="ml-auto">
+              {e.serving ? (
+                <span className="text-[12px] font-medium text-emerald-300">bridged ✓</span>
+              ) : admin ? (
+                <button onClick={() => onAttach(e)} disabled={!canAct || !e.healthy}
+                  className="rounded-lg border border-line px-3 py-1 text-[12.5px] text-slate-300 transition-all duration-300 hover:bg-panel2 disabled:opacity-40">
+                  Use for sessions
+                </button>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[12px] leading-relaxed text-mut">
+        « Use for sessions » puts Magnitude&apos;s bridge (Anthropic ⇄ OpenAI) in front of the engine; then « Connect to SOKKAN ».
+        The engine itself is not touched.
+      </p>
+    </div>
+  );
+}
+
 /** Endpoint of a node as sessions reach it — subtle, admin-editable inline. */
 function NodeEndpoint({
   node, admin, busy, onSave,
@@ -356,6 +439,7 @@ function NodeSection({
 }) {
   const labelOf = (id: string | null | undefined) =>
     (id && node.catalog.find((m) => m.id === id)?.label) || id || "model";
+  const engines = node.engines ?? [];
   const opRunning = ["benching", "downloading", "starting"].includes(node.status.phase);
   const canAct = node.online && !busy && !opRunning;
 
@@ -399,13 +483,22 @@ function NodeSection({
       )}
 
       {node.profile ? (
-        <HardwareCard profile={node.profile} online={node.online} lastSeen={node.last_seen} />
+        <HardwareCard profile={node.profile} online={node.online} lastSeen={node.last_seen} engines={engines} />
       ) : (
         <div className="rounded-2xl border border-line bg-panel2/40 p-6 text-[13px] text-mut transition-all duration-500">
           <span className="animate-pulse">
             {node.online ? "profiling hardware…" : "waiting for the agent…"}
           </span>
         </div>
+      )}
+
+      {engines.length > 0 && (
+        <EnginesCard
+          engines={engines}
+          admin={admin}
+          canAct={canAct}
+          onAttach={(e) => act(() => magnitudeCmd(node.id, "attach", e.model, e.port), `could not bridge ${e.model}`)}
+        />
       )}
 
       <NodeEndpoint

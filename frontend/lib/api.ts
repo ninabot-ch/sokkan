@@ -270,11 +270,13 @@ export const spawnCard = (id: number) =>
 
 // magnitude — profile the host hardware, bench & run local models (llama.cpp),
 // connect the local Anthropic-compatible shim to the session router
+export interface MagnitudeDevice { index: number; name: string; vram_gb: number | null; vram_free_gb?: number | null; pci?: string | null; }
 export interface MagnitudeGpu {
   vendor: string; name: string; backend: string;
-  // null when the GPU was detected via vulkaninfo/lspci (no VRAM figures)
   vram_total_gb: number | null; vram_free_gb: number | null;
   driver: string | null; power_limit_w: number | null;
+  count?: number; devices?: MagnitudeDevice[]; vram_per_card_gb?: number | null;
+  offload?: "vulkan" | null;   // Intel: Magnitude's own engine can use the cards (Vulkan driver)
 }
 export interface MagnitudeProfile {
   schema: string; os: string; arch: string;
@@ -282,6 +284,8 @@ export interface MagnitudeProfile {
   gpu: MagnitudeGpu | null;
   cpu: string; cores: number; ram_gb: number | null;
   class: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
+  class_per_card?: "XL" | "L" | "M" | "S" | "CPU" | "unsupported";
+  agent_version?: string;
 }
 export interface MagnitudeStatus {
   phase: "idle" | "benching" | "downloading" | "starting" | "serving" | "error";
@@ -292,7 +296,16 @@ export interface MagnitudeBench {
   power_avg_w: number | null; eur_per_mtok_gen: number | null;
   wall_s: number; at: number;
 }
-export interface MagnitudeServing { model: string; shim_url: string; since: number; }
+export interface MagnitudeServing {
+  model: string; shim_url: string; since: number;
+  engine?: string | null; port?: number | null; external?: boolean;   // 3.2.3: an engine already running
+}
+/** An inference engine found running on the node (not started by Magnitude). */
+export interface MagnitudeEngine {
+  port: number; model: string; engine: string; ctx: number | null; healthy: boolean;
+  container: string | null; cards: number[] | null; card_names: string[] | null;
+  serving: boolean; ctx_ok: boolean | null;
+}
 export interface MagnitudeModel {
   id: string; label: string; params: string; moe: boolean;
   weights_gb: number; note: string;
@@ -307,6 +320,10 @@ export interface MagnitudeNode {
   serving: MagnitudeServing | null;
   connected: boolean;
   catalog: MagnitudeModel[];
+  shim_host?: string;
+  engines?: MagnitudeEngine[];
+  engines_at?: number | null;
+  agent_version?: string | null;
 }
 export interface MagnitudeState {
   paired: boolean; shim_default: string; nodes: MagnitudeNode[];
@@ -318,8 +335,9 @@ export const magnitudeUnpair = (node: string) =>
   mutate<MagnitudeState>(`/api/magnitude/node/${encodeURIComponent(node)}`, "DELETE");
 export const magnitudeNodeConfig = (node: string, cfg: { name?: string; shim_url?: string }) =>
   mutate<MagnitudeState>(`/api/magnitude/node/${encodeURIComponent(node)}`, "POST", cfg);
-export const magnitudeCmd = (node: string, action: "bench" | "run" | "stop", model?: string) =>
-  mutate<MagnitudeState>("/api/magnitude/cmd", "POST", model ? { node, action, model } : { node, action });
+export const magnitudeCmd = (node: string, action: "bench" | "run" | "stop" | "attach", model?: string, port?: number) =>
+  mutate<MagnitudeState>("/api/magnitude/cmd", "POST",
+    { node, action, ...(model ? { model } : {}), ...(port != null ? { port } : {}) });
 export const magnitudeConnect = (node: string) =>
   mutate<MagnitudeState>("/api/magnitude/connect", "POST", { node });
 

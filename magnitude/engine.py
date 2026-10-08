@@ -299,8 +299,14 @@ def start_server(bindir: Path, gguf: Path, gpu=True) -> subprocess.Popen:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     log = open(RUN_DIR / "llama-server.log", "ab")
     try:
-        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
-                                env=_env(bindir))
+        env = _env(bindir)
+        # 3.2.3: on a node with several cards (some of them busy with other engines),
+        # MAGNITUDE_GPU_DEVICES=1,2 limits llama-server to those cards (Vulkan / CUDA index)
+        devices = (os.environ.get("MAGNITUDE_GPU_DEVICES") or "").strip()
+        if devices and gpu:
+            env["GGML_VK_VISIBLE_DEVICES"] = devices
+            env["CUDA_VISIBLE_DEVICES"] = devices
+        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
     finally:
         log.close()  # le fd est dupliqué par Popen
 
