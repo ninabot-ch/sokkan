@@ -19,6 +19,7 @@ import datetime as _dt
 import html
 import json
 import re
+import time
 from dataclasses import dataclass
 
 import teams
@@ -277,13 +278,21 @@ def propose_run(ctx: Ctx, agent_ref: str) -> dict:
         raise Stop(f"No agent « {agent_ref} » in « {ctx.project} ».")
     if a["status"] != "active":
         raise Stop(f"The agent {a['name']} is {a['status']}: only an approved agent runs.")
-    tok = signing.issue("agent.run", str(a["id"]), ctx.project, ctx.email)
+    spec = {"title": f"Run the agent {a['name']}?",
+            "facts": [("Project", ctx.project), ("Requested by", ctx.email),
+                      ("Purpose", a["purpose"][:200])],
+            "note": "Another person approves when four-eyes approval is on. The run acts as its "
+                    "owner, within the owner's clearance.",
+            "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}")}
+    tok = signing.issue("agent.run", str(a["id"]), ctx.project, ctx.email, card=spec)
     _audit(ctx, "teams.approval.request", a["name"], "run")
-    return connector.card(cards.approval(
-        f"Run the agent {a['name']}?",
-        [("Project", ctx.project), ("Requested by", ctx.email), ("Purpose", a["purpose"][:200])],
-        tok, "Another person approves when four-eyes approval is on. The run acts as its "
-             "owner, within the owner's clearance."), f"Approve a run of {a['name']}")
+    return connector.card(cards.approval(spec["title"], spec["facts"], tok, spec["note"],
+                                         spec["open_url"]), f"Approve a run of {a['name']}")
+
+
+def _open(path: str) -> str:
+    base = teams.public_url()
+    return f"{base}{path}" if base.startswith("https://") else ""
 
 
 def approvals(ctx: Ctx) -> dict:
@@ -294,13 +303,15 @@ def approvals(ctx: Ctx) -> dict:
         return connector.text("Nothing waits for an approval in « {} ».".format(ctx.project))
     atts = []
     for a in mine[:5]:
-        tok = signing.issue("agent.activate", str(a["id"]), ctx.project, a.get("owner") or "")
-        atts.append(cards.approval(
-            f"Activate the agent {a['name']}?" if not a.get("pending_change")
-            else f"Apply the change to the agent {a['name']}?",
-            [("Project", ctx.project), ("Owner", a.get("owner") or ""),
-             ("Trigger", json.dumps(a.get("trigger")) if not isinstance(a.get("trigger"), str)
-              else a["trigger"])], tok))
+        spec = {"title": f"Activate the agent {a['name']}?" if not a.get("pending_change")
+                else f"Apply the change to the agent {a['name']}?",
+                "facts": [("Project", ctx.project), ("Owner", a.get("owner") or ""),
+                          ("Trigger", json.dumps(a.get("trigger"))
+                           if not isinstance(a.get("trigger"), str) else a["trigger"])],
+                "open_url": _open(f"/?plane=build&tab=crew&agent={a['id']}")}
+        tok = signing.issue("agent.activate", str(a["id"]), ctx.project, a.get("owner") or "",
+                            card=spec)
+        atts.append(cards.approval(spec["title"], spec["facts"], tok, "", spec["open_url"]))
     return {"type": "message", "summary": "Approvals",
             "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
                              "content": c} for c in atts]}
@@ -333,11 +344,12 @@ def _invoke(text: str = "", card: dict | None = None) -> dict:
 def _on_action(activity: dict, action: dict) -> dict:
     import agents
     import classification
-    import features
     import projectgate
 
     verb = action.get("verb")
     data = action.get("data") or {}
+    if data.get("sokkan") == "approval" and verb == "refresh":
+        return _refresh(data.get("token") or "")
     if data.get("sokkan") != "approval" or verb not in ("approve", "refuse"):
         return _invoke("Unknown action.")
     frm = activity.get("from") or {}
@@ -356,36 +368,118 @@ def _on_action(activity: dict, action: dict) -> dict:
         row = signing.consume(data["token"], aad, email, verb)
     except signing.Invalid as e:
         return _invoke(f"Refused: {e}.")
+    spec = _spec(row)
     try:
-        aid = int(row["ref"])
-        a = agents.get(aid) or {}
-        title = f"Agent {a.get('name', aid)}"
-        if row["kind"] == "agent.run":
-            if verb == "approve":
-                if features.enabled("four_eyes") and email == row["requested_by"]:
-                    raise agents.Forbidden("four-eyes approval: another person approves")
-                r = agents.request_run(pu, aid, "manual",
-                                       requested_by=f"{row['requested_by']} via Teams, "
-                                                    f"approved by {email}")
-                detail = f"run #{r['id']} queued"
-            else:
-                detail = "no run"
-        elif row["kind"] == "agent.activate":
-            if verb == "approve":
-                agents.approve(pu, aid)
-                detail = "active"
-            else:
-                agents.reject(pu, aid)
-                detail = "sent back to draft"
+        if row["kind"] == "run.tool":
+            title, detail = _decide_tool(pu, row, verb, email)
         else:
-            raise agents.AgentError("unknown approval kind")
+            title, detail = _decide_agent(pu, row, verb, email, spec)
     except (agents.AgentError, agents.Forbidden, agents.NotFound) as e:
         signing.release(row["nonce"])       # the token stays usable by someone entitled
         return _invoke(f"Refused for you: {e}")
     import audit
     audit.log(email, f"teams.approval.{verb}", f"{row['kind']} {row['ref']}",
               f"requested by {row['requested_by']}", project=row.get("project") or None)
+    try:                                    # the card of the other channels follows
+        from teams import proactive
+        proactive.poke()
+    except Exception:  # noqa: BLE001
+        pass
     return _invoke(card=cards.decided(title, verb, email, detail))
+
+
+def _decide_agent(pu: dict, row: dict, verb: str, email: str, spec: dict) -> tuple[str, str]:
+    import agents
+    import features
+    aid = int(row["ref"])
+    a = agents.get(aid) or {}
+    title = spec.get("title") or f"Agent {a.get('name', aid)}"
+    if row["kind"] == "agent.run":
+        if verb == "approve":
+            if features.enabled("four_eyes") and email == row["requested_by"]:
+                raise agents.Forbidden("four-eyes approval: another person approves")
+            r = agents.request_run(pu, aid, "manual",
+                                   requested_by=f"{row['requested_by']} via Teams, "
+                                                f"approved by {email}")
+            detail = f"run #{r['id']} queued"
+        else:
+            detail = "no run"
+    elif row["kind"] == "agent.activate":
+        if verb == "approve":
+            agents.approve(pu, aid)
+            detail = "active"
+        else:
+            agents.reject(pu, aid)
+            detail = "sent back to draft"
+    else:
+        raise agents.AgentError("unknown approval kind")
+    return title, detail
+
+
+def _spec(row: dict) -> dict:
+    try:
+        return json.loads(row.get("card") or "{}") or {}
+    except ValueError:
+        return {}
+
+
+def _refresh(token: str) -> dict:
+    """``refresh`` of an approval card: the current state for whoever looks at it (no
+    identity needed — the card was already shown in this conversation; nothing is decided)."""
+    try:
+        p = signing.peek(token, allow_expired=True)
+    except signing.Invalid as e:
+        return _invoke(f"Refused: {e}.")
+    row = signing.row(p["n"]) or {}
+    spec = _spec(row)
+    title = spec.get("title") or "Approval"
+    if row.get("used_at"):
+        how = row.get("decision") or "closed"
+        detail = "" if how in ("approve", "refuse") else "decided in SOKKAN"
+        return _invoke(card=cards.decided(title, how if how in ("approve", "refuse") else "closed",
+                                          row.get("used_by") if how in ("approve", "refuse") else "",
+                                          detail))
+    if p.get("e", 0) < time.time():
+        return _invoke(card=cards.decided(title, "closed", "", "this approval has expired"))
+    return _invoke(card=cards.approval(title, [tuple(f) for f in spec.get("facts") or []], token,
+                                       spec.get("note", ""), spec.get("open_url", "")))
+
+
+def _resolve_permission(sess, pid: str, decision: dict) -> None:
+    """Resolve a tool approval of a live session from this (worker) thread: the future
+    belongs to the API's event loop."""
+    fut = (getattr(sess, "_perms", None) or {}).get(pid)
+    get_loop = getattr(fut, "get_loop", None)
+    loop = get_loop() if get_loop else None
+    if loop is not None and loop.is_running():
+        loop.call_soon_threadsafe(sess.resolve_permission, pid, decision)
+    else:
+        sess.resolve_permission(pid, decision)
+
+
+def _decide_tool(pu: dict, row: dict, verb: str, email: str) -> tuple[str, str]:
+    """A tool call of an agent run, approved or denied from Teams — by the agent's owner
+    (dev+) or an admin of the project, like in the cockpit."""
+    import agentchat
+    import agents
+    import sharing
+    run_id, pid = row["ref"].split(":", 1)
+    run = agents.get_run(int(run_id))
+    if run is None:
+        raise agents.NotFound("run not found")
+    a = agents.get(run["agent_id"]) or {}
+    if not a or (a.get("project") or "default") != row["project"] or not agents.can_manage(pu, a):
+        raise agents.Forbidden("only the agent's owner or an admin of the project decides "
+                               "its tool calls")
+    pend = {x["id"]: x for x in sharing.pending_approvals(run["session_id"])}
+    sess = agentchat.peek(run["session_id"])
+    if pid not in pend or sess is None:
+        raise agents.AgentError("this tool call no longer waits (decided, or the run ended)")
+    _resolve_permission(sess, pid, {
+        "decision": "allow" if verb == "approve" else "deny",
+        "message": None if verb == "approve" else f"Denied by {email} (Microsoft Teams)"})
+    title = _spec(row).get("title") or f"Agent {a.get('name')} · {pend[pid]['tool']}"
+    return title, ("allowed — the run continues" if verb == "approve" else "denied")
 
 
 def _audit(ctx: Ctx, action: str, resource: str, detail: str = "") -> None:

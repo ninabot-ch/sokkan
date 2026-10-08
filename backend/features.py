@@ -420,12 +420,15 @@ REGISTRY: tuple[Feature, ...] = (
             doc="docs/enterprise/SECURITY.md"),
     Feature("teams", "Microsoft Teams",
             "@Nina in Teams channels and chats (project status, cards, proposed agents → "
-            "approval), HITL approvals as signed single-use Adaptive Cards, decision capture "
+            "approval), HITL approvals as signed single-use Adaptive Cards — also pushed to the "
+            "project's channel the moment they start waiting —, decision capture "
             "into CortHeXis, channel ↔ project mapping, calendar via Graph for the brief. "
             "Single-tenant app, admin consent, Nina answers as the identified user only.",
             status="experimental", requires=("assistant", "classification", "sso"),
             vars=_t("teams"),
-            config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD", "SOKKAN_TEAMS_TENANT_ID"),
+            config=("SOKKAN_TEAMS_APP_ID", "SOKKAN_TEAMS_APP_PASSWORD",
+                    "SOKKAN_TEAMS_APP_PASSWORD_FILE", "SOKKAN_TEAMS_TENANT_ID",
+                    "SOKKAN_TEAMS_PROACTIVE_S", "SOKKAN_TEAMS_SERVICE_URL"),
             doc="docs/enterprise/TEAMS.md"),
     Feature("connect_ai", "Connect your AI",
             "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "

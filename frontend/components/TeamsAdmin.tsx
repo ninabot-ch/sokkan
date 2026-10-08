@@ -6,11 +6,15 @@ import LevelBadge from "./LevelBadge";
 const inp = "rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50";
 const btn = "rounded bg-sea/80 px-2 py-0.5 text-[11px] text-white hover:bg-sea disabled:opacity-40";
 
-interface Channel { channel_id: string; project: string; level: number; name: string }
+interface Channel { channel_id: string; project: string; level: number; name: string; approvals?: number }
 interface State {
   enabled: boolean; missing: string[]; tenant: string; app_id: string; endpoint: string;
   channels: Channel[]; graph_permissions: { permission: string; type: string; why: string }[];
+  last_inbound?: { at: number; claims: string[]; service_url: string } | null;
+  proactive?: { on: boolean; interval_s: number; last_sync: number | null; errors: string[] };
 }
+
+const ago = (t?: number | null) => (t ? new Date(t * 1000).toLocaleString() : "never");
 
 async function call<T>(url: string, method = "GET", body?: unknown): Promise<T> {
   const r = await fetch(url, { method, credentials: "same-origin",
@@ -29,6 +33,7 @@ export default function TeamsAdmin() {
   const [cid, setCid] = useState("");
   const [project, setProject] = useState("");
   const [level, setLevel] = useState("project");
+  const [approvals, setApprovals] = useState(true);
   const load = () => call<State>("/api/admin/teams").then(setD).catch((e) => setErr(String(e.message || e)));
   useEffect(() => { load(); }, []);
   const run = (p: Promise<unknown>) => p.then(() => { setErr(""); load(); }).catch((e) => setErr(String(e.message || e)));
@@ -40,7 +45,20 @@ export default function TeamsAdmin() {
         <div>Feature: <b>{d.enabled ? "on" : "off"}</b>{d.missing.length > 0 && <span className="text-amber-300"> — missing {d.missing.join(", ")}</span>}</div>
         <div className="mt-1 text-[11.5px] text-mut">Tenant {d.tenant || "—"} · app {d.app_id || "—"} · endpoint <span className="font-mono">{d.endpoint}</span></div>
         <div className="mt-1 text-[11.5px] text-mut">Graph (application, admin consent): {d.graph_permissions.map((p) => p.permission).join(", ")} — see docs/enterprise/TEAMS.md</div>
-        <a className="mt-1 inline-block text-[12px] text-sky-300 hover:underline" href="/api/admin/teams/manifest" target="_blank" rel="noreferrer">manifest.json</a>
+        <div className="mt-1 text-[11.5px] text-mut">
+          Last request from Teams: {d.last_inbound ? `${ago(d.last_inbound.at)} · claims ${d.last_inbound.claims.join(", ")}` : "none yet"}
+        </div>
+        {d.proactive && (
+          <div className="mt-1 text-[11.5px] text-mut">
+            Pending approvals posted to channels: <b className="text-slate-300">{d.proactive.on ? `on (every ${d.proactive.interval_s}s + on change)` : "off"}</b>
+            {" "}· last sync {ago(d.proactive.last_sync)}
+            {d.proactive.errors.length > 0 && <span className="text-amber-300"> · last error: {d.proactive.errors[d.proactive.errors.length - 1]}</span>}
+          </div>
+        )}
+        <div className="mt-1.5 flex gap-3 text-[12px]">
+          <a className="text-sky-300 hover:underline" href="/api/admin/teams/package" download>App package (.zip) to upload</a>
+          <a className="text-sky-300 hover:underline" href="/api/admin/teams/manifest" target="_blank" rel="noreferrer">manifest.json</a>
+        </div>
       </div>
       <div className="rounded-lg border border-line bg-panel2/40 p-3">
         <div className="mb-1.5 text-[11px] text-mut">Channel or chat → project (channel id: 19:…@thread.tacv2)</div>
@@ -52,8 +70,12 @@ export default function TeamsAdmin() {
               {info.scale.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           )}
+          <label className="flex items-center gap-1 text-[11.5px] text-slate-300">
+            <input type="checkbox" checked={approvals} onChange={(e) => setApprovals(e.target.checked)} />
+            post approvals here
+          </label>
           <button disabled={!cid || !project} className={btn}
-            onClick={() => run(call("/api/admin/teams/channels", "PUT", { channel_id: cid, project, level }).then(() => setCid("")))}>map</button>
+            onClick={() => run(call("/api/admin/teams/channels", "PUT", { channel_id: cid, project, level, approvals }).then(() => setCid("")))}>map</button>
         </div>
         <table className="mt-2 w-full text-[12px]">
           <tbody>
@@ -63,6 +85,7 @@ export default function TeamsAdmin() {
                 <td className="max-w-[16rem] truncate py-1 font-mono text-slate-200" title={c.channel_id}>{c.name || c.channel_id}</td>
                 <td className="text-mut">{c.project}</td>
                 <td><LevelBadge level={c.level} /></td>
+                <td className="text-[11px] text-mut">{c.approvals === 0 ? "no approvals" : "approvals posted"}</td>
                 <td className="text-right"><button className="text-[11px] text-red-300 hover:underline"
                   onClick={() => run(call(`/api/admin/teams/channels?channel_id=${encodeURIComponent(c.channel_id)}`, "DELETE"))}>remove</button></td>
               </tr>

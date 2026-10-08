@@ -37,7 +37,9 @@ def _unb64(s: str) -> bytes:
 
 
 def issue(kind: str, ref: str, project: str, requested_by: str, approver_aad: str = "",
-          ttl: int = TTL_S) -> str:
+          ttl: int = TTL_S, card: dict | None = None) -> str:
+    """A signed approval. ``card`` (title, facts, note, open_url) is what the Adaptive Card
+    shows — kept so that a refresh re-renders it."""
     nonce = secrets.token_urlsafe(18)
     now = time.time()
     payload = {"n": nonce, "k": kind, "r": str(ref), "p": project, "a": approver_aad,
@@ -47,13 +49,14 @@ def issue(kind: str, ref: str, project: str, requested_by: str, approver_aad: st
     c = store.con()
     with c:
         c.execute("INSERT INTO approvals(nonce, kind, ref, project, requested_by, approver_aad,"
-                  " created_at, expires_at) VALUES(?,?,?,?,?,?,?,?)",
-                  (nonce, kind, str(ref), project, requested_by, approver_aad, now, now + ttl))
+                  " created_at, expires_at, card) VALUES(?,?,?,?,?,?,?,?,?)",
+                  (nonce, kind, str(ref), project, requested_by, approver_aad, now, now + ttl,
+                   json.dumps(card or {})))
     c.close()
     return f"{body}.{sig}"
 
 
-def peek(token: str) -> dict:
+def peek(token: str, allow_expired: bool = False) -> dict:
     """Check the signature and expiry, return the payload (does NOT consume)."""
     try:
         body, sig = token.split(".", 1)
@@ -66,7 +69,7 @@ def peek(token: str) -> dict:
         p = json.loads(_unb64(body))
     except ValueError:
         raise Invalid("malformed approval")
-    if p.get("e", 0) < time.time():
+    if p.get("e", 0) < time.time() and not allow_expired:
         raise Invalid("this approval has expired")
     return p
 
@@ -97,3 +100,21 @@ def release(nonce: str) -> None:
         c.execute("UPDATE approvals SET used_at=NULL, used_by='', decision='' WHERE nonce=?",
                   (nonce,))
     c.close()
+
+
+def row(nonce: str) -> dict | None:
+    c = store.con()
+    r = c.execute("SELECT * FROM approvals WHERE nonce=?", (nonce,)).fetchone()
+    c.close()
+    return dict(r) if r else None
+
+
+def close(nonce: str, by: str, decision: str = "closed") -> bool:
+    """The action was decided elsewhere (in the cockpit): the card's token is spent, so a
+    late click on an old card cannot act a second time."""
+    c = store.con()
+    with c:
+        n = c.execute("UPDATE approvals SET used_at=?, used_by=?, decision=? WHERE nonce=? AND "
+                      "used_at IS NULL", (time.time(), by, decision, nonce)).rowcount
+    c.close()
+    return n == 1

@@ -738,10 +738,23 @@ def create(user: dict, fields: dict, created_by: str = "", activate: bool = Fals
         aid = cur.lastrowid
     finally:
         con.close()
+    if status == "pending":
+        _teams_poke()
     return get(aid)
 
 
+def _teams_poke() -> None:
+    """3.4: an approval may have started or stopped waiting → the Teams channel follows
+    (teams.proactive, in the background; never blocks, never raises)."""
+    try:
+        from teams import proactive
+        proactive.poke()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _write(aid: int, **cols) -> dict:
+    poke = "status" in cols or "pending_change" in cols
     cols["updated_at"] = time.time()
     sets, vals = [], []
     for k, val in cols.items():
@@ -753,6 +766,8 @@ def _write(aid: int, **cols) -> dict:
         con.execute(f"UPDATE agents SET {', '.join(sets)} WHERE id=?", (*vals, aid))
     finally:
         con.close()
+    if poke:
+        _teams_poke()
     return get(aid)
 
 
@@ -945,6 +960,8 @@ def update_run(run_id: int, **cols) -> dict | None:
         con.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id=?", (*vals, run_id))
     finally:
         con.close()
+    if "waiting_approval" in cols:
+        _teams_poke()
     return get_run(run_id)
 
 
