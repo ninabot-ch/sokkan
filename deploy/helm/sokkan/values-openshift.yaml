@@ -23,3 +23,13 @@ networkPolicy:
   ingressNamespaceSelector:
     matchLabels:
       network.openshift.io/policy-group: ingress
+
+# secrets: on OpenShift the customer usually runs its own Vault / OpenBao — point to it:
+#   secrets: {provider: openbao}
+#   openbao:
+#     address: https://vault.example.internal:8200
+#     caSecret: vault-ca              # Secret with ca.crt
+#     namespace: ""                   # Vault Enterprise namespace, if any
+#     auth: {method: kubernetes, mount: kubernetes-ocp, role: sokkan}
+# (the in-chart OpenBao, openbao.enabled=true, also runs under restricted-v2: no fixed uid,
+# no IPC_LOCK, read-only root filesystem)

@@ -24,6 +24,14 @@ OVERLAYS = {
     "everything": DB + ["--set", "embeddings.enabled=true", "--set", "vllm.enabled=true",
                         "--set", "externalSecret.enabled=true",
                         "--set", "secrets.vaultKey.existingSecret=vk"],
+    # 3.3: OpenBao in the release, kubernetes auth, configure Job
+    "openbao": DB + ["--set", "secrets.provider=openbao", "--set", "openbao.enabled=true",
+                     "--set", "openbao.configure.enabled=true",
+                     "--set", "openbao.configure.tokenSecret=bao-op"],
+    "openbao-openshift": ["-f", str(CHART / "values-openshift.yaml")] + DB + [
+        "--set", "secrets.provider=openbao", "--set", "openbao.enabled=true"],
+    "sks-openbao": ["-f", str(CHART / "values-sks.yaml"), "--set", "database.existingSecret=sokkan-db",
+                    "--set", "openbao.configure.enabled=true"],
 }
 WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
 
@@ -139,3 +147,95 @@ def test_the_chart_refuses_unsupported_setups():
 def test_embed_script_is_the_compose_one():
     assert (CHART / "files" / "embed-run.sh").read_text() == (
         ROOT / "docker" / "embed" / "run.sh").read_text(), "cp docker/embed/run.sh into the chart"
+
+
+# ---- 3.3 secrets provider ----------------------------------------------------------------------
+def _env(docs, name="rel-sokkan-api"):
+    spec = next(s for d, s in pod_specs(docs) if d["metadata"]["name"] == name)
+    return {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}, spec
+
+
+def test_openbao_disabled_renders_nothing_of_it():
+    docs = render(*DB)
+    assert not [d for d in docs if "openbao" in d["metadata"]["name"]]
+    env, _ = _env(docs)
+    assert env["SOKKAN_SECRETS_PROVIDER"] == "file"
+    assert not [k for k in env if k.startswith("SOKKAN_OPENBAO_")]
+
+
+def test_openbao_in_chart_kubernetes_auth():
+    docs = render(*OVERLAYS["openbao"])
+    kinds = {(d["kind"], d["metadata"]["name"]) for d in docs}
+    assert ("StatefulSet", "rel-sokkan-openbao") in kinds
+    assert ("Service", "rel-sokkan-openbao") in kinds
+    assert ("Job", "rel-sokkan-openbao-configure") in kinds
+    assert ("NetworkPolicy", "rel-sokkan-openbao") in kinds
+    crb = [d for d in docs if d["kind"] == "ClusterRoleBinding"]
+    assert len(crb) == 1 and crb[0]["roleRef"]["name"] == "system:auth-delegator"
+    assert crb[0]["subjects"][0]["name"] == "rel-sokkan-openbao"
+    env, api = _env(docs)
+    assert env["SOKKAN_SECRETS_PROVIDER"] == "openbao"
+    assert env["SOKKAN_OPENBAO_ADDR"] == "http://rel-sokkan-openbao.sk.svc:8200"
+    assert env["SOKKAN_OPENBAO_AUTH"] == "kubernetes" and env["SOKKAN_OPENBAO_K8S_ROLE"] == "sokkan"
+    assert env["SOKKAN_OPENBAO_TRANSIT_KEY"] == "sokkan-rel" and env["SOKKAN_INSTANCE_ID"] == "rel"
+    assert api["automountServiceAccountToken"] is True
+    assert not [v for v in api.get("volumes") or [] if v["name"] == "vault-key"]
+    sts = next(d for d in docs if d["kind"] == "StatefulSet")
+    c = sts["spec"]["template"]["spec"]["containers"][0]
+    assert c["command"][:2] == ["bao", "server"]
+    assert c["securityContext"]["readOnlyRootFilesystem"] is True
+    cm = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "rel-sokkan-openbao")
+    assert "disable_mlock = true" in cm["data"]["config.hcl"]
+    assert cm["data"]["configure.sh"] == (CHART / "files" / "openbao-configure.sh").read_text()
+    job = next(d for d in docs if d["kind"] == "Job")
+    jenv = {e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert jenv["SA"] == "rel-sokkan-api" and jenv["NS"] == "sk" and jenv["INST"] == "rel"
+    assert "valueFrom" in next(e for e in job["spec"]["template"]["spec"]["containers"][0]["env"]
+                               if e["name"] == "BAO_TOKEN")
+
+
+def test_openbao_external_approle_tls():
+    docs = render(*DB, "--set", "secrets.provider=openbao",
+                  "--set", "openbao.address=https://vault.acme.internal:8200",
+                  "--set", "openbao.caSecret=vault-ca", "--set", "openbao.namespace=team-a",
+                  "--set", "openbao.auth.method=approle", "--set", "openbao.auth.mount=approle",
+                  "--set", "openbao.auth.approleSecret=sokkan-approle",
+                  "--set", "runner.mode=local")
+    assert not [d for d in docs if d["kind"] in ("StatefulSet", "ClusterRoleBinding")]
+    env, api = _env(docs)
+    assert env["SOKKAN_OPENBAO_ADDR"] == "https://vault.acme.internal:8200"
+    assert env["SOKKAN_OPENBAO_NAMESPACE"] == "team-a"
+    assert env["SOKKAN_OPENBAO_CACERT"] == "/etc/sokkan/openbao-ca/ca.crt"
+    assert env["SOKKAN_OPENBAO_SECRET_ID_FILE"] == "/etc/sokkan/openbao-approle/secret-id"
+    assert "SOKKAN_OPENBAO_ALLOW_HTTP" not in env
+    assert api["automountServiceAccountToken"] is False   # approle + local runner: no SA token
+    vols = {v["name"]: v for v in api["volumes"]}
+    assert vols["openbao-approle"]["secret"]["secretName"] == "sokkan-approle"
+    assert vols["openbao-ca"]["secret"]["secretName"] == "vault-ca"
+    for k, v in env.items():                               # no secret value in plain env
+        assert "secret-id" not in (v or "") or k.endswith("_FILE")
+
+
+def test_kubernetes_provider_role():
+    docs = render(*DB, "--set", "secrets.provider=kubernetes", "--set", "runner.mode=local")
+    role = next(d for d in docs if d["kind"] == "Role" and d["metadata"]["name"] == "rel-sokkan-secrets")
+    assert role["rules"] == [{"apiGroups": [""], "resources": ["secrets"],
+                              "verbs": ["get", "list", "create", "update", "patch"]}]
+    env, api = _env(docs)
+    assert env["SOKKAN_K8S_SECRETS_PREFIX"] == "rel-sokkan" and env["SOKKAN_K8S_NAMESPACE"] == "sk"
+    assert api["automountServiceAccountToken"] is True
+
+
+def test_secrets_misconfigurations_refused():
+    for args, msg in (
+            (DB + ["--set", "secrets.provider=vaultwarden"], "file | openbao | kubernetes"),
+            (DB + ["--set", "secrets.provider=openbao"], "needs openbao.enabled"),
+            (DB + ["--set", "secrets.provider=openbao", "--set", "openbao.enabled=true",
+                   "--set", "secrets.vaultKey.existingSecret=vk"], "CLEAR key file"),
+            (DB + ["--set", "secrets.provider=openbao", "--set", "openbao.address=https://v:8200",
+                   "--set", "openbao.auth.method=approle"], "approleSecret"),
+            (DB + ["--set", "secrets.provider=openbao", "--set", "openbao.enabled=true",
+                   "--set", "openbao.configure.enabled=true"], "tokenSecret")):
+        r = subprocess.run([HELM, "template", "rel", str(CHART), *args],
+                           capture_output=True, text=True)
+        assert r.returncode != 0 and msg in r.stderr, (args, r.stderr)

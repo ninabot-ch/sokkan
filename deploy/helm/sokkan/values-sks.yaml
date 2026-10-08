@@ -48,3 +48,17 @@ vllm:
     node.exoscale.net/nodepool: gpu
   tolerations:
     - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+
+# secrets: OpenBao in the release (our cloud / POC reference), kubernetes auth. After the first
+# install: init + unseal (docs/enterprise/SECRETS.md § 6), then an operator token in the Secret
+# `sokkan-openbao-operator` (key token) and `helm upgrade --set openbao.configure.enabled=true`;
+# delete that Secret afterwards. Until then the cockpit runs, secret reads answer 503.
+secrets:
+  provider: openbao
+openbao:
+  enabled: true
+  persistence:
+    storageClass: exoscale-sbs
+    size: 1Gi
+  configure:
+    tokenSecret: sokkan-openbao-operator

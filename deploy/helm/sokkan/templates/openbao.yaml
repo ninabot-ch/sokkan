@@ -1,0 +1,279 @@
+{{- if .Values.openbao.enabled }}
+{{- $fn := include "sokkan.fullname" . -}}
+{{- $tls := ne .Values.openbao.tls.secretName "" -}}
+# One OpenBao node for this release (secrets.provider=openbao): file storage on a PVC,
+# non-root, no IPC_LOCK (disable_mlock; the PVC must not be swapped/unencrypted — see
+# docs/enterprise/SECRETS.md § 6). Init and unseal are MANUAL; auto-unseal is out of scope.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}-openbao
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+# kubernetes auth: OpenBao calls TokenReview with this account's token
+automountServiceAccountToken: {{ eq .Values.openbao.auth.method "kubernetes" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-openbao
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+data:
+  config.hcl: |
+    ui            = false
+    disable_mlock = true
+    storage "file" {
+      path = "/openbao/data"
+    }
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      {{- if $tls }}
+      tls_cert_file = "/openbao/tls/tls.crt"
+      tls_key_file  = "/openbao/tls/tls.key"
+      {{- else }}
+      tls_disable = true
+      {{- end }}
+    }
+    api_addr = "{{ include "sokkan.openbaoAddr" . }}"
+  configure.sh: |
+    {{- .Files.Get "files/openbao-configure.sh" | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-openbao
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+spec:
+  selector:
+    {{- include "sokkan.selector" (dict "root" . "component" "openbao") | nindent 4 }}
+  ports:
+    - {name: http, port: 8200, targetPort: 8200}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fn }}-openbao
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+spec:
+  serviceName: {{ $fn }}-openbao
+  replicas: 1                 # one node: HA (raft, 3+ nodes) is the customer's own OpenBao
+  selector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "openbao") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: openbao
+      annotations:
+        checksum/config: {{ .Files.Get "files/openbao-configure.sh" | sha256sum }}
+    spec:
+      serviceAccountName: {{ $fn }}-openbao
+      automountServiceAccountToken: {{ eq .Values.openbao.auth.method "kubernetes" }}
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: openbao
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.openbao.image) }}
+          imagePullPolicy: {{ .Values.openbao.image.pullPolicy }}
+          # the server directly (the image's entrypoint chowns as root — not needed here)
+          command: ["bao", "server", "-config=/openbao/config/config.hcl"]
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: BAO_ADDR, value: {{ ternary "https://127.0.0.1:8200" "http://127.0.0.1:8200" $tls | quote }}}
+            {{- if $tls }}
+            - {name: BAO_SKIP_VERIFY, value: "true"}   # loopback CLI only (init / unseal by kubectl exec)
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8200}
+          readinessProbe:
+            # 200 = unsealed; sealed/uninitialised answer 503/501 → not ready until unsealed
+            httpGet: {path: /v1/sys/health, port: 8200, scheme: {{ ternary "HTTPS" "HTTP" $tls }}}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.openbao.resources | nindent 12 }}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /openbao/data}
+            - {name: config, mountPath: /openbao/config, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $tls }}
+            - {name: tls, mountPath: /openbao/tls, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fn }}-openbao
+            items: [{key: config.hcl, path: config.hcl}]
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if $tls }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.openbao.tls.secretName }}
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.openbao.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.openbao.persistence.size }}
+{{- if and (eq .Values.openbao.auth.method "kubernetes") .Values.openbao.authDelegator }}
+---
+# TokenReview for the kubernetes auth method (the chart's only cluster-scoped object)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fn }}-{{ .Release.Namespace }}-openbao-auth-delegator
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fn }}-openbao
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# OpenBao: reached by the api (and the configure Job) only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-openbao
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sokkan.selector" (dict "root" . "component" "openbao") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "api") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "sokkan.selector" (dict "root" . "component" "openbao-configure") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8200}
+{{- end }}
+{{- end }}
+{{- if and (eq .Values.secrets.provider "openbao") .Values.openbao.configure.enabled }}
+{{- $fn := include "sokkan.fullname" . }}
+{{- if not .Values.openbao.configure.tokenSecret }}
+{{- fail "openbao.configure.enabled needs openbao.configure.tokenSecret (a Secret with key `token`: an operator token, created after init/unseal)" }}
+{{- end }}
+---
+# Configures OpenBao for this release (idempotent): kv-v2 + transit mounts, transit key,
+# least-privilege policy, kubernetes auth role bound to the api's ServiceAccount.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fn }}-openbao-configure
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openbao-configure
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "sokkan.labels" . | nindent 8 }}
+        app.kubernetes.io/component: openbao-configure
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "sokkan.podSecurityContext" . | nindent 8 }}
+      {{- include "sokkan.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: configure
+          image: {{ include "sokkan.image" (dict "root" . "image" .Values.openbao.image) }}
+          imagePullPolicy: {{ .Values.openbao.image.pullPolicy }}
+          command: ["sh", "/scripts/configure.sh"]
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: BAO_ADDR, value: {{ include "sokkan.openbaoAddr" . | quote }}}
+            - name: BAO_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.openbao.configure.tokenSecret }}, key: token}
+            {{- with .Values.openbao.namespace }}
+            - {name: BAO_NAMESPACE, value: {{ . | quote }}}
+            {{- end }}
+            {{- if or .Values.openbao.caSecret (and .Values.openbao.enabled .Values.openbao.tls.secretName) }}
+            - {name: BAO_CACERT, value: /etc/openbao-ca/ca.crt}
+            {{- end }}
+            - {name: INST, value: {{ include "sokkan.secretsInstance" . | quote }}}
+            - {name: KV, value: {{ .Values.openbao.kvMount | quote }}}
+            - {name: TRANSIT, value: {{ .Values.openbao.transitMount | quote }}}
+            - {name: TKEY, value: {{ default (printf "sokkan-%s" (include "sokkan.secretsInstance" .)) .Values.openbao.transitKey | quote }}}
+            - {name: AUTH, value: {{ .Values.openbao.auth.method | quote }}}
+            - {name: AUTH_MOUNT, value: {{ .Values.openbao.auth.mount | quote }}}
+            - {name: ROLE, value: {{ .Values.openbao.auth.role | quote }}}
+            - {name: SA, value: {{ printf "%s-api" $fn | quote }}}
+            - {name: NS, value: {{ .Release.Namespace | quote }}}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            {{- include "sokkan.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if or .Values.openbao.caSecret (and .Values.openbao.enabled .Values.openbao.tls.secretName) }}
+            - {name: ca, mountPath: /etc/openbao-ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ $fn }}-openbao{{ if not .Values.openbao.enabled }}-configure{{ end }}
+            items: [{key: configure.sh, path: configure.sh}]
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        {{- if .Values.openbao.caSecret }}
+        - name: ca
+          secret: {secretName: {{ .Values.openbao.caSecret }}, items: [{key: ca.crt, path: ca.crt}]}
+        {{- else if and .Values.openbao.enabled .Values.openbao.tls.secretName }}
+        - name: ca
+          secret: {secretName: {{ .Values.openbao.tls.secretName }}, items: [{key: ca.crt, path: ca.crt}]}
+        {{- end }}
+{{- if not .Values.openbao.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-openbao-configure
+  labels:
+    {{- include "sokkan.labels" . | nindent 4 }}
+data:
+  configure.sh: |
+    {{- .Files.Get "files/openbao-configure.sh" | nindent 4 }}
+{{- end }}
+{{- end }}

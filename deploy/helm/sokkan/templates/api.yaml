@@ -2,6 +2,18 @@
 {{- if and (or (gt (int .Values.api.replicas) 1) .Values.api.autoscaling.enabled) (not .Values.api.allowMultipleReplicas) -}}
 {{- fail "api.replicas > 1 / api.autoscaling: the api keeps SQLite databases and live sessions on its volume and in memory — not supported yet (set api.allowMultipleReplicas=true only to test it; see docs/enterprise/KUBERNETES.md § Limits)" -}}
 {{- end -}}
+{{- if not (has .Values.secrets.provider (list "file" "openbao" "kubernetes")) -}}
+{{- fail "secrets.provider: file | openbao | kubernetes" -}}
+{{- end -}}
+{{- if and (eq .Values.secrets.provider "openbao") (not (include "sokkan.openbaoAddr" .)) -}}
+{{- fail "secrets.provider=openbao needs openbao.enabled=true (in-chart OpenBao) or openbao.address (yours)" -}}
+{{- end -}}
+{{- if and (ne .Values.secrets.provider "file") .Values.secrets.vaultKey.existingSecret -}}
+{{- fail "secrets.vaultKey mounts a CLEAR key file: only with secrets.provider=file (openbao wraps the keys; migrate with scripts/secrets-migrate.py)" -}}
+{{- end -}}
+{{- if and (eq .Values.secrets.provider "openbao") (eq .Values.openbao.auth.method "approle") (not .Values.openbao.auth.approleSecret) -}}
+{{- fail "openbao.auth.method=approle needs openbao.auth.approleSecret (keys role-id, secret-id)" -}}
+{{- end -}}
 {{- if and (not .Values.database.existingSecret) (not .Values.database.url) (not .Values.devPostgres.enabled) -}}
 {{- fail "a Postgres is required: database.existingSecret (recommended), database.url, or devPostgres.enabled=true (tests only)" -}}
 {{- end -}}
@@ -31,7 +43,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ $fn }}-api
-      automountServiceAccountToken: {{ eq .Values.runner.mode "kubernetes" }}
+      automountServiceAccountToken: {{ include "sokkan.apiNeedsSAToken" . }}
       enableServiceLinks: false
       securityContext:
         {{- include "sokkan.podSecurityContext" . | nindent 8 }}
@@ -125,6 +137,40 @@ spec:
                   name: {{ $fn }}-runner
                   key: runner-secret
             {{- end }}
+            # secrets provider (docs/enterprise/SECRETS.md)
+            - {name: SOKKAN_SECRETS_PROVIDER, value: {{ .Values.secrets.provider | quote }}}
+            - {name: SOKKAN_INSTANCE_ID, value: {{ include "sokkan.secretsInstance" . | quote }}}
+            {{- if eq .Values.secrets.provider "kubernetes" }}
+            - {name: SOKKAN_K8S_SECRETS_PREFIX, value: {{ default $fn .Values.secrets.k8sPrefix | quote }}}
+            {{- if ne .Values.runner.mode "kubernetes" }}
+            - {name: SOKKAN_K8S_NAMESPACE, value: {{ .Release.Namespace | quote }}}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.secrets.provider "openbao" }}
+            - {name: SOKKAN_OPENBAO_ADDR, value: {{ include "sokkan.openbaoAddr" . | quote }}}
+            - {name: SOKKAN_OPENBAO_NAMESPACE, value: {{ .Values.openbao.namespace | quote }}}
+            - {name: SOKKAN_OPENBAO_AUTH, value: {{ .Values.openbao.auth.method | quote }}}
+            - {name: SOKKAN_OPENBAO_KV_MOUNT, value: {{ .Values.openbao.kvMount | quote }}}
+            - {name: SOKKAN_OPENBAO_TRANSIT_MOUNT, value: {{ .Values.openbao.transitMount | quote }}}
+            - {name: SOKKAN_OPENBAO_TRANSIT_KEY, value: {{ default (printf "sokkan-%s" (include "sokkan.secretsInstance" .)) .Values.openbao.transitKey | quote }}}
+            {{- if eq .Values.openbao.auth.method "kubernetes" }}
+            - {name: SOKKAN_OPENBAO_K8S_ROLE, value: {{ .Values.openbao.auth.role | quote }}}
+            - {name: SOKKAN_OPENBAO_K8S_MOUNT, value: {{ .Values.openbao.auth.mount | quote }}}
+            {{- else }}
+            - {name: SOKKAN_OPENBAO_APPROLE_MOUNT, value: {{ .Values.openbao.auth.mount | quote }}}
+            - {name: SOKKAN_OPENBAO_ROLE_ID_FILE, value: /etc/sokkan/openbao-approle/role-id}
+            - {name: SOKKAN_OPENBAO_SECRET_ID_FILE, value: /etc/sokkan/openbao-approle/secret-id}
+            {{- end }}
+            {{- if .Values.openbao.caSecret }}
+            - {name: SOKKAN_OPENBAO_CACERT, value: /etc/sokkan/openbao-ca/ca.crt}
+            {{- else if and .Values.openbao.enabled .Values.openbao.tls.secretName }}
+            - {name: SOKKAN_OPENBAO_CACERT, value: /etc/sokkan/openbao-ca/ca.crt}
+            {{- end }}
+            {{- if and .Values.openbao.enabled (not .Values.openbao.tls.secretName) }}
+            # in-chart OpenBao without TLS: plain HTTP inside the namespace (NetworkPolicy)
+            - {name: SOKKAN_OPENBAO_ALLOW_HTTP, value: "1"}
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.api.env }}
             - name: {{ $k }}
               value: {{ $v | toString | quote }}
@@ -155,6 +201,14 @@ spec:
               subPath: {{ .Values.secrets.vaultKey.key }}
               readOnly: true
             {{- end }}
+            {{- if eq .Values.secrets.provider "openbao" }}
+            {{- if eq .Values.openbao.auth.method "approle" }}
+            - {name: openbao-approle, mountPath: /etc/sokkan/openbao-approle, readOnly: true}
+            {{- end }}
+            {{- if or .Values.openbao.caSecret (and .Values.openbao.enabled .Values.openbao.tls.secretName) }}
+            - {name: openbao-ca, mountPath: /etc/sokkan/openbao-ca, readOnly: true}
+            {{- end }}
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -166,6 +220,25 @@ spec:
           secret:
             secretName: {{ .Values.secrets.vaultKey.existingSecret }}
             defaultMode: 0400
+        {{- end }}
+        {{- if eq .Values.secrets.provider "openbao" }}
+        {{- if eq .Values.openbao.auth.method "approle" }}
+        - name: openbao-approle
+          secret:
+            secretName: {{ .Values.openbao.auth.approleSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .Values.openbao.caSecret }}
+        - name: openbao-ca
+          secret:
+            secretName: {{ .Values.openbao.caSecret }}
+            items: [{key: ca.crt, path: ca.crt}]
+        {{- else if and .Values.openbao.enabled .Values.openbao.tls.secretName }}
+        - name: openbao-ca
+          secret:
+            secretName: {{ .Values.openbao.tls.secretName }}
+            items: [{key: ca.crt, path: ca.crt}]
+        {{- end }}
         {{- end }}
       {{- with .Values.api.nodeSelector }}
       nodeSelector:

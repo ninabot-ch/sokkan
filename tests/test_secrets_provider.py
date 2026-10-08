@@ -763,3 +763,57 @@ def test_setup_secrets_routes(data, monkeypatch):
     finally:
         a.app.dependency_overrides.clear()
     assert any(r["action"] == "secrets.test" for r in audit.recent(limit=10))
+
+
+BAO_CONTAINER = os.environ.get("SOKKAN_TEST_OPENBAO_CONTAINER", "")
+
+
+@needs_bao
+@pytest.mark.skipif(not (BAO_CONTAINER and shutil.which("docker")),
+                    reason="SOKKAN_TEST_OPENBAO_CONTAINER (the OpenBao test container) not set")
+def test_chart_configure_script_against_real_openbao(data, monkeypatch, tmp_path):
+    """deploy/helm/sokkan/files/openbao-configure.sh (the chart's Job) run twice with the
+    `bao` CLI against the real server, then SOKKAN logs in with the kubernetes role it wrote
+    and works within its policy; the operator's -rotate policy can rotate, the api cannot."""
+    import secrets_provider as sp
+    from secrets_provider import cli
+    inst = "c" + secrets.token_hex(4)
+    mount = f"k8s-{inst}"
+    fake = FakeK8s(bind="0.0.0.0")
+    try:
+        host = os.environ.get("SOKKAN_TEST_OPENBAO_HOST_FROM_CONTAINER", "172.17.0.1")
+        subprocess.run(["docker", "exec", "-i", BAO_CONTAINER, "sh", "-c",
+                        f"cat > /tmp/{inst}-ca.pem"], input=_dummy_ca(), text=True, check=True)
+        script = (ROOT / "deploy/helm/sokkan/files/openbao-configure.sh").read_text()
+        env = ["-e", "BAO_ADDR=http://127.0.0.1:8200", "-e", f"BAO_TOKEN={BAO_ROOT}",
+               "-e", f"INST={inst}", "-e", "AUTH=kubernetes", "-e", f"AUTH_MOUNT={mount}",
+               "-e", "SA=rel-sokkan-api", "-e", "NS=sk",
+               "-e", f"K8S_CONFIG=kubernetes_host=http://{host}:{fake.port} "
+                     f"kubernetes_ca_cert=@/tmp/{inst}-ca.pem disable_local_ca_jwt=true "
+                     f"token_reviewer_jwt={fake.token}"]
+        for _ in range(2):                                         # idempotent
+            r = subprocess.run(["docker", "exec", "-i", *env, BAO_CONTAINER, "sh", "-s"],
+                               input=script, text=True, capture_output=True, timeout=60)
+            assert r.returncode == 0, r.stdout + r.stderr
+        (tmp_path / "jwt").write_text(fake.sa_jwt("sk", "rel-sokkan-api"))
+        monkeypatch.setenv("SOKKAN_SECRETS_PROVIDER", "openbao")
+        monkeypatch.setenv("SOKKAN_OPENBAO_ADDR", BAO)
+        monkeypatch.setenv("SOKKAN_OPENBAO_AUTH", "kubernetes")
+        monkeypatch.setenv("SOKKAN_OPENBAO_K8S_ROLE", "sokkan")
+        monkeypatch.setenv("SOKKAN_OPENBAO_K8S_MOUNT", mount)
+        monkeypatch.setenv("SOKKAN_OPENBAO_K8S_JWT_FILE", str(tmp_path / "jwt"))
+        monkeypatch.setenv("SOKKAN_INSTANCE_ID", inst)
+        sp.reset()
+        p = sp.active()
+        assert p.health().ok, p.health().detail
+        p.set("default", "FROM_CHART", "ok")
+        assert p.get("default", "FROM_CHART") == "ok" and p.encrypt("vault", "x")
+        assert cli.main(["rotate", "--master"]) == 2               # api role: no rotate
+        tok = bao("POST", "auth/token/create", {"policies": [f"sokkan-{inst}-rotate"],
+                                                 "ttl": "5m"})["auth"]["client_token"]
+        monkeypatch.setenv("SOKKAN_OPENBAO_AUTH", "token")
+        monkeypatch.setenv("SOKKAN_OPENBAO_TOKEN", tok)
+        sp.reset()
+        assert cli.main(["rotate", "--master"]) == 0
+    finally:
+        fake.close()

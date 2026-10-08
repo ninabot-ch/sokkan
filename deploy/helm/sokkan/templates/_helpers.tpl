@@ -78,3 +78,19 @@ imagePullSecrets:
 {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
+
+{{/* Secrets provider (3.3): instance id, OpenBao address, whether the api mounts its SA token */}}
+{{- define "sokkan.secretsInstance" -}}
+{{- default .Release.Name .Values.secrets.instanceId -}}
+{{- end -}}
+
+{{- define "sokkan.openbaoAddr" -}}
+{{- if .Values.openbao.address -}}{{ .Values.openbao.address }}
+{{- else if .Values.openbao.enabled -}}
+{{- printf "%s://%s-openbao.%s.svc:8200" (ternary "https" "http" (ne .Values.openbao.tls.secretName "")) (include "sokkan.fullname" .) .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "sokkan.apiNeedsSAToken" -}}
+{{- if or (eq .Values.runner.mode "kubernetes") (eq .Values.secrets.provider "kubernetes") (and (eq .Values.secrets.provider "openbao") (eq .Values.openbao.auth.method "kubernetes")) -}}true{{- else -}}false{{- end -}}
+{{- end -}}

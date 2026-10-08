@@ -179,10 +179,64 @@ secrets:
   #   SOKKAN_OIDC_CLIENT_SECRET: …
   #   SOKKAN_LOCAL_TOKEN: …                 # login token when no SSO
   # vault master key (Fernet) of the secrets vault, mounted at /data/vault.key
-  # (else generated on first start and kept on the data volume)
+  # (else generated on first start and kept on the data volume) — provider `file` only
   vaultKey:
     existingSecret: ""
     key: vault.key
+  # Where SOKKAN keeps project secrets and its encryption keys (docs/enterprise/SECRETS.md):
+  #   file       key files + vault.json on the data volume (3.2 behaviour)
+  #   openbao    OpenBao / HashiCorp Vault (section `openbao` below): KV v2 + transit, no
+  #              clear key on the volume — the reference for enterprise installs
+  #   kubernetes Secrets of this namespace (<prefix>-vault-<project>, <prefix>-data-keys);
+  #              the api gets a Role on `secrets` — prefer a dedicated namespace
+  provider: file
+  # instance id = KV prefix sokkan/<id>/ and transit key sokkan-<id> (default: release name)
+  instanceId: ""
+  # kubernetes provider: Secret name prefix (default: the release fullname)
+  k8sPrefix: ""
+
+# -- OpenBao (secrets.provider=openbao) -----------------------------------------------------------
+# Either the chart runs ONE OpenBao node (enabled: true; file storage on a PVC; init and unseal
+# are MANUAL — docs/enterprise/SECRETS.md § 6; auto-unseal through a KMS is out of scope), or
+# SOKKAN uses the customer's OpenBao / Vault (enabled: false, address set).
+openbao:
+  enabled: false
+  image:
+    repository: openbao/openbao
+    tag: "2.4.1"
+    pullPolicy: IfNotPresent
+  persistence:
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  # in-chart listener TLS: a Secret with tls.crt / tls.key (cert-manager or yours); empty =
+  # plain HTTP inside the namespace (NetworkPolicy: only the api reaches it). Production: TLS.
+  tls:
+    secretName: ""
+  # external OpenBao / Vault (enabled: false): https://vault.example.com:8200
+  address: ""
+  namespace: ""               # Vault Enterprise / OpenBao namespace (X-Vault-Namespace)
+  caSecret: ""                # Secret with `ca.crt` to verify the server (mounted read-only)
+  auth:
+    method: kubernetes        # kubernetes (ServiceAccount JWT) | approle
+    mount: kubernetes
+    role: sokkan
+    # approle: Secret with keys role-id and secret-id (mounted as files, never env values)
+    approleSecret: ""
+  kvMount: secret
+  transitMount: transit
+  transitKey: ""              # default: sokkan-<instanceId>
+  # in-chart OpenBao + kubernetes auth: OpenBao's ServiceAccount may call TokenReview
+  # (ClusterRoleBinding to system:auth-delegator — the only cluster-scoped object of the chart)
+  authDelegator: true
+  # post-install/upgrade Job: mounts kv-v2 and transit, creates the transit key, the
+  # least-privilege policy, the kubernetes auth role bound to the api's ServiceAccount.
+  # Needs an operator token AFTER init/unseal: a Secret with key `token` (delete it after).
+  configure:
+    enabled: false
+    tokenSecret: ""
 
 externalSecret:
   enabled: false

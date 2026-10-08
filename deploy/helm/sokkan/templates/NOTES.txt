@@ -11,4 +11,12 @@ Sessions run in their own pods (runner: {{ .Values.runner.mode }}):
 
 WARNING: devPostgres is for tests only (one pod, no backup). Use a managed Postgres with pgvector.
 {{- end }}
-Guide: docs/enterprise/KUBERNETES.md
+Secrets provider: {{ .Values.secrets.provider }}
+{{- if .Values.openbao.enabled }}
+
+OpenBao (one node) must be INITIALISED and UNSEALED by a person (keys never in the chart):
+  kubectl -n {{ .Release.Namespace }} exec -it {{ include "sokkan.fullname" . }}-openbao-0 -- bao operator init -key-shares=5 -key-threshold=3
+  kubectl -n {{ .Release.Namespace }} exec -it {{ include "sokkan.fullname" . }}-openbao-0 -- bao operator unseal   # ×3, after EVERY restart
+Then configure it: docs/enterprise/SECRETS.md § 6 (openbao.configure.enabled + an operator token).
+{{- end }}
+Guide: docs/enterprise/KUBERNETES.md, docs/enterprise/SECRETS.md
