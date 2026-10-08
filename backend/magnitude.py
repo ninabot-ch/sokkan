@@ -47,8 +47,8 @@ ONLINE_WINDOW_S = 15.0  # agent « online » = dernier sync il y a moins de 15 s
 # URL PAR DÉFAUT du shim telle que VUE PAR LES SESSIONS (node sans `shim_url`
 # explicite) : cockpit docker + agent sur le même host. Backend natif ou node
 # distant → SOKKAN_MAGNITUDE_SHIM_URL global, ou `shim_url` par node via l'UI.
-SHIM_URL = os.environ.get("SOKKAN_MAGNITUDE_SHIM_URL",
-                          "http://host.docker.internal:8790")
+SHIM_URL = (os.environ.get("SOKKAN_MAGNITUDE_SHIM_URL")   # compose passes "" when unset
+            or "http://host.docker.internal:8790")
 FIT_MARGIN_GB = 1.2  # marge KV cache / compute buffers au-dessus des poids
 
 _LOCK = threading.Lock()  # sérialise les read-modify-write de l'état

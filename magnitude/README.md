@@ -72,7 +72,19 @@ is downloaded or restarted — and **Connect to SOKKAN** then routes new session
 **Detach** removes the shim; the engine keeps running. A Claude Code session opens at
 ~41k tokens of prompt: an engine with a shorter context is flagged.
 
-Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
+llama.cpp: `MAGNITUDE_LLAMA_TAG=<tag>` pins a release; otherwise a build already under
+`~/.sokkan/magnitude/bin` is reused, else the newest release (pre-releases included — upstream
+publishes its `bNNNNN` builds that way) that ships a build for the platform.
+
+**Runtime per backend** (`MAGNITUDE_RUNTIME=prebuilt|docker` forces it): Intel discrete cards
+with a card allowed and a Docker daemon → `ghcr.io/ggml-org/llama.cpp:server-intel` (SYCL) on the
+allowed cards only; otherwise Vulkan prebuilt (NVIDIA, AMD, Intel without Docker), Metal
+(Apple), CPU (no GPU, or `MAGNITUDE_GPU_DEVICES=none`).
+
+**Live load** (agent ≥ 0.3): every 3 s, per card busy %, VRAM used/total, temperature, power,
+plus CPU/RAM — shown per card in the cockpit and exported by `GET /metrics` (`sokkan_magnitude_*`,
+Bearer `SOKKAN_METRICS_TOKEN` or direct loopback). Intel VRAM figures need root (debugfs) or
+read access to the engines' `/proc/<pid>/fdinfo`.
 
 ## Tuning (env vars)
 
@@ -81,11 +93,15 @@ Pin the llama.cpp release with `MAGNITUDE_LLAMA_TAG=<tag>` (default: latest).
 | `MAGNITUDE_CTX` | `16384` | `llama-server` context size. A Claude Code session opens at **~40k prompt tokens** (measured) — use `65536` for real agent sessions |
 | `MAGNITUDE_KV` | *(f16)* | Quantized KV cache, e.g. `q8_0` — halves KV VRAM at 64k (~4.7 GB → ~2.4 GB on an 8B), forces flash attention |
 | `MAGNITUDE_SERVER_ARGS` | *(empty)* | Extra `llama-server` flags, space-separated. Gotcha: llama-server caps per-request context at the model's training window even with YaRN — unlock with `--override-kv <arch>.context_length=int:65536` (e.g. `qwen3.context_length`) |
-| `MAGNITUDE_LLAMA_TAG` | latest | Pin the llama.cpp release |
+| `MAGNITUDE_LLAMA_TAG` | *(local build, else newest with a build)* | Pin the llama.cpp release |
 | `MAGNITUDE_VISION` | `0` | `1` = the served model reads images: the shim forwards Anthropic `image` blocks (including those inside a `tool_result`, e.g. Claude Code reading a `.png`) as OpenAI `image_url` data URLs. Requires a vision model served with its `--mmproj` (pass it via `MAGNITUDE_SERVER_ARGS`). Off: each image is replaced by an explicit "image omitted" note |
 | `MAGNITUDE_DISCOVER_PORTS` | `8000-8010,11434,8790` | Ports scanned for engines already running (ranges and lists) |
 | `MAGNITUDE_ENGINE_CARDS` | *(empty)* | JSON port → GPU indices, when the container env does not say it |
-| `MAGNITUDE_GPU_DEVICES` | *(all)* | Limit Magnitude's own `llama-server` to these cards (`GGML_VK_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES`) |
+| `MAGNITUDE_GPU_DEVICES` | *(all)* | Cards Magnitude's own Run/Benchmark may use (the numbers the cockpit shows), or `none` = CPU only (`--device none`). Shown in the cockpit as « Cards for Run »; fit is computed on their free memory |
+| `MAGNITUDE_CPU_THREADS` | cores/4 (2–8) | Threads of a CPU-only run |
+| `MAGNITUDE_RUNTIME` | `auto` | `prebuilt` or `docker` (Intel SYCL image) |
+| `MAGNITUDE_DOCKER_IMAGE` / `_MEMORY` / `_CPUS` | `…:server-intel` / `16g` / `8` | Docker runtime image and caps |
+| `MAGNITUDE_CACHE_RAM` | `2048` | `llama-server --cache-ram` (MiB of host RAM for the prompt cache; upstream default 8192) |
 | `MAGNITUDE_HOME` | `~/.sokkan/magnitude` | Cache directory (runtimes, GGUF weights, logs) |
 
 Rule of thumb for coding sessions: weights + KV must fit — an 8B Q4 at 64k/q8
