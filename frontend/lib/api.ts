@@ -228,6 +228,19 @@ export const vaultSet = (name: string, value: string) =>
   mutate<VaultList>("/api/vault", "POST", { name, value });
 export const vaultDelete = (name: string) =>
   mutate<VaultList>(`/api/vault/${encodeURIComponent(name)}`, "DELETE");
+
+// 3.3 secrets provider (Setup › Secrets, instance admin): where secrets and keys live
+export interface SecretsHealth {
+  ok: boolean; provider: string; detail: string; checks: Record<string, unknown>;
+  checked_at: number; duration_ms?: number;
+}
+export interface SecretsProviderState {
+  provider: "file" | "openbao" | "kubernetes"; reason: string; warning: string | null;
+  available: string[]; config: Record<string, string | boolean | string[]>; error: string;
+  clear_keys_on_disk?: string[]; last_test: SecretsHealth | null;
+}
+export const secretsProvider = () => getJSON<SecretsProviderState>("/api/admin/secrets-provider");
+export const secretsProviderTest = () => mutate<SecretsHealth>("/api/admin/secrets-provider/test", "POST");
 // 3.2 lot 4: day / month ceiling of the selected project (project admins set it)
 export const budgetSet = (b: { currency?: string; day?: number; month?: number }) =>
   mutate<ProjectBudget>("/api/budgets", "PUT", b);

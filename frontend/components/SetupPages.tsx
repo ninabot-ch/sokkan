@@ -20,6 +20,7 @@ import { useFeatureOn } from "@/lib/uifeatures";
 import ConnectAI from "./ConnectAI";
 import { DemoMembers, DemoProjects, ReadOnlyNote } from "./DemoOrganization";
 import ModelKeys from "./ModelKeys";
+import SecretsProvider from "./SecretsProvider";
 import type { OrgSection } from "@/lib/planes";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
@@ -449,21 +450,22 @@ function Secrets() {
   }, [isAdmin]);
   if (!isAdmin) return <div className="text-[12px] text-mut">Secrets are restricted to administrators.</div>;
   if (scope.enabled === false) return (
-    <div className="text-[12px] text-mut">
+    <div className="space-y-3"><SecretsProvider /><div className="text-[12px] text-mut">
       Project <span className="font-mono text-slate-300">{scope.project}</span> has no vault: per-project vaults
       are off on this instance (feature <span className="font-mono">project_vault_budgets</span>), or this is the
       read-only <span className="font-mono">shared</span> project. Its sessions and agents receive no secret.
-    </div>);
+    </div></div>);
   const add = () => {
     setErr(""); setBusy(true);
     vaultSet(name.trim(), val).then((r) => { setNames(r.names); setName(""); setVal(""); }).catch((e) => setErr(String(e))).finally(() => setBusy(false));
   };
   return (
     <div className="space-y-3 text-[12.5px]">
+      <SecretsProvider />
       <div className="text-[10.5px] text-mut">
         Secrets are encrypted at rest and injected into your sessions as environment variables
         (<span className="font-mono text-slate-300">$NAME</span>) — your agents use them to operate prod without the value
-        ever showing in the UI or going to the model. They never leave this instance.
+        ever showing in the UI or going to the model. They stay on this instance, or in the OpenBao / Vault it is configured with.
         {scope.project && <> Vault of project <span className="font-mono text-slate-300">{scope.project}</span>: only
           its sessions and agents can use these names.</>}
       </div>
@@ -473,7 +475,8 @@ function Secrets() {
             <span className="font-mono text-[12px] text-slate-100">{n}</span>
             <span className="font-mono text-[11px] text-mut">= ••••••••</span>
             <button onClick={() => vaultDelete(n).then((r) => setNames(r.names))}
-              className="ml-auto rounded px-1 text-mut hover:text-red-400" title="delete">✕</button>
+              className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-mut hover:bg-panel2 hover:text-red-400 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sea"
+              title={`delete ${n}`} aria-label={`delete secret ${n}`}>✕</button>
           </div>
         ))}
         {names.length === 0 && <div className="text-[12px] text-mut">No secrets yet.</div>}

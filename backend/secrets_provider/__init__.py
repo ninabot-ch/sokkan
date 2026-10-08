@@ -252,9 +252,11 @@ def warning(env=None, feature_on: bool | None = None) -> str | None:
     except Exception:  # noqa: BLE001
         ed = "community"
     if name == "file" and ed == "enterprise":
-        return ("Secrets are stored in files on this server (vault.key, forge.key, teams.key next "
-                "to the data): anyone with a copy of the data directory and its keys reads every "
-                "secret. Configure OpenBao (docs/enterprise/SECRETS.md) — " + why + ".")
+        return ("Secrets and their keys are files on this server (vault.key, forge.key, teams.key "
+                "next to the data): whoever copies the data directory with its keys reads every "
+                "secret. Next step: connect OpenBao (SOKKAN_OPENBAO_ADDR), then move the secrets "
+                "with scripts/secrets-migrate.py --from file --to openbao — "
+                "docs/enterprise/SECRETS.md.")
     return None
 
 

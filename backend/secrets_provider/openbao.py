@@ -426,8 +426,12 @@ class OpenBaoProvider(SecretsProvider):
                       checks)
 
     def describe(self) -> dict:
-        return {"provider": self.name, "address": self.c.addr,
-                "namespace": self.c.namespace or "", "auth": self.c.auth,
-                "auth_role": self.c.k8s_role if self.c.auth == "kubernetes" else "",
-                "tls_ca": bool(self.c.cacert), "kv": f"{self.kv}/{self.prefix}",
-                "transit": f"{self.transit}/keys/{self.tkey}"}
+        tls = ("plain HTTP — no TLS" if self.c.addr.startswith("http://")
+               else "CA file " + os.path.basename(self.c.cacert) if self.c.cacert
+               else "system CA store")
+        d = {"provider": self.name, "address": self.c.addr, "namespace": self.c.namespace,
+             "auth": self.c.auth + (f" (role {self.c.k8s_role})" if self.c.auth == "kubernetes"
+                                    else ""),
+             "tls": tls, "kv": f"{self.kv}/{self.prefix}",
+             "transit": f"{self.transit}/keys/{self.tkey}"}
+        return {k: v for k, v in d.items() if v}

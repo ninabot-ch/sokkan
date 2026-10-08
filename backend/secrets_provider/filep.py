@@ -171,7 +171,7 @@ class FileProvider(SecretsProvider):
             self.data_keys("vault")
         except SecretsError as e:
             return Health(False, self.name, str(e), checks)
-        return Health(True, self.name, "key files present, mode 0600", checks)
+        return Health(True, self.name, "key files readable by the api only (mode 0600)", checks)
 
     def describe(self) -> dict:
         return {"provider": self.name, "key_files": [os.path.basename(key_path(c))
