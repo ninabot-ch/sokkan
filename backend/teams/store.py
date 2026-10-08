@@ -206,16 +206,22 @@ def unmap_channel(channel_id: str) -> None:
     c.close()
 
 
+def _channel_out(r) -> dict:
+    d = dict(r)
+    d["approvals"] = bool(d.get("approvals", 1))     # 3.4.1: a boolean, as the API documents
+    return d
+
+
 def channel(channel_id: str) -> dict | None:
     c = con()
     r = c.execute("SELECT * FROM channel_map WHERE channel_id=?", (channel_id,)).fetchone()
     c.close()
-    return dict(r) if r else None
+    return _channel_out(r) if r else None
 
 
 def channels() -> list[dict]:
     c = con()
-    rows = [dict(r) for r in c.execute("SELECT * FROM channel_map ORDER BY project, name")]
+    rows = [_channel_out(r) for r in c.execute("SELECT * FROM channel_map ORDER BY project, name")]
     c.close()
     return rows
 

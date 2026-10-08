@@ -6,7 +6,7 @@ import LevelBadge from "./LevelBadge";
 const inp = "rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50";
 const btn = "rounded bg-sea/80 px-2 py-0.5 text-[11px] text-white hover:bg-sea disabled:opacity-40";
 
-interface Channel { channel_id: string; project: string; level: number; name: string; approvals?: number }
+interface Channel { channel_id: string; project: string; level: number; name: string; approvals: boolean }
 interface State {
   enabled: boolean; missing: string[]; tenant: string; app_id: string; endpoint: string;
   channels: Channel[]; graph_permissions: { permission: string; type: string; why: string }[];
@@ -85,7 +85,7 @@ export default function TeamsAdmin() {
                 <td className="max-w-[16rem] truncate py-1 font-mono text-slate-200" title={c.channel_id}>{c.name || c.channel_id}</td>
                 <td className="text-mut">{c.project}</td>
                 <td><LevelBadge level={c.level} /></td>
-                <td className="text-[11px] text-mut">{c.approvals === 0 ? "no approvals" : "approvals posted"}</td>
+                <td className="text-[11px] text-mut">{c.approvals ? "approvals posted" : "no approvals"}</td>
                 <td className="text-right"><button className="text-[11px] text-red-300 hover:underline"
                   onClick={() => run(call(`/api/admin/teams/channels?channel_id=${encodeURIComponent(c.channel_id)}`, "DELETE"))}>remove</button></td>
               </tr>
