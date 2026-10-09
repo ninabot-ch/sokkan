@@ -301,3 +301,19 @@ def test_status_and_sources(world, monkeypatch):
     assert c.post("/api/alerting/sources", json={"kind": "mysql", "url": "x"}).status_code == 422
     assert world["as"]("bob@x").post("/api/alerting/sources", json={
         "kind": "loki", "url": "http://loki:3100"}).status_code == 403
+
+
+def test_the_morning_brief_lists_firing_alerts(world):
+    import audit
+    import helm
+    from alerting import scheduler
+    c = world["as"]("bob@x")
+    c.post("/api/alerting/rules", json=_rule_body(c))
+    t = time.time()
+    scheduler.tick(t, force=True)
+    audit.log("bob@x", "board.card.create", "#7", "", project="default")
+    scheduler.tick(t + 61, force=True)
+    b = helm.morning_brief("default")
+    assert b["alerts"][0]["rule"] == "Card created" and b["alerts"][0]["severity"] == "critical"
+    assert "## Alerts firing" in b["markdown"] and "critical: Card created" in b["markdown"]
+    assert helm.morning_brief("radio")["alerts"] == []
