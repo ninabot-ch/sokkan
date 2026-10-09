@@ -11,7 +11,7 @@ export type PlaneId = "control" | "build" | "operate" | "setup";
 export type SubTab =
   | "helm" | "board" | "corthexis"
   | "sessions" | "crew" | "preview"
-  | "incidents" | "infra" | "costs" | "journal"
+  | "incidents" | "alerts" | "infra" | "costs" | "journal"
   | "organization" | "engines" | "magnitude" | "secrets" | "account" | "notifications";
 
 export interface PlaneDef {
@@ -29,7 +29,7 @@ export const PLANES: PlaneDef[] = [
   { id: "build", label: "Build", key: "b", blurb: "do: sessions, agents, previews",
     tabs: [{ id: "sessions", label: "Sessions" }, { id: "crew", label: "Crew" }, { id: "preview", label: "Preview" }] },
   { id: "operate", label: "Operate", key: "o", blurb: "run: incidents and alerts, infra, costs, journal",
-    tabs: [{ id: "incidents", label: "Incidents" }, { id: "infra", label: "Infra" }, { id: "costs", label: "Costs" },
+    tabs: [{ id: "incidents", label: "Incidents" }, { id: "alerts", label: "Alerts" }, { id: "infra", label: "Infra" }, { id: "costs", label: "Costs" },
       { id: "journal", label: "Journal" }] },
   { id: "setup", label: "Setup", key: "s", blurb: "configure: organization, engines, GPUs, secrets, you",
     tabs: [{ id: "organization", label: "Organization" }, { id: "engines", label: "Engines" },
@@ -51,7 +51,9 @@ export const LEGACY: Record<string, { tab: SubTab; section?: string }> = {
   preview: { tab: "preview" }, corthexis: { tab: "corthexis" }, costs: { tab: "costs" },
   magnitude: { tab: "magnitude" }, infra: { tab: "infra" }, incidents: { tab: "incidents" },
   // 3.2.2: the sub-tab « Operate › Operate » became « Operate › Incidents »; old links keep working
-  operate: { tab: "incidents" }, incident: { tab: "incidents" }, alerts: { tab: "incidents" },
+  operate: { tab: "incidents" }, incident: { tab: "incidents" },
+  // 3.5: Operate › Alerts (the rules engine) — `?tab=alerts` pointed at Incidents before it existed
+  alerts: { tab: "alerts" }, alert: { tab: "alerts" }, alerting: { tab: "alerts" }, rules: { tab: "alerts" },
   journal: { tab: "journal" },
   // the Profile & organization dialog of 3.2.1
   profile: { tab: "account" }, account: { tab: "account" }, linked: { tab: "account", section: "linked" },
@@ -96,7 +98,7 @@ export function href(tab: SubTab, params: Record<string, string> = {}): string {
 export interface VisCtx {
   /** feature flags as /api/features serves them */
   f: { preview?: boolean; infra?: boolean; observe?: boolean; magnitude?: boolean; agents?: boolean;
-    agents_viewer_readonly?: boolean; helm?: boolean };
+    agents_viewer_readonly?: boolean; helm?: boolean; alerting?: boolean };
   /** selected project slug */
   project: string;
   /** dev or more in the selected project */
@@ -114,6 +116,8 @@ export function tabVisible(t: SubTab, c: VisCtx): boolean {
     case "preview": return !!c.f.preview && c.project === "default";
     case "infra": return !!c.f.infra && opsOk;
     case "incidents": return !!c.f.observe && opsOk;
+    // 3.5: the alert rules work without any observability stack (SOKKAN's own figures, Elasticsearch…)
+    case "alerts": return !!c.f.alerting && opsOk;
     case "magnitude": return !!c.f.magnitude;
     case "crew": return !!c.f.agents && (c.canDev || !!c.f.agents_viewer_readonly);
     case "helm": return !!c.f.helm && c.steers;
