@@ -1589,6 +1589,8 @@ def features_flags() -> dict:
         "revocation": on("revocation"),
         # 3.3 Helm (onglet réservé aux managers : /api/helm/access le dit par personne)
         "helm": on("helm"),
+        # 3.5 Operate › Alerts (moteur de règles)
+        "alerting": on("alerting"),
         # 3.2.2 : démo publique « Captains » (Helm, projets, Setup en lecture seule)
         "demo_captains": demo_captains.enabled(),
         "registry": features.as_api(),

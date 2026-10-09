@@ -52,6 +52,8 @@ export const suggest = (id: number, kind: "metrics" | "labels" | "values" | "fie
 
 // templates
 export const listTemplates = () => call<{ templates: Template[] }>(`${B}/templates`).then((r) => r.templates);
+export const applyTemplate = (id: string, values: Record<string, unknown>) =>
+  call<{ rule: RuleIn }>(`${B}/templates/${encodeURIComponent(id)}/apply`, "POST", { values }).then((r) => r.rule);
 
 // rules
 export const listRules = () => call<{ rules: Rule[]; counts: RuleCounts }>(`${B}/rules`);
@@ -60,6 +62,7 @@ export const createRule = (r: RuleIn) => call<Rule>(`${B}/rules`, "POST", r);
 export const updateRule = (id: number, r: RuleIn) => call<Rule>(`${B}/rules/${id}`, "PUT", r);
 export const deleteRule = (id: number) => call<{ ok: boolean }>(`${B}/rules/${id}`, "DELETE");
 export const setRuleEnabled = (id: number, on: boolean) => call<Rule>(`${B}/rules/${id}/${on ? "enable" : "disable"}`, "POST");
+export const evaluateRule = (id: number) => call<Rule>(`${B}/rules/${id}/evaluate`, "POST");
 export const testNotify = (id: number) => call<{ channels: Record<string, string> }>(`${B}/rules/${id}/test-notify`, "POST");
 export const ruleHistory = (id: number, limit = 100) =>
   call<{ transitions: Transition[] }>(`${B}/rules/${id}/history${q({ limit })}`).then((r) => r.transitions);

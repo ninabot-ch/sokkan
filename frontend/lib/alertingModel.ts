@@ -13,7 +13,7 @@ export type RuleType =
   | "new_term" | "cardinality" | "absence" | "anomaly";
 export type RuleState = "ok" | "pending" | "firing" | "silenced" | "error" | "disabled";
 export type AlertState = "pending" | "firing" | "resolved" | "silenced";
-export type ChannelKind = "telegram" | "teams" | "slack" | "email" | "webhook" | "pagerduty";
+export type ChannelKind = "telegram" | "teams" | "slack" | "email" | "webhook" | "pagerduty" | "instance";
 /** "30s" "5m" "1h" "1d" "7d" */
 export type Dur = string;
 export type TV = [number, number | null];
@@ -95,6 +95,8 @@ export interface Rule extends RuleIn {
   sentence?: string;
   state?: RuleStateInfo;
   spark?: TV[];
+  /** "external:<alertname>" = a rule mirrored from an external receiver (Grafana): read-only */
+  external?: string | null;
 }
 export interface RuleCounts { firing: number; pending: number; silenced: number; ok: number; error: number; disabled: number }
 
@@ -146,7 +148,7 @@ export interface Silence {
 }
 
 export interface ChannelField { key: string; label: string; secret?: boolean }
-export interface ChannelKindDef { kind: ChannelKind; label: string; fields: ChannelField[] }
+export interface ChannelKindDef { kind: ChannelKind; label: string; fields: ChannelField[]; unavailable?: string | null }
 export interface Channel {
   id: number; name: string; kind: ChannelKind; scope?: "instance" | "project"; enabled: boolean; builtin?: boolean;
   config: Record<string, string | boolean | null>;

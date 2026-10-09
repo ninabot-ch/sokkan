@@ -164,7 +164,7 @@ function SourceEditor({ src, onDone }: { src?: AlertSource; onDone: () => void }
 
 // ---------------------------------------------------------------- channels
 
-const CH_ICON: Record<string, string> = { telegram: "✈", teams: "T", slack: "#", email: "@", webhook: "⇢", pagerduty: "⚑" };
+const CH_ICON: Record<string, string> = { telegram: "✈", teams: "T", slack: "#", email: "@", webhook: "⇢", pagerduty: "⚑", instance: "◉" };
 
 export function ChannelBadge({ c }: { c: Pick<Channel, "kind" | "name"> }) {
   return <span className="inline-flex items-center gap-1.5">
@@ -217,7 +217,7 @@ function Channels({ canManage }: { canManage: boolean }) {
 export function ChannelEditor({ kinds, ch, onDone, onCreated }: {
   kinds: ChannelKindDef[]; ch?: Channel; onDone: () => void; onCreated?: (c: Channel) => void;
 }) {
-  const [kind, setKind] = useState<string>(ch?.kind || kinds[0]?.kind || "telegram");
+  const [kind, setKind] = useState<string>(ch?.kind || kinds.find((k) => !k.unavailable)?.kind || kinds[0]?.kind || "webhook");
   const [name, setName] = useState(ch?.name || "");
   const [enabled, setEnabled] = useState(ch?.enabled ?? true);
   const [cfg, setCfg] = useState<Record<string, string>>(() => {
@@ -247,13 +247,19 @@ export function ChannelEditor({ kinds, ch, onDone, onCreated }: {
     <div className="mt-2 space-y-2.5 border-t border-line pt-2.5">
       {!ch && (
         <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="channel type">
-          {kinds.map((k) => (
+          {kinds.filter((k) => k.kind !== "instance").map((k) => (
             <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} onClick={() => setKind(k.kind)}
-              className={`ui-focus inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] ${kind === k.kind ? "border-sea bg-sea/15 text-slate-100" : "border-line text-mut hover:text-slate-200"}`}>
+              disabled={!!k.unavailable} title={k.unavailable || undefined}
+              className={`ui-focus inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-45 ${kind === k.kind ? "border-sea bg-sea/15 text-slate-100" : "border-line text-mut hover:text-slate-200"}`}>
               <span aria-hidden>{CH_ICON[k.kind] || "•"}</span>{k.label}
             </button>
           ))}
         </div>
+      )}
+      {!ch && kinds.some((k) => k.unavailable) && (
+        <ul className="space-y-0.5 text-[11px] text-mut">
+          {kinds.filter((k) => k.unavailable).map((k) => <li key={k.kind}>{k.label}: {k.unavailable}</li>)}
+        </ul>
       )}
       <div className="grid gap-2.5 sm:grid-cols-2">
         <Field label="Name" htmlFor="ce-name"><input id="ce-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`Ops ${def?.label || ""}`} className={inputCls} /></Field>

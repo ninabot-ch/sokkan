@@ -90,6 +90,15 @@ def test_feature_off_is_404(world, monkeypatch):
     assert c.get("/api/alerting/rules").status_code == 200
 
 
+def test_features_flag_drives_the_tab(world, monkeypatch):
+    """The front shows Operate › Alerts only when /api/features says `alerting` — the flag was
+    missing at the merge of the two branches, so the tab stayed hidden on every instance."""
+    c = world["as"]("bob@x")
+    assert c.get("/api/features").json()["alerting"] is True
+    monkeypatch.setenv("SOKKAN_FEATURE_ALERTING", "0")
+    assert c.get("/api/features").json()["alerting"] is False
+
+
 def test_roles_viewer_reads_dev_writes_maintainer_manages(world):
     c = world["as"]("bob@x")
     r = c.post("/api/alerting/rules", json=_rule_body(c))

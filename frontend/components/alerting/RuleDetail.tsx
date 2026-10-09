@@ -3,7 +3,7 @@
 // firings marked on top), its active alerts, the timeline of its state changes, and its actions
 // (edit, turn off, send a test, silence, delete).
 import { useEffect, useRef, useState } from "react";
-import { createSilence, deleteRule, getRule, preview, ruleHistory, setRuleEnabled, testNotify } from "@/lib/alerting";
+import { createSilence, deleteRule, evaluateRule, getRule, preview, ruleHistory, setRuleEnabled, testNotify } from "@/lib/alerting";
 import {
   RANGES, durS, fmtValue, groupText, ruleState, since, toRuleIn, type Alert, type AlertSource, type Channel, type PreviewResult,
   type Rule, type Transition,
@@ -67,8 +67,9 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
         <h2 className="min-w-0 truncate text-[15px] font-semibold text-slate-100">{r.name}</h2>
         <StateChip s={st} n={r.state?.firing} />
         <SeverityChip s={r.severity} />
-        {canWrite && (
+        {canWrite && !r.external && (
           <span className="ml-auto flex flex-wrap gap-1.5">
+            <button type="button" className={btn.small} onClick={() => act(() => evaluateRule(r.id), "Checked now.")}>Check now</button>
             <button type="button" className={btn.small} onClick={() => onEdit(r)}>Edit</button>
             <button type="button" className={btn.small} onClick={test}>Send a test</button>
             <button type="button" className={btn.small} onClick={() => act(() => createSilence({ rule_id: r.id, matchers: {}, for: "1h", reason: "silenced from the rule page" }), "Silenced for 1 h.")}>Silence 1 h</button>
@@ -78,6 +79,8 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
         )}
       </div>
       <p className="text-[13.5px] leading-snug text-slate-200">{r.sentence || ""}</p>
+      {r.external && <Banner tone="info">This rule lives in an external system ({r.external.replace(/^external:/, "")}, sent by Grafana or another receiver): SOKKAN shows its alerts and routes them, but you edit it where it was made.</Banner>}
+      {r.labels?.proposed_by && !r.enabled && <Banner tone="info">Proposed by a session ({r.labels.proposed_by}) and off until someone turns it on — read the condition and the backtest first.</Banner>}
       {r.description && <p className="whitespace-pre-wrap text-[12px] text-mut">{r.description}</p>}
       {r.state?.error && <Banner tone="error"><b>The source answered with an error at the last check</b> — {r.state.error}</Banner>}
       {msg && <Banner tone={msg.tone}>{msg.text}</Banner>}
