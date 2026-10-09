@@ -54,7 +54,11 @@ export interface Builder {
   index?: string;
   field?: string;
 }
-export interface RuleQuery { mode: "builder" | "raw"; raw: string; builder: Builder }
+export interface RuleQuery {
+  mode: "builder" | "raw"; raw: string; builder: Builder;
+  /** what a raw query measures, in words (« memory used (%) ») — set by a template, dropped when the query is edited */
+  label?: string;
+}
 
 export interface QuietHours { enabled: boolean; start: string; end: string; tz?: string; days?: number[] }
 export interface RuleActions { incident: boolean; diag_session: boolean; agent_id: number | null; runbook: string | null }
@@ -274,6 +278,7 @@ const filt = (fs: Filter[] | undefined) =>
 /** What the rule watches, in words. */
 export function subjectOf(q: RuleQuery, kind?: SourceKind): string {
   if (q.mode === "raw") {
+    if (q.label) return q.label;
     const r = (q.raw || "").trim();
     return r ? (r.length > 64 ? `« ${r.slice(0, 61)}… »` : `« ${r} »`) : "the query";
   }
@@ -355,12 +360,19 @@ export function fromTemplate(t: Template, srcs: AlertSource[]): RuleIn {
   const src = srcs.find((s) => s.id === t.source_id) ?? srcs.find((s) => s.kind === t.source_kind) ?? null;
   const base = emptyRule(src);
   const r = t.rule || {};
+  // a template groups with `group_by` alone; on a metric source the form's « One alert per » is the
+  // builder's `by` (kept in sync with group_by on every edit) — fill it so the form says what the
+  // sentence says (« per job + instance ») instead of an empty field
+  const tb = r.query?.builder;
+  const fillBy = isMetricSource(t.source_kind) && (r.query?.mode ?? "builder") === "builder"
+    && !(tb?.by || []).length && (r.group_by || []).length;
+  const by = fillBy ? [...(r.group_by || [])] : tb?.by;
   return {
     ...base, ...r,
     name: r.name ?? t.name,
     description: r.description ?? t.description,
     source_id: r.source_id ?? src?.id ?? null,
-    query: { ...base.query, ...(r.query || {}), builder: { ...base.query.builder, ...(r.query?.builder || {}) } },
+    query: { ...base.query, ...(r.query || {}), builder: { ...base.query.builder, ...(r.query?.builder || {}), ...(by ? { by } : {}) } },
     params: { ...defaultParams(r.type ?? base.type), ...(r.params || {}) },
     quiet_hours: { ...base.quiet_hours, ...(r.quiet_hours || {}) },
     actions: { ...base.actions, ...(r.actions || {}) },
@@ -426,7 +438,10 @@ export function validateRule(r: RuleIn, kind?: SourceKind): { step: number; msg:
   if ((r.type === "new_term" || r.type === "cardinality" || r.type === "change") && !String(p.field || "").trim()) out.push({ step: 2, msg: "Pick the field to watch." });
   if (r.type === "change" && !String(p.key_field || "").trim()) out.push({ step: 2, msg: "Pick the key the field belongs to (host, user…)." });
   if (r.type === "cardinality" && !num("value")) out.push({ step: 2, msg: "Set the number of distinct values." });
-  for (const k of ["window", "reference", "lookback"]) if (k in p && !durS(String(p[k]))) out.push({ step: 2, msg: `The ${k === "window" ? "window" : k === "reference" ? "comparison period" : "look-back"} must be a duration (5m, 1h, 7d).` });
+  // a threshold on a metric keeps window "0s" (= the raw value, what the API stores): editing such a
+  // rule was blocked by « the window must be a duration » about a field the form does not show
+  const zeroOk = (k: string) => k === "window" && r.type === "threshold" && DUR.test(String(p[k] ?? "").trim());
+  for (const k of ["window", "reference", "lookback"]) if (k in p && !durS(String(p[k])) && !zeroOk(k)) out.push({ step: 2, msg: `The ${k === "window" ? "window" : k === "reference" ? "comparison period" : "look-back"} must be a duration (5m, 1h, 7d).` });
   if (durS(r.every) < 10) out.push({ step: 2, msg: "Check at most every 10 seconds." });
   if (!r.channels.length && !r.actions.incident) out.push({ step: 3, msg: "Nobody would know: pick a channel, or open an incident." });
   if (!r.name.trim()) out.push({ step: 4, msg: "Give the rule a name." });
@@ -544,8 +559,9 @@ export function localFires(series: Series[], op: string, th: number, forS = 0): 
 }
 
 /** Merged fire intervals (several groups firing at once show as one band, counted per group). */
-export function mergeIntervals(iv: Interval[]): { start: number; end: number; groups: number }[] {
-  const s = [...iv].map((i) => ({ start: i.start, end: i.end ?? i.start })).sort((a, b) => a.start - b.start);
+export function mergeIntervals(iv: Interval[], now?: number): { start: number; end: number; groups: number }[] {
+  // end null = still firing at the end of the range → the band runs to `now` (was drawn as a 3 px tick)
+  const s = [...iv].map((i) => ({ start: i.start, end: i.end ?? now ?? i.start })).sort((a, b) => a.start - b.start);
   const out: { start: number; end: number; groups: number }[] = [];
   for (const i of s) {
     const l = out[out.length - 1];
@@ -595,6 +611,12 @@ export function sortAlerts(as: Alert[]): Alert[] {
 }
 
 /** « 12 min », « 3 h 5 min », « 2 d » */
+/** « 3 min ago » / « just now » (not « just now ago »). */
+export function ago(ts: number | null | undefined, now = Date.now() / 1000): string {
+  const s = since(ts, now);
+  return s === "just now" || s === "—" ? s : `${s} ago`;
+}
+
 export function since(ts: number | null | undefined, now = Date.now() / 1000): string {
   if (!ts) return "—";
   const s = Math.max(0, now - ts);
@@ -612,3 +634,26 @@ export const groupText = (g: Record<string, string> | null | undefined, key?: st
 export const RANGES: { id: "1h" | "6h" | "24h" | "7d"; label: string }[] = [
   { id: "1h", label: "1 h" }, { id: "6h", label: "6 h" }, { id: "24h", label: "24 h" }, { id: "7d", label: "7 days" },
 ];
+
+/** Series to draw first: the groups that fired (else a target down all day — value 0 — was among the
+ *  « +14 more groups (not drawn) » while the verdict said it fired), then the rest in server order. */
+export function firedFirst(series: Series[], fires: Interval[]): Series[] {
+  const hot = new Set(fires.map((f) => f.group_key ?? ""));
+  return [...series].map((x, i) => ({ x, i })).sort((a, b) =>
+    (hot.has(b.x.group_key ?? "") ? 1 : 0) - (hot.has(a.x.group_key ?? "") ? 1 : 0) || a.i - b.i).map((o) => o.x);
+}
+
+/** A group key short enough for a legend: the label values (« node · 100.76.30.90:9100 »), the full
+ *  key stays in the tooltip. */
+export function shortGroup(key: string | null | undefined): string {
+  if (!key) return "series";
+  const vals = key.split(",").map((kv) => kv.split("=").slice(1).join("=")).filter(Boolean);
+  return vals.length ? vals.join(" · ") : key;
+}
+
+/** The unit of the watched value: % for a share (« as a percentage of ») or a labelled query
+ *  ending in « (%) » (memory, CPU, disk templates) — so the line says « > 85 % », not « > 85 ». */
+export function valueUnit(q: RuleQuery): string | null {
+  if (q.mode === "builder" && q.builder?.ratio_of) return "%";
+  return /\(%\)\s*$/.test(q.label || "") ? "%" : null;
+}

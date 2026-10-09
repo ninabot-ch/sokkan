@@ -14,6 +14,8 @@ import {
   alertingStatus, listAgentsLite, listAlerts, listChannels, listRules, listSources, listTemplates,
 } from "@/lib/alerting";
 import {
+  ago,
+  valueUnit,
   emptyRule, fmtValue, fromTemplate, ruleState, since, sortAlerts, sortRules, toRuleIn,
   type Alert, type AlertCounts, type AlertingStatus, type AlertSource, type Channel, type ChannelKindDef, type Rule,
   type RuleCounts, type RuleIn, type Template,
@@ -36,6 +38,9 @@ const setUrl = (p: Record<string, string | null>) => {
   const u = new URL(window.location.href);
   for (const k of ["rule", "alert", "view"]) u.searchParams.delete(k);
   for (const [k, v] of Object.entries(p)) if (v) u.searchParams.set(k, v);
+  // a rule / alert / view in the URL is a deep link: it carries its plane and tab, else a reload or a
+  // shared link (« ?project=platform&rule=1 », seen in the 09.10 journey) lands on the Board
+  if (Object.values(p).some(Boolean)) { u.searchParams.set("plane", "operate"); u.searchParams.set("tab", "alerts"); }
   window.history.replaceState(null, "", u.toString());
 };
 
@@ -154,21 +159,21 @@ function Overview(p: {
       {/* header */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-[15px] font-semibold text-slate-100">Alerts</h2>
-        {ev?.last_tick && <span className="text-[11px] text-mut">· checked {since(ev.last_tick)} ago{ev.errors ? ` · ${ev.errors} source error${ev.errors > 1 ? "s" : ""}` : ""}</span>}
+        {ev?.last_tick && <span className="text-[11px] text-mut">· checked {ago(ev.last_tick)}{ev.errors ? ` · ${ev.errors} source error${ev.errors > 1 ? "s" : ""}` : ""}</span>}
         <span className="ml-auto flex gap-1.5">
           <button type="button" className={btn.ghost} onClick={() => p.onSettings()}>⚙ Channels & sources</button>
           {p.canWrite && <button type="button" className={btn.primary} onClick={p.onNew}>+ New alert</button>}
         </span>
       </div>
 
-      {/* stat tiles */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="list" aria-label="summary">
+      {/* stat tiles — not before the first rule (four zeros above « No alert rule yet » say nothing) */}
+      {p.rules.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="list" aria-label="summary">
         <Tile label="Firing" n={firing} icon="▲" tone={firing ? "text-red-300" : "text-slate-400"} />
         <Tile label="Pending" n={pending} icon="◔" tone={pending ? "text-amber-200" : "text-slate-400"} hint="condition true, waiting for « only if it lasts »" />
-        <Tile label="Silenced" n={(p.aCounts?.silenced ?? 0) + (p.rCounts?.silenced ?? 0)} icon="⏸" tone="text-slate-300" />
+        <Tile label="Silenced" n={(p.aCounts?.silenced ?? 0) + (p.rCounts?.silenced ?? 0)} icon="‖" tone="text-slate-300" />
         <Tile label="Rules watching" n={(p.rCounts?.ok ?? 0) + (p.rCounts?.firing ?? 0) + (p.rCounts?.pending ?? 0)} icon="✓" tone="text-emerald-300"
           hint={p.rCounts?.disabled ? `${p.rCounts.disabled} off` : undefined} />
-      </div>
+      </div>}
 
       {brokenSources.length > 0 && (
         <Banner tone="warn">
@@ -205,7 +210,7 @@ function Overview(p: {
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel/40">
             {rules.map((r) => {
               const st = ruleState(r);
-              const unit = r.query.builder?.ratio_of ? "%" : null;
+              const unit = valueUnit(r.query);
               return (
                 <li key={r.id}>
                   <button type="button" onClick={() => p.onOpenRule(r.id)}
@@ -247,7 +252,7 @@ const CAT_ICON: Record<string, string> = { Web: "🌐", Hosts: "🖥", Logs: "�
 function TemplateCard({ t, onPick, disabled }: { t: Template; onPick: (t: Template) => void; disabled?: boolean }) {
   return (
     <button type="button" disabled={disabled} onClick={() => onPick(t)}
-      className={`ui-focus flex h-full flex-col gap-1 rounded-xl border p-3 text-left ${t.available ? "border-line bg-panel2/40 hover:border-sea/50" : "border-dashed border-line bg-transparent opacity-80 hover:border-line"}`}>
+      className={`ui-focus flex h-full flex-col gap-1 rounded-xl border p-3 text-left ${t.available ? "border-line bg-panel2/40 hover:border-sea/50" : "border-dashed border-line bg-transparent hover:border-line"}`}>
       <span className="flex items-center gap-2">
         <span aria-hidden className="text-[15px]">{CAT_ICON[t.category] || "◇"}</span>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-100">{t.name}</span>

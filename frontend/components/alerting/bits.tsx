@@ -50,7 +50,7 @@ export function StateChip({ s, n }: { s: RuleState | AlertState; n?: number }) {
 /** A 24 h sparkline in a rule row: shape only, no axis (the rule page has the real chart). */
 export function Sparkline({ pts, state, w = 96, h = 22 }: { pts?: TV[]; state: RuleState; w?: number; h?: number }) {
   const v = (pts || []).filter((p) => p[1] !== null && Number.isFinite(p[1] as number)) as [number, number][];
-  if (v.length < 2) return <span className="inline-block text-[10px] text-mut" style={{ width: w }} aria-hidden>no data yet</span>;
+  if (v.length < 2) return <span className="inline-block text-[10px] text-mut" style={{ width: w }} title="the 24 h trend fills in as the rule is checked — one point every 30 min">trend soon</span>;
   const t0 = v[0][0]; const t1 = v[v.length - 1][0];
   let lo = Math.min(...v.map((p) => p[1])); let hi = Math.max(...v.map((p) => p[1]));
   if (lo >= 0) lo = 0;
@@ -111,7 +111,7 @@ export function Seg<T extends string>({ value, onChange, opts, label, size = "md
             tabIndex={on ? 0 : -1} onClick={() => onChange(o.id)}
             onKeyDown={(e) => { if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(1); }
               if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(-1); } }}
-            className={`ui-focus rounded-md ${size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[12px]"} ${on ? "bg-sea/20 text-slate-100 ring-1 ring-sea/50" : "text-mut hover:text-slate-200"}`}>
+            className={`ui-focus rounded-md ${size === "sm" ? "min-h-6 px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[12px]"} ${on ? "bg-sea/20 text-slate-100 ring-1 ring-sea/50" : "text-mut hover:text-slate-200"}`}>
             {o.label}
           </button>
         );
@@ -134,9 +134,9 @@ export function Field({ label, hint, children, htmlFor, className = "" }: {
 
 export const inputCls = "ui-focus w-full min-w-0 rounded-lg border border-line bg-panel2 px-2.5 py-1.5 text-[12.5px] text-slate-100 placeholder:text-slate-500 outline-none focus:border-sea/60";
 export const btn = {
-  primary: "ui-focus inline-flex items-center gap-1.5 rounded-lg bg-sea px-3 py-1.5 text-[12.5px] font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40",
+  primary: "ui-focus inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40",
   ghost: "ui-focus inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-slate-200 hover:border-sea/50 disabled:cursor-not-allowed disabled:opacity-40",
-  small: "ui-focus inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] text-slate-200 hover:border-sea/50 disabled:cursor-not-allowed disabled:opacity-40",
+  small: "ui-focus inline-flex items-center gap-1 rounded-md border border-line min-h-6 px-2 py-0.5 text-[11px] text-slate-200 hover:border-sea/50 disabled:cursor-not-allowed disabled:opacity-40",
   danger: "ui-focus inline-flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-400 disabled:opacity-40",
 };
 

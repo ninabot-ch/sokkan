@@ -117,7 +117,9 @@ export function tabVisible(t: SubTab, c: VisCtx): boolean {
     case "infra": return !!c.f.infra && opsOk;
     case "incidents": return !!c.f.observe && opsOk;
     // 3.5: the alert rules work without any observability stack (SOKKAN's own figures, Elasticsearch…)
-    case "alerts": return !!c.f.alerting && opsOk;
+    // and belong to the PROJECT (viewer reads, dev writes its rules — the API enforces it): a team
+    // that owns a service watches it without being in the instance's ops team
+    case "alerts": return !!c.f.alerting;
     case "magnitude": return !!c.f.magnitude;
     case "crew": return !!c.f.agents && (c.canDev || !!c.f.agents_viewer_readonly);
     case "helm": return !!c.f.helm && c.steers;

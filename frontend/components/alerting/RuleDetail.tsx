@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createSilence, deleteRule, evaluateRule, getRule, preview, ruleHistory, setRuleEnabled, testNotify } from "@/lib/alerting";
 import {
+  ago,
+  valueUnit,
   RANGES, durS, fmtValue, groupText, ruleState, since, toRuleIn, type Alert, type AlertSource, type Channel, type PreviewResult,
   type Rule, type Transition,
 } from "@/lib/alertingModel";
@@ -45,7 +47,7 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
   const src = sources.find((s) => s.id === r.source_id);
   const st = ruleState(r);
   const mine = alerts.filter((a) => a.rule_id === r.id);
-  const unit = r.query.builder?.ratio_of ? "%" : null;
+  const unit = valueUnit(r.query);
   const act = async (f: () => Promise<unknown>, ok: string) => {
     setMsg(null);
     try { await f(); setMsg({ tone: "ok", text: ok }); load(); onChanged(); } catch (e) { setMsg({ tone: "error", text: String((e as Error).message || e) }); }
@@ -87,7 +89,7 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
 
       <div className="rounded-xl border border-line bg-panel/50 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-[11.5px] text-mut">
-          <span>last check {r.state?.last_eval ? `${since(r.state.last_eval)} ago` : "—"}</span>
+          <span>last check {r.state?.last_eval ? `${ago(r.state.last_eval)}` : "—"}</span>
           {r.state?.last_value !== undefined && r.state?.last_value !== null && <span>· value {fmtValue(r.state.last_value, unit)}</span>}
           <span>· every {r.every}{durS(r.for) ? `, holds ${r.for}` : ""}</span>
           <span className="flex items-center gap-1">· ▼ <span className="text-red-300">real firings</span> marked on top</span>

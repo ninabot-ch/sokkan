@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  areaPath, defaultParams, durS, emptyRule, fmtDur, fmtValue, fromTemplate, groupText, hasQuery, linePath, linear,
+  ago, areaPath, defaultParams, firedFirst, shortGroup, valueUnit, durS, emptyRule, fmtDur, fmtValue, fromTemplate, groupText, hasQuery, linePath, linear,
   localFires, mergeIntervals, nearest, niceTicks, ruleSentence, sDur, since, sortAlerts, sortRules, suggestName,
   switchSource, switchType, timeTicks, toRuleIn, typesFor, validateRule, yDomain,
   type Alert, type AlertSource, type Rule, type RuleIn, type Template,
@@ -183,4 +183,33 @@ test("lists: what needs eyes first", () => {
   assert.equal(since(1000, 1000 + 3 * 3600 + 300), "3 h 5 min");
   assert.equal(groupText({ job: "api", host: "a" }), "job=api · host=a");
   assert.equal(groupText(null, "job=api"), "job=api");
+});
+
+
+test("09.10 journey (Inès) — what the screens say", () => {
+  // a target down all day: the band runs to the end of the range (was a 3 px tick), and its series is drawn first
+  const fires = [{ group_key: "job=node,instance=rpi1:9100", start: 100, end: null, peak: 0 }];
+  assert.deepEqual(mergeIntervals(fires, 500), [{ start: 100, end: 500, groups: 1 }]);
+  assert.deepEqual(mergeIntervals(fires), [{ start: 100, end: 100, groups: 1 }]);
+  const series = [{ group_key: "job=a", points: [] }, { group_key: "job=node,instance=rpi1:9100", points: [] }, { group_key: "job=b", points: [] }];
+  assert.deepEqual(firedFirst(series, fires).map((x) => x.group_key), ["job=node,instance=rpi1:9100", "job=a", "job=b"]);
+  assert.equal(shortGroup("job=node,instance=100.76.30.90:9100"), "node · 100.76.30.90:9100");
+  assert.equal(shortGroup(null), "series");
+  // « just now », never « just now ago »
+  assert.equal(ago(1000, 1010), "just now");
+  assert.equal(ago(1000, 1000 + 180), "3 min ago");
+  // a template's PromQL is said in words, with its unit
+  const mem = { mode: "raw" as const, raw: "(1 - a / b) * 100", builder: {}, label: "memory used (%)" };
+  assert.equal(valueUnit(mem), "%");
+  assert.match(ruleSentence({ ...emptyRule(PROM), query: mem, type: "threshold", params: { op: ">", value: 85, reduce: "last" }, for: "10m", group_by: ["instance"] }, "prometheus", valueUnit(mem)),
+    /memory used \(%\) goes above 85 ?% for 10 min, per instance/);
+  // a template grouped by group_by alone fills the form's « One alert per »
+  const t: Template = { id: "target-down", name: "Service down", category: "Hosts", description: "", source_kind: "prometheus",
+    available: true, source_id: 1, rule: { group_by: ["job", "instance"], query: { mode: "builder", raw: "", builder: { metric: "up", agg: "last" } } } };
+  assert.deepEqual(fromTemplate(t, [PROM]).query.builder.by, ["job", "instance"]);
+  // a saved metric threshold has window "0s": editing it must not be blocked
+  const saved = { ...emptyRule(PROM), name: "down", channels: [1], query: { mode: "builder" as const, raw: "", builder: { metric: "up", agg: "last" } },
+    type: "threshold" as const, params: { op: "<", value: 1, reduce: "last", window: "0s" } };
+  assert.deepEqual(validateRule(saved, "prometheus"), []);
+  assert.ok(validateRule({ ...saved, type: "frequency", params: { count: 3, window: "0s" } }, "loki").some((x) => /window/.test(x.msg)));
 });

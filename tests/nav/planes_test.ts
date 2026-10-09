@@ -22,12 +22,12 @@ test("structure validated by Nick (08.10.2026)", () => {
   ]);
 });
 
-test("3.5 — Operate › Alerts: feature `alerting`, ops team, deep links", () => {
+test("3.5 — Operate › Alerts: feature `alerting`, project-scoped (not ops-only), deep links", () => {
   const withAlerts = { ...ALL, alerting: true };
   assert.deepEqual(ids(ctx({ f: withAlerts })).operate, ["incidents", "alerts", "infra", "costs", "journal"]);
   // rules work without an observability stack (SOKKAN figures, Elasticsearch…): Incidents off, Alerts on
   assert.deepEqual(ids(ctx({ f: { ...withAlerts, observe: false } })).operate, ["alerts", "infra", "costs", "journal"]);
-  assert.deepEqual(ids(ctx({ f: withAlerts, ops: false })).operate, ["costs", "journal"]);
+  assert.deepEqual(ids(ctx({ f: withAlerts, ops: false })).operate, ["alerts", "costs", "journal"]); // a project team watches its service
   assert.ok(!ids(ctx()).operate.includes("alerts"));                               // feature off
   for (const t of ["alerts", "alert", "Alerting", "rules"]) assert.deepEqual(resolveTarget(q(`tab=${t}`)), { plane: "operate", tab: "alerts", section: undefined });
   assert.deepEqual(resolveTarget(q("plane=operate&tab=alerts&rule=7")), { plane: "operate", tab: "alerts", section: undefined });

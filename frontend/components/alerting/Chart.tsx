@@ -7,7 +7,7 @@
 // tooltip, ≤ 4 groups in a validated fixed palette with a legend, a table view for screen readers.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  areaPath, fmtValue, linePath, linear, localFires, mergeIntervals, nearest, niceTicks, timeTicks, yDomain,
+  areaPath, fmtValue, linePath, linear, localFires, mergeIntervals, firedFirst, shortGroup, fmtDur, nearest, niceTicks, timeTicks, yDomain,
   type Interval, type PreviewResult, type Series, type TV, type Transition,
 } from "@/lib/alertingModel";
 import { FIRE, SERIES, THRESHOLD, fmtTime } from "./bits";
@@ -45,7 +45,7 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
     return () => ro.disconnect();
   }, []);
 
-  const all: Series[] = result?.series || [];
+  const all: Series[] = firedFirst(result?.series || [], result?.fired_intervals || []);
   const drawn = all.slice(0, MAX_GROUPS);
   const hiddenGroups = Math.max(0, all.length - drawn.length);
   const ref = result?.reference && "points" in result.reference ? (result.reference as Series) : null;
@@ -75,7 +75,7 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
   // fires: instant while dragging / when the drawn threshold differs from the server's; else the server's
   const local = drag !== null || (threshold && result?.threshold && threshold.value !== result.threshold.value);
   const fires: Interval[] = local && thVal !== null && result?.kind !== "events" ? localFires(drawn, thOp, thVal, forS) : (result?.fired_intervals || []);
-  const bands = mergeIntervals(fires);
+  const bands = mergeIntervals(fires, t1);
   const nFires = local ? fires.length : (result?.fires ?? fires.length);
   const isCount = result?.kind === "count" || result?.kind === "events";
   const bars = isCount && drawn.length === 1;
@@ -133,13 +133,15 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
   return (
     <div className="min-w-0">
       <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <FireCount n={nFires} loading={!!loading} has={has} err={result?.error} range={rangeLabel} local={!!local} />
+        <FireCount n={nFires} loading={!!loading} has={has} err={result?.error} range={rangeLabel} local={!!local}
+          crossed={nFires === 0 && forS > 0 && thVal !== null && result?.kind === "metric" ? localFires(drawn, thOp, thVal, 0).length : 0}
+          forS={forS} />
         {drawn.length > 1 && (
           <ul className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-300" aria-label="groups">
             {drawn.map((s, i) => (
               <li key={s.group_key || i} className="flex items-center gap-1">
                 <span aria-hidden className="inline-block h-[3px] w-3 rounded" style={{ background: SERIES[i] }} />
-                <span className="max-w-[16ch] truncate font-mono text-[10.5px]" title={s.group_key || ""}>{s.group_key || "series"}</span>
+                <span className="max-w-[24ch] truncate font-mono text-[10.5px]" title={s.group_key || ""}>{shortGroup(s.group_key)}</span>
               </li>
             ))}
             {hiddenGroups > 0 && <li className="text-mut">+{hiddenGroups} more groups (not drawn)</li>}
@@ -147,7 +149,7 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
         )}
         {ref && <span className="flex items-center gap-1 text-[11px] text-mut"><span aria-hidden className="inline-block w-3 border-t border-dashed border-slate-400" />usual level</span>}
         {thVal !== null && <span className="flex items-center gap-1 text-[11px] text-mut"><span aria-hidden className="inline-block w-3 border-t-2 border-dashed" style={{ borderColor: THRESHOLD }} />threshold{editable ? " — drag it" : ""}</span>}
-        <button type="button" onClick={() => setTable((v) => !v)} className="ui-focus ml-auto rounded px-1.5 text-[10.5px] text-mut underline-offset-2 hover:text-slate-200 hover:underline" aria-pressed={table}>
+        <button type="button" onClick={() => setTable((v) => !v)} className="ui-focus ml-auto min-h-6 rounded px-1.5 text-[10.5px] text-mut underline-offset-2 hover:text-slate-200 hover:underline" aria-pressed={table}>
           {table ? "chart" : "table"}
         </button>
       </div>
@@ -156,7 +158,7 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
         {table ? (
           <DataTable drawn={drawn} fires={fires} unit={unit} height={height} />
         ) : (
-          <svg ref={svg} width={w} height={height} role="img" aria-label={summary} className="block touch-none"
+          <svg ref={svg} width={w} height={height} role={editable ? "group" : "img"} aria-label={summary} className="block touch-none"
             onPointerMove={(e) => { onMove(e); move(e); }} onPointerLeave={() => setHov(null)} onPointerUp={up} onPointerCancel={up}>
             {/* grid + y axis (recessive) */}
             {yt.map((v) => (
@@ -214,7 +216,7 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
                     <g role="slider" tabIndex={0} aria-label="threshold" aria-valuenow={thVal} aria-valuemin={dom[0]} aria-valuemax={dom[1]}
                       aria-valuetext={`${thOp} ${fmtValue(thVal, unit)}`} onKeyDown={key} onPointerDown={down}
                       className="outline-none [&:focus-visible>rect]:stroke-sky-400" style={{ cursor: "ns-resize" }}>
-                      <rect x={M.left + iw - 74} y={y(thVal) - 10} width={72} height={20} rx={10} fill="#141a24" stroke={THRESHOLD} strokeWidth={1.5} />
+                      <rect x={M.left + iw - 74} y={y(thVal) - 12} width={72} height={24} rx={12} fill="#141a24" stroke={THRESHOLD} strokeWidth={1.5} />
                       <text x={M.left + iw - 38} y={y(thVal) + 3.5} textAnchor="middle" fontSize={10.5} fill="#f8e7b0" className="tabular-nums">
                         ⇕ {thOp} {fmtValue(thVal, unit)}
                       </text>
@@ -266,12 +268,16 @@ export default function Chart({ result, loading, threshold, onThreshold, forS = 
   );
 }
 
-function FireCount({ n, loading, has, err, range, local }: { n: number; loading: boolean; has: boolean; err?: string | null; range?: string; local: boolean }) {
-  if (err || (!has && !loading)) return <span className="text-[12px] text-mut">Backtest{range ? ` · ${range}` : ""}</span>;
+function FireCount({ n, loading, has, err, range, local, crossed = 0, forS = 0 }: {
+  n: number; loading: boolean; has: boolean; err?: string | null; range?: string; local: boolean; crossed?: number; forS?: number }) {
+  if (err || !has) return <span className="text-[12px] text-mut">Backtest{range ? ` · ${range}` : ""}{!err && loading ? " — reading the data…" : ""}</span>;
   return (
     <span className="text-[12.5px]" aria-live="polite">
       {n === 0 ? (
-        <span className="text-emerald-300">✓ Would not have fired{range ? ` in the last ${range}` : ""}</span>
+        <span className="text-emerald-300">✓ Would not have fired{range ? ` in the last ${range}` : ""}
+          {/* the line was crossed but never long enough: say it, else « 0 » looks like a bug next to the spikes */}
+          {crossed > 0 && <span className="text-mut"> — crossed the line {crossed} time{crossed === 1 ? "" : "s"}, never for {fmtDur(`${forS}s`)}</span>}
+        </span>
       ) : (
         <span className="text-slate-100"><span className="font-semibold text-red-300">▲ Would have fired {n} time{n === 1 ? "" : "s"}</span>{range ? ` in the last ${range}` : ""}</span>
       )}

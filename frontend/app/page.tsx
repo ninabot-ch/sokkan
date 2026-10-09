@@ -194,12 +194,17 @@ function CockpitBody() {
 
   // liens Operate ⇄ Crew (3.1.1) : l'URL porte la cible, le composant la lit au montage
   const goDeep = (t: SubTab, params: Record<string, string>) => {
-    try { window.history.pushState(null, "", href(t, params)); } catch { /* no history API */ }
+    // the project goes along: without it a deep link fell back to the person's default project
+    // (09.10: « Open an incident » from Platform landed on the empty Alerts of « Owner »)
+    try { window.history.pushState(null, "", href(t, { project: currentProject(), ...params })); } catch { /* no history API */ }
     goTab(t);
   };
   const openAgent = (agentId: number, runId?: number) =>
     goDeep("crew", { agent: String(agentId), ...(runId ? { run: String(runId) } : {}) });
   const openIncident = (id: number) => goDeep("incidents", { incident: String(id) });
+  // Operate › Incidents is the ops team's; a project team that opens an incident from an alert stays
+  // on its alert (the row says the incident is opened) instead of being sent to a tab it cannot see
+  const incidentsVisible = planes.some((p) => p.tabs.some((t) => t.id === "incidents"));
 
   const close = (id: string) => setOpen((cur) => cur.filter((x) => x.id !== id));
 
@@ -256,7 +261,7 @@ function CockpitBody() {
       ) : tab === "incidents" ? (
         <Operate onOpenSession={(sid) => openSession({ session_id: sid })} onOpenAgent={openAgent} />
       ) : tab === "alerts" ? (
-        <Alerts onOpenIncident={openIncident} />
+        <Alerts onOpenIncident={incidentsVisible ? openIncident : undefined} />
       ) : tab === "journal" ? (
         <Journal />
       ) : tab === "costs" ? (

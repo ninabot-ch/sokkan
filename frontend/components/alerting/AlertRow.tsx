@@ -34,7 +34,7 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
         <StateChip s={a.state} />
         <SeverityChip s={a.severity} compact />
         {!hideRule && (onOpenRule
-          ? <button type="button" onClick={() => onOpenRule(a.rule_id)} className="ui-focus min-w-0 truncate text-left text-[13px] font-medium text-slate-100 hover:underline">{a.rule_name}</button>
+          ? <button type="button" onClick={() => onOpenRule(a.rule_id)} className="ui-focus min-h-6 min-w-0 truncate text-left text-[13px] font-medium text-slate-100 hover:underline">{a.rule_name}</button>
           : <span className="min-w-0 truncate text-[13px] font-medium text-slate-100">{a.rule_name}</span>)}
         {g && <span className="rounded bg-panel2 px-1.5 font-mono text-[10.5px] text-slate-300">{g}</span>}
         <span className="ml-auto whitespace-nowrap text-[11px] text-mut" title={new Date(a.started_at * 1000).toLocaleString()}>
@@ -48,9 +48,10 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
             {a.threshold && <span className="text-mut"> {a.threshold.op} {fmtValue(a.threshold.value)}</span>}
           </span>
         )}
-        {a.summary && <span className="min-w-0 truncate text-mut">{a.summary}</span>}
+        {/* the summary repeats « value op threshold (group) »: only when there is no value to show */}
+        {a.summary && (a.value === null || a.value === undefined) && <span className="min-w-0 truncate text-mut">{a.summary}</span>}
         {a.acked_by && <span className="text-[11px] text-emerald-300">✓ taken by {a.acked_by}</span>}
-        {a.silenced_until && a.silenced_until > Date.now() / 1000 && <span className="text-[11px] text-slate-300">⏸ silenced {since(Date.now() / 1000, a.silenced_until)} more</span>}
+        {a.silenced_until && a.silenced_until > Date.now() / 1000 && <span className="text-[11px] text-slate-300">‖ silenced {since(Date.now() / 1000, a.silenced_until)} more</span>}
       </div>
       {(a.sample_events || []).length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
@@ -62,7 +63,7 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
         {canWrite && a.state !== "resolved" && (
           <span className="relative" onKeyDown={(e) => { if (e.key === "Escape") setMute(false); }}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMute(false); }}>
-            <button type="button" disabled={busy} className={btn.small} aria-expanded={mute} aria-haspopup="menu" onClick={() => setMute((v) => !v)}>⏸ Silence…</button>
+            <button type="button" disabled={busy} className={btn.small} aria-expanded={mute} aria-haspopup="menu" onClick={() => setMute((v) => !v)}>‖ Silence…</button>
             {mute && (
               <span role="menu" className="absolute left-0 top-full z-20 mt-1 flex w-44 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl shadow-black/40">
                 {[["1h", "for 1 hour"], ["4h", "for 4 hours"], [untilMorning(), "until tomorrow 08:00"], ["7d", "for a week"]].map(([d, l]) => (
@@ -72,8 +73,9 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
             )}
           </span>
         )}
-        {a.incident_id ? (
-          <button type="button" className={btn.small} onClick={() => onOpenIncident?.(a.incident_id as number)}>incident #{a.incident_id} →</button>
+        {a.incident_id ? (onOpenIncident
+          ? <button type="button" className={btn.small} onClick={() => onOpenIncident(a.incident_id as number)}>incident #{a.incident_id} →</button>
+          : <span className="text-[11px] text-slate-300">incident #{a.incident_id} opened — the ops team follows it in Operate › Incidents</span>
         ) : canWrite && a.state === "firing" ? (
           <button type="button" disabled={busy} className={btn.small} onClick={() => run(async () => { const r = await openIncident(a.id); onOpenIncident?.(r.incident_id); })}>Open an incident</button>
         ) : null}

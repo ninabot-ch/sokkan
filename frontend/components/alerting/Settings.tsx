@@ -7,7 +7,8 @@ import {
   createChannel, createSource, deleteChannel, deleteSilence, deleteSource, listChannels, listSilences, listSources,
   testChannel, testSource, testSourceDraft, updateChannel, updateSource,
 } from "@/lib/alerting";
-import { since, type AlertSource, type Channel, type ChannelKindDef, type Rule, type Silence, type SourceIn, type SourceKind, type TestResult } from "@/lib/alertingModel";
+import {
+  ago, since, type AlertSource, type Channel, type ChannelKindDef, type Rule, type Silence, type SourceIn, type SourceKind, type TestResult } from "@/lib/alertingModel";
 import { Banner, Field, Seg, btn, fmtTime, inputCls } from "./bits";
 
 type Tab = "sources" | "channels" | "silences";
@@ -197,7 +198,7 @@ function Channels({ canManage }: { canManage: boolean }) {
             <span className="rounded border border-line px-1.5 text-[10.5px] text-mut">{data.kinds.find((k) => k.kind === c.kind)?.label || c.kind}</span>
             {!c.enabled && <span className="text-[10.5px] text-amber-300">off</span>}
             {c.scope === "instance" && <span className="text-[10.5px] text-mut">instance</span>}
-            {c.last_test && <span className={`text-[10.5px] ${c.last_test.ok ? "text-emerald-300" : "text-red-300"}`}>{c.last_test.ok ? "✓" : "✕"} tested {since(c.last_test.at)} ago</span>}
+            {c.last_test && <span className={`text-[10.5px] ${c.last_test.ok ? "text-emerald-300" : "text-red-300"}`}>{c.last_test.ok ? "✓" : "✕"} tested {ago(c.last_test.at)}</span>}
             <span className="ml-auto flex gap-1.5">
               <button type="button" className={btn.small} onClick={() => test(c.id)} disabled={tests[c.id] === "…"}>{tests[c.id] === "…" ? "sending…" : "Send a test"}</button>
               {canManage && !c.builtin && <button type="button" className={btn.small} onClick={() => setEdit(c)}>Edit</button>}
@@ -309,7 +310,7 @@ function Silences({ rules }: { rules: Rule[] }) {
       {active.length === 0 && <div className="rounded-xl border border-dashed border-line p-4 text-center text-[12.5px] text-mut">No silence in force.</div>}
       {active.map((s) => (
         <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-panel2/40 p-2.5 text-[12.5px]">
-          <span aria-hidden>⏸</span>
+          <span aria-hidden>‖</span>
           <span className="text-slate-100">{name(s.rule_id)}</span>
           {Object.keys(s.matchers || {}).length > 0 && <span className="font-mono text-[11px] text-mut">{Object.entries(s.matchers).map(([k, v]) => `${k}=${v}`).join(" · ")}</span>}
           <span className="text-[11px] text-mut">until {fmtTime(s.ends_at, true)} ({since(Date.now() / 1000, s.ends_at)} left)</span>

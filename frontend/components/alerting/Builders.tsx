@@ -34,18 +34,24 @@ export function QueryBuilder({ src, q, onChange }: { src: AlertSource | undefine
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Seg label="query editor" size="sm" value={q.mode}
-          onChange={(m) => onChange({ ...q, mode: m, raw: m === "raw" && !q.raw ? "" : q.raw })}
+          onChange={(m) => onChange({ ...q, mode: m, raw: m === "raw" && !q.raw ? "" : q.raw, label: m === "raw" ? q.label : undefined })}
           opts={[{ id: "builder", label: "Visual" }, { id: "raw", label: kind === "prometheus" ? "PromQL" : kind === "loki" ? "LogQL" : kind === "sokkan" ? "Filter" : "Query" }]} />
-        {q.mode === "raw" && <span className="text-[10.5px] text-mut">for experts — the visual builder covers most rules</span>}
+        {q.mode === "raw" && !q.label && <span className="text-[10.5px] text-mut">for experts — the visual builder covers most rules</span>}
       </div>
 
+      {q.mode === "raw" && q.label && (
+        <div className="rounded-lg border border-sea/30 bg-sea/5 p-2.5 text-[12.5px] text-slate-200">
+          Measures <b>{q.label}</b> with a ready-made query from the template — nothing to write here:
+          the limit comes in the next step. The query stays editable below if you know what you are doing.
+        </div>
+      )}
       {q.mode === "raw" ? (
         <Field label={kind === "prometheus" ? "PromQL expression" : kind === "loki" ? "LogQL query" : kind === "sokkan" ? "SOKKAN filter" : "Lucene query or JSON DSL"} htmlFor="raw-q"
           hint={kind === "prometheus" ? <>e.g. <code className="font-mono">sum(rate(http_requests_total{"{"}status=~&quot;5..&quot;{"}"}[5m]))</code></>
             : kind === "loki" ? <>e.g. <code className="font-mono">{"{"}app=&quot;api&quot;{"}"} |= &quot;ERROR&quot;</code></>
             : kind === "sokkan" ? <>e.g. <code className="font-mono">audit action=agent.run.failed</code>, <code className="font-mono">cost.day</code>, <code className="font-mono">sessions.waiting</code></>
             : <>e.g. <code className="font-mono">level:error AND service:api</code> — or a JSON query starting with <code>{"{"}</code></>}>
-          <textarea id="raw-q" value={q.raw} onChange={(e) => onChange({ ...q, raw: e.target.value })} rows={4} spellCheck={false}
+          <textarea id="raw-q" value={q.raw} onChange={(e) => onChange({ ...q, raw: e.target.value, label: undefined })} rows={4} spellCheck={false}
             className={`${inputCls} resize-y font-mono text-[12px]`} />
         </Field>
       ) : kind === "prometheus" ? (

@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRule, preview, testChannel, updateRule } from "@/lib/alerting";
 import {
+  valueUnit,
   RANGES, durS, hasQuery, isMetricSource, ruleSentence, suggestName, switchSource, switchType, typesFor,
   validateRule, type AlertSource, type Channel, type ChannelKindDef, type Param, type PreviewResult, type Rule, type RuleIn,
   type RuleType, type Severity,
@@ -41,7 +42,12 @@ export interface WizardProps {
 }
 
 export default function Wizard(p: WizardProps) {
-  const [r, setR] = useState<RuleIn>(p.start);
+  // a new rule tells the project's channel when there is exactly one: the 09.10 journey saved its
+  // second rule with nobody to tell because the only channel was not ticked
+  const [r, setR] = useState<RuleIn>(() => {
+    const own = p.channels.filter((c) => c.enabled && !c.builtin);
+    return !p.start.channels.length && own.length === 1 && !p.ruleId ? { ...p.start, channels: [own[0].id] } : p.start;
+  });
   const [step, setStep] = useState(1);
   const [range, setRange] = useState<"1h" | "6h" | "24h" | "7d">("24h");
   const [pv, setPv] = useState<PreviewResult | null>(null);
@@ -52,7 +58,7 @@ export default function Wizard(p: WizardProps) {
   const [nameTouched, setNameTouched] = useState(!!p.start.name);
   const src = p.sources.find((s) => s.id === r.source_id);
   const kind = src?.kind;
-  const unit = r.query.builder?.ratio_of ? "%" : null;
+  const unit = valueUnit(r.query);
   const problems = validateRule(r, kind);
   const sentence = ruleSentence(r, kind, unit);
 
@@ -230,7 +236,10 @@ function StepWhen({ r, setR, src, setParam }: {
   const num = (k: string, label: string, opts: { min?: number; step?: number; suffix?: string; hint?: string } = {}) => (
     <Field label={label} htmlFor={`p-${k}`} hint={opts.hint}>
       <div className="flex items-center gap-1.5">
-        <input id={`p-${k}`} type="number" inputMode="decimal" min={opts.min} step={opts.step ?? "any"} value={p[k] === null || p[k] === undefined ? "" : String(p[k])}
+        <input id={`p-${k}`} type="number" inputMode="decimal"
+          // Chrome changes a focused number field on the mouse wheel: scrolling the page with the cursor
+          // over it moved the threshold 85 → 42 in the 09.10 journey without anyone noticing
+          onWheel={(e) => e.currentTarget.blur()} min={opts.min} step={opts.step ?? "any"} value={p[k] === null || p[k] === undefined ? "" : String(p[k])}
           onChange={(e) => setParam(k, e.target.value === "" ? null : Number(e.target.value))} className={`${inputCls} w-28 text-right tabular-nums`} />
         {opts.suffix && <span className="text-[12px] text-mut">{opts.suffix}</span>}
       </div>
@@ -239,7 +248,7 @@ function StepWhen({ r, setR, src, setParam }: {
   const dur = (k: string, label: string, hint?: string) => (
     <Field label={label} htmlFor={`p-${k}`} hint={hint}><DurInput id={`p-${k}`} label={label} value={String(p[k] ?? "5m")} onChange={(v) => setParam(k, v)} /></Field>
   );
-  const unit = r.query.builder?.ratio_of ? "%" : undefined;
+  const unit = valueUnit(r.query) ?? undefined;
   const logs = !!src && !isMetricSource(src.kind);
   return (
     <>
