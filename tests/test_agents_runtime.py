@@ -266,6 +266,30 @@ def test_budget_below_one_call_does_not_start_the_run(env):
     assert ag.list_runs(DEV, b["id"])[0]["status"] == "succeeded"
 
 
+def test_budget_on_the_cli_default_model_is_estimated(env, monkeypatch):
+    """3.4.5: an agent without a model runs on the CLI's default — 3.4.4 had no estimate
+    (null) and a $0.10 run spent $0.1963 on its first call in prod. The estimate now takes
+    the dearest Claude model of the table, so that run does not start."""
+    import agentcost
+    for k in ("SOKKAN_AGENT_MODEL", "ANTHROPIC_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(agentcost.llm, "session_model", lambda: "")
+    m = agentcost.metering(None)
+    assert m["basis"] == "sdk" and m["model"] in ("", "default")
+    assert m["first_call_usd"] and m["first_call_usd"] > 0.10
+    ag, rt = env["agents"], env["rt"]
+    before = len(FakeSession.instances)
+    a = _agent(ag, name="nomodel", trigger="manual", schedule="", budget_usd=0.10, model="")
+    ag.request_run(DEV, a["id"])
+
+    async def go():
+        rt.start_queued()
+        await _drain(rt)
+    _run(go())
+    run = ag.list_runs(DEV, a["id"])[0]
+    assert run["status"] == "budget" and len(FakeSession.instances) == before
+
+
 def test_timeout_interrupts_the_session(env):
     ag, rt = env["agents"], env["rt"]
     env["script"]["sleep"] = 5

@@ -245,11 +245,31 @@ def _claude_price(model: str) -> dict | None:
             "source": "Claude price table"}
 
 
+def _dearest_claude_price() -> dict | None:
+    """The most expensive Claude model of the table — the prudent price of a run whose
+    model is the CLI's own default (`""`): which one it picks is not known here (3.4.5)."""
+    try:
+        import pricing
+        models = pricing.table()["models"]
+    except Exception:  # noqa: BLE001
+        return None
+    best = max(models, key=lambda k: float(models[k].get("input") or 0), default=None)
+    return _claude_price(best) if best else None
+
+
 def first_call_estimate(m: dict) -> float | None:
     """The least a run's first API call costs (USD): its prompt written to the cache, at
     the model's price — or what the last run on this model measured, if more. None = no
-    price and nothing measured yet (the per-call guard of the Meter still applies)."""
-    p = m.get("price") if m.get("basis") == "sokkan" else _claude_price(m.get("model") or "")
+    price and nothing measured yet (the per-call guard of the Meter still applies).
+    A Claude run on the CLI's default model (no model set: 3.4.4 had no estimate and let a
+    $0.10 run spend $0.1963 on its first call) is estimated at the dearest Claude model."""
+    if m.get("basis") == "sokkan":
+        p = m.get("price")
+    else:
+        model = (m.get("model") or "").strip()
+        p = _claude_price(model) if model and model != "default" else None
+        if p is None:
+            p = _dearest_claude_price()
     floor = None
     if p:
         floor = first_call_tokens() * p["cache_write"] / 1e6
