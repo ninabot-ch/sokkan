@@ -85,7 +85,7 @@ def _tiers() -> list[dict]:
     now = time.time()
     if now - _tier_cache["at"] > _TIER_TTL_S:
         try:
-            _tier_cache["tiers"] = llm.tier_catalog() or []
+            _tier_cache["tiers"] = llm.price_tiers() or []
         except Exception:  # noqa: BLE001 — gateway down = price unknown, not a crash
             _tier_cache["tiers"] = []
         _tier_cache["at"] = now
@@ -94,11 +94,13 @@ def _tiers() -> list[dict]:
 
 def _endpoint() -> str:
     """'anthropic' when the sessions talk to Anthropic, else 'gateway' / 'custom'."""
-    mode = (llm.load() or {}).get("mode")
+    c = llm.load() or {}
+    mode = c.get("mode")
     if mode == "included":
         return "gateway"
     if mode == "custom":
-        return "custom"
+        # the SOKKAN Router engine drives the gateway's Anthropic door (3.4.4)
+        return "gateway" if c.get("engine") == "sokkan_router" else "custom"
     if mode == "byok":
         return "anthropic"
     base = (os.environ.get("ANTHROPIC_BASE_URL") or "").strip()
@@ -118,6 +120,10 @@ def _is_claude(model: str) -> bool:
 
 
 def _price_for(model: str, endpoint: str) -> dict | None:
+    # 3.4.4: the gateway answers `sokkan/<served tier>`; an escalated message is priced
+    # at the tier that served it
+    if model.startswith("sokkan/"):
+        model = model.split("/", 1)[1]
     table = _table()
     entry = table.get(model)
     if entry is None:
@@ -134,9 +140,11 @@ def _price_for(model: str, endpoint: str) -> dict | None:
         for t in _tiers():
             if t.get("id") == model and t.get("chf_per_mtok_in") is not None:
                 pin = float(t["chf_per_mtok_in"])
+                cached = t.get("chf_per_mtok_cached")
                 return {"currency": "CHF", "input": pin,
                         "output": float(t.get("chf_per_mtok_out") or 0),
-                        "cache_read": pin, "cache_write": pin,
+                        "cache_read": float(cached) if cached is not None else pin,
+                        "cache_write": pin,
                         "source": "SOKKAN Inference tiers"}
     return None
 

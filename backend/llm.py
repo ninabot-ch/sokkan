@@ -189,6 +189,24 @@ def tier_catalog() -> list[dict]:
         return []
 
 
+def price_tiers() -> list[dict]:
+    """The gateway's tier grid for pricing: managed inference (`included`), or the SOKKAN
+    Router engine of Connect your AI (custom mode on the gateway's Anthropic door, 3.4.4 —
+    before, its sessions were unpriced). Empty when unreachable (price unknown, no guess)."""
+    c = load()
+    if c.get("mode") == "included":
+        return tier_catalog()
+    if c.get("mode") != "custom" or c.get("engine") != "sokkan_router" or not c.get("base_url"):
+        return []
+    import httpx
+    try:
+        r = httpx.get(f"{c['base_url'].rstrip('/')}/tiers", timeout=8)
+        r.raise_for_status()
+        return r.json().get("tiers", [])
+    except (httpx.HTTPError, ValueError):
+        return []
+
+
 def set_tier(tier: str) -> None:
     """Change le tier d'une instance en inférence incluse (préserve base_url/token)."""
     c = load()
