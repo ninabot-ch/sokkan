@@ -34,6 +34,24 @@ Notable changes, newest first. Versions: semver + release hash (see
   now priced at the tier that served them (an escalated message at Deep) from the gateway's
   `/tiers` grid, cached-input price included, converted with `SOKKAN_FX_USD_PER_CHF` — for the
   SOKKAN Router engine as for managed inference; Crew runs on that engine are metered the same way.
+- **Reclassifying a note no longer corrupts it.** The `classification:` line was inserted
+  right after `description: >-`, inside the folded value: the note then read as an unknown
+  level (restricted) and disappeared for everyone, owner included (seen in the 09.10 smoke on
+  a note in the house format). The key now goes after the value's indented lines; block
+  scalars (`>-`, `|`) and nested `metadata:` are kept intact.
+- **A run budget holds from the first call.** In prod one call to Claude cost $0.2008 for a
+  $0.10 budget: the first API call writes the system prompt, tools and brief to the prompt
+  cache, and the 3.4.3 guard only knew a message's cost once it existed. Now (1) a run whose
+  budget is below the estimated cost of its first call does not start — status `budget`,
+  « run budget $0.10 is below the cost of one call to … — raise the budget to at least … or
+  pick a cheaper model », audit `agent.run.budget_too_low`, notification; the estimate is the
+  model's cache-write price × `SOKKAN_AGENTS_FIRST_CALL_TOKENS` (default 20,000), or what the
+  last run on that model measured if more (`$SOKKAN_DATA_DIR/agent-first-call.json`), and is
+  shown as `metering.first_call_usd`; (2) Claude runs priced by the SDK are also guarded
+  before the next call (Claude price table), not only after a turn is over budget; (3) budgets
+  are printed as set (`$0.005`, not `$0.01`).
+- Tests brought in line with 3.4.2/3.4.3 (409 `memory_store_required` on the 2.x index,
+  `empty_report()` shape).
 
 ## 3.4.3 — 2026-10-09 — "Bridge"
 

@@ -238,6 +238,34 @@ def test_end_states_and_notifications(env, script, status, notified):
     assert ag.list_agents(DEV)[0]["deck"] == "error"
 
 
+def test_budget_below_one_call_does_not_start_the_run(env):
+    """3.4.4: one call to Opus cost $0.2008 for a $0.10 budget in prod — the first call
+    writes the whole prompt to the cache. A budget below that estimate is refused up front."""
+    import agentcost
+    ag, rt = env["agents"], env["rt"]
+    before = len(FakeSession.instances)
+    a = _agent(ag, trigger="manual", schedule="", budget_usd=0.005, model="haiku")
+    ag.request_run(DEV, a["id"])
+
+    async def go():
+        rt.start_queued()
+        await _drain(rt)
+    _run(go())
+    run = ag.list_runs(DEV, a["id"])[0]
+    assert run["status"] == "budget" and len(FakeSession.instances) == before  # no session
+    assert "$0.005 is below the cost of one call to haiku" in run["error"]
+    assert "Raise the budget to at least $0.04" in run["error"] and env["sent"]
+    # a budget that holds the first call runs; what it measured calibrates the next estimate
+    m = agentcost.metering("haiku")
+    assert m["first_call_usd"] == pytest.approx(20_000 * 1.25 / 1e6)
+    agentcost.record_first_call(m, 0.09)
+    assert agentcost.metering("haiku")["first_call_usd"] == pytest.approx(0.09)
+    b = _agent(ag, name="enough", trigger="manual", schedule="", budget_usd=0.5, model="haiku")
+    ag.request_run(DEV, b["id"])
+    _run(go())
+    assert ag.list_runs(DEV, b["id"])[0]["status"] == "succeeded"
+
+
 def test_timeout_interrupts_the_session(env):
     ag, rt = env["agents"], env["rt"]
     env["script"]["sleep"] = 5

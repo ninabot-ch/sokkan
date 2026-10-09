@@ -729,8 +729,12 @@ class AgentSession:
 
         # AssistantMessage (et UserMessage portant des tool_result)
         self._emit_model(getattr(msg, "model", None))  # le modèle réel du tour
-        if self.meter is not None and self.meter.active:
-            self.meter.add(getattr(msg, "usage", None), getattr(msg, "message_id", None))
+        if self.meter is not None and (self.meter.active or self.meter.guarding):
+            if self.meter.active:
+                self.meter.add(getattr(msg, "usage", None), getattr(msg, "message_id", None))
+            else:  # 3.4.4: Claude priced by the SDK — SOKKAN guards the next call too
+                self.meter.add_sdk(getattr(msg, "usage", None), getattr(msg, "message_id", None),
+                                   getattr(msg, "model", None))
             why = self.meter.over() if self.budget_stop is None else None
             if why:
                 self.budget_stop = why

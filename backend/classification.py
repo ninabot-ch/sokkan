@@ -366,6 +366,12 @@ def set_frontmatter_level(text: str, level: int) -> str:
         lines = block.split("\n")
         at = next((i + 1 for i, ln in enumerate(lines) if ln.startswith("description:")),
                   len(lines))
+        # a block scalar (``description: >-`` / ``|``) or a wrapped value continues on the
+        # indented lines below: the new key goes after them, never inside the value
+        while at < len(lines) and (lines[at][:1] in (" ", "\t") or
+                                   (not lines[at].strip() and at + 1 < len(lines)
+                                    and lines[at + 1][:1] in (" ", "\t"))):
+            at += 1
         lines.insert(at, f"classification: {ident}")
         block = "\n".join(lines)
     return text[:m.start()] + f"---\n{block}\n---\n" + text[m.end():]

@@ -533,6 +533,26 @@ def test_frontmatter_level_rewrite():
     assert parse_note(C.set_frontmatter_level(out, 1), "a.md").level == 1
 
 
+def test_frontmatter_level_rewrite_keeps_a_folded_description():
+    """Our notes use ``description: >-`` over several lines (3.4.4: the level used to land
+    inside the folded value, so the note read as restricted and vanished for everyone)."""
+    import classification as C
+    from core.notes import parse_note
+    t = ("---\nname: postgres-upgrade\ndescription: >-\n  Migration Postgres 15 → 16 : plan,\n"
+         "  fenêtre et retour arrière.\nmetadata:\n  type: project\n  modified: 2026-10-08\n"
+         "---\n# Upgrade\nbody\n")
+    out = C.set_frontmatter_level(t, 3)
+    n = parse_note(out, "postgres_upgrade.md")
+    assert n.level == 3
+    assert "Migration Postgres 15 → 16" in n.description and "classification" not in n.description
+    assert "fenêtre et retour arrière." in n.description
+    assert "  type: project\n  modified: 2026-10-08\n---\n# Upgrade" in out
+    again = C.set_frontmatter_level(out, 1)
+    assert again.count("classification:") == 1 and parse_note(again, "p.md").level == 1
+    lit = t.replace("description: >-", "description: |")
+    assert parse_note(C.set_frontmatter_level(lit, 2), "p.md").level == 2
+
+
 def test_feature_registry_dependencies(monkeypatch):
     import features
     for k in list(os.environ):

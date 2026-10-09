@@ -154,9 +154,11 @@ def metering(agent_model: str | None) -> dict:
     endpoint = _endpoint()
     model = effective_model(agent_model)
     if endpoint == "anthropic" and _is_claude(model):
-        return {"basis": "sdk", "model": model or "default", "endpoint": endpoint,
-                "price": None, "max_tokens_per_run": None,
-                "note": "Claude on Anthropic: the SDK reports the cost and enforces the budget."}
+        out = {"basis": "sdk", "model": model or "default", "endpoint": endpoint,
+               "price": None, "max_tokens_per_run": None,
+               "note": "Claude on Anthropic: the SDK reports the cost and enforces the budget."}
+        out["first_call_usd"] = first_call_estimate(out)
+        return out
     if endpoint == "gateway" and not model:
         model = llm.DEFAULT_INCLUDED_MODEL
     price = _price_for(model, endpoint) if model else None
@@ -170,8 +172,97 @@ def metering(agent_model: str | None) -> dict:
         note = (f"Price of {model or 'the endpoint default model'} unknown: the USD budget "
                 f"cannot be checked, the run is capped at {cap:,} tokens instead. Add the "
                 "model to the price table (docs/AGENTS.md § Budget).")
-    return {"basis": "sokkan", "model": model or "", "endpoint": endpoint, "price": price,
-            "max_tokens_per_run": cap, "fx_usd_per_chf": fx_usd_per_chf(), "note": note}
+    out = {"basis": "sokkan", "model": model or "", "endpoint": endpoint, "price": price,
+           "max_tokens_per_run": cap, "fx_usd_per_chf": fx_usd_per_chf(), "note": note}
+    out["first_call_usd"] = first_call_estimate(out)
+    return out
+
+
+DEFAULT_FIRST_CALL_TOKENS = 20_000
+
+
+def first_call_tokens() -> int:
+    """What the first API call of a run writes to the prompt cache at least: the CLI's
+    system prompt, the tool and MCP definitions, the agent's brief. Measured on CLI 2.1.29x:
+    16k (haiku, 3 tools) to 40k tokens (MCP servers). `SOKKAN_AGENTS_FIRST_CALL_TOKENS`."""
+    raw = (os.environ.get("SOKKAN_AGENTS_FIRST_CALL_TOKENS") or "").strip()
+    try:
+        v = int(float(raw)) if raw else DEFAULT_FIRST_CALL_TOKENS
+    except ValueError:
+        v = DEFAULT_FIRST_CALL_TOKENS
+    return v if v > 0 else DEFAULT_FIRST_CALL_TOKENS
+
+
+def _first_call_file() -> Path:
+    data = os.environ.get("SOKKAN_DATA_DIR") or os.path.expanduser("~/.local/share/sokkan")
+    return Path(data) / "agent-first-call.json"
+
+
+def _model_key(m: dict) -> str:
+    return (m.get("model") or "").strip() or "default"
+
+
+def observed_first_call(m: dict) -> float | None:
+    """The cost of the first call of the last run on this model (USD), if one was seen."""
+    try:
+        v = json.loads(_first_call_file().read_text(encoding="utf-8")).get(_model_key(m))
+        return float(v) if v else None
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
+def record_first_call(m: dict, usd: float) -> None:
+    if not usd or usd <= 0:
+        return
+    f = _first_call_file()
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        d = d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        d = {}
+    d[_model_key(m)] = round(float(usd), 6)
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, indent=1, sort_keys=True), encoding="utf-8")
+        tmp.replace(f)
+    except OSError:
+        pass
+
+
+def _claude_price(model: str) -> dict | None:
+    """A Claude model's price as an agentcost price (USD, cache write 5 min = input x 1.25)."""
+    try:
+        import pricing
+        p = pricing.price(model or "")
+        mult = float(pricing.table()["cache_write_multiplier"]["5m"])
+    except Exception:  # noqa: BLE001 — an unreadable table = no estimate, never a crash
+        return None
+    if not p:
+        return None
+    return {"currency": "USD", "input": p["input"], "output": p["output"],
+            "cache_read": p["cache_read"], "cache_write": p["input"] * mult,
+            "source": "Claude price table"}
+
+
+def first_call_estimate(m: dict) -> float | None:
+    """The least a run's first API call costs (USD): its prompt written to the cache, at
+    the model's price — or what the last run on this model measured, if more. None = no
+    price and nothing measured yet (the per-call guard of the Meter still applies)."""
+    p = m.get("price") if m.get("basis") == "sokkan" else _claude_price(m.get("model") or "")
+    floor = None
+    if p:
+        floor = first_call_tokens() * p["cache_write"] / 1e6
+        floor *= fx_usd_per_chf() if p.get("currency") == "CHF" else 1.0
+    seen = observed_first_call(m)
+    vals = [v for v in (floor, seen) if v]
+    return max(vals) if vals else None
+
+
+def usd(v: float) -> str:
+    """A budget as people set it: $0.005 stays $0.005 (not "$0.01"), $0.1 → $0.10."""
+    v = float(v or 0)
+    return f"${v:.2f}" if round(v, 2) == v else f"${v:.4f}".rstrip("0")
 
 
 class Meter:
@@ -185,6 +276,41 @@ class Meter:
         self._by_msg: dict[str, dict] = {}
         self._loose: list[dict] = []
         self.max_msg_usd = 0.0      # the most expensive single API message so far (3.4.3)
+        self.first_msg_usd = 0.0    # the run's first API message (3.4.4: calibrates the next run)
+        self._first_id: str | None = None
+        self._sdk_by_msg: dict[str, float] = {}   # Claude on Anthropic: per-message USD
+
+    @property
+    def guarding(self) -> bool:
+        """3.4.4: a Claude run priced by the SDK — the SDK's `max_budget_usd` only acts once a
+        turn is over its budget, so SOKKAN also prices each message and stops before the next
+        call would cross it."""
+        return self.m.get("basis") == "sdk" and self.budget_usd > 0
+
+    def add_sdk(self, usage: dict | None, message_id: str | None, model: str | None) -> None:
+        if not isinstance(usage, dict):
+            return
+        try:
+            import pricing
+            c = pricing.cost(model or self.m.get("model") or "", usage)
+        except Exception:  # noqa: BLE001
+            c = None
+        if not c:
+            return
+        key = message_id or f"_loose{len(self._sdk_by_msg)}"
+        self._sdk_by_msg[key] = max(self._sdk_by_msg.get(key, 0.0), c["total"])
+        self.max_msg_usd = max(self.max_msg_usd, self._sdk_by_msg[key])
+        self._note_first(key, self._sdk_by_msg[key])
+
+    def _note_first(self, key: str, cost: float) -> None:
+        if self._first_id is None:
+            self._first_id = key
+        if key == self._first_id:
+            self.first_msg_usd = max(self.first_msg_usd, cost)
+
+    @property
+    def sdk_cost_usd(self) -> float:
+        return sum(self._sdk_by_msg.values())
 
     @property
     def active(self) -> bool:
@@ -199,10 +325,14 @@ class Meter:
         if message_id:
             prev = self._by_msg.get(message_id) or {}
             self._by_msg[message_id] = {k: max(v, prev.get(k, 0)) for k, v in u.items()}
-            self.max_msg_usd = max(self.max_msg_usd, self._cost_of(self._by_msg[message_id]))
+            c = self._cost_of(self._by_msg[message_id])
+            self.max_msg_usd = max(self.max_msg_usd, c)
+            self._note_first(message_id, c)
         else:
             self._loose.append(u)
-            self.max_msg_usd = max(self.max_msg_usd, self._cost_of(u))
+            c = self._cost_of(u)
+            self.max_msg_usd = max(self.max_msg_usd, c)
+            self._note_first(f"_loose{len(self._loose)}", c)
 
     @property
     def seen(self) -> bool:
@@ -235,6 +365,13 @@ class Meter:
 
     def over(self) -> str | None:
         """Why the run must stop now, or None."""
+        if self.guarding:
+            spent = self.sdk_cost_usd
+            if self.max_msg_usd and spent + self.max_msg_usd > self.budget_usd:
+                return (f"run budget {usd(self.budget_usd)} would be exceeded by the next call "
+                        f"(${spent:.4f} so far, the dearest call cost ${self.max_msg_usd:.4f}; "
+                        f"Claude price table, {self.m.get('model') or 'default model'})")
+            return None
         if not self.active:
             return None
         cap = self.m.get("max_tokens_per_run") or max_tokens_per_run()
@@ -243,7 +380,7 @@ class Meter:
                     + ("" if self.m.get("price") else f"; price of {self.m.get('model') or 'the model'} unknown")
                     + ")")
         if self.m.get("price") and self.budget_usd and self.cost_usd >= self.budget_usd:
-            return (f"run budget ${self.budget_usd:.2f} reached (${self.cost_usd:.4f} computed by "
+            return (f"run budget {usd(self.budget_usd)} reached (${self.cost_usd:.4f} computed by "
                     f"SOKKAN from tokens × the {self.m['price']['currency']} price of "
                     f"{self.m.get('model')})")
         # 3.4.3: the cost of a message is known only once it exists, so a run used to end
@@ -252,7 +389,7 @@ class Meter:
         # budget still covers it.
         if self.m.get("price") and self.budget_usd and self.max_msg_usd \
                 and self.cost_usd + self.max_msg_usd > self.budget_usd:
-            return (f"run budget ${self.budget_usd:.2f} would be exceeded by the next call "
+            return (f"run budget {usd(self.budget_usd)} would be exceeded by the next call "
                     f"(${self.cost_usd:.4f} so far, the dearest call cost ${self.max_msg_usd:.4f}; "
                     f"computed by SOKKAN from tokens × the {self.m['price']['currency']} price of "
                     f"{self.m.get('model')})")

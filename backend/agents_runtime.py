@@ -140,7 +140,7 @@ def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None,
         lines.append("- No secrets are available to this agent.")
     limits = [f"{a.get('max_minutes') or 30} minutes"]
     if a.get("budget_usd"):
-        limits.insert(0, f"${a['budget_usd']:.2f}")
+        limits.insert(0, agentcost.usd(a['budget_usd']))
     if held:
         lines.append("- This run was started by an alert: " + ", ".join(held) + " wait for a "
                      "human approval this time, even though they usually run unasked.")
@@ -197,6 +197,22 @@ def _cron_latest_due(a: dict, now: float) -> float | None:
             return occ
         occ = nxt
     return occ
+
+
+def first_call_refusal(a: dict, metering: dict) -> str | None:
+    """Why a run cannot start on its budget (3.4.4), or None: the budget is below what the
+    first API call alone costs (estimate from the price table, or the last run measured)."""
+    budget = float(a.get("budget_usd") or 0)
+    if budget <= 0:
+        return None
+    est = agentcost.first_call_estimate(metering)
+    if not est or est <= budget:
+        return None
+    model = metering.get("model") or "the default model"
+    return (f"run budget {agentcost.usd(budget)} is below the cost of one call to {model} "
+            f"(≈ ${est:.4f}: the first call writes the agent's system prompt and tools to "
+            f"the cache) — the run did not start. Raise the budget to at least "
+            f"${max(est * 1.5, 0.01):.2f} or pick a cheaper model.")
 
 
 def owner_check(a: dict) -> str | None:
@@ -488,6 +504,16 @@ class Runtime:
                         "max_tokens_per_run": agentcost.max_tokens_per_run(),
                         "note": f"metering error: {e}"}
         meter = agentcost.Meter(metering, a.get("budget_usd") or 0)
+        # 3.4.4: the first call writes the whole prompt (system, tools, brief) to the cache —
+        # on its own it cost $0.2008 for a $0.10 budget (seen live). A budget below that
+        # estimate cannot hold a single call: the run does not start, and says why.
+        why = first_call_refusal(a, metering)
+        if why:
+            agents.update_run(rid, status="budget", error=why)
+            audit.log(actor, "agent.run.budget_too_low", f"run #{rid}", why,
+                      project=a.get("project") or "default")
+            self._notify(a, agents.get_run(rid), "budget", why)
+            return
         policy = {
             "agent": a["name"], "run": rid,
             "tools": a.get("tools") or [],
@@ -540,7 +566,7 @@ class Runtime:
             if stop:
                 status, error = "budget", stop
             elif "budget" in subtype:
-                status, error = "budget", f"run budget ${a.get('budget_usd', 0):.2f} reached"
+                status, error = "budget", f"run budget {agentcost.usd(a.get('budget_usd', 0))} reached"
             elif not res:
                 status, error = "failed", (errs[-1] if errs else "the session produced no result")
             elif res.get("is_error"):
@@ -556,6 +582,7 @@ class Runtime:
         outputs = {}
         if deliverable.strip() and status in ("succeeded", "incomplete"):
             outputs = self._file(a, run, sid, deliverable, status)
+        agentcost.record_first_call(metering, meter.first_msg_usd)  # calibrates the next run
         if meter.active:  # History says how this cost was obtained
             p = metering.get("price")
             outputs["cost_basis"] = (
