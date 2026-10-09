@@ -458,6 +458,26 @@ def test_price_table_usd_and_chf(env, monkeypatch):
     assert meter2.cost_usd == pytest.approx(0.75) and meter2.over() is None  # no USD budget
 
 
+def test_claude_runs_stop_before_the_next_call_crosses_the_budget(env):
+    """3.4.4: on Claude the SDK's max_budget_usd acts only once a turn is over budget;
+    SOKKAN prices each message from the Claude table and stops before the next call."""
+    import agentcost
+    m = agentcost.metering("haiku")
+    assert m["basis"] == "sdk"
+    meter = agentcost.Meter(m, budget_usd=0.05)
+    assert meter.guarding and not meter.active
+    # 16k tokens written to the cache at haiku x 1.25 = $0.02
+    meter.add_sdk({"cache_creation_input_tokens": 16_000, "output_tokens": 0}, "m1", "claude-haiku-4-5")
+    meter.add_sdk({"cache_creation_input_tokens": 16_000, "output_tokens": 0}, "m1", "claude-haiku-4-5")
+    assert meter.sdk_cost_usd == pytest.approx(0.02) and meter.over() is None
+    meter.add_sdk({"cache_read_input_tokens": 16_000, "output_tokens": 3000}, "m2", "claude-haiku-4-5")
+    why = meter.over()
+    assert why and "$0.05 would be exceeded by the next call" in why
+    assert meter.first_msg_usd == pytest.approx(0.02)
+    assert agentcost.Meter(m).guarding is False  # no budget, nothing to guard
+    assert agentcost.usd(0.005) == "$0.005" and agentcost.usd(0.1) == "$0.10"
+
+
 def test_sokkan_inference_tiers_are_priced_in_chf(env, monkeypatch):
     import agentcost
     _llm(env, {"mode": "included", "base_url": "https://infer.sokkan.ch", "auth_token": "sik_x"})
