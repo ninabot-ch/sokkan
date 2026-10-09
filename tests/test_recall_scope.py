@@ -210,6 +210,11 @@ def test_mcp_server_writes_in_its_project_directory_and_no_legacy_reads(
     assert mem._scope() == ("radio", "shared")
     assert mem.memory_search("deploy")[0].get("empty")
     assert mem.memory_get("anything").startswith("note not found")
+    # 3.4.2: the 2.x index cannot index a project's note — refused before anything is written
+    r = mem.memory_write("radio-note", "d", "b")
+    assert not r["ok"] and r["code"] == "memory_store_required" and r["status"] == 409
+    assert not (tmp_path / "data" / "projects" / "radio").exists()
+    monkeypatch.setattr(store_backend, "enabled", lambda: True)   # the 3.0 store serves
     r = mem.memory_write("radio-note", "d", "b")
     assert r["ok"], r
     assert (tmp_path / "data" / "projects" / "radio" / "memory" / "radio-note.md").exists()

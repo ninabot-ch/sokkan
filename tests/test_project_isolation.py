@@ -167,11 +167,18 @@ def test_agents_are_per_project(world, monkeypatch):
 
 # ---- memory: quarantine, notes, search, CortHeXis ------------------------------------
 
-def test_quarantine_is_per_project(world):
+def test_quarantine_is_per_project(world, monkeypatch):
+    import store_backend
     c = world["as"]("alice@x", "radio")
     assert [q["name"] for q in c.get("/api/memory/quarantine").json()] == ["radio-finding"]
     assert c.get("/api/memory/quarantine/default-finding").status_code == 404
     assert c.post("/api/memory/quarantine/default-finding/approve").status_code == 404
+    # 3.4.2: on the 2.x index a project's note could not be indexed — refused, not written
+    r = c.post("/api/memory/quarantine/radio-finding/approve")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "memory_store_required"
+    assert not (world["tmp"] / "projects" / "radio" / "memory" / "radio-finding.md").exists()
+    assert [q["name"] for q in c.get("/api/memory/quarantine").json()] == ["radio-finding"]
+    monkeypatch.setattr(store_backend, "enabled", lambda: True)    # the 3.0 store serves
     r = c.post("/api/memory/quarantine/radio-finding/approve")
     assert r.status_code == 200
     assert (world["tmp"] / "projects" / "radio" / "memory" / "radio-finding.md").exists()
@@ -261,7 +268,8 @@ def test_corthexis_tab_reads_the_project_directory_and_no_default_review(world):
     g = c.get("/api/corthexis/graph").json()
     assert [n["id"] for n in g["nodes"]] == ["radio-runbook"]
     assert c.get("/api/corthexis/note/default-plan").status_code == 404
-    assert c.get("/api/corthexis/review").json()["report"] == {}
+    rep = c.get("/api/corthexis/review").json()["report"]   # 3.4.3: empty_report(), never {}
+    assert rep["at"] is None and rep["findings"] == [] and set(rep["counts"].values()) == {0}
     assert c.get("/api/corthexis/proposals").json() == []
     assert c.post("/api/corthexis/review/run").status_code == 409
 
