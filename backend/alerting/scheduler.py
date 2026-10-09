@@ -145,7 +145,10 @@ def evaluate_rule(r: dict, t: float) -> bool:
     if state != prev.get("state"):
         st["since"] = t
     vals = [o.get("value") for o in obs if o.get("value") is not None]
-    last_value = max(vals) if vals else None
+    # the value that matters is the worst one toward the line: min for « below » (a target down = 0,
+    # not the 1 of the 17 others), max otherwise
+    below = str((ev.get("threshold") or {}).get("op") or "").startswith("<")
+    last_value = (min(vals) if below else max(vals)) if vals else None
     st.update({"state": state, "firing": firing, "pending": pending, "last_value": last_value})
     spark = [p for p in r.get("spark") or [] if p[0] >= t - 86400]
     if last_value is not None and (not spark or t - spark[-1][0] >= 1800):

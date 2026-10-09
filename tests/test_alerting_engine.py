@@ -521,3 +521,35 @@ def test_backtest_on_a_real_prometheus(al, monkeypatch):
     p = e.preview(r, prom, s.adapter(prom["id"]), "24h", time.time())
     assert p["error"] is None and p["series"] and all(len(x["points"]) > 100 for x in p["series"])
     assert math.isfinite(p["series"][0]["points"][-1][1])
+
+
+# ---- 09.10 journey (Inès): what the person reads ----------------------------------------------
+def test_a_raw_template_query_is_said_in_words(al):
+    """The memory / CPU / disk templates are PromQL: the sentence said « the query (Prometheus) »
+    and the form quoted the PromQL. Their `label` is kept and said; a raw query without one is not
+    dressed up."""
+    e = al["engine"]
+    r = _rule(e, PROM, query={"mode": "raw", "raw": "(1 - a / b) * 100", "label": "memory used (%)"},
+              params={"op": ">", "value": 85})
+    assert r["query"]["label"] == "memory used (%)"
+    assert "memory used (%)" in r["sentence"] and "the query" not in r["sentence"]
+    bare = _rule(e, PROM)
+    assert "label" not in bare["query"] and "the query (Prometheus)" in bare["sentence"]
+
+
+def test_the_rule_value_is_the_worst_toward_the_line(al, monkeypatch):
+    """« below 1 » on 18 targets, one of them down: the list showed 1 (the max) next to « Firing »;
+    the value that matters is the one breaking the rule (min for a « below » rule)."""
+    s, sch = al["sources"], al["scheduler"]
+    s.ensure_builtins()
+    monkeypatch.setenv("SOKKAN_PROM", "http://prom:9090")
+    s.ensure_builtins()
+    src = next(x for x in s.list_sources("default") if x["kind"] == "prometheus")
+    up = [_line([1] * 10, group={"job": "a"}), _line([0] * 10, group={"job": "b"})]
+    monkeypatch.setattr(sch, "_adapter", lambda r, src: FakeAdapter(series=up))
+    r = al["rules"].create("default", {"name": "down", "source_id": src["id"], "type": "threshold",
+                                       "query": {"mode": "builder", "builder": {"metric": "up", "agg": "last", "by": ["job"]}},
+                                       "params": {"op": "<", "value": 1}, "group_by": ["job"],
+                                       "every": "1m", "for": "0s"}, "ines@x")
+    sch.evaluate_rule(al["rules"].get(r["id"]), T0 + 600)
+    assert al["rules"].get(r["id"])["state"]["last_value"] == 0.0

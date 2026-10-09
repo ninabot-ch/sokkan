@@ -168,9 +168,16 @@ def _transition(c, rule: dict, gk: str, grp: dict, frm: str, to: str, value, not
                json.dumps(rule.get("_threshold")), note[:300]))
 
 
+def _num(x: float) -> str:
+    """A value a person reads in a message: 77.78, 0.0123, 12345 (not 77.7834 or 1.2345e+04)."""
+    if abs(x) >= 1:
+        return f"{x:.2f}".rstrip("0").rstrip(".")
+    return f"{x:.3g}"
+
+
 def summary(rule: dict, grp: dict, value) -> str:
     th = rule.get("_threshold")
-    v = "" if value is None else (f"{value:g}" if isinstance(value, float) else str(value))
+    v = "" if value is None else (_num(value) if isinstance(value, float) else str(value))
     s = rule["name"]
     if th and value is not None:
         s += f": {v} {th['op']} {th['value']:g}" if isinstance(th.get("value"), (int, float)) else f": {v}"

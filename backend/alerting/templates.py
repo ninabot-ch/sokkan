@@ -40,8 +40,13 @@ def _labels(src: dict, metric: str) -> set[str]:
     return labs
 
 
-def _q(builder: dict | None = None, raw: str = "") -> dict:
-    return {"mode": "raw" if raw else "builder", "raw": raw, "builder": builder or {}}
+def _q(builder: dict | None = None, raw: str = "", label: str = "") -> dict:
+    """`label` = what a raw query measures, in words (« memory used (%) ») — the sentence and the
+    form say it instead of quoting the PromQL to someone who picked a template."""
+    q = {"mode": "raw" if raw else "builder", "raw": raw, "builder": builder or {}}
+    if label:
+        q["label"] = label
+    return q
 
 
 def _base(name: str, src: dict | None, **kw) -> dict:
@@ -134,14 +139,14 @@ def build(project: str, values: dict | None = None) -> list[dict]:
         "CPU used above a limit on a host, for a while.", "prometheus", prom,
         [_v("threshold", "CPU above", 90, "%"), _v("for", "For at least", "10m", "duration")],
         lambda v, s: _base("Host CPU busy", s, **{"for": v["for"]}, group_by=["instance"],
-                           query=_q(raw='100 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'),
+                           query=_q(raw='100 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100', label="CPU used (%)"),
                            type="threshold", params={"op": ">", "value": v["threshold"], "reduce": "last"}),
         need_node)
     add("host-memory", "Host memory almost full", "Hosts", "memory",
         "Memory used above a limit on a host.", "prometheus", prom,
         [_v("threshold", "Memory above", 90, "%"), _v("for", "For at least", "10m", "duration")],
         lambda v, s: _base("Host memory almost full", s, **{"for": v["for"]}, group_by=["instance"],
-                           query=_q(raw="(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100"),
+                           query=_q(raw="(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", label="memory used (%)"),
                            type="threshold", params={"op": ">", "value": v["threshold"], "reduce": "last"}),
         lambda: None if "node_memory_MemAvailable_bytes" in metrics else "No host metrics (needs node_exporter)")
     add("host-disk", "Disk almost full", "Hosts", "disk",
@@ -150,7 +155,7 @@ def build(project: str, values: dict | None = None) -> list[dict]:
         lambda v, s: _base("Disk almost full", s, severity="critical", **{"for": "15m"},
                            group_by=["instance", "mountpoint"], realert="6h",
                            query=_q(raw='(1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} '
-                                        '/ node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) * 100'),
+                                        '/ node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) * 100', label="disk used (%)"),
                            type="threshold", params={"op": ">", "value": v["threshold"], "reduce": "last"}),
         lambda: None if "node_filesystem_avail_bytes" in metrics else "No host metrics (needs node_exporter)")
     add("target-down", "Service down", "Hosts", "plug",
@@ -174,7 +179,7 @@ def build(project: str, values: dict | None = None) -> list[dict]:
         [_v("days", "Days left below", 14, "days")],
         lambda v, s: _base("TLS certificate expires soon", s, **{"for": "0s"}, every="1h",
                            group_by=["instance"], realert="1d",
-                           query=_q(raw="(probe_ssl_earliest_cert_expiry - time()) / 86400"),
+                           query=_q(raw="(probe_ssl_earliest_cert_expiry - time()) / 86400", label="days before the certificate expires"),
                            type="threshold", params={"op": "<", "value": v["days"], "reduce": "last"}),
         lambda: None if "probe_ssl_earliest_cert_expiry" in metrics else
         "No certificate probe (needs blackbox_exporter with an https module)")

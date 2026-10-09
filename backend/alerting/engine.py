@@ -154,8 +154,12 @@ def normalize(body: dict, source: dict | None) -> dict:
 
 def _norm_query(q: dict) -> dict:
     b = dict(q.get("builder") or {})
-    return {"mode": "raw" if q.get("mode") == "raw" else "builder", "raw": (q.get("raw") or "")[:5000],
-            "builder": b}
+    out = {"mode": "raw" if q.get("mode") == "raw" else "builder", "raw": (q.get("raw") or "")[:5000],
+           "builder": b}
+    label = str(q.get("label") or "").strip()[:120]
+    if label:
+        out["label"] = label
+    return out
 
 
 # =============================================================================================
@@ -164,7 +168,7 @@ def _norm_query(q: dict) -> dict:
 def _what(r: dict, src: dict) -> str:
     q = r["query"]
     if q["mode"] == "raw":
-        return f"the query ({src['name']})"
+        return q.get("label") or f"the query ({src['name']})"
     b = q["builder"]
     flt = ", ".join(f"{f.get('label') or f.get('field')}{f.get('op', '=')}{f.get('value', '')}"
                     for f in b.get("filters") or [] if (f.get("label") or f.get("field")))
