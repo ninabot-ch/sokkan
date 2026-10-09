@@ -3,6 +3,16 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.6 — 2026-10-09 — "Bridge"
+
+### Fixed
+- **Setup › Engines no longer says « nothing can run » when sessions do.** In governed mode with
+  no engine ticked in the policy, the header said « no engine is allowed yet, so nothing can
+  run » even on an instance whose sessions run on its own engine (key, gateway or Claude CLI
+  login — seen on an enterprise instance on the CLI login). With an instance engine it now says
+  sessions run on it and that the policy decides which engines people may pick (Crew cards,
+  per project); the « Start here » warning stays for an instance with no engine at all.
+
 ## 3.4.5 — 2026-10-09 — "Bridge"
 
 ### Fixed

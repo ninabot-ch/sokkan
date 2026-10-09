@@ -266,11 +266,18 @@ export default function ConnectAI({ legacy }: { legacy?: React.ReactNode }) {
       {v.operator_managed && (
         <div className="rounded-lg border border-line bg-panel2/40 p-2 text-[11.5px] text-mut">This instance uses managed inference (operated by NINABOT): sessions keep the gateway; engines below serve Crew cards.</div>
       )}
-      {governed && v.can_admin && !v.engines.some((e) => e.allowed) && (
+      {governed && v.can_admin && !v.engines.some((e) => e.allowed) && (v.llm?.configured ? (
+        // 3.4.6: with an instance engine (key, gateway or CLI login) sessions DO run — the policy
+        // only decides which engines people may pick (Crew cards, per project)
+        <div role="status" className="rounded-lg border border-line bg-panel2/40 p-2.5 text-[12px] text-slate-200">
+          Sessions run on the instance engine{v.llm.mode === "cli-login" ? " (Claude CLI login)" : ""}. No engine
+          is allowed in the policy yet, so people cannot pick one for a Crew card or a project: tick the ones they
+          may use and save.</div>
+      ) : (
         <div role="status" className="rounded-lg border border-brass/40 bg-brass/5 p-2.5 text-[12px] text-slate-200">
           <b>Start here:</b> no engine is allowed yet, so nothing can run. Tick at least one engine in the policy and
           save; then pick it below to connect it (key or login).</div>
-      )}
+      ))}
       {governed && v.can_admin && <PolicyEditor v={v} onDone={done} />}
       {governed && !shown.length && (
         <div className="rounded-lg border border-dashed border-line p-3 text-[12px] text-mut">No engine allowed yet — ask your administrator.</div>
