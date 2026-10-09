@@ -145,6 +145,11 @@ def _channel_name(channel_id: str, given: str) -> str:
     activity of that channel, else Graph (``Channel.ReadBasic.All``), else a readable stub."""
     if given.strip():
         return given.strip()[:200]
+    # 3.4.5: re-mapping a channel without a name kept no name (seen in prod: General came
+    # back as a stub) — the name the mapping already carries stays
+    kept = (store.channel(channel_id) or {}).get("name") or ""
+    if kept and not store.is_stub_name(kept):
+        return kept
     seen = store.remembered(channel_id)
     if seen["channel_name"]:
         return seen["channel_name"]

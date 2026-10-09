@@ -465,6 +465,17 @@ def test_a_stub_channel_name_is_resolved_from_the_first_activity_or_graph(pro):
     assert store.channel(CHANNEL)["name"] == "radio · General"
 
 
+def test_re_mapping_a_channel_without_a_name_keeps_its_name(pro):
+    """3.4.5 (prod 09.10): re-mapping General (project change, no name in the body) left a
+    stub « channel …xxxx »; the name the mapping carries stays, a stub is still resolved."""
+    from teams import api, store
+    assert store.channel(CHANNEL)["name"] == "radio · General"
+    assert api._channel_name(CHANNEL, "") == "radio · General"
+    assert api._channel_name(CHANNEL, "Renamed") == "Renamed"
+    store.map_channel("19:stub@thread.tacv2", "radio", 2, "channel …ead.tacv2", "admin@x")
+    assert api._channel_name("19:stub@thread.tacv2", "").startswith("channel …")
+
+
 def test_the_requester_copy_of_a_run_card_follows_a_decision_by_someone_else(pro, monkeypatch):
     """Seen live: a 2nd person approves a run, the card in the requester's thread stays
     « Approve / Refuse ». The reply is tracked (its activity id) and replaced (PUT) by the
