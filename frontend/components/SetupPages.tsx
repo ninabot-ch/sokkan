@@ -236,7 +236,9 @@ function Model() {
             : st.byok_kind === "api_key" ? "Your Anthropic API key"
             : st.byok_kind === "subscription" ? "Your Claude Pro/Max subscription"
             : st.mode === "custom" ? `Custom endpoint — ${st.model}${st.base_url ? ` (${st.base_url.replace(/^https?:\/\//, "")})` : ""}`
-            : st.mode === "env" ? "Key configured (environment)" : "No model configured"}</span>
+            : st.mode === "env" ? "Key configured (environment)"
+            : st.mode === "cli-login" ? "Claude login of the server (interactive sessions; agents only with agents_cli_login)"
+            : "No model configured"}</span>
         </div>
         {included && use && (
           <div className="mt-2.5 space-y-2">

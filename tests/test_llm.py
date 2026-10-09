@@ -95,3 +95,18 @@ def test_set_tier_rejected_when_not_included(cfg):
     cfg({"mode": "custom", "base_url": "x", "auth_token": "k", "model": "m"})
     with pytest.raises(ValueError):
         llm.set_tier("sokkan-ship")
+
+
+def test_status_shows_the_cli_login_sessions_run_on(cfg, tmp_path, monkeypatch):
+    """3.4.5 (prod 09.10): sessions ran on the CLI login, the header said « model not
+    configured ». The status says what sessions run on; unattended runs still don't count it."""
+    home = tmp_path / "claude"
+    home.mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    assert llm.status()["mode"] == "none" and not llm.status()["configured"]
+    (home / ".credentials.json").write_text("{}", encoding="utf-8")
+    st = llm.status()
+    assert st["mode"] == "cli-login" and st["configured"]
+    assert not llm.configured()                       # unattended_credentials unchanged
+    monkeypatch.setenv("SOKKAN_FEATURE_AGENTS_CLI_LOGIN", "0")
+    assert llm.unattended_credentials() is None

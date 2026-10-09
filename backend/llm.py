@@ -118,12 +118,28 @@ def unattended_credentials() -> str | None:
     return None
 
 
+def cli_login_present() -> bool:
+    """A Claude CLI login under CLAUDE_CONFIG_DIR — what an interactive session runs on
+    when the instance has no model settings (never counted for unattended runs, see
+    unattended_credentials)."""
+    d = Path(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"))
+    try:
+        return (d / ".credentials.json").is_file()
+    except OSError:
+        return False
+
+
 def status() -> dict:
     """Résumé non-sensible pour l'UI (jamais la clé)."""
     c = load()
-    mode = c.get("mode") or ("env" if configured() else "none")
+    conf = configured()
+    mode = c.get("mode") or ("env" if conf else "none")
+    # 3.4.5: sessions on the CLI login (sokkan.ninabot.ch) showed « model not configured »
+    # in the header — the state shown is the one sessions actually run on
+    if mode == "none" and cli_login_present():
+        mode, conf = "cli-login", True
     eff_model = c.get("model") or (DEFAULT_INCLUDED_MODEL if mode == "included" else None)
-    return {"mode": mode, "configured": configured(),
+    return {"mode": mode, "configured": conf,
             "byok_kind": _byok_kind(c) if mode == "byok" else None,
             "model": eff_model if mode in ("included", "custom") else None,
             "base_url": c.get("base_url") if mode == "custom" else None,
