@@ -269,6 +269,11 @@ def first_call_estimate(m: dict) -> float | None:
         model = (m.get("model") or "").strip()
         p = _claude_price(model) if model and model != "default" else None
         if p is None:
+            # model unknown here: what a run on it measured is the truth; before any run,
+            # the dearest Claude price (never null)
+            seen = observed_first_call(m)
+            if seen:
+                return seen
             p = _dearest_claude_price()
     floor = None
     if p:

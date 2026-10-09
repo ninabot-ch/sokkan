@@ -80,7 +80,7 @@ def test_failure_opens_one_incident_then_joins_it_then_resolves(env, obs, monkey
 ])
 def test_budget_opens_incomplete_does_not(env, obs, monkeypatch, script, status):  # noqa: F811
     monkeypatch.setenv("SOKKAN_AGENTS_INCIDENTS", "1")
-    a = _agent(env["agents"], trigger="manual", schedule="", budget_usd=0.2)
+    a = _agent(env["agents"], trigger="manual", schedule="", budget_usd=0.2, model="haiku")  # 3.4.5: priced, starts
     env["script"].update(script)
     env["agents"].request_run(DEV, a["id"])
 

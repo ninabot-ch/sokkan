@@ -225,7 +225,7 @@ def test_run_prompt_carries_mission_recall_and_secret_names_not_values(env):
 def test_end_states_and_notifications(env, script, status, notified):
     ag, rt = env["agents"], env["rt"]
     env["script"].update(script)
-    a = _agent(ag, trigger="manual", schedule="", budget_usd=0.2)
+    a = _agent(ag, trigger="manual", schedule="", budget_usd=0.2, model="haiku")  # 3.4.5: priced, starts
     ag.request_run(DEV, a["id"])
 
     async def go():
