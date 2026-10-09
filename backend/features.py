@@ -304,6 +304,18 @@ REGISTRY: tuple[Feature, ...] = (
             "Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Prometheus or Grafana is "
             "configured.", kind="integration", auto=_operate_configured,
             config=("SOKKAN_PROM", "SOKKAN_GRAFANA_URL"), doc=O),
+    Feature("alerting", "Alerts",
+            "Operate › Alerts: alert rules evaluated by SOKKAN itself (threshold, any, frequency, "
+            "spike, flatline, change, new term, cardinality, absence, anomaly) over Prometheus, "
+            "Loki, Elasticsearch / OpenSearch and SOKKAN's own events; backtest drawn before saving, "
+            "ready-made templates, silences and quiet hours, delivery to Telegram, Teams, Slack, "
+            "e-mail, webhook or PagerDuty; actions (incident, diagnosis session, alert agent) "
+            "under a person's go-ahead.",
+            defaults=_both(True), vars=_t("alerting"),
+            config=("SOKKAN_ALERTING_TICK_S", "SOKKAN_ALERTING_EVALUATOR",
+                    "SOKKAN_ALERTING_SOURCE_TIMEOUT_S", "SOKKAN_SMTP_HOST", "SOKKAN_SMTP_PORT",
+                    "SOKKAN_SMTP_USER", "SOKKAN_SMTP_PASSWORD", "SOKKAN_SMTP_FROM"),
+            doc=O),
     Feature("ops_team", "Ops team",
             "Operate / Infra open to an SSO group (the ops team) besides the instance admins.",
             status="beta", defaults=_both(True), requires=("sso_teams",),

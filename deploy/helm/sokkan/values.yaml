@@ -276,3 +276,14 @@ podDisruptionBudget:
 
 serviceAccount:
   annotations: {}
+
+# Operate › Alerts (3.5, docs/OPERATE.md § Alerts) — rules evaluated by the api itself.
+# Sources (Prometheus, Loki, Elasticsearch / OpenSearch) and channels are set in the cockpit;
+# SMTP credentials (SOKKAN_SMTP_USER / SOKKAN_SMTP_PASSWORD) go in the instance secret.
+alerting:
+  tickSeconds: 15
+  sourceTimeoutSeconds: 10
+  smtp:
+    host: ""
+    port: 587
+    from: ""

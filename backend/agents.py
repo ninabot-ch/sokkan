@@ -279,6 +279,10 @@ READ_MCP_TOOLS = frozenset({
     "mcp__sokkan-board__get_card_tree", "mcp__sokkan-board__morning_brief",  # 3.3 Helm reads
     "mcp__sokkan-observability__query_metrics", "mcp__sokkan-observability__query_logs",
     "mcp__sokkan-observability__list_dashboards",
+    # 3.5 Operate › Alerts in READ (proposing a rule goes through the gate, then a person)
+    "mcp__sokkan-observability__alerting_list_rules",
+    "mcp__sokkan-observability__alerting_list_alerts",
+    "mcp__sokkan-observability__alerting_preview",
     "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent",
     "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
 })

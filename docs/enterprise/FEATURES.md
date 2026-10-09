@@ -38,6 +38,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`multi_project`](#multi_project) Projects | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_MULTI_PROJECT` |
 | [`sso_teams`](#sso_teams) SSO teams | beta | toggle | on | on | `sso` | — | `SOKKAN_FEATURE_SSO_TEAMS` |
 | [`operate`](#operate) Operate | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL` |
+| [`alerting`](#alerting) Alerts | stable | toggle | on | on | — | — | `SOKKAN_FEATURE_ALERTING` |
 | [`ops_team`](#ops_team) Ops team | beta | toggle | on | on | `sso_teams` | — | `SOKKAN_FEATURE_OPS_TEAM` |
 | [`infra`](#infra) Infra topology | stable | integration | if configured | if configured | — | — | `SOKKAN_PROM`, `SOKKAN_HOSTS` |
 | [`fleet`](#fleet) Managed fleet | stable | integration | if configured | if configured | — | — | `SOKKAN_FLEET_URL`, `SOKKAN_FLEET_TOKEN` |
@@ -83,6 +84,7 @@ graph LR
   multi_project["Projects"]
   sso_teams["SSO teams"]
   operate["Operate"]
+  alerting["Alerts"]
   ops_team["Ops team"]
   infra["Infra topology"]
   fleet["Managed fleet"]
@@ -367,6 +369,16 @@ Operate plane (Operate › Incidents): alerts, incidents, dashboards. On when Pr
 
 - Defaults: community **if configured**, enterprise **if configured**
 - Configuration: `SOKKAN_PROM`, `SOKKAN_GRAFANA_URL`
+- Doc: [docs/OPERATE.md](../../docs/OPERATE.md)
+
+### alerting
+
+**Alerts** — stable, toggle.
+
+Operate › Alerts: alert rules evaluated by SOKKAN itself (threshold, any, frequency, spike, flatline, change, new term, cardinality, absence, anomaly) over Prometheus, Loki, Elasticsearch / OpenSearch and SOKKAN's own events; backtest drawn before saving, ready-made templates, silences and quiet hours, delivery to Telegram, Teams, Slack, e-mail, webhook or PagerDuty; actions (incident, diagnosis session, alert agent) under a person's go-ahead.
+
+- Defaults: community **on**, enterprise **on**
+- Switch: `SOKKAN_FEATURE_ALERTING`
 - Doc: [docs/OPERATE.md](../../docs/OPERATE.md)
 
 ### ops_team

@@ -495,6 +495,8 @@ def _on_action(activity: dict, action: dict) -> dict:
     data = action.get("data") or {}
     if data.get("sokkan") == "approval" and verb == "refresh":
         return _refresh(data.get("token") or "")
+    if data.get("sokkan") == "alert" and verb in ("alert.ack", "alert.silence", "alert.incident"):
+        return _on_alert_action(activity, verb, data)
     if data.get("sokkan") != "approval" or verb not in ("approve", "refuse"):
         return _invoke("Unknown action.")
     frm = activity.get("from") or {}
@@ -537,6 +539,50 @@ def _on_action(activity: dict, action: dict) -> dict:
     except Exception:  # noqa: BLE001
         pass
     return _invoke(card=cards.decided(title, verb, email, detail, lang=lang))
+
+
+def _on_alert_action(activity: dict, verb: str, data: dict) -> dict:
+    """3.5 Operate › Alerts: Ack / Silence 1 h / Open incident from the alert's Teams card.
+    The person acts AS THEMSELVES: their SOKKAN account (linked at sign-in), a developer role
+    in the alert's project; an alert above their clearance does not exist for them."""
+    import classification
+    import features
+    import iam
+    import projectgate
+    if not features.enabled("alerting"):
+        return _invoke("Alerts are off on this instance.")
+    from alerting import alerts as al_alerts, rules as al_rules, scheduler as al_sched
+    frm = activity.get("from") or {}
+    aad = frm.get("aadObjectId") or ""
+    email = store.linked_email(aad, botauth.tenant_of(activity)) if aad else None
+    if not email:
+        return _invoke("Sign in once to SOKKAN with your company account first.")
+    try:
+        a = al_alerts.get(int(data.get("alert") or 0))
+    except (TypeError, ValueError):
+        a = None
+    pu = projectgate.project_user(classification.user_for(email), a["project"]) if a else None
+    r = al_rules.get(a["rule_id"]) if a else None
+    cap = (pu or {}).get("clearance")
+    if a is None or pu is None or r is None or (
+            cap is not None and r.get("level") is not None and int(r["level"]) > int(cap)):
+        return _invoke("This alert does not exist for you.")
+    if iam.rank(pu.get("role") or "") < iam.rank("dev"):
+        return _invoke("Refused for you: you need the developer role in this project.")
+    import audit
+    import time as _time
+    if verb == "alert.ack":
+        al_alerts.ack(a["id"], email)
+        text = f"Acknowledged by {email} — no more reminders until it resolves."
+    elif verb == "alert.silence":
+        t = _time.time()
+        al_alerts.add_silence(a["project"], a["rule_id"], a["group"], t, t + 3600, "from Teams", email)
+        text = f"Silenced for 1 hour by {email}."
+    else:
+        iid = a.get("incident_id") or al_sched.open_incident(a, r, email)
+        text = f"Incident #{iid} opened by {email}."
+    audit.log(email, f"teams.{verb}", f"alert #{a['id']}", a["summary"][:200], project=a["project"])
+    return _invoke(card=cards.notice(f"{r['name']}", text, _open(a["link"])))
 
 
 def _decide_agent(pu: dict, row: dict, verb: str, email: str, spec: dict) -> tuple[str, str]:
