@@ -21,6 +21,8 @@ export interface Features {
   demo_captains?: boolean;
   /** 3.3 : Helm (feature `helm`) — hierarchy in the card dialog, Helm tab for managers */
   helm?: boolean;
+  /** 3.5 : Operate › Alerts — the rules engine (feature `alerting`) */
+  alerting?: boolean;
   /** 3.2 : projects (feature `multi_project`) */
   multi_project?: boolean;
   /** 3.2 lot 8 : how sessions of a project other than `default` are confined */

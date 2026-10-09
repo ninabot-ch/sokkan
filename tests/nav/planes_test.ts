@@ -16,9 +16,22 @@ test("structure validated by Nick (08.10.2026)", () => {
   assert.deepEqual(PLANES.map((p) => [p.id, p.tabs.map((t) => t.id)]), [
     ["control", ["helm", "board", "corthexis"]],
     ["build", ["sessions", "crew", "preview"]],
-    ["operate", ["incidents", "infra", "costs", "journal"]],
+    // 3.5 (Nick 09.10.2026): Operate › Alerts, the rules engine, between Incidents and Infra
+    ["operate", ["incidents", "alerts", "infra", "costs", "journal"]],
     ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications"]],
   ]);
+});
+
+test("3.5 — Operate › Alerts: feature `alerting`, ops team, deep links", () => {
+  const withAlerts = { ...ALL, alerting: true };
+  assert.deepEqual(ids(ctx({ f: withAlerts })).operate, ["incidents", "alerts", "infra", "costs", "journal"]);
+  // rules work without an observability stack (SOKKAN figures, Elasticsearch…): Incidents off, Alerts on
+  assert.deepEqual(ids(ctx({ f: { ...withAlerts, observe: false } })).operate, ["alerts", "infra", "costs", "journal"]);
+  assert.deepEqual(ids(ctx({ f: withAlerts, ops: false })).operate, ["costs", "journal"]);
+  assert.ok(!ids(ctx()).operate.includes("alerts"));                               // feature off
+  for (const t of ["alerts", "alert", "Alerting", "rules"]) assert.deepEqual(resolveTarget(q(`tab=${t}`)), { plane: "operate", tab: "alerts", section: undefined });
+  assert.deepEqual(resolveTarget(q("plane=operate&tab=alerts&rule=7")), { plane: "operate", tab: "alerts", section: undefined });
+  assert.equal(href("alerts", { alert: "31" }), "/?plane=operate&tab=alerts&alert=31");
 });
 
 test("every 3.2.1 tab deep link opens its new place", () => {

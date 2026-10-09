@@ -32,7 +32,7 @@ export function switchProject(slug: string): void {
   const url = new URL(window.location.href);
   url.searchParams.set("project", slug);
   // the deep-link targets of another project make no sense here
-  for (const k of ["agent", "run", "chat", "incident", "note", "proposal", "card"]) url.searchParams.delete(k);
+  for (const k of ["agent", "run", "chat", "incident", "note", "proposal", "card", "rule", "alert", "view"]) url.searchParams.delete(k);
   for (const k of ["plane", "tab", "section"]) url.searchParams.delete(k);
   if (activePlane) url.searchParams.set("plane", activePlane);
   if (activeTab) url.searchParams.set("tab", activeTab);

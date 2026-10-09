@@ -9,6 +9,7 @@ import Preview from "@/components/Preview";
 import Corthexis from "@/components/Corthexis";
 import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
+import Alerts from "@/components/alerting/Alerts";
 import Crew from "@/components/Crew";
 import Helm from "@/components/Helm";
 import Journal from "@/components/Journal";
@@ -254,6 +255,8 @@ function CockpitBody() {
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
       ) : tab === "incidents" ? (
         <Operate onOpenSession={(sid) => openSession({ session_id: sid })} onOpenAgent={openAgent} />
+      ) : tab === "alerts" ? (
+        <Alerts onOpenIncident={openIncident} />
       ) : tab === "journal" ? (
         <Journal />
       ) : tab === "costs" ? (
