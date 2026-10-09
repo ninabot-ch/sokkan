@@ -1265,6 +1265,7 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
         con.close()
     except Exception as e:  # noqa: BLE001 — Crew off or unreadable: the brief says nothing of it
         print(f"[helm] brief: agents unreadable: {e!r}", flush=True)
+    alerts_firing = _firing_alerts(project, max_level)
     sugg = list_suggestions([project], cap=max_level)
     agenda = calendar_events if calendar_events is not None else _agenda(person, team, now, project)
     out = {"project": project, "person": person, "team": team, "since": since, "now": now,
@@ -1275,9 +1276,27 @@ def morning_brief(project: str, person: str = "", team: str = "", since: float |
            "blocked": blocked, "waiting": waiting, "approvals": approvals,
            "suggestions": [{"id": s["id"], "title": s["title"], "kind": s["kind"]} for s in sugg],
            "incidents": incidents, "agents_in_error": errors, "decisions": decisions,
-           "agenda": agenda}
+           "agenda": agenda, "alerts": alerts_firing}
     out["markdown"] = brief_markdown(out)
     return out
+
+
+def _firing_alerts(project: str, max_level: int | None) -> list[dict]:
+    """3.5: the project's alerts firing now (Operate › Alerts), for the brief and Nina — a rule
+    above the reader's clearance is left out."""
+    try:
+        import features
+        if not features.enabled("alerting"):
+            return []
+        from alerting import alerts as al_alerts, rules as al_rules
+        hidden = {r["id"] for r in al_rules.list_rules(project)
+                  if max_level is not None and r.get("level") is not None and int(r["level"]) > max_level}
+        out, _ = al_alerts.list_alerts(project, "firing", 20)
+        return [{"id": a["id"], "rule": a["rule_name"], "severity": a["severity"], "summary": a["summary"],
+                 "since": a["fired_at"], "acked_by": a["acked_by"]} for a in out if a["rule_id"] not in hidden]
+    except Exception as e:  # noqa: BLE001 — the brief never dies on alerts
+        print(f"[helm] brief: alerts unreadable: {e!r}", flush=True)
+        return []
 
 
 def _agenda(person: str, team: str, now: float, project: str = "default") -> list[dict] | None:
@@ -1331,6 +1350,8 @@ def brief_markdown(b: dict) -> str:
     sec("Waiting for an approval", b["waiting"] + b["approvals"],
         lambda x: f"#{x['card_id']} {x['title']} ({x['why']})" if "card_id" in x
         else f"agent {x['name']} needs approval")
+    sec("Alerts firing", b.get("alerts") or [],
+        lambda x: f"{x['severity']}: {x['summary']}" + (f" (acked by {x['acked_by']})" if x.get("acked_by") else ""))
     sec("Incidents", b["incidents"], lambda x: f"#{x['id']} {x.get('title') or ''} ({x.get('severity') or ''}) on card #{x['card_id']}")
     sec("Agents in error", b["agents_in_error"], lambda x: f"{x['name']} (owner {x['owner']})")
     sec("Cards that moved", b["moved"], lambda x: f"#{x['card_id']} {x['title']} → {x['bucket']}: "

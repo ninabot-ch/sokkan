@@ -67,8 +67,9 @@ def test_generated_doc_is_up_to_date():
 def test_community_defaults_are_the_previous_behaviour(clean_env):
     st = F.resolve()
     on = {k for k, s in st.items() if s.enabled}
+    # 3.5: alerting is new and on by default — it does nothing until someone writes a rule
     assert on == {"tmux", "preview", "magnitude", "missions_link", "update_check",
-                  "named_secrets", "memory_quarantine", "agents"}
+                  "named_secrets", "memory_quarantine", "agents", "alerting"}
     assert F.edition() == "community"
     import agents
     import vault

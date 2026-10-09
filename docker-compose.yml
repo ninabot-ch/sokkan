@@ -117,6 +117,18 @@ services:
       # noms des hôtes (3.2.3) : JSON ip → nom, prioritaire sur /etc/hosts, Tailscale, DNS inverse
       SOKKAN_HOSTS: ${SOKKAN_HOSTS:-}
       SOKKAN_GRAFANA_URL: ${SOKKAN_GRAFANA_URL:-}
+      SOKKAN_LOKI: ${SOKKAN_LOKI:-}
+      # Operate › Alerts (3.5, docs/OPERATE.md § Alerts) — règles évaluées par l'api ; vide =
+      # défaut de l'édition (on). SMTP = canal e-mail des alertes (optionnel).
+      SOKKAN_FEATURE_ALERTING: ${SOKKAN_FEATURE_ALERTING:-}
+      SOKKAN_ALERTING_TICK_S: ${SOKKAN_ALERTING_TICK_S:-15}
+      SOKKAN_ALERTING_EVALUATOR: ${SOKKAN_ALERTING_EVALUATOR:-1}
+      SOKKAN_ALERTING_SOURCE_TIMEOUT_S: ${SOKKAN_ALERTING_SOURCE_TIMEOUT_S:-10}
+      SOKKAN_SMTP_HOST: ${SOKKAN_SMTP_HOST:-}
+      SOKKAN_SMTP_PORT: ${SOKKAN_SMTP_PORT:-587}
+      SOKKAN_SMTP_USER: ${SOKKAN_SMTP_USER:-}
+      SOKKAN_SMTP_PASSWORD: ${SOKKAN_SMTP_PASSWORD:-}
+      SOKKAN_SMTP_FROM: ${SOKKAN_SMTP_FROM:-}
       SOKKAN_CORTEX_URL: ${SOKKAN_CORTEX_URL:-}
       # bannière de visite guidée (démo publique read-only uniquement)
       SOKKAN_DEMO_BANNER: ${SOKKAN_DEMO_BANNER:-0}

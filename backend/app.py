@@ -244,6 +244,9 @@ async def _lifespan(_app: FastAPI):
     global _main_loop
     _main_loop = asyncio.get_running_loop()  # 3.4.4: _bg() from sync routes
     rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
+    # 3.5 Operate › Alerts : boucle d'évaluation des règles (un seul évaluateur par dossier de
+    # données — bail dans alerting.db ; SOKKAN_ALERTING_EVALUATOR=0 la coupe sur ce process)
+    alerting_scheduler.start()
     # 3.3 Helm : avancement + suggestions de recadrage (job périodique, SOKKAN_HELM_TICK_S)
     helm_stop = asyncio.Event()
     helm_task = asyncio.create_task(helm.loop(helm_stop)) if features.enabled("helm") else None
@@ -252,6 +255,7 @@ async def _lifespan(_app: FastAPI):
     teams_task = (asyncio.create_task(teams_proactive.loop(helm_stop))
                   if features.enabled("teams") else None)
     yield
+    alerting_scheduler.stop()
     helm_stop.set()
     for t in (helm_task, teams_task):
         if t:
@@ -821,6 +825,21 @@ def observability_incident_set(rid: int, body: IncidentStatus,
 _OBS_ALERT_TOKEN = os.environ.get("SOKKAN_OBS_ALERT_TOKEN", "")
 
 
+def _record_external_alert(title: str, labels: dict, summary: str, severity: str,
+                           resolved: bool) -> None:
+    """3.5 : une alerte externe apparaît aussi dans Operate › Alerts (règle « externe » en
+    lecture seule, une par alertname) — best-effort, le récepteur ne casse jamais dessus."""
+    if not features.enabled("alerting"):
+        return
+    try:
+        from alerting import alerts as al_alerts, rules as al_rules
+        rid = al_rules.external_rule(projects.DEFAULT_PROJECT, title)
+        al_alerts.record_external(al_rules.get(rid), {str(k): str(v) for k, v in (labels or {}).items()},
+                                  f"{title}: {summary}" if summary else title, severity, resolved)
+    except Exception as e:  # noqa: BLE001
+        print(f"[obs alert] alerting record failed: {e}", file=sys.stderr)
+
+
 @app.post("/api/observability/alert")
 async def observability_alert(request: Request) -> dict:
     """Récepteur d'alertes prod (webhook Grafana alerting de l'add-on obs). LE
@@ -846,6 +865,7 @@ async def observability_alert(request: Request) -> dict:
         title = labels.get("alertname") or ann.get("summary") or "Production alert"
         severity = labels.get("severity", "warning")
         summary = ann.get("description") or ann.get("summary") or a.get("valueString", "")
+        _record_external_alert(title, labels, summary, severity, a.get("status") == "resolved")
         if a.get("status") == "resolved":
             continue  # on ne spawn que sur firing
         # 3.2.3: the incident names the host, not only its address
@@ -3094,6 +3114,34 @@ import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 
 app.include_router(uiroutes.router)
+
+# --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
+from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402
+
+app.include_router(alerting_api.router)
+
+
+def _alert_diag_session(rule: dict, alert: dict) -> str:
+    """Action « diagnosis session » d'une règle : une session pré-seedée qui enquête et
+    ATTEND le feu vert avant d'appliquer quoi que ce soit (comme le récepteur Grafana)."""
+    prompt = (
+        "An alert of SOKKAN's Operate › Alerts just fired. Its content:\n"
+        + agents.untrusted_block("alert", {"rule": rule["name"], "meaning": rule.get("sentence"),
+                                           "severity": alert["severity"], "summary": alert["summary"],
+                                           "labels": alert.get("group") or {},
+                                           "samples": alert.get("sample_events") or []})
+        + "\n\nYou are the on-call engineer. First search the project memory for anything "
+        "related, then use mcp__sokkan-observability__query_metrics and query_logs to "
+        "investigate and identify the likely cause. Propose a concrete fix and wait for my "
+        "go-ahead before applying anything.")
+    s = _spawn_sdk("ops", prompt=prompt, title=f"alert: {rule['name']}", user="alert@sokkan",
+                   project=rule.get("project") or projects.DEFAULT_PROJECT)
+    if alert.get("incident_id"):
+        observability.link_incident_session(alert["incident_id"], s["session_id"])
+    return s["session_id"]
+
+
+alerting_scheduler.hooks["spawn_diag"] = _alert_diag_session
 # 3.3: Setup › Secrets (provider state, « Test connection »)
 app.include_router(secrets_routes.router)
 

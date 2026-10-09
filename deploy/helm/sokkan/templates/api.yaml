@@ -171,6 +171,17 @@ spec:
             - {name: SOKKAN_OPENBAO_ALLOW_HTTP, value: "1"}
             {{- end }}
             {{- end }}
+            # Operate › Alerts (3.5): the rule loop; one evaluator per data volume (lease in
+            # alerting.db), so extra api replicas never ring twice
+            - {name: SOKKAN_ALERTING_TICK_S, value: {{ .Values.alerting.tickSeconds | toString | quote }}}
+            - {name: SOKKAN_ALERTING_SOURCE_TIMEOUT_S, value: {{ .Values.alerting.sourceTimeoutSeconds | toString | quote }}}
+            {{- with .Values.alerting.smtp }}
+            {{- if .host }}
+            - {name: SOKKAN_SMTP_HOST, value: {{ .host | quote }}}
+            - {name: SOKKAN_SMTP_PORT, value: {{ .port | toString | quote }}}
+            - {name: SOKKAN_SMTP_FROM, value: {{ .from | quote }}}
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.api.env }}
             - name: {{ $k }}
               value: {{ $v | toString | quote }}
