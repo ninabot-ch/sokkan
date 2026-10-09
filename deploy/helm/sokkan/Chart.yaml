@@ -6,7 +6,7 @@ description: >-
   and GPU inference. Vanilla Kubernetes; OpenShift restricted SCC compatible.
 type: application
 version: 0.1.0
-appVersion: "3.4.2"
+appVersion: "3.4.3"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/ninabot-ch/sokkan
 sources:

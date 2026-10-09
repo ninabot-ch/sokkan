@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.3 — unreleased
+## 3.4.3 — 2026-10-09 — "Bridge"
 
 ### Fixed
 - **CortHeXis no longer crashes on a project without its own review.** On a project other
