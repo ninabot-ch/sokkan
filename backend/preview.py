@@ -125,12 +125,32 @@ def screenshot(url: str, width: int = 1440, height: int = 900) -> Path:
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(f"{url}|{width}|{height}".encode()).hexdigest()[:16]
     out = SHOT_DIR / f"{key}.png"
-    subprocess.run(
+    shot = _snap_safe_path(shutil.which(CHROMIUM) or "", out)
+    shot.unlink(missing_ok=True)
+    r = subprocess.run(
         [CHROMIUM, "--headless=new", "--no-sandbox", "--disable-gpu",
          "--hide-scrollbars", "--force-device-scale-factor=1",
-         f"--screenshot={out}", f"--window-size={width},{height}", url],
-        capture_output=True, timeout=60,
+         f"--screenshot={shot}", f"--window-size={width},{height}", url],
+        capture_output=True, text=True, timeout=60,
     )
+    if shot != out and shot.exists():
+        shutil.move(str(shot), out)
     if not out.exists():
-        raise RuntimeError("screenshot failed")
+        why = next((ln.strip() for ln in reversed((r.stderr or "").splitlines())
+                    if ln.strip() and "dbus" not in ln.lower()), "")
+        raise RuntimeError("screenshot failed" + (f": {why[:200]}" if why else ""))
     return out
+
+
+def _snap_safe_path(binary: str, out: Path) -> Path:
+    """3.4.4 : Chromium en SNAP (Ubuntu) n'écrit ni dans un dossier caché (le défaut
+    ~/.local/share/sokkan/preview) ni dans /tmp → « screenshot failed » (502). Il écrit
+    toujours dans SON dossier commun (~/snap/chromium/common) : on y capture, puis on déplace."""
+    real = os.path.realpath(binary) if binary else ""
+    snap = real.startswith("/snap/") or "/snap/bin/" in binary or os.path.basename(real) == "snap"
+    hidden = any(part.startswith(".") for part in out.parts) or str(out).startswith("/tmp/")
+    if not (snap and hidden):
+        return out
+    d = Path.home() / "snap" / "chromium" / "common" / "sokkan-shots"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / out.name

@@ -129,6 +129,8 @@ services:
       SOKKAN_BILLING_BASIS: ${SOKKAN_BILLING_BASIS:-}
       SOKKAN_USAGE_EXTERNAL: ${SOKKAN_USAGE_EXTERNAL:-}
       SOKKAN_CLAUDE_PRICES: ${SOKKAN_CLAUDE_PRICES:-}
+      # 3.4.4 : rafraîchissement de Costs en fond (s ; 0 = coupé) — l'écran ne re-parse plus à froid
+      SOKKAN_USAGE_REFRESH_S: ${SOKKAN_USAGE_REFRESH_S:-}
       # agents — onglet Crew (3.1) : ordonnanceur, concurrence, rattrapage
       SOKKAN_FEATURE_AGENTS: ${SOKKAN_FEATURE_AGENTS:-1}
       SOKKAN_AGENTS_MAX_CONCURRENT: ${SOKKAN_AGENTS_MAX_CONCURRENT:-2}
@@ -233,6 +235,8 @@ services:
       SOKKAN_AGENTS_MAX_TOKENS_PER_RUN: ${SOKKAN_AGENTS_MAX_TOKENS_PER_RUN:-5000000}
       SOKKAN_MODEL_PRICES: ${SOKKAN_MODEL_PRICES:-}
       SOKKAN_FX_USD_PER_CHF: ${SOKKAN_FX_USD_PER_CHF:-1.30}
+      # 3.4.4 : coût estimé du 1er appel d'un run (tokens écrits au cache) — un budget en dessous ne démarre pas
+      SOKKAN_AGENTS_FIRST_CALL_TOKENS: ${SOKKAN_AGENTS_FIRST_CALL_TOKENS:-}
       # lots 6/8 — révocation (SCIM, « Revoke now ») et bac à sable par projet
       SOKKAN_FEATURE_REVOCATION: ${SOKKAN_FEATURE_REVOCATION:-}
       SOKKAN_SCIM_TOKEN: ${SOKKAN_SCIM_TOKEN:-}

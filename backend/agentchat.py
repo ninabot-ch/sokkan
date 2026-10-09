@@ -228,6 +228,9 @@ class AgentSession:
         self._busy = False
         self._start_lock = asyncio.Lock()
         self.cost_usd = 0.0          # coût estimé cumulé (ResultMessage.total_cost_usd)
+        # total_cost_usd est CUMULÉ par processus CLI (3.4.4 : il était ré-additionné à
+        # chaque tour → 0,0402 $ affichés pour 0,0122 $) ; remis à 0 à chaque (re)lancement
+        self._cli_cost_seen = 0.0
         self._budget_warned = False  # avertissement 80 % émis une seule fois
         self._project_budget_warned = False  # idem pour le budget du projet (lot 4)
         self._model_seen: str | None = None
@@ -378,6 +381,7 @@ class AgentSession:
                 self.sid, opts_kwargs, user=self.user, project=session_project(self.sid),
                 kind="run" if pol else "session")
             self.client = ClaudeSDKClient(options=options, transport=transport)
+            self._cli_cost_seen = 0.0  # nouveau processus CLI : son compteur repart de 0
             # __aenter__ plutôt que `async with` : on garde le client ouvert
             await self.client.__aenter__()
 
@@ -698,7 +702,12 @@ class AgentSession:
                 turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
                 self.cost_usd = self.meter.cost_usd
             elif turn_cost:
-                self.cost_usd += float(turn_cost)
+                total = float(turn_cost)
+                # delta depuis le dernier résultat de CE processus ; un total plus petit =
+                # processus relancé sans passer par _start (filet) → le total est le delta
+                turn_cost = total - self._cli_cost_seen if total >= self._cli_cost_seen else total
+                self._cli_cost_seen = total
+                self.cost_usd += turn_cost
             if isinstance(usage, dict):
                 self.tokens_in += int(usage.get("input_tokens") or 0) + int(
                     usage.get("cache_read_input_tokens") or 0) + int(

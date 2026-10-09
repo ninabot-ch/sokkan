@@ -19,6 +19,12 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
   const [busy, setBusy] = useState<number | null>(null);
   const canWrite = useCan("dev");
   const [openCard, setOpenCard] = useState<number | null>(null);
+  // 3.4.4 deep link: /?plane=control&tab=board&project=<slug>&card=<id> (Teams outreach, Nina)
+  // opens the card — `card=` was ignored, the board opened without it
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("card");
+    if (v && /^\d+$/.test(v)) setOpenCard(+v);
+  }, []);
   // filtres
   const [q, setQ] = useState("");
   const [fTag, setFTag] = useState<string>("");

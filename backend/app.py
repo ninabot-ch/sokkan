@@ -122,6 +122,33 @@ def _start_store_indexer() -> None:
                                 activate_first_only=True)
     _index_runner.start()
     _sync_project_indexers()
+    threading.Thread(target=_warm_query_embedder, daemon=True, name="sokkan-embed-warm").start()
+
+
+def _usage_refresher() -> None:
+    """3.4.4 : garde le cache de Costs à jour en fond (SOKKAN_USAGE_REFRESH_S, 120 s ;
+    0 = off). Sans ça, le 1er affichage après un redémarrage re-parsait tous les
+    transcripts modifiés dans la requête ; au-delà de 30 s le proxy Next coupait
+    (« socket hang up ») → Costs en 500 au premier chargement."""
+    every = features.env_num("SOKKAN_USAGE_REFRESH_S", 120)
+    if every <= 0:
+        return
+    while True:
+        try:
+            usage_mod.refresh()
+        except Exception as e:  # noqa: BLE001 — the request path still refreshes
+            print(f"[sokkan] usage refresh: {e!r}", file=sys.stderr)
+        time.sleep(every)
+
+
+def _warm_query_embedder() -> None:
+    """3.4.4 : charge le modèle d'embedding de requête dès le démarrage. Un fastembed local
+    met 4-13 s à se charger ; payé au premier prompt, il dépassait le délai du hook de
+    rappel (5 s) et bloquait les premiers tours d'une session."""
+    try:
+        store_backend.embedder().embed_query("warm-up")
+    except Exception as e:  # noqa: BLE001 — never fatal: the first recall pays it instead
+        print(f"[sokkan] embedder warm-up skipped: {e!r}", file=sys.stderr)
 
 
 _project_runners: dict = {}
@@ -207,12 +234,15 @@ async def _lifespan(_app: FastAPI):
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    threading.Thread(target=_usage_refresher, daemon=True, name="sokkan-usage").start()
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
     features.startup_report()  # a switch asked for but not honoured: logged, feature OFF
     sandbox.detect()  # 3.2 lot 8: off | hooks-only | bwrap, probed once
     revocation.bind_loop(asyncio.get_running_loop())  # 3.2 lot 6: closes from sync routes
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()  # 3.4.4: _bg() from sync routes
     rt = agents_runtime.start(recall=lambda q, sid: _memory_preseed(q, session_id=sid))
     # 3.3 Helm : avancement + suggestions de recadrage (job périodique, SOKKAN_HELM_TICK_S)
     helm_stop = asyncio.Event()
@@ -298,11 +328,45 @@ feature_magnitude = _feature("magnitude")
 _bg_tasks: set[asyncio.Task] = set()
 
 
-def _bg(coro) -> asyncio.Task:
+_main_loop: asyncio.AbstractEventLoop | None = None  # posée par le lifespan
+
+
+def _bg(coro):
+    """Lance `coro` en tâche de fond. Depuis une route SYNC (`def`, exécutée dans le
+    pool de threads), il n'y a pas de boucle courante : on la poste sur la boucle de
+    l'API (3.4.4 — Memory digest et Runbook run répondaient 500 « no running event
+    loop » et laissaient une session orpheline)."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        if _main_loop is None or _main_loop.is_closed():
+            coro.close()
+            raise RuntimeError("no event loop to run the background task on") from None
+        return asyncio.run_coroutine_threadsafe(coro, _main_loop)
     t = asyncio.create_task(coro)
     _bg_tasks.add(t)
     t.add_done_callback(_bg_tasks.discard)
     return t
+
+
+def _shown_name(request: Request, u: dict) -> str:
+    """3.4.4 : le nom affiché — l'IAM s'il en a un, sinon celui du login SSO (cookie),
+    sinon celui de Teams ; l'adresse en dernier recours. Une personne sans rôle d'instance
+    (accès par grants) n'a pas de ligne IAM : son nom était son e-mail."""
+    email = u.get("email") or ""
+    n = (u.get("name") or "").strip()
+    if n and "@" not in n:
+        return n
+    try:
+        n = iam.display_name(email) or sess.name_from_request(request)
+        if not n:
+            import teams
+            if teams.enabled():
+                from teams import store as teams_store
+                n = teams_store.display_name_of(email, teams.tenant_id())
+    except Exception:  # noqa: BLE001 — a name is cosmetic, /api/me always answers
+        n = ""
+    return n or email
 
 
 @app.get("/api/me")
@@ -315,6 +379,10 @@ def me(request: Request, user: dict = Depends(current_user)) -> dict:
     pu = projectgate.project_user(user, slug)
     shown = pu or {**user, "role": "none", "project": slug, "project_role": None,
                    "instance_role": user.get("role")}
+    shown = {**shown, "name": _shown_name(request, shown),
+             # 3.4.4 : `role` reste l'échelle d'instance que l'UI vérifie (maintainer → admin) ;
+             # le bandeau affiche `role_label` — Léa, maintainer, se voyait « admin »
+             "role_label": shown.get("project_role") or shown.get("role")}
     return {**shown, "source": auth.MODE, "ops": projects.is_ops(user),
             # 3.2 (B1) : bandeau du cockpit quand les sessions reçoivent tout le coffre
             "secrets_warning": vault.mode_warning() if iam.rank(user["role"]) >= iam.rank("dev")
@@ -1729,14 +1797,25 @@ PUBLIC_URL = os.environ.get("SOKKAN_PUBLIC_URL", "http://localhost:3009").rstrip
 _REDIRECT = f"{PUBLIC_URL}/api/auth/callback"
 
 
+def _safe_next(nxt: str) -> str:
+    """3.4.4 : où revenir après le login — un chemin LOCAL seulement (pas `//hôte`, pas de
+    schéma, pas `/api/auth/…`), sinon « / ». Un lien Teams ouvert sans session perdait sa cible."""
+    nxt = (nxt or "").strip()
+    if (not nxt.startswith("/") or nxt.startswith("//") or "\\" in nxt
+            or nxt.startswith("/api/auth") or any(c in nxt for c in "\r\n") or len(nxt) > 2000):
+        return "/"
+    return nxt
+
+
 @app.get("/api/auth/login")
-def auth_oidc_login():
+def auth_oidc_login(next: str = "/"):  # noqa: A002 — the query parameter's name
     if not oidc.ENABLED:
         raise HTTPException(501, "OIDC not configured")
     verifier, challenge = oidc.new_pkce()
     state = secrets.token_urlsafe(16)
     url = oidc.authorize_url(_REDIRECT, state, challenge)
-    tx = jwt.encode({"s": state, "v": verifier, "exp": int(time.time()) + 600},
+    tx = jwt.encode({"s": state, "v": verifier, "n": _safe_next(next),
+                     "exp": int(time.time()) + 600},
                     sess.SECRET, algorithm="HS256")
     resp = RedirectResponse(url, status_code=302)
     resp.set_cookie("sokkan_oidc_tx", tx, max_age=600, httponly=True, secure=True, samesite="lax")
@@ -1799,7 +1878,7 @@ def auth_oidc_callback(request: Request, code: str = "", state: str = ""):
             revocation.record_login(email, sid=sid, sub=str(claims.get("sub") or ""))
     except Exception as e:  # noqa: BLE001 — a login never fails on this bookkeeping
         print(f"[sokkan] OIDC session record failed for {email}: {e!r}", file=sys.stderr)
-    resp = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
+    resp = RedirectResponse(f"{PUBLIC_URL}{_safe_next(txd.get('n') or '/')}", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.make(email, claims.get("name", ""), sid=sid),
                     max_age=sess.TTL, httponly=True, secure=True, samesite="lax")
     resp.delete_cookie("sokkan_oidc_tx")

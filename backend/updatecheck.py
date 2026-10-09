@@ -10,6 +10,8 @@ Désactivation : `SOKKAN_UPDATE_CHECK=0` dans `.env`.
 from __future__ import annotations
 
 import os
+import re
+from pathlib import Path
 
 import features
 import sys
@@ -18,7 +20,42 @@ import time
 import urllib.request
 
 BASE = os.environ.get("SOKKAN_DIST_BASE", "https://sokkan.ch").rstrip("/")
-LOCAL = os.environ.get("SOKKAN_VERSION", "dev")
+
+
+def _local_version() -> str:
+    """SOKKAN_VERSION (compose / chart), sinon le fichier VERSION livré avec le code
+    (3.4.4 : une install systemd ou à la main n'a pas la variable → « dev » → le
+    check ne signalait JAMAIS de mise à jour)."""
+    env = (os.environ.get("SOKKAN_VERSION") or "").strip()
+    if env and env != "dev":
+        return env
+    root = Path(__file__).resolve().parent.parent
+    for cand in (root / "VERSION", Path("/app/VERSION")):
+        try:
+            v = cand.read_text().strip()
+        except OSError:
+            continue
+        if v:
+            return v
+    return env or "dev"
+
+
+def _vtuple(v: str) -> tuple[int, ...] | None:
+    """« 3.4.3+b22bce3 » / « v3.4.3 » → (3, 4, 3) ; None si ce n'est pas une version."""
+    m = re.match(r"v?(\d+(?:\.\d+)*)", (v or "").strip())
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def newer(latest: str, local: str) -> bool:
+    """La version publiée est-elle PLUS RÉCENTE que la locale ? dist/VERSION porte
+    « 3.4.3+<commit> » : une égalité de chaîne disait « mise à jour » à jour égal."""
+    lt, lc = _vtuple(latest), _vtuple(local)
+    if lt is None or lc is None:
+        return False
+    return lt > lc
+
+
+LOCAL = _local_version()
 ENABLED = features.enabled("update_check")
 INTERVAL_S = 24 * 3600
 
@@ -43,8 +80,7 @@ def _check_once() -> None:
         latest = r.read().decode("utf-8", "replace").strip()[:40]
     _state.update(
         latest=latest or None, checked_at=int(time.time()),
-        update_available=bool(latest) and LOCAL not in ("dev", "?", "")
-        and latest != LOCAL)
+        update_available=bool(latest) and newer(latest, LOCAL))
     if _state["update_available"]:
         print(f"[sokkan] mise à jour disponible : {LOCAL} → {latest} "
               f"(curl -fsSL {BASE}/install.sh | sh)", file=sys.stderr)

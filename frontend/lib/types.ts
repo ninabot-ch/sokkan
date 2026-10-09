@@ -187,6 +187,8 @@ export interface Me {
   email: string;
   /** role IN THE SELECTED PROJECT (3.2), on the instance scale the UI checks */
   role: string;
+  /** 3.4.4: what to SHOW (the project's own role name: maintainer, not « admin ») */
+  role_label?: string;
   name: string;
   known: boolean;
   source: string;
