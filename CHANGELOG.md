@@ -3,6 +3,21 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.4 — unreleased
+
+### Security
+- **A tmux target is a session of your project, never a window of the host.** `POST
+  /api/send` accepted any live window of the host's tmux server: a `dev` (a project grant
+  was enough) could type into the operator's own sessions. The target must now be a live
+  window of a SOKKAN session of the request's project (anything else: 404), `GET /api/tmux`
+  lists only those windows, and `/api/sessions/{id}/live` and `/key` refuse a session of
+  another project. The raw terminal (`/term`) stays admin-only.
+- **Vault values are masked in a person's session too.** A secret a tool printed (`printenv`,
+  a `.env` read) stayed in clear in the live events and in `GET /api/sessions/{id}`, readable
+  by a viewer; only agent runs were masked. Every SDK session now masks the vault values its
+  environment held (the project vault in `all` mode, the names chosen at opening in `named`
+  mode), live, on replay after a restart and in the stored transcript.
+
 ## 3.4.3 — 2026-10-09 — "Bridge"
 
 ### Fixed
