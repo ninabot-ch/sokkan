@@ -3,6 +3,26 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.5.0 — unreleased
+
+### Added
+- **Operate › Alerts — SOKKAN evaluates alert rules itself, in the spirit of ElastAlert.**
+  Sources: Prometheus and Loki (from `SOKKAN_PROM` / `SOKKAN_LOKI`), Elasticsearch / OpenSearch
+  (URL, index, time field, basic / API key / bearer auth, secret encrypted with the vault key),
+  SOKKAN's own events (audit journal, failed agent runs) and the external alerts Grafana posts.
+  Rule types: threshold, any, frequency, spike, flatline, change, new term, cardinality, absence,
+  anomaly — built from a form (the query is compiled for you, raw PromQL / LogQL / Lucene / DSL
+  for experts) and read back as a sentence. **Backtest** (`POST /api/alerting/preview`) on the
+  same code as the live loop: the series, the threshold, where it would have fired with `for`.
+  States ok → pending → firing → resolved with `for`, realert, ack, silences, quiet hours;
+  channels Telegram, Teams (card with Ack / Silence 1 h / Open incident, acting as the person),
+  Slack, e-mail (SMTP), signed webhook, PagerDuty; actions under a person's go-ahead — open an
+  incident, a diagnosis session that waits, the run of an alert agent whose writes are held.
+  16 templates that say what they need. Per project and role, every write journaled; MCP
+  `alerting_list_rules`, `alerting_list_alerts`, `alerting_preview`, `alerting_propose_rule`
+  (a session proposes, disabled; a person enables). One evaluator per data directory (lease).
+  Feature `alerting`, on by default. docs/OPERATE.md § Alerts.
+
 ## 3.4.6 — 2026-10-09 — "Bridge"
 
 ### Fixed
