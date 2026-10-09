@@ -319,6 +319,8 @@ class AgentSession:
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
             proj = session_project(self.sid)
             secret_env = vault.session_env(self._secret_names(), project=proj)
+            if secret_env:  # 3.4.4: what the env holds is masked in everything emitted
+                self.redact_values = {**self.redact_values, **secret_env}
             env_extra = {**secret_env, **llm.session_env(self.user)}
             # 3.2 connect_ai: a Crew card's engine (model `engine:<id>`) or the project's
             eng_env, eng_model = connectai.session_overrides(self.sid, self.model)
@@ -853,10 +855,11 @@ def get_or_create(sid: str, resume: str | None = None, user: str = "",
         s = AgentSession(sid, cwd=project_cwd(sid), resume=resume, user=user,
                          model=model or MODEL, policy=policy, secrets=secrets)
         if not policy:
-            # a finished agent run reopened from Crew → History / Live: mask its secrets
+            # a finished agent run reopened from Crew → History / Live, or (3.4.4) a
+            # person's session after a restart: mask the vault values its env held
             try:
                 import agents
-                s.redact_values = agents.secrets_for_session(sid)
+                s.redact_values = agents.session_secret_values(sid)
             except Exception:  # noqa: BLE001
                 pass
         if resume:

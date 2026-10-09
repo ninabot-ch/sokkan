@@ -2141,7 +2141,8 @@ def session_detail(session_id: str) -> dict:
         if tpath and tpath.exists():
             d = T.parse_file(tpath)
             # 3.1.2 : an agent run's transcript (Crew → History) never shows its secrets
-            masked = agents.secrets_for_session(session_id)
+            # 3.4.4 : nor a person's session (vault values its env held)
+            masked = agents.session_secret_values(session_id)
             if masked:
                 d = agents.redact_obj(d, masked)
             d.update({
@@ -2187,9 +2188,16 @@ def session_detail(session_id: str) -> dict:
 def _session_window(session_id: str) -> tuple[str, bool]:
     """Fenêtre tmux d'une session SOKKAN + si elle est vivante."""
     s = next((x for x in board.list_sessions() if x["session_id"] == session_id), None)
-    if not s:
+    # 3.4.4 : une session d'un autre projet n'existe pas pour cette requête
+    if not s or not _in_ctx(s):
         raise HTTPException(404, "session not found")
     return s["window"], s["window"] in _live_targets()
+
+
+def _ctx_windows() -> set[str]:
+    """3.4.4 : fenêtres tmux des sessions SOKKAN du projet de la requête — les seules
+    qu'une route peut viser (jamais une fenêtre arbitraire du serveur tmux de l'hôte)."""
+    return {s["window"] for s in board.list_sessions() if s.get("window") and _in_ctx(s)}
 
 
 @app.get("/api/sessions/{session_id}/live")
@@ -2243,11 +2251,12 @@ def send(body: SendBody, u: dict = Depends(require("dev")),
     """Type text into a tmux window running Claude Code, then submit (Enter).
 
     The target must be a currently-live tmux window (validated) — this is how SOKKAN
-    lets you intervene in a session from the web. Behind CF Access (admin only).
+    lets you intervene in a SOKKAN session of the current project from the web.
     """
-    valid = {f"{w['session']}:{w['window']}" for w in _tmux_windows()}
-    if body.target not in valid:
-        raise HTTPException(400, f"unknown tmux target: {body.target}")
+    # 3.4.4 : cible = fenêtre VIVANTE d'une session SOKKAN du projet ; toute autre
+    # fenêtre (sessions de l'hôte, autre projet) est inconnue → 404
+    if body.target not in (_ctx_windows() & _live_targets()):
+        raise HTTPException(404, f"unknown tmux target: {body.target}")
     if not body.text.strip():
         raise HTTPException(400, "empty text")
     # -l = literal (no key-name interpretation), then a separate Enter to submit
@@ -2725,7 +2734,9 @@ def _tmux_windows() -> list[dict]:
 
 @app.get("/api/tmux")
 def tmux(_f: None = Depends(feature_tmux)) -> list[dict]:
-    return _tmux_windows()
+    # 3.4.4 : seulement les fenêtres des sessions SOKKAN du projet, pas celles de l'hôte
+    mine = _ctx_windows()
+    return [w for w in _tmux_windows() if f"{w['session']}:{w['window']}" in mine]
 
 
 class CardCreate(BaseModel):

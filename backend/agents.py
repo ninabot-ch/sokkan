@@ -1193,6 +1193,26 @@ def secrets_for_session(sid: str) -> dict[str, str]:
         return {}
 
 
+def session_secret_values(sid: str) -> dict[str, str]:
+    """3.4.4: {NAME: value} to mask in whatever shows ANY session — an agent run's
+    secrets, or for a person's SDK session the vault secrets its env received (the
+    project vault in `all` mode, the names chosen at opening in `named` mode). A value
+    printed by a tool must not reach a viewer of the transcript in clear."""
+    run = secrets_for_session(sid)
+    if run or not sid:
+        return run
+    try:
+        import board
+        import vault
+        s = next((x for x in board.list_sessions() if x["session_id"] == sid), None)
+        if not s or s.get("kind") != "sdk":
+            return {}
+        names = None if vault.session_mode() == "all" else (board.get_session_secrets(sid) or [])
+        return vault.session_env(names, project=s.get("project") or "default")
+    except Exception:  # noqa: BLE001 — never break a read on the vault
+        return {}
+
+
 def public(a: dict) -> dict:
     """Agent view safe for a model / the UI (it holds no secret value anyway)."""
     keep = ("id", "name", "owner", "model", "purpose", "deliverable", "done_criteria",
