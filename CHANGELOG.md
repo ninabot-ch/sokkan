@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.4 — unreleased
+## 3.4.4 — 2026-10-09 — "Bridge"
 
 ### Security
 - **A tmux target is a session of your project, never a window of the host.** `POST
