@@ -101,6 +101,18 @@ def project_cwd(sid: str) -> str:
     return str(d)
 
 
+def setting_sources_for(project: str) -> list[str]:
+    """Which Claude Code settings a session loads (3.4.5). The default project keeps the
+    host's user settings (hooks, allow rules, CLAUDE.md of ~/.claude: the operator's own
+    workspace). Another project never does: on sokkan.ninabot.ch the host's user hook
+    injected the default project's notes into every session of another project, and the
+    host's allow rules would auto-approve tools there. The CLI login itself is not a setting
+    (credentials stay in CLAUDE_CONFIG_DIR), so sessions still start on it."""
+    if project == "default":
+        return ["user", "project", "local"]
+    return ["project", "local"]
+
+
 def session_scope_env(project: str, user: str = "") -> str:
     """Comma list handed to the MCP servers: the project + shared (lot 3), or "" = none.
     3.4: each entry carries the clearance of the person the session acts for."""
@@ -301,7 +313,7 @@ class AgentSession:
                 # bypass/acceptEdits sont gérés dans _can_use_tool ; seul `plan`
                 # doit être engagé au niveau du SDK (change le comportement du modèle)
                 permission_mode="plan" if self.mode == "plan" else "default",
-                setting_sources=["user", "project", "local"],
+                setting_sources=setting_sources_for(session_project(self.sid)),
                 mcp_servers=mcp_servers_for(self.sid, self.user,
                                             only=pol.get("mcp") if pol else None,
                                             agent_run=({"agent": pol.get("agent"),

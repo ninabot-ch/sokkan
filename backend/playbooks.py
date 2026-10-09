@@ -171,13 +171,27 @@ def get(playbook_id: str) -> dict | None:
     return _REGISTRY.get(playbook_id)
 
 
-def render(playbook_id: str, subject: str = "") -> tuple[str, str] | None:
-    """→ (prompt, default_tag) or None if unknown. `subject` is the user's text."""
+def _mem_dir(project: str) -> str:
+    """The memory directory a playbook writes to: the PROJECT's (3.4.5 — a digest of
+    another project asked to write project-status.md into the default project's memory)."""
+    if project and project != "default":
+        try:
+            import store_backend
+            return str(store_backend.memory_dir_for(project))
+        except Exception:  # noqa: BLE001 — never the default project's directory instead
+            return "the project's memory directory (memory_write)"
+    return os.environ.get("SOKKAN_MEMORY_DIR", "the workspace memory directory")
+
+
+def render(playbook_id: str, subject: str = "", project: str = "default"
+           ) -> tuple[str, str] | None:
+    """→ (prompt, default_tag) or None if unknown. `subject` is the user's text,
+    `project` the project the session runs in (its memory directory)."""
     p = _REGISTRY.get(playbook_id)
     if not p:
         return None
     subject = (subject or "").strip()
-    mem_dir = os.environ.get("SOKKAN_MEMORY_DIR", "the workspace memory directory")
+    mem_dir = _mem_dir(project)
     prompt = p["prompt"].format(
         subject=subject,
         subject_suffix=f" — focus: {subject}" if subject else "",

@@ -356,3 +356,26 @@ def test_a_session_of_another_project_works_in_its_own_workspace(world):
     assert agentchat.project_cwd(RADIO_SID) == str(world["tmp"] / "projects" / "radio" / "work")
     assert agentchat.project_cwd(DEFAULT_SID) == agentchat.CWD
     assert agentchat.project_cwd("z" * 32).endswith("/projects/_no-project/work")
+
+
+def test_a_session_of_another_project_does_not_load_the_host_user_settings(world):
+    """3.4.5 (prod 09.10): the host's user settings (~/.claude: memory hook, allow rules,
+    CLAUDE.md) were loaded into every session — a project's session got the default
+    project's notes injected. Only the default project keeps them."""
+    import agentchat
+    rp = agentchat.session_project(RADIO_SID)
+    assert "user" not in agentchat.setting_sources_for(rp)
+    assert agentchat.setting_sources_for(agentchat.session_project(DEFAULT_SID)) == [
+        "user", "project", "local"]
+    assert "user" not in agentchat.setting_sources_for("")   # no project: neutral too
+
+
+def test_a_playbook_writes_to_the_memory_of_its_project(world, monkeypatch):
+    """3.4.5 (prod 09.10): the Memory digest of another project asked to write
+    project-status.md into SOKKAN_MEMORY_DIR (the default project's memory)."""
+    import playbooks
+    monkeypatch.setenv("SOKKAN_MEMORY_DIR", "/default/memory")
+    prompt, _ = playbooks.render("digest", project="radio")
+    assert "/default/memory" not in prompt
+    assert str(world["tmp"] / "projects" / "radio" / "memory") in prompt
+    assert "/default/memory" in playbooks.render("digest")[0]

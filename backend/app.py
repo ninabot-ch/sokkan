@@ -2176,7 +2176,7 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
     if body.playbook and body.secrets is None:
         body.secrets = (playbooks.get(body.playbook) or {}).get("secrets")
     if body.playbook:
-        rendered = playbooks.render(body.playbook, body.prompt)
+        rendered = playbooks.render(body.playbook, body.prompt, project=body.project)
         if rendered is None:
             raise HTTPException(400, f"unknown playbook: {body.playbook}")
         pb = playbooks.get(body.playbook)
@@ -2706,8 +2706,9 @@ corthexis.reindex_hook = lambda: _index_runner.kick() if _index_runner else inde
 def memory_digest(u: dict = Depends(require("dev"))) -> dict:
     """Memory Digest : spawn une session qui synthétise l'état du projet dans la
     note `project-status` — la mémoire se résume elle-même, à la demande."""
-    prompt, tag = playbooks.render("digest")
-    s = _spawn_sdk(tag, prompt, title="memory digest", user=u["email"], project=_ctx_project())
+    p = _ctx_project()
+    prompt, tag = playbooks.render("digest", project=p)
+    s = _spawn_sdk(tag, prompt, title="memory digest", user=u["email"], project=p)
     audit.log(u["email"], "memory.digest", s["session_id"])
     return s
 

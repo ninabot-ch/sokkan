@@ -108,7 +108,7 @@ def build_prompt(a: dict, run: dict, recall: str = "", now: float | None = None,
     when = datetime.fromtimestamp(now or time.time(), ZoneInfo(tz)).strftime("%Y-%m-%d %H:%M %Z")
     mission = a["purpose"]
     if a.get("playbook"):
-        r = playbooks.render(a["playbook"], a["purpose"])
+        r = playbooks.render(a["playbook"], a["purpose"], project=a.get("project") or "default")
         if r:
             mission = r[0]
     tools = ", ".join(a.get("tools") or []) or "none"

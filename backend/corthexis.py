@@ -881,7 +881,7 @@ def api_curation(body: CurationIn, u: dict = Depends(_require("dev"))) -> dict:
     if set(body.notes) & _hidden(p):
         raise HTTPException(404, "unknown note")
     subject = curation_subject(body.finding_ids, body.notes, p)
-    prompt, tag = playbooks.render("curation", subject)
+    prompt, tag = playbooks.render("curation", subject, project=p)
     s = spawn_hook(tag, prompt, title="Memory curation", user=u["email"],
                    **({"project": p} if p != "default" else {}))
     audit.log(u["email"], "memory.curation", s.get("session_id", ""),
