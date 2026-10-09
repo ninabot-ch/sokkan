@@ -13,16 +13,27 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from . import store
+from . import humanize, store
 from .durations import seconds
 
 
 def _public(r) -> dict:
+    grp = store.j(r["grp"], {})
+    th = store.j(r["threshold"], None)
+    return {**_raw_public(r, grp, th),
+            # 3.5: what a person reads — « rpi1 » for 100.76.30.90:9100, « 77.8 % > 50 % », « down »
+            "group_title": humanize.group_title(grp), "group_display": humanize.group_display(grp),
+            "unit": (th or {}).get("unit", ""),
+            "value_text": humanize.value_text(r["value"], th, (th or {}).get("unit", ""),
+                                              (th or {}).get("type", ""), (th or {}).get("window", ""))}
+
+
+def _raw_public(r, grp, th) -> dict:
     return {"id": r["id"], "rule_id": r["rule_id"], "project": r["project"],
-            "severity": r["severity"], "group": store.j(r["grp"], {}), "group_key": r["group_key"],
+            "severity": r["severity"], "group": grp, "group_key": r["group_key"],
             "state": r["state"], "started_at": r["started_at"], "fired_at": r["fired_at"],
             "resolved_at": r["resolved_at"], "last_notified_at": r["last_notified_at"],
-            "value": r["value"], "threshold": store.j(r["threshold"], None), "summary": r["summary"],
+            "value": r["value"], "threshold": th, "summary": r["summary"],
             "acked_by": r["acked_by"], "acked_at": r["acked_at"],
             "silenced_until": r["silenced_until"], "incident_id": r["incident_id"],
             "sample_events": store.j(r["sample_events"], []),
@@ -79,9 +90,20 @@ def history(rid: int, limit: int = 100) -> list[dict]:
     rows = c.execute("SELECT * FROM transitions WHERE rule_id=? ORDER BY ts DESC LIMIT ?",
                      (rid, min(int(limit), 1000))).fetchall()
     c.close()
-    return [{"ts": r["ts"], "group": store.j(r["grp"], {}), "group_key": r["group_key"],
-             "from": r["from_state"], "to": r["to_state"], "value": r["value"],
-             "threshold": store.j(r["threshold"], None), "note": r["note"]} for r in rows]
+    return [_transition_public(r) for r in rows]
+
+
+def _transition_public(r) -> dict:
+    th = store.j(r["threshold"], None)
+    d = th if isinstance(th, dict) else {}
+    return {"ts": r["ts"], "group": store.j(r["grp"], {}), "group_key": r["group_key"],
+            "group_title": humanize.group_title(store.j(r["grp"], {})),
+            "from": r["from_state"], "to": r["to_state"], "value": r["value"],
+            # the contract's number (the dict the evaluator keeps carries the unit and the type)
+            "threshold": d.get("value") if isinstance(th, dict) else th,
+            "value_text": humanize.value_text(r["value"], d, d.get("unit", ""), d.get("type", ""),
+                                              d.get("window", "")) if d else None,
+            "note": r["note"]}
 
 
 # ---- silences --------------------------------------------------------------------------------
@@ -176,15 +198,16 @@ def _num(x: float) -> str:
 
 
 def summary(rule: dict, grp: dict, value) -> str:
-    th = rule.get("_threshold")
-    v = "" if value is None else (_num(value) if isinstance(value, float) else str(value))
+    """« Host memory almost full: 77.8 % > 50 % (rog1) » · « Service down: down (rpi1 · node) »."""
+    th = rule.get("_threshold") or {}
     s = rule["name"]
-    if th and value is not None:
-        s += f": {v} {th['op']} {th['value']:g}" if isinstance(th.get("value"), (int, float)) else f": {v}"
-    elif value is not None:
+    v = humanize.value_text(value, th, th.get("unit") or rule.get("unit", ""), th.get("type") or rule.get("type", ""),
+                            th.get("window", ""))
+    if v:
         s += f": {v}"
-    if grp:
-        s += " (" + ", ".join(f"{k}={val}" for k, val in grp.items()) + ")"
+    title = humanize.group_title(grp)
+    if title:
+        s += f" ({title})"
     return s
 
 

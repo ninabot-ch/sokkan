@@ -134,7 +134,10 @@ def evaluate_rule(r: dict, t: float) -> bool:
             _audit_sys("alerting.rule.error", r, str(e)[:300])
         rules.set_state(r["id"], st, t + every)
         return False
-    r = {**r, "_threshold": ev.get("threshold")}
+    # the threshold an alert keeps carries how to say its value (unit, rule type, window)
+    th = ev.get("threshold")
+    r = {**r, "_threshold": ({**th} if th else {}) | {"unit": r.get("unit", ""), "type": typ,
+                                                     "window": (r.get("params") or {}).get("window", "")}}
     events = alerts.apply(r, obs, t)
     act, _ = alerts.list_alerts(r["project"], "active", 500)
     mine = [a for a in act if a["rule_id"] == r["id"]]
@@ -153,11 +156,31 @@ def evaluate_rule(r: dict, t: float) -> bool:
     spark = [p for p in r.get("spark") or [] if p[0] >= t - 86400]
     if last_value is not None and (not spark or t - spark[-1][0] >= 1800):
         spark.append([t, round(float(last_value), 6)])
+    if len(spark) < 6 and not prev.get("spark_filled") and typ not in ("any", "change", "new_term"):
+        # a new rule shows its last 24 h at once (one 30-min-step backtest), not « trend soon »
+        spark = _backfill(r, src, ad, t, below) or spark
+        st["spark_filled"] = True
+    elif prev.get("spark_filled"):
+        st["spark_filled"] = True
     st["spark"] = spark[-48:]
     rules.set_state(r["id"], st, t + every)
     for kind, ref in events:
         _on_event(kind, ref["id"], r, t)
     return True
+
+
+def _backfill(r: dict, src: dict, ad, t: float, below: bool) -> list:
+    """Worst value toward the line every 30 min over the last 24 h (≤ 48 points) — [] on error."""
+    try:
+        ev = engine.evaluate(r, src, ad, t - 86400, t, 1800)
+    except (sources.SourceError, engine.RuleError, ValueError):
+        return []
+    by_ts: dict[float, list[float]] = {}
+    for s in ev.get("series") or []:
+        for ts, v in s["points"]:
+            by_ts.setdefault(round(ts), []).append(v)
+    pick = min if below else max
+    return [[ts, round(float(pick(vs)), 6)] for ts, vs in sorted(by_ts.items()) if vs][-48:]
 
 
 def _observe(ev: dict, r: dict, last_eval: float, window_mode: bool) -> list[dict]:

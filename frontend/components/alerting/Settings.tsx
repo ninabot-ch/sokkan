@@ -188,7 +188,7 @@ function Channels({ canManage }: { canManage: boolean }) {
     <div className="space-y-2">
       {data.channels.length === 0 && edit !== "new" && (
         <div className="rounded-xl border border-dashed border-line p-4 text-center text-[12.5px] text-mut">
-          No channel yet. An alert that tells nobody is just a log line — add Telegram, Teams, Slack, e-mail or a webhook.
+          No channel yet. An alert that tells nobody is just a log line — add {data.kinds.filter((k) => !k.unavailable && k.kind !== "instance").map((k) => k.label).join(", ") || "a channel"}.
         </div>
       )}
       {data.channels.map((c) => (
@@ -209,7 +209,12 @@ function Channels({ canManage }: { canManage: boolean }) {
         </div>
       ))}
       {canManage && (edit === "new" ? <div className="rounded-xl border border-sea/40 bg-panel2/40 p-2.5"><ChannelEditor kinds={data.kinds} onDone={() => { setEdit(null); load(); }} /></div>
-        : <button type="button" className={btn.ghost} onClick={() => setEdit("new")}>+ Add a channel</button>)}
+        : <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={btn.ghost} onClick={() => setEdit("new")}>+ Add a channel</button>
+            <span className="text-[11.5px] text-mut">
+              {data.kinds.filter((k) => !k.unavailable && k.kind !== "instance").map((k) => k.label).join(" · ")} — each one can be tested before an alert uses it
+            </span>
+          </div>)}
     </div>
   );
 }

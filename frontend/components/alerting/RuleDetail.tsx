@@ -7,7 +7,7 @@ import { createSilence, deleteRule, evaluateRule, getRule, preview, ruleHistory,
 import {
   ago,
   valueUnit,
-  RANGES, durS, fmtValue, groupText, ruleState, since, toRuleIn, type Alert, type AlertSource, type Channel, type PreviewResult,
+  RANGES, alertValueText, durS, fmtValue, groupText, groupTitle, ruleValueText, ruleState, since, toRuleIn, type Alert, type AlertSource, type Channel, type PreviewResult,
   type Rule, type Transition,
 } from "@/lib/alertingModel";
 import Chart from "./Chart";
@@ -47,7 +47,7 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
   const src = sources.find((s) => s.id === r.source_id);
   const st = ruleState(r);
   const mine = alerts.filter((a) => a.rule_id === r.id);
-  const unit = valueUnit(r.query);
+  const unit = valueUnit(r.query, r.unit);
   const act = async (f: () => Promise<unknown>, ok: string) => {
     setMsg(null);
     try { await f(); setMsg({ tone: "ok", text: ok }); load(); onChanged(); } catch (e) { setMsg({ tone: "error", text: String((e as Error).message || e) }); }
@@ -90,7 +90,7 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
       <div className="rounded-xl border border-line bg-panel/50 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-[11.5px] text-mut">
           <span>last check {r.state?.last_eval ? `${ago(r.state.last_eval)}` : "—"}</span>
-          {r.state?.last_value !== undefined && r.state?.last_value !== null && <span>· value {fmtValue(r.state.last_value, unit)}</span>}
+          {ruleValueText(r, unit) && <span>· now <b className="font-medium text-slate-200">{ruleValueText(r, unit)}</b></span>}
           <span>· every {r.every}{durS(r.for) ? `, holds ${r.for}` : ""}</span>
           <span className="flex items-center gap-1">· ▼ <span className="text-red-300">real firings</span> marked on top</span>
           <span className="ml-auto"><Seg label="time range" size="sm" value={range} onChange={setRange} opts={RANGES.map((x) => ({ id: x.id, label: x.label }))} /></span>
@@ -117,8 +117,10 @@ export default function RuleDetail({ id, sources, channels, alerts, canWrite, on
                   <div className="flex flex-wrap items-center gap-x-2">
                     <span className="text-mut">{fmtTime(h.ts, true)}</span>
                     <span className="text-slate-200">{h.from} → <b className={h.to === "firing" ? "text-red-300" : h.to === "ok" || h.to === "resolved" ? "text-emerald-300" : "text-slate-100"}>{h.to}</b></span>
-                    {h.value !== null && h.value !== undefined && <span className="tabular-nums text-slate-300">{fmtValue(h.value, unit)}{h.threshold !== null && h.threshold !== undefined ? ` / ${fmtValue(h.threshold, unit)}` : ""}</span>}
-                    {groupText(h.group, h.group_key) && <span className="font-mono text-[10.5px] text-mut">{groupText(h.group, h.group_key)}</span>}
+                    {/* a resolved line says the value it went back to, not « 70.5 > 85 » */}
+                    {h.value_text ? <span className="tabular-nums text-slate-300">{h.to === "resolved" || h.to === "ok" ? (alertValueText({ value_text: h.value_text })?.value ?? h.value_text) : h.value_text}</span>
+                      : h.value !== null && h.value !== undefined && <span className="tabular-nums text-slate-300">{fmtValue(h.value, unit)}{typeof h.threshold === "number" ? ` / ${fmtValue(h.threshold, unit)}` : ""}</span>}
+                    {groupTitle(h) !== "series" && <span className="text-[11px] text-slate-300" title={groupText(h.group, h.group_key)}>{groupTitle(h)}</span>}
                   </div>
                   {h.note && <div className="text-[11px] text-mut">{h.note}</div>}
                 </li>

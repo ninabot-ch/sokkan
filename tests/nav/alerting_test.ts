@@ -61,7 +61,8 @@ test("the sentence says the rule in plain words — every type", () => {
   assert.match(ruleSentence({ ...up, type: "anomaly", params: { z: 3, lookback: "24h" }, for: "10m" }, "prometheus"),
     /more than 3 standard deviations from its level of the last 1 day for 10 min/);
   const raw: RuleIn = { ...emptyRule(PROM), query: { mode: "raw", raw: "sum(rate(x[5m]))", builder: {} }, params: { op: "<", value: 1, reduce: "last" }, for: "0s" };
-  assert.equal(ruleSentence(raw, "prometheus"), "Alert when « sum(rate(x[5m])) » drops below 1.");
+  // 3.5 polish: a raw query is never quoted in the sentence (nothing recognisable → « the query »)
+  assert.equal(ruleSentence(raw, "prometheus"), "Alert when the query drops below 1.");
 });
 
 test("the wizard blocks only on what really misses, at the right step", () => {
@@ -202,7 +203,7 @@ test("09.10 journey (Inès) — what the screens say", () => {
   const mem = { mode: "raw" as const, raw: "(1 - a / b) * 100", builder: {}, label: "memory used (%)" };
   assert.equal(valueUnit(mem), "%");
   assert.match(ruleSentence({ ...emptyRule(PROM), query: mem, type: "threshold", params: { op: ">", value: 85, reduce: "last" }, for: "10m", group_by: ["instance"] }, "prometheus", valueUnit(mem)),
-    /memory used \(%\) goes above 85 ?% for 10 min, per instance/);
+    /memory used goes above 85 ?% for 10 min, per instance/);
   // a template grouped by group_by alone fills the form's « One alert per »
   const t: Template = { id: "target-down", name: "Service down", category: "Hosts", description: "", source_kind: "prometheus",
     available: true, source_id: 1, rule: { group_by: ["job", "instance"], query: { mode: "builder", raw: "", builder: { metric: "up", agg: "last" } } } };

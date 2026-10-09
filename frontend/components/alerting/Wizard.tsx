@@ -58,7 +58,7 @@ export default function Wizard(p: WizardProps) {
   const [nameTouched, setNameTouched] = useState(!!p.start.name);
   const src = p.sources.find((s) => s.id === r.source_id);
   const kind = src?.kind;
-  const unit = valueUnit(r.query);
+  const unit = pv?.unit || valueUnit(r.query);
   const problems = validateRule(r, kind);
   const sentence = ruleSentence(r, kind, unit);
 
@@ -104,7 +104,7 @@ export default function Wizard(p: WizardProps) {
       </div>
 
       {/* stepper */}
-      <ol className="mb-3 grid grid-cols-4 gap-1.5" aria-label="steps">
+      <ol className="mb-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="steps">
         {STEPS.map((s) => {
           const bad = tried && stepProblems(s.n).length > 0;
           const cur = s.n === step;
@@ -115,7 +115,7 @@ export default function Wizard(p: WizardProps) {
                 <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${bad ? "bg-red-500/80 text-white" : cur ? "bg-sea text-white" : s.n < step ? "bg-emerald-500/70 text-white" : "bg-panel2 text-mut ring-1 ring-line"}`}>
                   {bad ? "!" : s.n < step ? "✓" : s.n}
                 </span>
-                <span className={`truncate text-[12px] ${cur ? "text-slate-100" : "text-mut"}`}><span className="hidden sm:inline">{s.label}</span><span className="sm:hidden">{s.label.split(" ")[0]}</span></span>
+                <span className={`truncate text-[12px] ${cur ? "text-slate-100" : "text-mut"}`}>{s.label}</span>
               </button>
             </li>
           );

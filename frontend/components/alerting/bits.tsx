@@ -35,6 +35,7 @@ const STATE_CLS: Record<RuleState | AlertState, string> = {
   silenced: "border-slate-500/50 bg-slate-500/10 text-slate-300",
   error: "border-orange-400/60 bg-orange-400/10 text-orange-200",
   disabled: "border-line bg-panel2 text-mut",
+  new: "border-sky-500/40 bg-sky-500/10 text-sky-200",
 };
 
 export function StateChip({ s, n }: { s: RuleState | AlertState; n?: number }) {
@@ -50,7 +51,12 @@ export function StateChip({ s, n }: { s: RuleState | AlertState; n?: number }) {
 /** A 24 h sparkline in a rule row: shape only, no axis (the rule page has the real chart). */
 export function Sparkline({ pts, state, w = 96, h = 22 }: { pts?: TV[]; state: RuleState; w?: number; h?: number }) {
   const v = (pts || []).filter((p) => p[1] !== null && Number.isFinite(p[1] as number)) as [number, number][];
-  if (v.length < 2) return <span className="inline-block text-[10px] text-mut" style={{ width: w }} title="the 24 h trend fills in as the rule is checked — one point every 30 min">trend soon</span>;
+  if (v.length < 2) return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0" role="img" aria-label="no trend yet — it appears after the first check">
+      <title>no trend yet — it appears after the first check</title>
+      <path d={`M1,${h / 2} L${w - 1},${h / 2}`} stroke="#3b4656" strokeWidth={1} strokeDasharray="2 3" />
+    </svg>
+  );
   const t0 = v[0][0]; const t1 = v[v.length - 1][0];
   let lo = Math.min(...v.map((p) => p[1])); let hi = Math.max(...v.map((p) => p[1]));
   if (lo >= 0) lo = 0;
@@ -137,7 +143,7 @@ export const btn = {
   primary: "ui-focus inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40",
   ghost: "ui-focus inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-slate-200 hover:border-sea/50 disabled:cursor-not-allowed disabled:opacity-40",
   small: "ui-focus inline-flex items-center gap-1 rounded-md border border-line min-h-6 px-2 py-0.5 text-[11px] text-slate-200 hover:border-sea/50 disabled:cursor-not-allowed disabled:opacity-40",
-  danger: "ui-focus inline-flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-400 disabled:opacity-40",
+  danger: "ui-focus inline-flex items-center gap-1 rounded-md border border-red-500/40 min-h-6 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-400 disabled:opacity-40",
 };
 
 const UNITS = [{ id: "s", label: "sec", k: 1 }, { id: "m", label: "min", k: 60 }, { id: "h", label: "hours", k: 3600 }, { id: "d", label: "days", k: 86400 }];

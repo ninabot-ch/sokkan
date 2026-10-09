@@ -16,7 +16,7 @@ import {
 import {
   ago,
   valueUnit,
-  emptyRule, fmtValue, fromTemplate, ruleState, since, sortAlerts, sortRules, toRuleIn,
+  emptyRule, fromTemplate, ruleState, ruleValueText, since, sortAlerts, sortRules, suggestTemplates, toRuleIn,
   type Alert, type AlertCounts, type AlertingStatus, type AlertSource, type Channel, type ChannelKindDef, type Rule,
   type RuleCounts, type RuleIn, type Template,
 } from "@/lib/alertingModel";
@@ -210,7 +210,7 @@ function Overview(p: {
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel/40">
             {rules.map((r) => {
               const st = ruleState(r);
-              const unit = valueUnit(r.query);
+              const unit = valueUnit(r.query, r.unit);
               return (
                 <li key={r.id}>
                   <button type="button" onClick={() => p.onOpenRule(r.id)}
@@ -218,11 +218,11 @@ function Overview(p: {
                     <span className="row-span-2 sm:row-span-1"><StateChip s={st} n={r.state?.firing} /></span>
                     <span className="min-w-0">
                       <span className="flex items-center gap-1.5"><span className="truncate text-[13px] text-slate-100">{r.name}</span><SeverityChip s={r.severity} compact /></span>
-                      <span className="block truncate text-[11px] text-mut">{st === "error" && r.state?.error ? `source error: ${r.state.error}` : r.sentence}</span>
+                      <span className="line-clamp-2 text-[11px] leading-snug text-mut" title={r.sentence || ""}>{st === "error" && r.state?.error ? `source error: ${r.state.error}` : r.sentence}</span>
                     </span>
                     <span className="hidden sm:block"><Sparkline pts={r.spark} state={st} /></span>
                     <span className="text-right text-[11.5px] tabular-nums text-slate-300">
-                      {r.state?.last_value !== null && r.state?.last_value !== undefined ? fmtValue(r.state.last_value, unit) : <span className="text-mut">—</span>}
+                      {ruleValueText(r, unit) ?? <span className="text-mut">—</span>}
                     </span>
                   </button>
                 </li>
@@ -232,6 +232,23 @@ function Overview(p: {
           </ul>
         </section>
       )}
+
+      {/* few rules: the next useful ones for this stack, one click away (not decoration — each card
+          opens the wizard pre-filled, with its backtest) */}
+      {p.canWrite && p.rules.length > 0 && p.rules.length < 4 && (() => {
+        const next = suggestTemplates(p.templates || [], p.rules.map((r) => r.name));
+        if (!next.length) return null;
+        return (
+          <section aria-label="templates ready for your stack" className="space-y-1.5">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h3 className="text-[12px] font-semibold text-slate-200">Ready for your stack</h3>
+              <span className="text-[11px] text-mut">the data is already there — one click opens the rule with its backtest</span>
+              <button type="button" className={`${btn.small} ml-auto`} onClick={p.onNew}>All templates →</button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">{next.map((t) => <TemplateCard key={t.id} t={t} onPick={p.onPick} />)}</div>
+          </section>
+        );
+      })()}
     </div>
   );
 }
@@ -279,7 +296,7 @@ function EmptyState({ templates, canWrite, onPick, onBlank, onAll }: {
         <>
           {templates === null ? <div className="mt-3 text-[12px] text-mut">Loading templates…</div> : (
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {(ready.length ? ready : templates).slice(0, 6).map((t) => <TemplateCard key={t.id} t={t} onPick={onPick} />)}
+              {(ready.length ? suggestTemplates(templates, [], 6) : templates.slice(0, 6)).map((t) => <TemplateCard key={t.id} t={t} onPick={onPick} />)}
             </div>
           )}
           <div className="mt-3 flex flex-wrap gap-2">

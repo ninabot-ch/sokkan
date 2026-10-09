@@ -95,7 +95,7 @@ def test_sentences_say_what_the_rule_means(al):
         "metric": "http_requests_total", "agg": "rate", "range": "5m",
         "filters": [{"label": "status", "op": "=~", "value": "5.."}]}},
         params={"op": ">", "value": 2}, group_by=["job"], **{"for": "5m"})
-    assert r["sentence"] == ("Alert when the rate of http_requests_total (status=~5..) is above 2, "
+    assert r["sentence"] == ("Alert when the rate of http_requests_total (status=~5..) is above 2/s, "
                              "by job, for 5 minutes")
     r = _rule(e, LOGS, type="frequency", params={"count": 50, "window": "10m"},
               query={"mode": "builder", "builder": {"text": "error"}})
@@ -265,7 +265,7 @@ def test_pending_firing_resolved_and_realert(al):
     r = {**_stored_rule(al, **{"for": "2m"}), "_threshold": {"op": ">", "value": 5}}
     assert A.apply(r, _obs(True), T0) == []                         # pending
     a = A.list_alerts("default")[0][0]
-    assert a["state"] == "pending" and a["summary"] == "API errors: 7 > 5 (job=api)"
+    assert a["state"] == "pending" and a["summary"] == "API errors: 7 events > 5 (api)"
     assert A.apply(r, _obs(True), T0 + 60) == []                    # still pending (60 s < 2 m)
     ev = A.apply(r, _obs(True), T0 + 120)
     assert [k for k, _ in ev] == ["firing"]
@@ -532,7 +532,7 @@ def test_a_raw_template_query_is_said_in_words(al):
     r = _rule(e, PROM, query={"mode": "raw", "raw": "(1 - a / b) * 100", "label": "memory used (%)"},
               params={"op": ">", "value": 85})
     assert r["query"]["label"] == "memory used (%)"
-    assert "memory used (%)" in r["sentence"] and "the query" not in r["sentence"]
+    assert r["sentence"] == "Alert when memory used is above 85 %" and r["unit"] == "%"
     bare = _rule(e, PROM)
     assert "label" not in bare["query"] and "the query (Prometheus)" in bare["sentence"]
 

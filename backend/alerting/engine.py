@@ -12,7 +12,7 @@ import json
 import math
 import statistics
 
-from . import sources
+from . import humanize, sources
 from .durations import BadDuration, human, seconds, text as dtext
 
 TYPES = ("threshold", "any", "frequency", "spike", "flatline", "change", "new_term",
@@ -148,6 +148,10 @@ def normalize(body: dict, source: dict | None) -> dict:
         out["query_compiled"] = sources.compile_query(source["kind"], out["query"])
     except ValueError as e:
         raise RuleError(str(e)) from None
+    # what the value is measured in (« % », « bytes »…): the person's choice if given, else read
+    # from the template label / builder / query — the cockpit and the messages print values with it
+    u = b.get("unit")
+    out["unit"] = u if (u in humanize.UNITS and u) else humanize.infer_unit(out, source["kind"])
     out["sentence"] = sentence(out, source)
     return out
 
@@ -168,7 +172,11 @@ def _norm_query(q: dict) -> dict:
 def _what(r: dict, src: dict) -> str:
     q = r["query"]
     if q["mode"] == "raw":
-        return q.get("label") or f"the query ({src['name']})"
+        label = q.get("label") or (humanize.describe_raw(q.get("raw") or "")[0]
+                                   if src["kind"] == "prometheus" else "")
+        if label and r.get("unit") == "%":
+            label = label.removesuffix("(%)").strip()     # « above 85 % » says it already
+        return label or f"the query ({src['name']})"
     b = q["builder"]
     flt = ", ".join(f"{f.get('label') or f.get('field')}{f.get('op', '=')}{f.get('value', '')}"
                     for f in b.get("filters") or [] if (f.get("label") or f.get("field")))
@@ -188,10 +196,12 @@ def _what(r: dict, src: dict) -> str:
 
 def sentence(r: dict, src: dict) -> str:
     p, t, w = r["params"], r["type"], _what(r, src)
-    if t == "threshold":
+    if t == "threshold" and _is_target_down(r, p):
+        s = "Alert when a target is down"
+    elif t == "threshold":
         if src["kind"] == "prometheus":
             red = "" if p["reduce"] == "last" else f"{p['reduce']} over {human(seconds(p['window']))} of "
-            s = f"Alert when {red}{w} is {OP_WORDS[p['op']]} {_n(p['value'])}"
+            s = f"Alert when {red}{w} is {OP_WORDS[p['op']]} {_val(p['value'], r.get('unit', ''))}"
         else:
             s = (f"Alert when the number of {w} in {human(seconds(p['window']))} is "
                  f"{OP_WORDS[p['op']]} {_n(p['value'])}")
@@ -228,6 +238,21 @@ def sentence(r: dict, src: dict) -> str:
     if seconds(r["for"]) > 0:
         s += f", for {human(seconds(r['for']))}"
     return s
+
+
+def _is_target_down(r: dict, p: dict) -> bool:
+    """`up < 1` (or `up == 0`) on Prometheus: « a target is down », not « up is below 1 »."""
+    q = r.get("query") or {}
+    metric = (q.get("builder") or {}).get("metric") if q.get("mode") == "builder" else None
+    is_up = metric == "up" or (q.get("mode") == "raw" and
+                                humanize.describe_raw(q.get("raw") or "")[0] == "target up")
+    return bool(is_up and ((p.get("op") in ("<", "<=") and float(p.get("value", 0)) == 1)
+                           or (p.get("op") == "==" and float(p.get("value", 1)) == 0)))
+
+
+def _val(v: float, unit: str) -> str:
+    """A threshold in a sentence: « 85 % », « 2 GB », « 300 ms » — a bare number without unit."""
+    return humanize.fmt(v, unit) if unit and unit != "events" else _n(v)
 
 
 def _n(v: float) -> str:
@@ -564,7 +589,7 @@ def preview(r: dict, src: dict, ad, rng: str, now: float) -> dict:
     if r["type"] not in ("any", "new_term", "change") and src["kind"] != "prometheus":
         step = max(step, min(seconds(r["params"].get("window") or step), span / 60))
     base = {"kind": "metric", "step_s": step, "query_compiled": r["query_compiled"],
-            "sentence": r["sentence"], "series": [], "threshold": None, "reference": None,
+            "sentence": r["sentence"], "unit": r.get("unit", ""), "series": [], "threshold": None, "reference": None,
             "fired_intervals": [], "fires": 0, "sample_events": [], "error": None, "warnings": []}
     try:
         ev = evaluate(r, src, ad, now - span, now, step)
@@ -572,7 +597,10 @@ def preview(r: dict, src: dict, ad, rng: str, now: float) -> dict:
         return {**base, "error": str(e)}
     fi = fired_intervals(ev, seconds(r["for"]))
     return {**base, "kind": ev["kind"], "threshold": ev["threshold"], "reference": ev["reference"],
+            "unit": r.get("unit", ""),
             "series": [{"group": s["group"], "group_key": s["group_key"],
+                        "group_title": humanize.group_title(s["group"]),
+                        "group_display": humanize.group_display(s["group"]),
                         "points": [[round(t, 3), round(v, 6)] for t, v in s["points"]]}
                        for s in ev["series"]],
             "fired_intervals": fi, "fires": len(fi), "sample_events": ev["sample_events"],

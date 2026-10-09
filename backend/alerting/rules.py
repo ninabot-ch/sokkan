@@ -3,11 +3,29 @@ from __future__ import annotations
 
 import json
 
-from . import engine, sources, store
+from . import engine, humanize, sources, store
+
+
+def _readable(body: dict) -> dict:
+    """Rules saved before 3.5 polish said « the query (Prometheus) » and had no unit: say what the
+    query measures and with which unit, from the definition itself (nothing to migrate on disk)."""
+    if body.get("unit") is not None and "the query (" not in (body.get("sentence") or ""):
+        return body
+    src = sources.get(int(body.get("source_id") or 0)) if body.get("source_id") else None
+    if not src:
+        return body
+    body = dict(body)
+    if body.get("unit") is None:
+        body["unit"] = humanize.infer_unit(body, src["kind"])
+    try:
+        body["sentence"] = engine.sentence(body, src)
+    except (KeyError, TypeError, ValueError):
+        pass
+    return body
 
 
 def _public(r) -> dict:
-    body = store.j(r["body"], {})
+    body = _readable(store.j(r["body"], {}))
     st = store.j(r["state"], {})
     if not r["enabled"]:
         st = {**st, "state": "disabled"}

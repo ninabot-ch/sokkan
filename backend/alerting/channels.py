@@ -18,7 +18,7 @@ from email.message import EmailMessage
 
 import httpx
 
-from . import store
+from . import humanize, store
 
 TIMEOUT = 10.0
 KINDS = [
@@ -200,7 +200,7 @@ def message(event: str, alert: dict, rule: dict) -> dict:
     if event != "resolved" and rule.get("sentence"):
         lines.append(f"Rule: {rule['sentence']}")
     if alert.get("group"):
-        lines.append("Where: " + ", ".join(f"{k}={v}" for k, v in alert["group"].items()))
+        lines.append("Where: " + humanize.group_where(alert["group"]))
     if rule.get("runbook_url"):
         lines.append(f"Runbook: {rule['runbook_url']}")
     link = public_url() + (alert.get("link") or f"/?plane=operate&tab=alerts&rule={rule.get('id', '')}")

@@ -11,7 +11,7 @@ export type Severity = "info" | "warning" | "critical";
 export type RuleType =
   | "threshold" | "any" | "frequency" | "spike" | "flatline" | "change"
   | "new_term" | "cardinality" | "absence" | "anomaly";
-export type RuleState = "ok" | "pending" | "firing" | "silenced" | "error" | "disabled";
+export type RuleState = "ok" | "pending" | "firing" | "silenced" | "error" | "disabled" | "new";
 export type AlertState = "pending" | "firing" | "resolved" | "silenced";
 export type ChannelKind = "telegram" | "teams" | "slack" | "email" | "webhook" | "pagerduty" | "instance";
 /** "30s" "5m" "1h" "1d" "7d" */
@@ -82,6 +82,9 @@ export interface RuleIn {
   labels: Record<string, string>;
   runbook_url: string;
   level: string | null;
+  /** what the value is measured in (« % », « bytes », « s », « /s », « events », « days ») — the server
+   *  infers it from the template / builder / query when not given */
+  unit?: string | null;
 }
 export type Param = number | string | boolean | null;
 
@@ -112,7 +115,11 @@ export interface Template {
   rule: Partial<RuleIn>;
 }
 
-export interface Series { group?: Record<string, string> | null; group_key?: string | null; points: TV[] }
+export interface Series {
+  group?: Record<string, string> | null; group_key?: string | null; points: TV[];
+  /** 3.5: « rpi1 · node » — addresses resolved to host names (the address stays in the tooltip) */
+  group_title?: string | null; group_display?: Record<string, string> | null;
+}
 export interface Interval { group_key?: string | null; start: number; end: number | null; peak?: number | null }
 export interface SampleEvent { ts: number; text: string; fields?: Record<string, string> }
 export interface Threshold { op: string; value: number }
@@ -129,6 +136,7 @@ export interface PreviewResult {
   sample_events?: SampleEvent[];
   error?: string | null;
   warnings?: string[];
+  unit?: string | null;
 }
 
 export interface Alert {
@@ -138,11 +146,14 @@ export interface Alert {
   value?: number | null; threshold?: Threshold | null; summary?: string | null;
   acked_by?: string | null; acked_at?: number | null; silenced_until?: number | null; incident_id?: number | null;
   sample_events?: SampleEvent[]; link?: string;
+  /** 3.5: what a person reads — « rpi1 · node », « 77.8 % > 50 % », « down » */
+  group_title?: string | null; group_display?: Record<string, string> | null; value_text?: string | null;
+  unit?: string | null;
 }
 export interface AlertCounts { firing: number; pending: number; silenced: number; acked: number }
 
 export interface Transition {
-  ts: number; group?: Record<string, string> | null; group_key?: string | null;
+  ts: number; group?: Record<string, string> | null; group_key?: string | null; group_title?: string | null; value_text?: string | null;
   from: string; to: string; value?: number | null; threshold?: number | null; note?: string | null;
 }
 
@@ -198,8 +209,22 @@ export function fmtDur(d: Dur | number | null | undefined): string {
 /** Compact number for axes and sentences: 0.0213 → "0.0213", 12345 → "12.3k", 2.5e6 → "2.5M". */
 export function fmtValue(v: number | null | undefined, unit?: string | null): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  const u = unit === "%" || unit === "percent" ? " %" : unit === "s" || unit === "seconds" ? " s" : unit ? ` ${unit}` : "";
   const a = Math.abs(v);
+  if (unit === "bytes") {
+    for (const [k, suf] of [[2 ** 40, "TB"], [2 ** 30, "GB"], [2 ** 20, "MB"], [2 ** 10, "KB"]] as [number, string][])
+      if (a >= k) return `${trim(v / k)} ${suf}`;
+    return `${trim(v)} B`;
+  }
+  if (unit === "s" || unit === "seconds") {
+    if (a > 0 && a < 1) return `${trim(v * 1000)} ms`;
+    if (a >= 7200) return `${trim(v / 3600)} h`;
+    if (a >= 120) return `${trim(v / 60)} min`;
+    return `${trim(v)} s`;
+  }
+  if (unit === "/s") return `${trim(v)}/s`;
+  if (unit === "events") return a >= 1e4 ? `${trim(v / 1e3)}k` : String(Math.round(v));
+  if (unit === "days") return `${trim(v)} d`;
+  const u = unit === "%" || unit === "percent" ? " %" : "";
   if (a >= 1e9) return `${trim(v / 1e9)}G${u}`;
   if (a >= 1e6) return `${trim(v / 1e6)}M${u}`;
   if (a >= 1e4) return `${trim(v / 1e3)}k${u}`;
@@ -275,12 +300,45 @@ const filt = (fs: Filter[] | undefined) =>
   (fs || []).filter((f) => (f.label || f.field || "").trim())
     .map((f) => `${(f.label || f.field || "").trim()} ${f.op} ${f.value}`).join(", ");
 
+const KNOWN_RAW: [RegExp, string, string][] = [
+  [/node_memory_MemAvailable_bytes\s*\/\s*node_memory_MemTotal_bytes/, "memory used", "%"],
+  [/node_cpu_seconds_total\{[^}]*mode="idle"/, "CPU used", "%"],
+  [/node_filesystem_(avail|free)_bytes[\s\S]*node_filesystem_size_bytes/, "disk used", "%"],
+  [/probe_ssl_earliest_cert_expiry/, "days before the certificate expires", "days"],
+  [/node_load(1|5|15)\b/, "load average", ""],
+  [/^\s*up\s*(\{|$|[=!<>])/, "target up", ""],
+];
+const NOT_METRIC = new Set(["sum", "avg", "max", "min", "count", "rate", "irate", "increase", "by", "without", "on",
+  "ignoring", "group_left", "group_right", "time", "vector", "scalar", "abs", "histogram_quantile", "quantile", "topk",
+  "bottomk", "and", "or", "unless", "bool", "offset", "label_replace", "clamp_min", "clamp_max", "round", "delta",
+  "deriv", "avg_over_time", "max_over_time", "min_over_time", "sum_over_time", "absent"]);
+
+/** What a raw PromQL measures, in words, and its unit — never the query itself (same table as the
+ *  server's humanize.describe_raw). Nothing recognisable → ["", ""]. */
+export function describeRaw(promql: string): [string, string] {
+  const q = promql || "";
+  for (const [rx, label, unit] of KNOWN_RAW) if (rx.test(q)) return [label, unit];
+  const rx = /\b([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(\{|\[|\)|$|\s)/g;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(q))) {
+    const name = m[1];
+    if (NOT_METRIC.has(name) || !name.includes("_")) continue;
+    const rate = /\b(i?rate|increase)\(/.test(q);
+    let unit = /_bytes(_total)?$/.test(name) ? (rate && name.endsWith("_total") ? "/s" : "bytes")
+      : /_seconds(_total)?$/.test(name) ? "s" : rate && name.endsWith("_total") ? "/s" : "";
+    if (/\*\s*100/.test(q) && q.includes("/")) unit = "%";
+    return [name.replace(/_(total|count|sum|bucket)$/, "").replace(/_/g, " ").trim(), unit];
+  }
+  return ["", ""];
+}
+
 /** What the rule watches, in words. */
 export function subjectOf(q: RuleQuery, kind?: SourceKind): string {
   if (q.mode === "raw") {
-    if (q.label) return q.label;
-    const r = (q.raw || "").trim();
-    return r ? (r.length > 64 ? `« ${r.slice(0, 61)}… »` : `« ${r} »`) : "the query";
+    const label = (q.label || (kind === "prometheus" || !kind ? describeRaw(q.raw)[0] : "")).trim();
+    // « memory used (%) is above 85 % » says « % » twice
+    if (label) return label.replace(/\s*\(%\)\s*$/, "");
+    return "the query";
   }
   const b = q.builder || {};
   if (isMetricSource(kind) || b.metric) {
@@ -300,6 +358,15 @@ export function subjectOf(q: RuleQuery, kind?: SourceKind): string {
   return parts.join("");
 }
 
+/** `up < 1` / `up == 0`: « a target is down », not « up drops below 1 ». */
+export function isTargetDown(r: Pick<RuleIn, "type" | "params" | "query">): boolean {
+  if (r.type !== "threshold") return false;
+  const q = r.query;
+  const up = (q.mode === "builder" && (q.builder?.metric || "").trim() === "up") || (q.mode === "raw" && describeRaw(q.raw)[0] === "target up");
+  const op = String(r.params?.op ?? ""); const v = Number(r.params?.value);
+  return up && (((op === "<" || op === "<=") && v === 1) || (op === "==" && v === 0));
+}
+
 /** The rule in one plain sentence — under the type cards, in the summary, in the list.
  *  « Alert when the rate of http_requests_total (status =~ 5..) goes above 2 for 5 min, per job. » */
 export function ruleSentence(r: Pick<RuleIn, "type" | "params" | "for" | "query" | "group_by">, kind?: SourceKind,
@@ -312,6 +379,7 @@ export function ruleSentence(r: Pick<RuleIn, "type" | "params" | "for" | "query"
   const n = (k: string) => Number(p[k]) || 0;
   switch (r.type) {
     case "threshold": {
+      if (isTargetDown(r)) return `Alert when a target is down${hold}${per}.`;
       const red = isMetricSource(kind) && r.query.mode === "builder" ? "" : (REDUCE_WORD[String(p.reduce || "last")] ?? "");
       const op = OP_WORD[String(p.op || ">")] ?? String(p.op);
       const pct = r.query.builder?.ratio_of ? "%" : unit;
@@ -592,12 +660,28 @@ export const STATE_WORD: Record<RuleState | AlertState, { label: string; icon: s
   silenced: { label: "Silenced", icon: "⏸" },
   error: { label: "Source error", icon: "!" },
   disabled: { label: "Off", icon: "○" },
+  new: { label: "First check…", icon: "◌" },
 };
 
-const RANK: Record<RuleState, number> = { firing: 0, error: 1, pending: 2, silenced: 3, ok: 4, disabled: 5 };
+const RANK: Record<RuleState, number> = { firing: 0, error: 1, pending: 2, silenced: 3, new: 4, ok: 4, disabled: 5 };
 const SEV: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
-export const ruleState = (r: Rule): RuleState => r.state?.state ?? (r.enabled ? "ok" : "disabled");
+/** A rule just saved has not been checked yet: « OK » would claim what nobody looked at (09.10 journey:
+ *  « OK » next to a target that was down). */
+export const ruleState = (r: Rule): RuleState => {
+  const st = r.state?.state ?? (r.enabled ? "ok" : "disabled");
+  return st === "ok" && r.enabled && !r.state?.last_eval ? "new" : st;
+};
+
+/** Templates to suggest first when a project has few rules: the ones every ops team wants, in this order. */
+export const TEMPLATE_PRIORITY = ["target-down", "host-memory", "host-disk", "http-5xx-rate", "latency-p95", "host-cpu",
+  "log-errors", "logs-flatline", "tls-expiry", "agent-run-failed", "project-budget"];
+export function suggestTemplates<T extends { id: string; name: string; available: boolean }>(ts: T[], usedNames: string[], n = 3): T[] {
+  const used = new Set(usedNames.map((x) => x.trim().toLowerCase()));
+  const rank = (id: string) => { const i = TEMPLATE_PRIORITY.indexOf(id); return i < 0 ? 99 : i; };
+  return ts.filter((t) => t.available && !used.has(t.name.trim().toLowerCase()))
+    .sort((a, b) => rank(a.id) - rank(b.id)).slice(0, n);
+}
 
 /** Order of the rule list: what needs eyes first, then severity, then name. */
 export function sortRules(rs: Rule[]): Rule[] {
@@ -653,7 +737,56 @@ export function shortGroup(key: string | null | undefined): string {
 
 /** The unit of the watched value: % for a share (« as a percentage of ») or a labelled query
  *  ending in « (%) » (memory, CPU, disk templates) — so the line says « > 85 % », not « > 85 ». */
-export function valueUnit(q: RuleQuery): string | null {
+export function valueUnit(q: RuleQuery, unit?: string | null): string | null {
+  if (unit) return unit;
   if (q.mode === "builder" && q.builder?.ratio_of) return "%";
-  return /\(%\)\s*$/.test(q.label || "") ? "%" : null;
+  if (/\(%\)\s*$/.test(q.label || "")) return "%";
+  if (q.mode === "raw" && !q.label) return describeRaw(q.raw)[1] || null;
+  if (q.mode === "builder" && q.builder?.metric) {
+    const m = q.builder.metric; const rate = q.builder.agg === "rate";
+    if (/_bytes(_total)?$/.test(m)) return rate && m.endsWith("_total") ? "/s" : "bytes";
+    if (/_seconds(_total)?$/.test(m)) return "s";
+    if (rate && m.endsWith("_total")) return "/s";
+  }
+  return null;
+}
+
+const OP_SIGN: Record<string, string> = { ">": ">", ">=": "≥", "<": "<", "<=": "≤", "==": "=" };
+
+/** The value line of an alert, split for emphasis: {value: "77.8 %", rest: "> 50 %"} · {value: "down"}.
+ *  The server's `value_text` when it has one, else built from value / threshold / unit. */
+export function alertValueText(a: Pick<Alert, "value" | "threshold" | "value_text" | "unit">): { value: string; rest: string } | null {
+  const t = (a.value_text || "").trim();
+  if (t) {
+    const m = /^(.+?)\s+([<>≤≥=]\s.+|\(.+\)|in\s.+)$/.exec(t);
+    return m ? { value: m[1], rest: m[2] } : { value: t, rest: "" };
+  }
+  if (a.value === null || a.value === undefined) return null;
+  const u = a.unit || null;
+  const th = a.threshold;
+  if (th && (th.op === "<" || th.op === "<=") && th.value === 1 && !u && a.value === 0) return { value: "down", rest: "" };
+  return { value: fmtValue(a.value, u), rest: th && typeof th.value === "number" && th.op ? `${OP_SIGN[th.op] ?? th.op} ${fmtValue(th.value, u)}` : "" };
+}
+
+/** The value column of a rule row: « 77.8 % », « down » (a target rule at 0), « no data » (absence). */
+export function ruleValueText(r: Pick<Rule, "type" | "params" | "state">, unit?: string | null): string | null {
+  const v = r.state?.last_value;
+  if (r.type === "absence" && (r.state?.firing ?? 0) > 0) return "no data";
+  if (v === null || v === undefined) return null;
+  const op = String(r.params?.op ?? ""); const th = Number(r.params?.value);
+  if ((op === "<" || op === "<=") && th === 1 && !unit && v === 0) {
+    const n = r.state?.firing ?? 0;
+    return n > 1 ? `${n} down` : "down";
+  }
+  return fmtValue(v, unit);
+}
+
+/** The name of a group for a legend / an alert row: the server's « rpi1 · node » when it has one. */
+export function groupTitle(x: { group_title?: string | null; group_key?: string | null } | null | undefined): string {
+  return (x?.group_title || "").trim() || shortGroup(x?.group_key);
+}
+
+/** The tooltip of a group: every label with its raw value (« instance=100.76.30.90:9100 · job=node »). */
+export function groupTip(x: { group?: Record<string, string> | null; group_key?: string | null } | null | undefined): string {
+  return groupText(x?.group, x?.group_key);
 }

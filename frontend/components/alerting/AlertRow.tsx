@@ -4,7 +4,7 @@
 // open an incident.
 import { useState } from "react";
 import { ackAlert, openIncident, silenceAlert } from "@/lib/alerting";
-import { fmtValue, groupText, since, type Alert } from "@/lib/alertingModel";
+import { alertValueText, groupTip, groupTitle, since, type Alert } from "@/lib/alertingModel";
 import { SeverityChip, StateChip, btn } from "./bits";
 
 /** « until tomorrow 08:00 » as a duration string for the API */
@@ -25,7 +25,8 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
     setBusy(true); setErr("");
     try { await f(); onChanged(); } catch (e) { setErr(String((e as Error).message || e)); } finally { setBusy(false); setMute(false); }
   };
-  const g = groupText(a.group, a.group_key);
+  const g = groupTitle(a);
+  const v = alertValueText(a);
   const tone = a.state === "firing" ? (a.severity === "critical" ? "border-red-500/60 bg-red-500/[0.07]" : "border-red-500/35 bg-red-500/[0.04]")
     : a.state === "pending" ? "border-amber-500/35 bg-amber-500/[0.04]" : "border-line bg-panel2/40";
   return (
@@ -36,20 +37,17 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
         {!hideRule && (onOpenRule
           ? <button type="button" onClick={() => onOpenRule(a.rule_id)} className="ui-focus min-h-6 min-w-0 truncate text-left text-[13px] font-medium text-slate-100 hover:underline">{a.rule_name}</button>
           : <span className="min-w-0 truncate text-[13px] font-medium text-slate-100">{a.rule_name}</span>)}
-        {g && <span className="rounded bg-panel2 px-1.5 font-mono text-[10.5px] text-slate-300">{g}</span>}
+        {g && <span className="rounded bg-panel2 px-1.5 text-[11.5px] font-medium text-slate-200" title={groupTip(a)}>{g}</span>}
         <span className="ml-auto whitespace-nowrap text-[11px] text-mut" title={new Date(a.started_at * 1000).toLocaleString()}>
           {a.state === "pending" ? "pending for" : "since"} {since(a.fired_at || a.started_at)}
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-        {a.value !== null && a.value !== undefined && (
-          <span className="tabular-nums text-slate-100">
-            <b className="text-red-200">{fmtValue(a.value)}</b>
-            {a.threshold && <span className="text-mut"> {a.threshold.op} {fmtValue(a.threshold.value)}</span>}
+        {v ? (
+          <span className={`tabular-nums ${a.state === "resolved" ? "text-slate-300" : a.state === "pending" ? "text-amber-100" : "text-red-100"}`}>
+            <b className="font-semibold">{v.value}</b>{v.rest && <span className="text-mut"> {v.rest}</span>}
           </span>
-        )}
-        {/* the summary repeats « value op threshold (group) »: only when there is no value to show */}
-        {a.summary && (a.value === null || a.value === undefined) && <span className="min-w-0 truncate text-mut">{a.summary}</span>}
+        ) : a.summary ? <span className="min-w-0 text-mut">{a.summary}</span> : null}
         {a.acked_by && <span className="text-[11px] text-emerald-300">✓ taken by {a.acked_by}</span>}
         {a.silenced_until && a.silenced_until > Date.now() / 1000 && <span className="text-[11px] text-slate-300">‖ silenced {since(Date.now() / 1000, a.silenced_until)} more</span>}
       </div>
