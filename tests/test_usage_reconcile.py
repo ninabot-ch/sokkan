@@ -185,3 +185,34 @@ def test_operator_price_override(world, monkeypatch, tmp_path):
     assert pricing.canonical("us.anthropic.claude-sonnet-5-5-v1:0") == "claude-sonnet-5-5"
     assert pricing.canonical("sonnet") == "claude-sonnet-5-5"
     assert pricing.canonical("claude-opus") is None            # no prefix guessing
+
+
+def test_router_engine_sessions_are_priced_at_the_served_tier(world, monkeypatch):
+    """3.4.4: through the SOKKAN Router engine (custom mode on the gateway's Anthropic
+    door) the transcript says `sokkan/sokkan-ship` — was unpriced (0 $) in Costs."""
+    import agentcost
+    import llm
+    llm.save({"mode": "custom", "base_url": "https://infer.example", "model": "sokkan-ship",
+              "engine": "sokkan_router", "auth_token": "none"})
+    ws = world["usage"].PROJECT_DIR
+    import board
+    board.add_sdk_session("s3", "ops", title="router engine")
+    board.set_claude_session_id("s3", "c-rt")
+    _write(ws / "c-rt.jsonl", [
+        _line("r1", "sokkan/sokkan-ship", {"input_tokens": 1_000_000, "output_tokens": 1_000_000,
+                                           "cache_read_input_tokens": 1_000_000}),
+        _line("r2", "sokkan/sokkan-deep", {"input_tokens": 1_000_000, "output_tokens": 0}),
+    ])
+    grid = [{"id": "sokkan-ship", "chf_per_mtok_in": 0.4, "chf_per_mtok_cached": 0.04,
+             "chf_per_mtok_out": 1.5},
+            {"id": "sokkan-deep", "chf_per_mtok_in": 0.8, "chf_per_mtok_cached": 0.8,
+             "chf_per_mtok_out": 4.8}]
+    monkeypatch.setattr(llm, "price_tiers", lambda: grid)
+    agentcost._tier_cache["at"] = 0.0
+    monkeypatch.setenv("SOKKAN_FX_USD_PER_CHF", "1.20")
+    s = world["usage"].summary(30)
+    by = {b["basis"]: b for b in s["by_basis"]}
+    assert by["gateway"]["billed"] == pytest.approx((0.4 + 1.5 + 0.04 + 0.8) * 1.20)
+    assert agentcost.metering(None)["endpoint"] == "gateway"
+    assert agentcost.metering(None)["price"]["cache_read"] == 0.04
+

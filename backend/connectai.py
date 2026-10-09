@@ -44,7 +44,11 @@ _lock = threading.Lock()
 ENGINES: tuple[dict, ...] = (
     {"id": "sokkan_router", "label": "SOKKAN Router", "vendor": "NINABOT", "avatar": "SR",
      "auths": ["key"], "bridge": "anthropic", "provider": "sokkan_router",
-     "base_url_env": "SOKKAN_ROUTER_URL", "base_url": "https://router.sokkan.ch",
+     # 3.4.4: sessions speak the Anthropic Messages API, so the card points at the
+     # Anthropic door of SOKKAN Inference (Ship → Deep by difficulty). router.sokkan.ch
+     # only speaks the OpenAI API (/v1/messages = 404): every session failed on it.
+     "base_url_env": "SOKKAN_ROUTER_URL", "base_url": "https://infer.sokkan.ch",
+     "model_env": "SOKKAN_ROUTER_MODEL", "model": "sokkan-ship",
      "blurb": "Routes each request to the right model by difficulty; Swiss/EU zones.",
      "recommended": True},
     {"id": "claude", "label": "Claude", "vendor": "Anthropic", "avatar": "C",
@@ -124,6 +128,11 @@ def default_base_url(e: dict) -> str:
     return ((os.environ.get(env) or "").strip() if env else "") or e.get("base_url", "")
 
 
+def default_model(e: dict) -> str:
+    env = e.get("model_env")
+    return ((os.environ.get(env) or "").strip() if env else "") or e.get("model", "")
+
+
 def policy() -> dict:
     p = _load().get("policy") or {}
     return {"allowed": [x for x in p.get("allowed", []) if x in BY_ID],
@@ -186,7 +195,7 @@ def connect(eid: str, by: str, auth: str, key: str = "", base_url: str = "", mod
             raise ConnectError(400, "base_url (an endpoint speaking the Anthropic API) required")
     else:
         base_url = ""
-    model = (model or "").strip()[:120]
+    model = ((model or "").strip() or default_model(e))[:120]
     small_model = (small_model or "").strip()[:120]
     p = policy()
     if eid == "sokkan_router" and mode() == "governed" and p["tiers"] and model not in p["tiers"]:
@@ -382,7 +391,7 @@ def engine_keys(eid: str) -> list[dict]:
         rec = modelkeys.record("instance", prov)
         if rec:
             k = modelkeys.public("instance", prov, rec)
-            k["testable"] = bool(modelkeys.PROVIDERS[prov]["test_url"])
+            k["testable"] = modelkeys.testable(prov, rec)
             out.append(k)
     return out
 

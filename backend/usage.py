@@ -364,7 +364,8 @@ def billing() -> dict:
 
 def basis_for(model: str, b: dict, local_ids: set[str]) -> str:
     m = (model or "").lower()
-    if m.startswith("sokkan-"):
+    # 3.4.4: the gateway answers `sokkan/<served tier>` (sokkan/sokkan-ship, …)
+    if m.startswith(("sokkan-", "sokkan/")):
         return "gateway"
     if m.startswith("claude") or pricing.canonical(m):
         return b["claude"]

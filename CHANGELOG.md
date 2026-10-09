@@ -18,6 +18,23 @@ Notable changes, newest first. Versions: semver + release hash (see
   environment held (the project vault in `all` mode, the names chosen at opening in `named`
   mode), live, on replay after a restart and in the stored transcript.
 
+### Fixed
+- **The SOKKAN Router engine of « Connect your AI » works.** The card — preselected in personal
+  mode — pointed at `router.sokkan.ch`, which only speaks the OpenAI API: sessions speak the
+  Anthropic Messages API, so every session on it failed (`/v1/messages` 404, « There's an issue
+  with the selected model »). It now points at the Anthropic door of SOKKAN Inference
+  (`https://infer.sokkan.ch`, Ship → Deep by difficulty), and a card connected without a model
+  gets `sokkan-ship`. `SOKKAN_ROUTER_URL` / new `SOKKAN_ROUTER_MODEL` override both. The key is a
+  SOKKAN inference key (`sik_…`).
+- **The key test of the SOKKAN Router (and of a custom endpoint) really tests the key.** It
+  called a public catalogue without the key, so any key was « valid »; it now calls `/usage`
+  with the key (401 → « rejected »). A custom endpoint's test sends the key too.
+- **Costs prices the sessions served by SOKKAN Inference.** The gateway answers
+  `sokkan/<served tier>`: not recognised as a gateway model, those sessions showed 0 $. They are
+  now priced at the tier that served them (an escalated message at Deep) from the gateway's
+  `/tiers` grid, cached-input price included, converted with `SOKKAN_FX_USD_PER_CHF` — for the
+  SOKKAN Router engine as for managed inference; Crew runs on that engine are metered the same way.
+
 ## 3.4.3 — 2026-10-09 — "Bridge"
 
 ### Fixed

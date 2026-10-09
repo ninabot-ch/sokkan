@@ -442,7 +442,7 @@ def test_governed_mode_admin_list_zones_tiers_and_project_choice(world, monkeypa
                                     json={"engine": None}).status_code == 404
     import connectai
     env, model = connectai.session_overrides(RADIO_SID, "")
-    assert env["ANTHROPIC_BASE_URL"] == "https://router.sokkan.ch" and model == "sokkan-swiss"
+    assert env["ANTHROPIC_BASE_URL"] == "https://infer.sokkan.ch" and model == "sokkan-swiss"
     assert connectai.session_overrides(DEFAULT_SID, "") == ({}, None)
     # personal mode has no policy
     monkeypatch.setenv("SOKKAN_CONNECT_AI_MODE", "personal")
@@ -455,3 +455,52 @@ def test_connect_ai_off_means_404_and_engine_models_fall_back(world, monkeypatch
     assert world["as"]("bob@x").get("/api/connect-ai").status_code == 404
     assert world["as"]("bob@x").get("/api/connect-ai/crew-engines").json() == []
     assert connectai.session_overrides("x", "engine:claude") == ({}, "")
+
+
+def test_router_card_speaks_anthropic_with_a_default_tier_and_a_real_key_test(world, monkeypatch):
+    """3.4.4: the SOKKAN Router card pointed at router.sokkan.ch (OpenAI API only →
+    /v1/messages 404, every session failed) and its key test hit a public catalogue
+    without the key (a bogus key was « valid »)."""
+    import connectai
+    import llm
+    import modelkeys
+    monkeypatch.delenv("SOKKAN_ROUTER_URL", raising=False)
+    monkeypatch.delenv("SOKKAN_ROUTER_MODEL", raising=False)
+    def adm_():
+        return world["as"]("admin@x")
+    # connected without a model: the default tier, so it can be the default at once
+    r = adm_().put("/api/connect-ai/engines/sokkan_router", json={"auth": "key", "key": "sik_" + "a" * 48})
+    assert r.status_code == 200, r.text
+    assert adm_().post("/api/connect-ai/default", json={"engine": "sokkan_router"}).status_code == 200
+    env = llm.session_env("bob@x")
+    assert env["ANTHROPIC_BASE_URL"] == "https://infer.sokkan.ch"
+    assert llm.session_model() == "sokkan-ship"
+    # the key test sends the key to an authenticated endpoint of that door
+    http = _FakeHttp(401)
+    monkeypatch.setattr(modelkeys, "_http", http)
+    t = adm_().post("/api/connect-ai/engines/sokkan_router/test").json()
+    assert t["ok"] is False and "rejected" in t["detail"]
+    method, url, headers, _ = http.calls[-1]
+    assert url == "https://infer.sokkan.ch/usage" and headers == {"x-api-key": "sik_" + "a" * 48}
+    monkeypatch.setattr(modelkeys, "_http", _FakeHttp(200))
+    assert adm_().post("/api/connect-ai/engines/sokkan_router/test").json()["ok"] is True
+    keys = connectai.engine_keys("sokkan_router")
+    assert keys and keys[0]["testable"] is True
+    # both overridable by env
+    monkeypatch.setenv("SOKKAN_ROUTER_URL", "https://infer.example")
+    monkeypatch.setenv("SOKKAN_ROUTER_MODEL", "sokkan-deep")
+    adm_().delete("/api/connect-ai/engines/sokkan_router")
+    assert adm_().put("/api/connect-ai/engines/sokkan_router",
+                      json={"auth": "key", "key": "sik_" + "b" * 48}).status_code == 200
+    c = connectai.connection("sokkan_router")
+    assert c["base_url"] == "https://infer.example" and c["model"] == "sokkan-deep"
+
+
+def test_custom_endpoint_key_test_sends_the_key(world, monkeypatch):
+    import modelkeys
+    http = _FakeHttp(200)
+    monkeypatch.setattr(modelkeys, "_http", http)
+    modelkeys.set_key("instance", "custom", "custom-key-123456", "admin@x", base_url="http://litellm:4000")
+    assert modelkeys.test_key("instance", "custom")["ok"] is True
+    _, url, headers, _ = http.calls[-1]
+    assert url == "http://litellm:4000/v1/models" and headers["x-api-key"] == "custom-key-123456"

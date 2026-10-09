@@ -446,7 +446,8 @@ REGISTRY: tuple[Feature, ...] = (
             "sets the allowed engines, zones and tiers; choice per project). A connected "
             "engine can drive a Crew card.", status="beta", defaults=_ed(False, True),
             vars=_t("connect_ai"),
-            config=("SOKKAN_CONNECT_AI_MODE", "SOKKAN_ROUTER_URL", "SOKKAN_ROUTER_WELCOME_URL"),
+            config=("SOKKAN_CONNECT_AI_MODE", "SOKKAN_ROUTER_URL", "SOKKAN_ROUTER_MODEL",
+                    "SOKKAN_ROUTER_WELCOME_URL"),
             doc="docs/enterprise/UI-FEATURES.md"),
 )
 

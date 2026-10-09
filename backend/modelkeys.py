@@ -41,12 +41,18 @@ PROVIDERS: dict[str, dict] = {
     "openrouter": {"label": "OpenRouter", "hint": "sk-or-…", "sessions": False,
                    "test_url": "https://openrouter.ai/api/v1/key",
                    "test_headers": lambda k: {"authorization": f"Bearer {k}"}},
-    "sokkan_router": {"label": "SOKKAN Router", "hint": "API key from your SOKKAN Router account",
-                      "sessions": False, "test_url": "", "test_headers": lambda k: {}},
+    # 3.4.4: tested against the Anthropic door (SOKKAN Inference) with the key — /usage
+    # answers 401 to a wrong key (before: a public catalogue, so any key was « valid »)
+    "sokkan_router": {"label": "SOKKAN Router", "hint": "SOKKAN inference key (sik_…)",
+                      "sessions": False, "test_url": "", "test_path": "/usage",
+                      "default_base_env": "SOKKAN_ROUTER_URL",
+                      "default_base": "https://infer.sokkan.ch",
+                      "test_headers": lambda k: {"x-api-key": k}},
     "claude_login": {"label": "Claude login (setup-token)", "hint": "token from claude setup-token",
                      "sessions": True, "test_url": "", "test_headers": lambda k: {}},
     "custom": {"label": "Other (Anthropic-compatible endpoint)", "hint": "endpoint key",
-               "sessions": False, "test_url": "", "test_headers": lambda k: {}},
+               "sessions": False, "test_url": "",
+               "test_headers": lambda k: {"x-api-key": k, "authorization": f"Bearer {k}"}},
 }
 SCOPES_LIVE = ("instance",)
 _SCOPE_RE = re.compile(r"^(instance|project:[a-z0-9][a-z0-9-]{0,40})$")
@@ -217,6 +223,13 @@ def list_keys() -> list[dict]:
     return out
 
 
+def testable(provider: str, rec: dict | None = None) -> bool:
+    """A validity test exists: a fixed URL, a default base (SOKKAN Router), or the key's
+    own base URL (custom endpoints)."""
+    spec = PROVIDERS[provider]
+    return bool(spec["test_url"] or spec.get("default_base") or (rec or {}).get("base_url"))
+
+
 def test_key(scope: str, provider: str) -> dict:
     """Optional validity test: one GET with the key. Records ok/status, returns it. Never
     logs nor returns the key or the provider's response body."""
@@ -227,8 +240,12 @@ def test_key(scope: str, provider: str) -> dict:
     spec = PROVIDERS[provider]
     url = spec["test_url"]
     rec = record(scope, provider) or {}
-    if not url and rec.get("base_url"):
-        url = rec["base_url"] + "/v1/models"
+    if not url:
+        base = rec.get("base_url") or (
+            (os.environ.get(spec.get("default_base_env", "")) or "").strip()
+            or spec.get("default_base", ""))
+        if base:
+            url = base.rstrip("/") + spec.get("test_path", "/v1/models")
     if not url:
         res = {"ok": None, "detail": "no test available for this provider"}
     else:
