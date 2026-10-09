@@ -179,11 +179,11 @@ function Identity({ onGo }: { onGo: (t: SubTab, section?: string) => void }) {
       {/* 3.2.2 : the motto only where there is room (it wrapped on 3 lines at 1280 px) */}
       <span className={motto}>the helm, not the autopilot</span>
       <button ref={btn} aria-haspopup="menu" aria-expanded={open}
-        onClick={() => setOpen((o) => !o)} title={`${me.name} — ${me.email} · ${me.role}`}
+        onClick={() => setOpen((o) => !o)} title={`${me.name} — ${me.email} · ${me.role_label || me.role}`}
         className="ui-focus flex min-h-[26px] max-w-[15rem] items-center gap-1 whitespace-nowrap rounded-full border border-line bg-panel2 px-2 py-0.5 hover:bg-line">
         <span className="hidden min-w-0 max-w-[9rem] truncate text-slate-200 sm:inline">{me.name}</span>
         <span aria-hidden className="hidden sm:inline">·</span>
-        <span className={`shrink-0 ${color[me.role] || "text-mut"}`}>{me.role}</span>
+        <span className={`shrink-0 ${color[me.role] || "text-mut"}`}>{me.role_label || me.role}</span>
         {warn && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="model not configured" />}
         <span className="text-mut" aria-hidden>▾</span>
       </button>

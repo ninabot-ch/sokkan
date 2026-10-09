@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -252,8 +253,17 @@ def _aggregate(parsed: dict) -> tuple[dict, dict]:
     return tot, rows
 
 
+_refresh_lock = threading.Lock()
+
+
 def refresh() -> None:
-    """Updates the cache for new / changed transcripts (incremental)."""
+    """Updates the cache for new / changed transcripts (incremental). Serialised (3.4.4):
+    the background refresher and a Costs request no longer parse the same files at once."""
+    with _refresh_lock:
+        _refresh()
+
+
+def _refresh() -> None:
     con = _con()
     known = {r["path"]: (r["mtime"], r["size"]) for r in con.execute("SELECT path, mtime, size FROM files")}
     live = set()

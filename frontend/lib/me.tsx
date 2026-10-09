@@ -74,7 +74,8 @@ function LoginScreen() {
         </div>
       ) : (
         <a
-          href="/api/auth/login"
+          href={`/api/auth/login?next=${encodeURIComponent(
+            typeof window === "undefined" ? "/" : window.location.pathname + window.location.search)}`}
           className="rounded-xl bg-gradient-to-r from-[#6E49EA] via-[#4870E2] to-[#1C9ED9] px-10 py-3 text-[15px] font-semibold text-white shadow-lg shadow-[#4870E2]/25 ring-1 ring-white/10 transition hover:brightness-110 active:scale-[0.98]"
         >
           Sign in (SSO)

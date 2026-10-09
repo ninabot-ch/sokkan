@@ -5,6 +5,8 @@ const backend = process.env.SOKKAN_API || "http://127.0.0.1:8097";
 /** @type {import('next').NextConfig} */
 export default {
   output: "standalone",
+  // 3.4.4: the /api proxy cut a slow first Costs load at 30 s (« socket hang up » → 500)
+  experimental: { proxyTimeout: 120_000 },
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${backend}/api/:path*` },

@@ -3,6 +3,36 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.4 — unreleased
+
+### Fixed
+- **Memory digest and Runbook run answered 500** (`no running event loop`) and left an
+  orphan session in the list: a background task started from a synchronous route had no
+  event loop. Background work from any route now runs on the API's loop.
+- **Session cost shown ×n.** The CLI's `total_cost_usd` is cumulative per process; it was
+  added again on every turn (4 turns: $0.0402 shown for $0.0122 spent). Only the delta is
+  added now (Costs and budgets were already right).
+- **Update check never fired outside docker compose.** It read `SOKKAN_VERSION` only (set by
+  compose) — an install without it reported « dev ». It now falls back to the `VERSION` file,
+  and compares versions (`3.4.3+commit` is not newer than `3.4.3`).
+- **Memory recall blocked the first prompts with a local embedder.** The fastembed model was
+  reloaded every 10 s (4-13 s each time), past the 5 s recall hook. The model is now loaded
+  once per process and warmed at startup.
+- **Costs answered 500 on the first load after a restart.** The transcripts were re-parsed in
+  the request and the web proxy cut it at 30 s. Costs now refreshes in the background
+  (`SOKKAN_USAGE_REFRESH_S`, 120 s, 0 = off), two refreshes never run at once, and the proxy
+  waits up to 120 s.
+- **The header showed « admin » for a project maintainer** and the e-mail for a person known
+  only through SSO. `/api/me` adds `role_label` (the project's own role name) and takes the
+  name from the login, then from Teams; `role` is unchanged.
+- **A card link from Teams (outreach) lost its card.** It pointed at Build without the
+  project, the board ignored `card=`, and after a sign-in the person landed on Helm. The link
+  is `?plane=control&tab=board&project=<slug>&card=<id>`, the board opens the card, and the
+  SSO login returns to the page it was started from (local paths only).
+- **Preview screenshots failed with Chromium from snap** (Ubuntu): it cannot write to the
+  default hidden data folder. The capture goes through the snap's own folder; a failure now
+  says why.
+
 ## 3.4.3 — 2026-10-09 — "Bridge"
 
 ### Fixed

@@ -30,6 +30,7 @@ import datetime as _dt
 import json
 import os
 import re
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import teams
@@ -272,7 +273,7 @@ def propose(user_email: str, project: str, clearance: int | None, subject: str |
                  else (f"« {card['title']} »" if lang == "fr" else f"“{card['title']}”"))
         card_out = {"id": card["id"], "title": None if redacted else card["title"],
                     "level": level, "assignee": card.get("assignee") or ""}
-        url = _open(f"/?plane=build&tab=board&card={card['id']}")
+        url = card_link(project, card["id"])
         card_line = "" if redacted else T[lang]["card_line"].format(id=card["id"]) + (
             f" · {url}" if url else "")
     else:
@@ -301,6 +302,12 @@ def propose(user_email: str, project: str, clearance: int | None, subject: str |
         out["token"] = signing.issue(KIND, chan["channel_id"], project, user_email, ttl=TTL_S,
                                      card={"proposal": {**out, "people": people}})
     return out
+
+
+def card_link(project: str, card_id: int) -> str:
+    """3.4.4 : Board vit sous Control et le projet voyage avec le lien — sinon le cockpit
+    ouvrait le projet par défaut de la personne et la carte n'y était pas."""
+    return _open(f"/?plane=control&tab=board&project={quote(project)}&card={int(card_id)}")
 
 
 def _open(path: str) -> str:

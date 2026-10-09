@@ -269,6 +269,24 @@ class DimensionMismatch(RuntimeError):
     """The server serves another model than the identity says: never mix spaces."""
 
 
+# 3.4.4 : le modèle fastembed est chargé UNE fois par processus. Un LegacyEmbedder neuf est
+# construit à chaque re-vérification du store (toutes les 10 s) ; il rechargeait le modèle
+# (4-13 s) et le rappel mémoire dépassait le délai de 5 s du hook → prompt bloqué.
+_FASTEMBED: dict[tuple[str, str], object] = {}
+_FASTEMBED_LOCK = threading.Lock()
+
+
+def _fastembed_model(model: str, cache: str):
+    with _FASTEMBED_LOCK:
+        m = _FASTEMBED.get((model, cache))
+        if m is None:
+            from fastembed import TextEmbedding  # heavy, lazy
+
+            os.makedirs(cache, exist_ok=True)
+            m = _FASTEMBED[(model, cache)] = TextEmbedding(model_name=model, cache_dir=cache)
+        return m
+
+
 class LegacyEmbedder:
     """SOKKAN 2.x embeddings: remote ML_SERVICE_URL API, else fastembed MiniLM.
     Same vectors as a 2.x `memory.db`; no task prefixes, no reranker."""
@@ -297,13 +315,10 @@ class LegacyEmbedder:
     def _fastembed(self):
         with self._lock:
             if self._local is None:
-                from fastembed import TextEmbedding  # heavy, lazy
-
                 cache = os.environ.get("FASTEMBED_CACHE_PATH") or os.path.join(
                     _env("DATA_DIR") or os.path.expanduser("~/.local/share/corthexis"),
                     "models")
-                os.makedirs(cache, exist_ok=True)
-                self._local = TextEmbedding(model_name=self.model, cache_dir=cache)
+                self._local = _fastembed_model(self.model, cache)
         return self._local
 
     def embed_docs(self, texts: list[str], timeout: float = 120.0) -> list[list[float]]:

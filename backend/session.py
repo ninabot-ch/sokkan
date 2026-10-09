@@ -65,6 +65,13 @@ def sid_from_cookies(cookies) -> str:
     return str((c or {}).get("sid") or "")
 
 
+def name_from_request(request: Request) -> str:
+    """The display name the login carried ('' if none, or if it is just the address)."""
+    c = _claims(request.cookies.get(COOKIE)) or {}
+    n = str(c.get("name") or "").strip()
+    return "" if "@" in n else n
+
+
 def email_from_request(request: Request) -> str | None:
     claims = _claims(request.cookies.get(COOKIE))
     if claims is None:
