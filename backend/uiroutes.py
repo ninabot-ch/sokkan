@@ -249,7 +249,7 @@ def model_keys(_u: dict = Depends(_admin), _f=Depends(_byok)) -> dict:
     st = llm.status()
     return {"keys": modelkeys.list_keys(),
             "providers": [{"id": k, "label": v["label"], "hint": v["hint"],
-                           "sessions": v["sessions"], "testable": bool(v["test_url"])}
+                           "sessions": v["sessions"], "testable": modelkeys.testable(k)}
                           for k, v in modelkeys.PROVIDERS.items()],
             "scopes": list(modelkeys.SCOPES_LIVE), "per_project": False,
             "gateway": modelkeys.gateway_public(),

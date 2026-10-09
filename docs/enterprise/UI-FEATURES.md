@@ -72,8 +72,13 @@ own door, or a proxy such as LiteLLM).
 | **personal** | community default | every engine; SOKKAN Router preselected, « welcome credit » link = `SOKKAN_ROUTER_WELCOME_URL` (no amount in the code; hidden when unset) |
 | **governed** | enterprise default | only what the admin allowed: engines × zones (CH, EU, US, local) × SOKKAN tiers; a project maintainer picks the project's engine when the policy allows it |
 
-`SOKKAN_CONNECT_AI_MODE=personal|governed` forces a mode. `SOKKAN_ROUTER_URL` overrides the
-router's base URL.
+`SOKKAN_CONNECT_AI_MODE=personal|governed` forces a mode. Sessions speak the Anthropic Messages
+API, so the SOKKAN Router card points at the Anthropic door of SOKKAN Inference:
+`SOKKAN_ROUTER_URL` (default `https://infer.sokkan.ch`) and `SOKKAN_ROUTER_MODEL` (default
+`sokkan-ship`, used when the admin connects the card without a model; Ship escalates to Deep by
+difficulty) override them. The key is a SOKKAN inference key (`sik_…`); its test calls
+`/usage` with the key (401 = rejected). Before 3.4.4 the card pointed at `router.sokkan.ch`, which
+only speaks the OpenAI API: every session on it failed.
 
 - **Setup › Engines (3.2.2)** = « Connect your AI » and « Model keys » merged on one page. For the
   admin, each engine card carries the instance key of its provider — « key …xxxx, set by X on
