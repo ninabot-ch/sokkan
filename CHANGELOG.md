@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.4.5 — unreleased
+## 3.4.5 — 2026-10-09 — "Bridge"
 
 ### Fixed
 - **A project's sessions no longer load the host's user settings.** On an instance whose
