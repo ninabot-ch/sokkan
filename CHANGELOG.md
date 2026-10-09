@@ -3,6 +3,30 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.4.5 — unreleased
+
+### Fixed
+- **A project's sessions no longer load the host's user settings.** On an instance whose
+  host user has Claude Code settings (`~/.claude/settings.json`: hooks, allow rules,
+  CLAUDE.md), every session of every project loaded them — seen on our instance after 3.4.4:
+  a session of another project got the default project's notes injected by the host's
+  memory hook, and the host's allow rules would auto-approve tools there. Sessions of a
+  project other than `default` now load only the project and local settings
+  (`setting_sources`); the CLI login is not a setting and still works. The default project
+  is unchanged.
+- **Playbooks write to the memory of their project.** The Memory digest of another project
+  asked to write `project-status.md` into `SOKKAN_MEMORY_DIR` (the default project's
+  memory); the digest, curation, playbook sessions and playbook agent runs now name the
+  project's own memory directory.
+- **A run budget holds on the CLI's default model too.** An agent without a model had no
+  first-call estimate (null): a $0.10 run spent $0.1963 on its first call in prod. A Claude
+  run whose model is not set (or not in the price table) is now estimated at the dearest
+  Claude model of the table, so a budget below one call does not start.
+- **Re-mapping a Teams channel keeps its name** (it came back as a « channel …xxxx » stub).
+- **The header and Setup › Engines say what sessions run on**: the server's Claude login
+  (`mode: cli-login`) instead of « model not configured ». Unattended agent runs still count
+  that login only with `agents_cli_login`.
+
 ## 3.4.4 — 2026-10-09 — "Bridge"
 
 ### Security
