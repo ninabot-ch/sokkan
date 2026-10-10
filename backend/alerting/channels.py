@@ -14,6 +14,8 @@ import json
 import os
 import smtplib
 import ssl
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from email.message import EmailMessage
 
 import httpx
@@ -224,6 +226,7 @@ def deliver(cid: int, event: str, alert: dict, rule: dict) -> str:
         if not r["enabled"]:
             return "channel disabled"
         cfg, sec = store.j(r["config"], {}), store.unseal(r["secrets_ct"])
+        cfg["_cid"] = r["id"]
         fn = {"telegram": _telegram, "teams": _teams, "slack": _slack, "email": _email,
               "webhook": _webhook, "pagerduty": _pagerduty}[r["kind"]]
         return fn(cfg, sec, m, alert, rule)
@@ -231,13 +234,29 @@ def deliver(cid: int, event: str, alert: dict, rule: dict) -> str:
         return f"error: {e.__class__.__name__}: {str(e)[:160]}"
 
 
+# 3.5.1: « Send a test » stayed on « sending… » for 75 s on a loaded host (Teams token + post).
+# A channel answers within this, or the person reads « no answer after 15 s ».
+TEST_LIMIT_S = float(os.environ.get("SOKKAN_ALERTING_TEST_TIMEOUT_S") or 15)
+_test_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="alert-test")
+
+
+def deliver_within(cid: int, event: str, alert: dict, rule: dict, limit: float | None = None) -> str:
+    """`deliver` with a ceiling: « ok », an error, or « no answer after N s » — never a wait."""
+    lim = TEST_LIMIT_S if limit is None else limit
+    fut = _test_pool.submit(deliver, cid, event, alert, rule)
+    try:
+        return fut.result(timeout=lim)
+    except FutureTimeout:
+        return f"no answer after {lim:g} s — the channel may still deliver it late"
+
+
 def test(cid: int, project: str) -> dict:
     alert = {"id": 0, "severity": "info", "summary": "This is a test of the channel — nothing is wrong.",
              "group": {}, "link": "/?plane=operate&tab=alerts"}
     rule = {"id": 0, "name": "Channel test", "sentence": "Sent from Operate › Alerts › Channels",
             "severity": "info"}
-    res = deliver(cid, "test", alert, rule)
-    out = {"ok": res == "ok", "detail": res}
+    res = deliver_within(cid, "test", alert, rule)
+    out = {"ok": res == "ok", "detail": res, "timed_out": res.startswith("no answer after")}
     _set_test(cid, out)
     return out
 
@@ -311,23 +330,91 @@ def _email(cfg, sec, m, alert, rule) -> str:
     return "ok"
 
 
-def teams_card(m: dict, alert: dict) -> dict:
+def teams_card(m: dict, alert: dict, note: str = "") -> dict:
+    """The alert card. `note` (« Acknowledged by … ») is written UNDER the details — 3.5.1: after
+    Ack the card was replaced by a bare notice, losing the value, the host and the severity."""
     sev_style = {"critical": "attention", "warning": "warning", "info": "accent"}.get(m["severity"], "warning")
     if m["event"] == "resolved":
         sev_style = "good"
     body = [{"type": "TextBlock", "text": m["title"], "weight": "Bolder", "wrap": True,
              "style": "heading", "color": sev_style},
             {"type": "TextBlock", "text": m["text"], "wrap": True}]
+    facts = [{"title": "Severity", "value": m["severity"]}]
+    if alert.get("group"):
+        facts.append({"title": "Where", "value": humanize.group_where(alert["group"])})
+    if alert.get("value_text"):
+        facts.append({"title": "Value", "value": alert["value_text"]})
+    body.append({"type": "FactSet", "facts": facts})
+    if note:
+        body.append({"type": "TextBlock", "text": note, "wrap": True, "weight": "Bolder",
+                     "color": "good" if m["event"] != "resolved" else "default"})
     actions = []
     if m["event"] in ("firing", "renotify") and alert.get("id"):
         data = {"sokkan": "alert", "alert": alert["id"]}
+        done = {"Ack"} if alert.get("acked_by") else set()
         actions = [{"type": "Action.Execute", "title": t, "verb": v, "data": data}
                    for t, v in (("Ack", "alert.ack"), ("Silence 1 h", "alert.silence"),
-                                ("Open incident", "alert.incident"))]
+                                ("Open incident", "alert.incident")) if t not in done]
     actions.append({"type": "Action.OpenUrl", "title": "Open in SOKKAN", "url": m["link"]})
     body.append({"type": "ActionSet", "actions": actions})
     return {"type": "AdaptiveCard", "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5", "body": body, "fallbackText": f"{m['title']} — {m['text']}"}
+
+
+def _cards_table(c) -> None:
+    c.execute("CREATE TABLE IF NOT EXISTS teams_cards (alert_id INTEGER NOT NULL, channel_id INTEGER "
+              "NOT NULL, service_url TEXT NOT NULL, conversation_id TEXT NOT NULL, activity_id TEXT "
+              "NOT NULL, PRIMARY KEY (alert_id, channel_id))")
+
+
+def _remember_card(aid: int, cid: int, su: str, conv: str, activity_id: str) -> None:
+    if not (aid and activity_id):
+        return
+    with store._lock:
+        c = store.con()
+        _cards_table(c)
+        c.execute("INSERT OR REPLACE INTO teams_cards VALUES(?,?,?,?,?)", (aid, cid, su, conv, activity_id))
+        c.commit()
+        c.close()
+
+
+def _posted_cards(aid: int) -> list[dict]:
+    c = store.con()
+    _cards_table(c)
+    rows = [dict(r) for r in c.execute("SELECT * FROM teams_cards WHERE alert_id=?", (aid,))]
+    c.close()
+    return rows
+
+
+def card_for(alert: dict, rule: dict, note: str = "", event: str = "") -> dict:
+    """The card of an alert as it stands now (firing, acked, resolved)."""
+    ev = event or ("resolved" if alert.get("state") == "resolved" else "firing")
+    return teams_card(message(ev, alert, rule), alert, note)
+
+
+def follow_up(alert: dict, rule: dict, note: str = "", event: str = "") -> int:
+    """Update every Teams card already posted for this alert (Ack / Silence / Incident / resolved),
+    best-effort. Returns how many cards were updated."""
+    rows = _posted_cards(int(alert.get("id") or 0))
+    if not rows:
+        return 0
+    try:
+        import teams
+        from teams import connector
+        if not teams.enabled():
+            return 0
+    except Exception:  # noqa: BLE001
+        return 0
+    card = card_for(alert, rule, note, event)
+    n = 0
+    for r in rows:
+        try:
+            connector.update(r["service_url"], r["conversation_id"], r["activity_id"],
+                             connector.card(card, card["fallbackText"][:200]))
+            n += 1
+        except Exception:  # noqa: BLE001 — a card that cannot be updated stays as it was
+            pass
+    return n
 
 
 def _teams(cfg, sec, m, alert, rule) -> str:
@@ -335,6 +422,12 @@ def _teams(cfg, sec, m, alert, rule) -> str:
     from teams import connector, proactive
     if not teams.enabled():
         return "Teams is off on this instance"
+    if m["event"] == "resolved" and _posted_cards(int(alert.get("id") or 0)):
+        # 3.5.1: the card posted when it fired turns green — it does not stay « firing » above
+        follow_up(alert, rule, event="resolved")
+        return "ok"
     su, conv = proactive._reach(cfg.get("channel_id", ""))
-    connector.send(su, conv, connector.card(teams_card(m, alert), m["title"]))
+    out = connector.send(su, conv, connector.card(teams_card(m, alert), m["title"])) or {}
+    if m["event"] in ("firing", "renotify"):
+        _remember_card(int(alert.get("id") or 0), int(cfg.get("_cid") or 0), su, conv, out.get("id") or "")
     return "ok"

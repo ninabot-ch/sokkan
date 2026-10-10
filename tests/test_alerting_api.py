@@ -77,7 +77,7 @@ def _rule_body(c, **kw):
     b = {"name": "Card created", "source_id": _sokkan_source(c)["id"], "type": "any", "params": {},
          "query": {"mode": "builder", "builder": {"metric": "audit", "filters": [
              {"field": "action", "op": "=", "value": "board.card.create"}]}},
-         "every": "1m", "for": "0s", "severity": "critical"}
+         "every": "1m", "for": "0s", "severity": "critical", "no_notification": True}
     b.update(kw)
     return b
 
@@ -104,7 +104,7 @@ def test_roles_viewer_reads_dev_writes_maintainer_manages(world):
     r = c.post("/api/alerting/rules", json=_rule_body(c))
     assert r.status_code == 201, r.text
     rule = r.json()
-    assert rule["sentence"] == ("Alert on every one of the matching events (action=board.card.create)")
+    assert rule["sentence"] == ("Alert on every one of the matching events, where action board.card.create")
     assert rule["query_compiled"] == "audit action=board.card.create" and rule["state"]["state"] == "ok"
     assert _audit("alerting.rule.create")[0]["user"] == "bob@x"
     c = world["as"]("carol@x")
@@ -191,7 +191,7 @@ def test_a_broken_source_puts_the_rule_in_error_without_stopping_the_loop(world,
     s = c.post("/api/alerting/sources", json={"kind": "prometheus", "name": "dead",
                                               "url": "http://127.0.0.1:9"}).json()
     bad = c.post("/api/alerting/rules", json={"name": "cpu", "source_id": s["id"], "type": "threshold",
-                                              "params": {"op": ">", "value": 1},
+                                              "params": {"op": ">", "value": 1}, "no_notification": True,
                                               "query": {"mode": "raw", "raw": "up"}}).json()["id"]
 
     def refuse(*a, **k):
@@ -259,6 +259,14 @@ def test_a_session_proposes_a_rule_disabled_and_a_person_enables_it(world, monke
     c = world["as"]("bob@x")
     r = c.get(f"/api/alerting/rules/{out['id']}").json()
     assert r["enabled"] is False and r["labels"]["proposed_by"] == "bob@x" and r["state"]["state"] == "disabled"
+    # 3.5.1: turned on with nobody to tell → refused, until a channel (or « no notification ») is set
+    refused = c.post(f"/api/alerting/rules/{out['id']}/enable")
+    assert refused.status_code == 422 and "nobody would be told" in refused.text
+    ch = world["as"]("admin@x").post("/api/alerting/channels", json={
+        "kind": "webhook", "name": "hook", "config": {"url": "https://hooks.example/p"}}).json()
+    c = world["as"]("bob@x")
+    body = {**r, "channels": [ch["id"]]}
+    assert c.put(f"/api/alerting/rules/{out['id']}", json=body).status_code == 200
     assert c.post(f"/api/alerting/rules/{out['id']}/enable").json()["enabled"] is True
     assert _audit("alerting.rule.propose")
     p = json.loads(m.alerting_preview({"name": "x", "source_kind": "sokkan", "type": "any",

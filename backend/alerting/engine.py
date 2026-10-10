@@ -134,6 +134,8 @@ def normalize(body: dict, source: dict | None) -> dict:
                         "days": [int(d) for d in (qh.get("days") if qh.get("days") is not None
                                                   else range(7)) if 0 <= int(d) <= 6]},
         "channels": [int(c) for c in (b.get("channels") or [])],
+        # 3.5.1: a rule that tells nobody is a choice, ticked on purpose (« no notification »)
+        "no_notification": bool(b.get("no_notification")),
         "actions": {"incident": bool((b.get("actions") or {}).get("incident")),
                     "diag_session": bool((b.get("actions") or {}).get("diag_session")),
                     "agent_id": (b.get("actions") or {}).get("agent_id") or None,
@@ -178,8 +180,6 @@ def _what(r: dict, src: dict) -> str:
             label = label.removesuffix("(%)").strip()     # « above 85 % » says it already
         return label or f"the query ({src['name']})"
     b = q["builder"]
-    flt = ", ".join(f"{f.get('label') or f.get('field')}{f.get('op', '=')}{f.get('value', '')}"
-                    for f in b.get("filters") or [] if (f.get("label") or f.get("field")))
     if src["kind"] == "prometheus":
         agg = {"rate": "the rate of", "increase": "the increase of", "avg": "the average of",
                "max": "the maximum of", "min": "the minimum of", "sum": "the sum of",
@@ -191,7 +191,18 @@ def _what(r: dict, src: dict) -> str:
         s = "matching events"
         if b.get("text"):
             s = f"events containing « {b['text']} »"
-    return f"{s} ({flt})" if flt else s
+    return s
+
+
+def _filters(r: dict, src: dict) -> str:
+    """The label filters of the rule in words (« except host raspberrypi, on gmk1 ») — 3.5.1: the
+    sentence said « a target is down » for `up{host!="raspberrypi"}` and printed builder filters as
+    « (instance=100.76.30.90:9100) »."""
+    q = r.get("query") or {}
+    if q.get("mode") == "raw":
+        return humanize.filters_phrase(humanize.selector_filters(q.get("raw") or "")) \
+            if src.get("kind") == "prometheus" else ""
+    return humanize.filters_phrase((q.get("builder") or {}).get("filters") or [])
 
 
 def sentence(r: dict, src: dict) -> str:
@@ -233,6 +244,9 @@ def sentence(r: dict, src: dict) -> str:
              f"usual level (last {human(seconds(p['lookback']))})")
     else:
         s = "Alert"
+    flt = _filters(r, src)
+    if flt:
+        s += f", {flt}"
     if r.get("group_by"):
         s += f", by {', '.join(r['group_by'])}"
     if seconds(r["for"]) > 0:

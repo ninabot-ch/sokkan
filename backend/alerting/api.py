@@ -265,6 +265,7 @@ def rules_update(rid: int, body: dict, u: dict = Dep, _f: None = On) -> dict:
 def rules_delete(rid: int, u: dict = Dep, _f: None = On) -> dict:
     r = _rule(u, rid)
     _may_write(u, r)
+    scheduler.close_rule(r, f"rule deleted by {u['email']}")   # 3.5.1: they resolve, channels hear it
     rules.delete(rid)
     audit.log(u["email"], "alerting.rule.delete", f"#{rid} {r['name']}", "")
     return {"ok": True}
@@ -274,6 +275,10 @@ def rules_delete(rid: int, u: dict = Dep, _f: None = On) -> dict:
 def rules_enable(rid: int, u: dict = Dep, _f: None = On) -> dict:
     r = _rule(u, rid)
     _may_write(u, r)
+    try:
+        rules.require_someone({**r, "enabled": True})
+    except engine.RuleError as e:
+        raise HTTPException(422, str(e)) from None
     audit.log(u["email"], "alerting.rule.enable", f"#{rid} {r['name']}", "")
     return rules.set_enabled(rid, True)
 
@@ -282,6 +287,7 @@ def rules_enable(rid: int, u: dict = Dep, _f: None = On) -> dict:
 def rules_disable(rid: int, u: dict = Dep, _f: None = On) -> dict:
     r = _rule(u, rid)
     _may_write(u, r)
+    scheduler.close_rule(r, f"rule turned off by {u['email']}")
     audit.log(u["email"], "alerting.rule.disable", f"#{rid} {r['name']}", "")
     return rules.set_enabled(rid, False)
 
@@ -299,8 +305,8 @@ def rules_test_notify(rid: int, u: dict = Dep, _f: None = On) -> dict:
 
 @router.get("/rules/{rid}/history")
 def rules_history(rid: int, limit: int = 100, u: dict = Dep, _f: None = On) -> dict:
-    _rule(u, rid)
-    return {"transitions": alerts.history(rid, limit)}
+    r = _rule(u, rid)
+    return {"transitions": alerts.history(rid, limit, r)}
 
 
 @router.post("/rules/{rid}/evaluate")
@@ -360,7 +366,17 @@ def alerts_ack(aid: int, u: dict = Dep, _f: None = On) -> dict:
     _need(u, "dev")
     alerts.ack(aid, u["email"])
     audit.log(u["email"], "alerting.alert.ack", f"#{aid}", a["summary"][:200])
+    _cards_follow(aid, f"Acknowledged by {u['email']} — no more reminders until it resolves.")
     return alerts.get(aid)
+
+
+def _cards_follow(aid: int, note: str) -> None:
+    """The Teams cards of the alert say what was decided in the cockpit (best-effort, off-thread)."""
+    a, r = alerts.get(aid), None
+    if a:
+        r = rules.get(a["rule_id"])
+    if a and r:
+        scheduler._pool.submit(channels.follow_up, a, r, note)
 
 
 class SilenceFor(BaseModel):
@@ -479,6 +495,22 @@ class ChannelIn(BaseModel):
 @router.get("/channels")
 def channels_list(u: dict = Dep, _f: None = On) -> dict:
     return {"channels": channels.list_channels(_project(u)), "kinds": channels.kinds()}
+
+
+@router.get("/teams-channels")
+def teams_channels(u: dict = Dep, _f: None = On) -> dict:
+    """3.5.1 — the Teams channels mapped to THIS project (Setup › Organization › Teams), to pick
+    from instead of pasting `19:…@thread.tacv2`."""
+    try:
+        import features
+        if not features.enabled("teams"):
+            return {"channels": [], "teams": False}
+        from teams import store as tstore
+        rows = [c for c in tstore.channels() if c.get("project") == _project(u)]
+    except Exception:  # noqa: BLE001
+        return {"channels": [], "teams": False}
+    return {"teams": True, "channels": [{"id": c["channel_id"], "name": c.get("name") or "",
+                                         "level": c.get("level")} for c in rows]}
 
 
 def _own_channel(u: dict, cid: int) -> dict:

@@ -74,7 +74,20 @@ def check(project: str, body: dict) -> dict:
         from . import channels
         if channels.get(cid, project) is None:
             raise engine.RuleError(f"channel #{cid} does not exist in this project")
+    require_someone(n)
     return n
+
+
+NOBODY = ("nobody would be told: pick at least one channel in « Who to tell », or tick "
+          "« no notification » if this rule only feeds the cockpit")
+
+
+def require_someone(n: dict) -> None:
+    """3.5.1 — in prod a 2nd rule was saved with no channel (none was preselected): it would ring
+    in silence. An ACTIVE rule tells someone, or says on purpose that it tells nobody. A rule
+    proposed by a session is saved off, and checked when a person turns it on."""
+    if n.get("enabled", True) and not n.get("channels") and not n.get("no_notification"):
+        raise engine.RuleError(NOBODY)
 
 
 def create(project: str, body: dict, by: str) -> dict:

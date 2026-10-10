@@ -95,8 +95,8 @@ def test_sentences_say_what_the_rule_means(al):
         "metric": "http_requests_total", "agg": "rate", "range": "5m",
         "filters": [{"label": "status", "op": "=~", "value": "5.."}]}},
         params={"op": ">", "value": 2}, group_by=["job"], **{"for": "5m"})
-    assert r["sentence"] == ("Alert when the rate of http_requests_total (status=~5..) is above 2/s, "
-                             "by job, for 5 minutes")
+    assert r["sentence"] == ("Alert when the rate of http_requests_total is above 2/s, "
+                             "where status matches 5.., by job, for 5 minutes")
     r = _rule(e, LOGS, type="frequency", params={"count": 50, "window": "10m"},
               query={"mode": "builder", "builder": {"text": "error"}})
     assert r["sentence"] == "Alert when there are 50 or more events containing « error » within 10 minutes"
@@ -251,7 +251,8 @@ def _stored_rule(al, **kw):
     s.ensure_builtins()
     src = next(x for x in s.list_sources("default") if x["kind"] == "sokkan")
     body = {"name": "API errors", "source_id": src["id"], "type": "any", "params": {},
-            "query": {"mode": "raw", "raw": "audit"}, "every": "1m", "for": "0s", "realert": "10m"}
+            "query": {"mode": "raw", "raw": "audit"}, "every": "1m", "for": "0s", "realert": "10m",
+            "no_notification": True}
     body.update(kw)
     return al["rules"].create("default", body, "bob@x")
 
@@ -550,6 +551,6 @@ def test_the_rule_value_is_the_worst_toward_the_line(al, monkeypatch):
     r = al["rules"].create("default", {"name": "down", "source_id": src["id"], "type": "threshold",
                                        "query": {"mode": "builder", "builder": {"metric": "up", "agg": "last", "by": ["job"]}},
                                        "params": {"op": "<", "value": 1}, "group_by": ["job"],
-                                       "every": "1m", "for": "0s"}, "ines@x")
+                                       "every": "1m", "for": "0s", "no_notification": True}, "ines@x")
     sch.evaluate_rule(al["rules"].get(r["id"]), T0 + 600)
     assert al["rules"].get(r["id"])["state"]["last_value"] == 0.0

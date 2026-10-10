@@ -582,7 +582,15 @@ def _on_alert_action(activity: dict, verb: str, data: dict) -> dict:
         iid = a.get("incident_id") or al_sched.open_incident(a, r, email)
         text = f"Incident #{iid} opened by {email}."
     audit.log(email, f"teams.{verb}", f"alert #{a['id']}", a["summary"][:200], project=a["project"])
-    return _invoke(card=cards.notice(f"{r['name']}", text, _open(a["link"])))
+    # 3.5.1: the card keeps the value, the host and the severity, with what was decided under them
+    # (before: a bare notice replaced it) — and the other cards of this alert follow
+    from alerting import channels as al_channels
+    a2 = al_alerts.get(a["id"]) or a
+    try:
+        al_channels.follow_up(a2, r, text)
+    except Exception:  # noqa: BLE001
+        pass
+    return _invoke(card=al_channels.card_for(a2, r, text))
 
 
 def _decide_agent(pu: dict, row: dict, verb: str, email: str, spec: dict) -> tuple[str, str]:

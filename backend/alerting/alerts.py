@@ -85,17 +85,27 @@ def list_alerts(project: str, state: str = "active", limit: int = 100) -> tuple[
     return out, counts
 
 
-def history(rid: int, limit: int = 100) -> list[dict]:
+def history(rid: int, limit: int = 100, rule: dict | None = None) -> list[dict]:
     c = store.con()
     rows = c.execute("SELECT * FROM transitions WHERE rule_id=? ORDER BY ts DESC LIMIT ?",
                      (rid, min(int(limit), 1000))).fetchall()
     c.close()
-    return [_transition_public(r) for r in rows]
+    return [_transition_public(r, rule) for r in rows]
 
 
-def _transition_public(r) -> dict:
+def _transition_public(r, rule: dict | None = None) -> dict:
     th = store.j(r["threshold"], None)
-    d = th if isinstance(th, dict) else {}
+    d = dict(th) if isinstance(th, dict) else {}
+    # 3.5.1: transitions written before the unit was known (« 70.5 > 50 ») read with the rule's
+    # unit and comparison — the history says « 70,5 % > 50 % » like the alert itself
+    rule = rule or {}
+    p = rule.get("params") or {}
+    if not d and isinstance(th, (int, float)) and p.get("op"):
+        d = {"op": p["op"], "value": th}
+    if d:
+        d.setdefault("unit", rule.get("unit") or "")
+        d["unit"] = d.get("unit") or rule.get("unit") or ""
+        d.setdefault("type", rule.get("type") or "")
     return {"ts": r["ts"], "group": store.j(r["grp"], {}), "group_key": r["group_key"],
             "group_title": humanize.group_title(store.j(r["grp"], {})),
             "from": r["from_state"], "to": r["to_state"], "value": r["value"],
@@ -322,3 +332,23 @@ def record_external(rule: dict, labels: dict, summary_text: str, severity: str, 
         c.commit()
         c.close()
     return get(aid) if aid else None
+
+
+def close_rule(rule: dict, note: str) -> list[int]:
+    """3.5.1 — a rule deleted or turned off while it rings: its open alerts RESOLVE (with a
+    transition), and the ids of those that had fired are returned so their channels hear
+    « resolved » (before: they vanished; the Teams card stayed « Acknowledged » forever)."""
+    fired = []
+    with store._lock:
+        c = store.con()
+        rows = c.execute("SELECT * FROM alerts WHERE rule_id=? AND state IN ('pending','firing')",
+                         (rule["id"],)).fetchall()
+        out: list = []
+        for row in rows:
+            _close(c, rule, row, store.now(), None, out, note=note)
+        c.commit()
+        c.close()
+    for kind, d in out:
+        if kind == "resolved":
+            fired.append(d["id"])
+    return fired

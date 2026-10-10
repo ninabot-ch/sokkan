@@ -87,14 +87,60 @@ def group_where(group: dict | None) -> str:
     return ", ".join(parts)
 
 
+# ------------------------------------------------------------------------------ label filters in words
+_SELECTOR = re.compile(r"\{[^{}]*\}")
+_MATCHER = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"')
+# labels that say HOW a template measures, not WHICH part of the stack (« fstype!=tmpfs »)
+_TECHNICAL = {"__name__", "fstype", "mode", "device", "le", "quantile", "cpu"}
+_HOST_LABELS = {"instance", "host", "hostname", "node", "nodename", "target", "server"}
+
+
+def selector_filters(promql: str) -> list[tuple[str, str, str]]:
+    """The label matchers of a raw PromQL, once each: [(label, op, value)] in reading order."""
+    out: list[tuple[str, str, str]] = []
+    for sel in _SELECTOR.findall(promql or ""):
+        for k, op, v in _MATCHER.findall(sel):
+            if k in _TECHNICAL or (k, op, v) in out:
+                continue
+            out.append((k, op, v))
+    return out
+
+
+def filters_phrase(filters) -> str:
+    """[(label, op, value)] → « except host raspberrypi, on gmk1 » — never a raw address, never a
+    bracket. Accepts the builder's dicts ({label|field, op, value}) too."""
+    parts = []
+    for f in filters or []:
+        if isinstance(f, dict):
+            k, op, v = (f.get("label") or f.get("field") or ""), f.get("op") or "=", str(f.get("value", ""))
+        else:
+            k, op, v = f
+        if not k or k in _TECHNICAL or v == "":
+            continue
+        shown = display_value(k, v)
+        if k == "mountpoint":
+            what, where = f"the {shown} filesystem", True
+        elif k in _HOST_LABELS:
+            # an address resolved to a name reads alone (« gmk1 »); otherwise say the label
+            what, where = (shown if shown != v else f"{k} {v}"), True
+        else:
+            what, where = f"{k} {shown}", False
+        parts.append({"=": f"on {what}" if where else f"where {what}",
+                      "!=": f"except {what}",
+                      "=~": f"where {k} matches {v}",
+                      "!~": f"except where {k} matches {v}"}.get(op, f"where {what}"))
+    return ", ".join(parts)
+
+
 # ------------------------------------------------------------------------------ queries in words
 def describe_raw(promql: str) -> tuple[str, str]:
     """(what a raw PromQL measures, unit) — never the query itself. Unknown → the main metric
     name in words (« node_network_receive_bytes_total »  → « node network receive bytes »);
     nothing recognisable → ("", "")."""
     q = promql or ""
+    bare = _SELECTOR.sub("", q)      # `MemAvailable_bytes{instance="…"} / MemTotal_bytes` is memory too
     for rx, label, unit in _KNOWN:
-        if rx.search(q):
+        if rx.search(q) or rx.search(bare):
             return label, unit
     for m in _METRIC.finditer(q):
         name = m.group(1)

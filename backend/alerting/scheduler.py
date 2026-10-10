@@ -232,6 +232,16 @@ def _on_event(kind: str, aid: int, r: dict, t: float) -> None:
     _fire_agents(r, a, acts.get("agent_id"))
 
 
+def close_rule(r: dict, note: str) -> int:
+    """Resolve what a rule deleted / turned off still had open, and tell its channels (same muting
+    rules as a normal resolution: a silenced alert stays quiet)."""
+    t = time.time()
+    ids = alerts.close_rule(r, note)
+    for aid in ids:
+        _on_event("resolved", aid, r, t)
+    return len(ids)
+
+
 def _deliver(cid: int, kind: str, a: dict, r: dict) -> None:
     res = channels.deliver(cid, kind, a, r)
     if res != "ok":
