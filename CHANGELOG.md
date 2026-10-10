@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.5.0 — unreleased
+## 3.5.0 — 2026-10-10 — "Lookout"
 
 ### Added
 - **Operate › Alerts — SOKKAN evaluates alert rules itself, in the spirit of ElastAlert.**
