@@ -11,9 +11,10 @@ export class ApiError extends Error {
   constructor(status: number, msg: string) { super(msg); this.status = status; }
 }
 
-async function call<T>(url: string, method = "GET", body?: unknown): Promise<T> {
+async function call<T>(url: string, method = "GET", body?: unknown, timeoutMs?: number): Promise<T> {
   const r = await fetch(url, {
     method, cache: "no-store",
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     headers: body !== undefined ? { "content-type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -94,7 +95,15 @@ export const createChannel = (c: { name: string; kind: string; config: Record<st
 export const updateChannel = (id: number, c: { name: string; kind: string; config: Record<string, string>; enabled: boolean }) =>
   call<Channel>(`${B}/channels/${id}`, "PUT", c);
 export const deleteChannel = (id: number) => call<{ ok: boolean }>(`${B}/channels/${id}`, "DELETE");
-export const testChannel = (id: number) => call<{ ok: boolean; detail?: string }>(`${B}/channels/${id}/test`, "POST");
+// 3.5.1: the server answers within 15 s; the browser gives up at 25 s (a stuck proxy), never « sending… » forever
+export const testChannel = (id: number) =>
+  call<{ ok: boolean; detail?: string; timed_out?: boolean }>(`${B}/channels/${id}/test`, "POST", undefined, 25000)
+    .catch((e) => (e?.name === "TimeoutError" || e?.name === "AbortError"
+      ? { ok: false, timed_out: true, detail: "no answer after 25 s — the channel may still deliver it late" } : Promise.reject(e)));
+/** The Teams channels mapped to this project (Setup › Organization › Teams), to pick from. */
+export const listTeamsChannels = () =>
+  call<{ teams: boolean; channels: { id: string; name: string; level?: number | null }[] }>(`${B}/teams-channels`)
+    .catch(() => ({ teams: false, channels: [] }));
 
 /** Crew agents of the project, for « propose an agent » (existing route of 3.1). */
 export const listAgentsLite = () =>

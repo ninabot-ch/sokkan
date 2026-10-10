@@ -5,10 +5,10 @@
 import { useEffect, useState } from "react";
 import {
   createChannel, createSource, deleteChannel, deleteSilence, deleteSource, listChannels, listSilences, listSources,
-  testChannel, testSource, testSourceDraft, updateChannel, updateSource,
+  listTeamsChannels, testChannel, testSource, testSourceDraft, updateChannel, updateSource,
 } from "@/lib/alerting";
 import {
-  ago, since, type AlertSource, type Channel, type ChannelKindDef, type Rule, type Silence, type SourceIn, type SourceKind, type TestResult } from "@/lib/alertingModel";
+  ago, needsLogSource, since, testOutcome, upsertChannel, type AlertSource, type Channel, type ChannelKindDef, type Rule, type Silence, type SourceIn, type SourceKind, type TestResult } from "@/lib/alertingModel";
 import { Banner, Field, Seg, btn, fmtTime, inputCls } from "./bits";
 
 type Tab = "sources" | "channels" | "silences";
@@ -54,7 +54,7 @@ export function StatusDot({ ok, title }: { ok: boolean | null | undefined; title
 function Sources({ canManage }: { canManage: boolean }) {
   const [list, setList] = useState<AlertSource[] | null>(null);
   const [err, setErr] = useState("");
-  const [edit, setEdit] = useState<AlertSource | "new" | null>(null);
+  const [edit, setEdit] = useState<AlertSource | "new" | "loki" | null>(null);
   const [tests, setTests] = useState<Record<number, TestResult | "…">>({});
   const load = () => listSources().then(setList).catch((e) => setErr(String(e.message || e)));
   useEffect(() => { load(); }, []);
@@ -86,19 +86,28 @@ function Sources({ canManage }: { canManage: boolean }) {
               {s.status?.latency_ms != null && <span>{s.status.latency_ms} ms</span>}
             </div>
             {t && t !== "…" && <div className={`mt-1 text-[11.5px] ${t.ok ? "text-emerald-300" : "text-red-300"}`}>{t.ok ? `✓ ${t.detail || "reachable"}${t.latency_ms ? ` · ${t.latency_ms} ms` : ""}` : `✕ ${t.error || t.detail || "unreachable"}`}</div>}
-            {edit !== "new" && edit?.id === s.id && <SourceEditor src={s} onDone={() => { setEdit(null); load(); }} />}
+            {typeof edit === "object" && edit?.id === s.id && <SourceEditor src={s} onDone={() => { setEdit(null); load(); }} />}
           </div>
         );
       })}
-      {canManage && (edit === "new" ? <div className="rounded-xl border border-sea/40 bg-panel2/40 p-2.5"><SourceEditor onDone={() => { setEdit(null); load(); }} /></div>
+      {/* 3.5.1: no logs source → the 6 log templates say « needs data »; say how to fix it, in one click */}
+      {canManage && edit === null && needsLogSource(list) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-sea/40 p-2.5 text-[12px] text-slate-300">
+          <span className="min-w-0 flex-1">No logs source yet — the log templates (errors in the logs, the logs went quiet, a spike of logs…) need one.</span>
+          <button type="button" className={btn.small} onClick={() => setEdit("loki")}>+ Add Loki</button>
+          <button type="button" className={btn.small} onClick={() => setEdit("new")}>Elasticsearch / OpenSearch</button>
+        </div>
+      )}
+      {canManage && (edit === "new" || edit === "loki"
+        ? <div className="rounded-xl border border-sea/40 bg-panel2/40 p-2.5"><SourceEditor preset={edit === "loki" ? { kind: "loki", name: "Loki", url: "" } : undefined} onDone={() => { setEdit(null); load(); }} /></div>
         : <button type="button" className={btn.ghost} onClick={() => setEdit("new")}>+ Add a source (Elasticsearch, OpenSearch, another Prometheus or Loki)</button>)}
     </div>
   );
 }
 
-function SourceEditor({ src, onDone }: { src?: AlertSource; onDone: () => void }) {
+function SourceEditor({ src, preset, onDone }: { src?: AlertSource; preset?: { kind: SourceKind; name: string; url: string }; onDone: () => void }) {
   const [f, setF] = useState<SourceIn>({
-    name: src?.name || "", kind: src?.kind || "elasticsearch", url: src?.url || "",
+    name: src?.name || preset?.name || "", kind: src?.kind || preset?.kind || "elasticsearch", url: src?.url || preset?.url || "",
     auth: { kind: src?.auth?.kind || "none", user: src?.auth?.user || "", secret: "" },
     options: { index: src?.options?.index || "logs-*", time_field: src?.options?.time_field || "@timestamp", message_field: src?.options?.message_field || "message" },
   });
@@ -128,7 +137,7 @@ function SourceEditor({ src, onDone }: { src?: AlertSource; onDone: () => void }
         </Field>
       </div>
       <Field label="URL" htmlFor="se-url" hint="reachable from the SOKKAN server (private address is fine)">
-        <input id="se-url" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder={es ? "https://elastic.internal:9200" : "http://prometheus:9090"} className={`${inputCls} font-mono`} />
+        <input id="se-url" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder={es ? "https://elastic.internal:9200" : f.kind === "loki" ? "http://loki:3100" : "http://prometheus:9090"} className={`${inputCls} font-mono`} />
       </Field>
       {es && (
         <div className="grid gap-2.5 sm:grid-cols-3">
@@ -181,7 +190,11 @@ function Channels({ canManage }: { canManage: boolean }) {
   const [tests, setTests] = useState<Record<number, string>>({});
   const load = () => listChannels().then(setData).catch((e) => setErr(String(e.message || e)));
   useEffect(() => { load(); }, []);
-  const test = (id: number) => { setTests((t) => ({ ...t, [id]: "…" })); testChannel(id).then((r) => setTests((t) => ({ ...t, [id]: r.ok ? `✓ sent — ${r.detail || "check the channel"}` : `✕ ${r.detail || "failed"}` }))).catch((e) => setTests((t) => ({ ...t, [id]: `✕ ${e.message || e}` }))); };
+  // 3.5.1: the answer says sent / failed / « no answer after 15 s » — the button is never stuck on « sending… »
+  const test = (id: number) => { setTests((t) => ({ ...t, [id]: "…" })); testChannel(id).then((r) => setTests((t) => ({ ...t, [id]: testOutcome(r).text }))).catch((e) => setTests((t) => ({ ...t, [id]: `✕ ${e.message || e}` }))); };
+  // 3.5.1: a saved channel shows at once and the form closes (in prod the form stayed open after the 201)
+  const shown = (c: Channel) => setData((d) => (d ? { ...d, channels: upsertChannel(d.channels, c) } : d));
+  const saved = () => { setEdit(null); load(); };
   if (err) return <Banner tone="error">{err}</Banner>;
   if (!data) return <div className="text-[12px] text-mut">Loading…</div>;
   return (
@@ -204,11 +217,11 @@ function Channels({ canManage }: { canManage: boolean }) {
               {canManage && !c.builtin && <button type="button" className={btn.small} onClick={() => setEdit(c)}>Edit</button>}
             </span>
           </div>
-          {tests[c.id] && tests[c.id] !== "…" && <div className={`mt-1 text-[11.5px] ${tests[c.id].startsWith("✓") ? "text-emerald-300" : "text-red-300"}`}>{tests[c.id]}</div>}
-          {edit !== "new" && edit?.id === c.id && <ChannelEditor kinds={data.kinds} ch={c} onDone={() => { setEdit(null); load(); }} />}
+          {tests[c.id] && tests[c.id] !== "…" && <div role="status" className={`mt-1 text-[11.5px] ${tests[c.id].startsWith("✓") ? "text-emerald-300" : tests[c.id].startsWith("⏱") ? "text-amber-300" : "text-red-300"}`}>{tests[c.id]}</div>}
+          {edit !== "new" && edit?.id === c.id && <ChannelEditor kinds={data.kinds} ch={c} onDone={saved} onCreated={shown} />}
         </div>
       ))}
-      {canManage && (edit === "new" ? <div className="rounded-xl border border-sea/40 bg-panel2/40 p-2.5"><ChannelEditor kinds={data.kinds} onDone={() => { setEdit(null); load(); }} /></div>
+      {canManage && (edit === "new" ? <div className="rounded-xl border border-sea/40 bg-panel2/40 p-2.5"><ChannelEditor kinds={data.kinds} onDone={saved} onCreated={shown} /></div>
         : <div className="flex flex-wrap items-center gap-2">
             <button type="button" className={btn.ghost} onClick={() => setEdit("new")}>+ Add a channel</button>
             <span className="text-[11.5px] text-mut">
@@ -239,11 +252,13 @@ export function ChannelEditor({ kinds, ch, onDone, onCreated }: {
     const config: Record<string, string> = {};
     for (const f of def?.fields || []) if (cfg[f.key] !== undefined && (cfg[f.key] !== "" || !f.secret)) config[f.key] = cfg[f.key];
     const body = { name: name.trim() || def?.label || kind, kind, config, enabled };
+    let c: Channel;
     try {
-      if (ch) await updateChannel(ch.id, body);
-      else { const c = await createChannel(body); onCreated?.(c); }
-      onDone();
-    } catch (e) { setErr(String((e as Error).message || e)); } finally { setBusy(false); }
+      c = ch ? await updateChannel(ch.id, body) : await createChannel(body);
+    } catch (e) { setErr(String((e as Error).message || e)); setBusy(false); return; }
+    setBusy(false);
+    onCreated?.(c);
+    onDone();
   };
   const remove = async () => {
     if (!ch || !confirm(`Delete the channel « ${ch.name} »? Rules stop telling it.`)) return;
@@ -271,6 +286,9 @@ export function ChannelEditor({ kinds, ch, onDone, onCreated }: {
         <Field label="Name" htmlFor="ce-name"><input id="ce-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`Ops ${def?.label || ""}`} className={inputCls} /></Field>
         {(def?.fields || []).map((f) => {
           const set = ch?.config?.[`${f.key}_set`] === true;
+          if (kind === "teams" && f.key === "channel_id") {
+            return <TeamsChannelField key={f.key} value={cfg[f.key] || ""} onChange={(v) => setCfg({ ...cfg, [f.key]: v })} />;
+          }
           return (
             <Field key={f.key} label={f.label} htmlFor={`ce-${f.key}`} hint={f.secret ? (set ? "set — leave empty to keep it" : "kept secret, never shown again") : CH_HINT[`${kind}.${f.key}`]}>
               <input id={`ce-${f.key}`} type={f.secret ? "password" : "text"} value={cfg[f.key] || ""} autoComplete={f.secret ? "new-password" : "off"}
@@ -283,11 +301,37 @@ export function ChannelEditor({ kinds, ch, onDone, onCreated }: {
       <label className="flex items-center gap-2 text-[12px] text-slate-300"><input type="checkbox" className="accent-sky-500" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> enabled</label>
       {err && <Banner tone="error">{err}</Banner>}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={btn.primary} onClick={save} disabled={busy}>{ch ? "Save" : "Add the channel"}</button>
+        <button type="button" className={btn.primary} onClick={save} disabled={busy}>{busy ? "Saving…" : ch ? "Save" : "Add the channel"}</button>
         <button type="button" className={btn.small} onClick={onDone}>Cancel</button>
         {ch && <button type="button" className={`${btn.danger} ml-auto`} onClick={remove}>Delete</button>}
       </div>
     </div>
+  );
+}
+
+/** 3.5.1 — the Teams channels mapped to the project, by name; pasting a raw id stays possible (advanced). */
+function TeamsChannelField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [list, setList] = useState<{ id: string; name: string }[] | null>(null);
+  const [raw, setRaw] = useState(false);
+  useEffect(() => { listTeamsChannels().then((r) => setList(r.channels)); }, []);
+  const known = !!list?.some((c) => c.id === value);
+  useEffect(() => { if (list && list.length && !value) onChange(list[0].id); }, [list]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Field label="Teams channel" htmlFor="ce-teams" hint={list && !list.length ? "no Teams channel is mapped to this project yet — Setup › Organization › Teams" : "a channel mapped to this project"}>
+      {list && list.length > 0 && !raw ? (
+        <select id="ce-teams" value={known ? value : ""} onChange={(e) => onChange(e.target.value)} className={inputCls}>
+          {!known && <option value="" disabled>{value ? "another channel (id below)" : "pick a channel"}</option>}
+          {list.map((c) => <option key={c.id} value={c.id}>{c.name || "(unnamed channel)"} · …{c.id.slice(-18)}</option>)}
+        </select>
+      ) : (
+        <input id="ce-teams" value={value} onChange={(e) => onChange(e.target.value)} placeholder="19:…@thread.tacv2" className={`${inputCls} font-mono`} autoComplete="off" />
+      )}
+      {list && list.length > 0 && (
+        <button type="button" className="mt-1 text-[11px] text-mut underline-offset-2 hover:underline" onClick={() => setRaw(!raw)}>
+          {raw ? "pick from the mapped channels" : "advanced: paste a channel id"}
+        </button>
+      )}
+    </Field>
   );
 }
 

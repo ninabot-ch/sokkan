@@ -78,6 +78,8 @@ export interface RuleIn {
   realert: Dur;
   quiet_hours: QuietHours;
   channels: number[];
+  /** 3.5.1 — the rule tells nobody ON PURPOSE (it only feeds the cockpit); otherwise a channel is required */
+  no_notification?: boolean;
   actions: RuleActions;
   labels: Record<string, string>;
   runbook_url: string;
@@ -300,6 +302,56 @@ const filt = (fs: Filter[] | undefined) =>
   (fs || []).filter((f) => (f.label || f.field || "").trim())
     .map((f) => `${(f.label || f.field || "").trim()} ${f.op} ${f.value}`).join(", ");
 
+// 3.5.1 — label filters in words (« except host raspberrypi », « on rpi1 »): the sentence said « a
+// target is down » for up{host!="raspberrypi"} and printed builder filters as « (instance = 100.76…) ».
+// Same rules as backend/alerting/humanize.py filters_phrase (the server's sentence also resolves names).
+const TECH_LABELS = new Set(["__name__", "fstype", "mode", "device", "le", "quantile", "cpu"]);
+const HOST_LABELS = new Set(["instance", "host", "hostname", "node", "nodename", "target", "server"]);
+
+/** The label matchers of a raw PromQL, once each, in reading order. */
+export function selectorFilters(raw: string): Filter[] {
+  const out: Filter[] = [];
+  for (const sel of (raw || "").match(/\{[^{}]*\}/g) || []) {
+    const rx = /([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(sel))) {
+      const [, label, op, value] = m;
+      if (TECH_LABELS.has(label) || out.some((f) => f.label === label && f.op === op && f.value === value)) continue;
+      out.push({ label, op, value });
+    }
+  }
+  return out;
+}
+
+/** address → host name, from the series of a backtest (`group` + `group_display`). */
+export function namesFrom(series: Series[] | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of series || []) {
+    for (const [k, v] of Object.entries(s.group_display || {})) {
+      const raw = s.group?.[k];
+      if (raw && v) out[raw] = v;
+    }
+  }
+  return out;
+}
+
+export function filtersPhrase(fs: Filter[] | undefined, names: Record<string, string> = {}): string {
+  const parts: string[] = [];
+  for (const f of fs || []) {
+    const k = (f.label || f.field || "").trim();
+    const v = String(f.value ?? "");
+    if (!k || TECH_LABELS.has(k) || v === "") continue;
+    const shown = names[v] || v;
+    const op = f.op || "=";
+    if (op === "=~") { parts.push(`where ${k} matches ${v}`); continue; }
+    if (op === "!~") { parts.push(`where ${k} does not match ${v}`); continue; }
+    const place = k === "mountpoint" ? `the ${shown} filesystem` : HOST_LABELS.has(k) ? (shown !== v ? shown : `${k} ${v}`) : null;
+    if (place) parts.push(op === "!=" ? `except ${place}` : `on ${place}`);
+    else parts.push(op === "!=" ? `where ${k} is not ${shown}` : `where ${k} is ${shown}`);
+  }
+  return parts.join(", ");
+}
+
 const KNOWN_RAW: [RegExp, string, string][] = [
   [/node_memory_MemAvailable_bytes\s*\/\s*node_memory_MemTotal_bytes/, "memory used", "%"],
   [/node_cpu_seconds_total\{[^}]*mode="idle"/, "CPU used", "%"],
@@ -343,17 +395,19 @@ export function subjectOf(q: RuleQuery, kind?: SourceKind): string {
   const b = q.builder || {};
   if (isMetricSource(kind) || b.metric) {
     const m = (b.metric || "").trim() || "the metric";
-    const f = filt(b.filters);
-    const base = `${AGG_WORD[b.agg || "last"] ?? ""}${m}${f ? ` (${f})` : ""}`;
-    if (b.ratio_of) return `the share of ${m}${f ? ` (${f})` : ""} in ${(b.ratio_of.metric || m)}${filt(b.ratio_of.filters) ? ` (${filt(b.ratio_of.filters)})` : ""}`;
+    // the filters are said by ruleSentence (« , except host raspberrypi ») — no bracket here
+    const base = `${AGG_WORD[b.agg || "last"] ?? ""}${m}`;
+    // a share keeps its numerator's filter next to it (« the share of X where status matches 5.. in X »)
+    if (b.ratio_of) {
+      const num = filtersPhrase(b.filters);
+      return `the share of ${m}${num ? ` ${num}` : ""} in ${(b.ratio_of.metric || m)}`;
+    }
     return base;
   }
   const parts: string[] = [];
   if (b.level) parts.push(`${b.level} `);
   parts.push("log lines");
   if (b.text) parts.push(` containing « ${b.text} »`);
-  const f = filt(b.filters);
-  if (f) parts.push(` (${f})`);
   if (b.index) parts.push(` in ${b.index}`);
   return parts.join("");
 }
@@ -370,12 +424,15 @@ export function isTargetDown(r: Pick<RuleIn, "type" | "params" | "query">): bool
 /** The rule in one plain sentence — under the type cards, in the summary, in the list.
  *  « Alert when the rate of http_requests_total (status =~ 5..) goes above 2 for 5 min, per job. » */
 export function ruleSentence(r: Pick<RuleIn, "type" | "params" | "for" | "query" | "group_by">, kind?: SourceKind,
-  unit?: string | null): string {
+  unit?: string | null, names: Record<string, string> = {}): string {
   const p = r.params || {};
   const s = subjectOf(r.query, kind);
   const w = fmtDur(String(p.window ?? ""));
-  const per = r.group_by?.length ? `, per ${r.group_by.join(" + ")}` : "";
-  const hold = durS(r.for) > 0 ? ` for ${fmtDur(r.for)}` : "";
+  const flt = r.query.mode !== "raw" && r.query.builder?.ratio_of ? ""      // said inside the subject
+    : filtersPhrase(r.query.mode === "raw" ? (kind === "prometheus" || !kind ? selectorFilters(r.query.raw) : [])
+      : r.query.builder?.filters, names);
+  const per = (flt ? `, ${flt}` : "") + (r.group_by?.length ? `, per ${r.group_by.join(" + ")}` : "");
+  const hold = durS(r.for) > 0 ? `${flt && !r.group_by?.length ? "," : ""} for ${fmtDur(r.for)}` : "";
   const n = (k: string) => Number(p[k]) || 0;
   switch (r.type) {
     case "threshold": {
@@ -459,9 +516,34 @@ export function toRuleIn(r: Rule | RuleIn): RuleIn {
     type: r.type, params: { ...defaultParams(r.type), ...(r.params || {}) },
     every: r.every || "1m", for: r.for ?? "0s", group_by: [...(r.group_by || [])], realert: r.realert || "1h",
     quiet_hours: { ...base.quiet_hours, ...(r.quiet_hours || {}) },
-    channels: [...(r.channels || [])], actions: { ...base.actions, ...(r.actions || {}) },
+    channels: [...(r.channels || [])], no_notification: !!r.no_notification, actions: { ...base.actions, ...(r.actions || {}) },
     labels: { ...(r.labels || {}) }, runbook_url: r.runbook_url ?? "", level: r.level ?? null,
   };
+}
+
+/** 3.5.1 — a new rule tells every channel of the project by default (in prod, with 2 channels none was
+ *  ticked and the rule was saved telling nobody). The instance channel counts only when it is the only one. */
+export function defaultChannels(channels: Pick<Channel, "id" | "enabled" | "builtin">[]): number[] {
+  const on = channels.filter((c) => c.enabled);
+  const own = on.filter((c) => !c.builtin);
+  return (own.length ? own : on).map((c) => c.id);
+}
+
+/** A channel just saved goes into the list at once (the form closes on the 201, the list does not wait). */
+export function upsertChannel<T extends { id: number }>(list: T[], c: T): T[] {
+  return list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [...list, c];
+}
+
+/** No logs source yet → the Sources screen proposes « Add Loki » (6 log templates need one). */
+export function needsLogSource(srcs: Pick<AlertSource, "kind">[]): boolean {
+  return !srcs.some((s) => s.kind === "loki" || s.kind === "elasticsearch" || s.kind === "opensearch");
+}
+
+/** What « Send a test » says: sent, failed, or no answer within the limit — never « sending… » forever. */
+export function testOutcome(r: { ok: boolean; detail?: string; timed_out?: boolean }): { tone: "ok" | "warn" | "error"; text: string } {
+  if (r.ok) return { tone: "ok", text: `✓ sent — ${r.detail && r.detail !== "ok" ? r.detail : "check the channel"}` };
+  if (r.timed_out) return { tone: "warn", text: `⏱ ${r.detail || "no answer in time"}` };
+  return { tone: "error", text: `✕ ${r.detail || "failed"}` };
 }
 
 /** Changing the type keeps the shared parameters (window, field…) and fills the new ones. */
@@ -511,7 +593,7 @@ export function validateRule(r: RuleIn, kind?: SourceKind): { step: number; msg:
   const zeroOk = (k: string) => k === "window" && r.type === "threshold" && DUR.test(String(p[k] ?? "").trim());
   for (const k of ["window", "reference", "lookback"]) if (k in p && !durS(String(p[k])) && !zeroOk(k)) out.push({ step: 2, msg: `The ${k === "window" ? "window" : k === "reference" ? "comparison period" : "look-back"} must be a duration (5m, 1h, 7d).` });
   if (durS(r.every) < 10) out.push({ step: 2, msg: "Check at most every 10 seconds." });
-  if (!r.channels.length && !r.actions.incident) out.push({ step: 3, msg: "Nobody would know: pick a channel, or open an incident." });
+  if (!r.channels.length && !r.no_notification) out.push({ step: 3, msg: "Nobody would be told: pick a channel, or tick « no notification »." });
   if (!r.name.trim()) out.push({ step: 4, msg: "Give the rule a name." });
   return out;
 }

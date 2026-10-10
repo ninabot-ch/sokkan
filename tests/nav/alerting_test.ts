@@ -41,14 +41,14 @@ test("numbers read well on an axis and in a sentence", () => {
 
 test("the sentence says the rule in plain words — every type", () => {
   assert.equal(ruleSentence(r5xx(), "prometheus"),
-    "Alert when the share of http_requests_total (status =~ 5..) in http_requests_total goes above 2 % for 5 min, per job.");
+    "Alert when the share of http_requests_total where status matches 5.. in http_requests_total goes above 2 % for 5 min, per job.");
   const logs = (type: RuleIn["type"], params: RuleIn["params"]): RuleIn => ({
     ...emptyRule(LOKI), type, params, query: { mode: "builder", raw: "", builder: { text: "ERROR", filters: [{ label: "app", op: "=", value: "api" }] } },
   });
   assert.equal(ruleSentence(logs("frequency", { count: 50, window: "10m" }), "loki"),
-    "Alert when at least 50 log lines containing « ERROR » (app = api) arrive within 10 min.");
+    "Alert when at least 50 log lines containing « ERROR » arrive within 10 min, where app is api.");
   assert.equal(ruleSentence(logs("flatline", { count: 1, window: "10m" }), "loki"),
-    "Alert when fewer than 1 log lines containing « ERROR » (app = api) arrive within 10 min — the source went quiet.");
+    "Alert when fewer than 1 log lines containing « ERROR » arrive within 10 min, where app is api — the source went quiet.");
   assert.match(ruleSentence(logs("spike", defaultParams("spike")), "loki"), /jumps ×3 above its level of the last 1 h \(ignored under 10\)/);
   assert.match(ruleSentence(logs("spike", { ...defaultParams("spike"), direction: "down" }), "loki"), /falls under 1\/3 of/);
   assert.match(ruleSentence(logs("any", {}), "loki"), /^Alert on every one of the log lines/);
@@ -57,9 +57,9 @@ test("the sentence says the rule in plain words — every type", () => {
   assert.match(ruleSentence(logs("cardinality", { field: "user", op: ">", value: 100, window: "1h" }), "loki"), /more than 100 distinct user within 1 h/);
   const up = { ...emptyRule(PROM), type: "absence" as const, params: { window: "5m" },
     query: { mode: "builder" as const, raw: "", builder: { metric: "up", filters: [{ label: "job", op: "=", value: "node" }], agg: "last" as const } } };
-  assert.equal(ruleSentence(up, "prometheus"), "Alert when up (job = node) has no data for 5 min — the target is gone.");
+  assert.equal(ruleSentence(up, "prometheus"), "Alert when up has no data for 5 min, where job is node — the target is gone.");
   assert.match(ruleSentence({ ...up, type: "anomaly", params: { z: 3, lookback: "24h" }, for: "10m" }, "prometheus"),
-    /more than 3 standard deviations from its level of the last 1 day for 10 min/);
+    /more than 3 standard deviations from its level of the last 1 day,? for 10 min/);
   const raw: RuleIn = { ...emptyRule(PROM), query: { mode: "raw", raw: "sum(rate(x[5m]))", builder: {} }, params: { op: "<", value: 1, reduce: "last" }, for: "0s" };
   // 3.5 polish: a raw query is never quoted in the sentence (nothing recognisable → « the query »)
   assert.equal(ruleSentence(raw, "prometheus"), "Alert when the query drops below 1.");
@@ -68,7 +68,8 @@ test("the sentence says the rule in plain words — every type", () => {
 test("the wizard blocks only on what really misses, at the right step", () => {
   const e = emptyRule(PROM);
   const steps = validateRule(e, "prometheus").map((x) => x.step);
-  assert.deepEqual([...new Set(steps)].sort(), [1, 4]); // no metric, no name (incident is on by default)
+  // no metric, nobody to tell (3.5.1: a channel or « no notification », the incident alone is not enough), no name
+  assert.deepEqual([...new Set(steps)].sort(), [1, 3, 4]);
   const ok = r5xx();
   assert.deepEqual(validateRule(ok, "prometheus"), []);
   assert.ok(validateRule({ ...ok, channels: [], actions: { ...ok.actions, incident: false } }, "prometheus").some((x) => x.step === 3));

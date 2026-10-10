@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createRule, preview, testChannel, updateRule } from "@/lib/alerting";
 import {
   valueUnit,
-  RANGES, durS, hasQuery, isMetricSource, ruleSentence, suggestName, switchSource, switchType, typesFor,
+  RANGES, defaultChannels, durS, hasQuery, isMetricSource, namesFrom, ruleSentence, suggestName, switchSource, switchType, typesFor,
   validateRule, type AlertSource, type Channel, type ChannelKindDef, type Param, type PreviewResult, type Rule, type RuleIn,
   type RuleType, type Severity,
 } from "@/lib/alertingModel";
@@ -44,10 +44,13 @@ export interface WizardProps {
 export default function Wizard(p: WizardProps) {
   // a new rule tells the project's channel when there is exactly one: the 09.10 journey saved its
   // second rule with nobody to tell because the only channel was not ticked
-  const [r, setR] = useState<RuleIn>(() => {
-    const own = p.channels.filter((c) => c.enabled && !c.builtin);
-    return !p.start.channels.length && own.length === 1 && !p.ruleId ? { ...p.start, channels: [own[0].id] } : p.start;
-  });
+  const [r, setR] = useState<RuleIn>(() =>
+    // 3.5.1: every channel of the project, not only when there is exactly one (2 channels in prod → none ticked)
+    !p.start.channels.length && !p.ruleId && !p.start.no_notification ? { ...p.start, channels: defaultChannels(p.channels) } : p.start);
+  // channels that arrive after the wizard opened are ticked too (only while nothing was chosen)
+  useEffect(() => {
+    if (!p.ruleId && p.channels.length) setR((x) => (x.channels.length || x.no_notification ? x : { ...x, channels: defaultChannels(p.channels) }));
+  }, [p.channels, p.ruleId]);
   const [step, setStep] = useState(1);
   const [range, setRange] = useState<"1h" | "6h" | "24h" | "7d">("24h");
   const [pv, setPv] = useState<PreviewResult | null>(null);
@@ -60,7 +63,8 @@ export default function Wizard(p: WizardProps) {
   const kind = src?.kind;
   const unit = pv?.unit || valueUnit(r.query);
   const problems = validateRule(r, kind);
-  const sentence = ruleSentence(r, kind, unit);
+  // the server's sentence resolves host names (« except rpi1 »); the local one speaks while it computes
+  const sentence = (!loading && pv?.sentence) ? `${pv.sentence.replace(/\.$/, "")}.` : ruleSentence(r, kind, unit, namesFrom(pv?.series));
 
   // propose a name as long as the person did not write one
   useEffect(() => { if (!nameTouched) setR((x) => ({ ...x, name: suggestName(x) })); }, [nameTouched, r.query, r.type]);
@@ -196,18 +200,20 @@ function StepWhat({ r, setR, sources }: { r: RuleIn; setR: (f: (x: RuleIn) => Ru
   return (
     <>
       <Field label="Where the data comes from">
+        {/* 3.5.1: native radios — the button + role="radio" cards were read « not checked » when checked */}
         <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="data source">
           {sources.map((s) => {
             const on = s.id === r.source_id;
             return (
-              <button key={s.id} type="button" role="radio" aria-checked={on} onClick={() => setR((x) => switchSource(x, s))}
-                className={`ui-focus flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${on ? "border-sea bg-sea/10" : "border-line hover:border-sea/40"}`}>
+              <label key={s.id}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-blue-500 ${on ? "border-sea bg-sea/10" : "border-line hover:border-sea/40"}`}>
+                <input type="radio" name="w-source" value={s.id} checked={on} onChange={() => setR((x) => switchSource(x, s))} className="sr-only" />
                 <StatusDot ok={s.status?.ok} title={s.status?.error || undefined} />
                 <span className="min-w-0">
                   <span className="block truncate text-[12.5px] text-slate-100">{s.name}</span>
                   <span className="block truncate text-[10.5px] text-mut">{KIND_WORD[s.kind] || s.kind}{s.status?.ok === false ? " · unreachable" : ""}</span>
                 </span>
-              </button>
+              </label>
             );
           })}
         </div>
@@ -257,14 +263,15 @@ function StepWhen({ r, setR, src, setParam }: {
           {types.map((t) => {
             const on = t.id === r.type;
             return (
-              <button key={t.id} type="button" role="radio" aria-checked={on} onClick={() => setR((x) => switchType(x, t.id))}
-                className={`ui-focus flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left ${on ? "border-sea bg-sea/10" : "border-line hover:border-sea/40"}`}>
+              <label key={t.id}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-blue-500 ${on ? "border-sea bg-sea/10" : "border-line hover:border-sea/40"}`}>
+                <input type="radio" name="w-type" value={t.id} checked={on} onChange={() => setR((x) => switchType(x, t.id))} className="sr-only" />
                 <TypeArt t={t.id} active={on} />
                 <span className="min-w-0">
                   <span className={`block text-[12.5px] ${on ? "text-slate-100" : "text-slate-200"}`}>{t.label}</span>
                   <span className="block text-[10.5px] leading-snug text-mut">{t.hint}</span>
                 </span>
-              </button>
+              </label>
             );
           })}
         </div>
@@ -359,15 +366,20 @@ function StepWho({ r, setR, channels, kinds, canManage, onChannelsChanged }: {
             return (
               <div key={c.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${on ? "border-sea bg-sea/10" : "border-line"}`}>
                 <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[12.5px] text-slate-100">
-                  <input type="checkbox" className="ui-focus accent-sky-500" checked={on} onChange={() => toggle(c.id)} />
+                  <input type="checkbox" className="ui-focus accent-sky-500" checked={on} onChange={() => { toggle(c.id); setR((x) => ({ ...x, no_notification: false })); }} />
                   <ChannelBadge c={c} />
                 </label>
                 {tests[c.id] && <span className={`text-[10.5px] ${tests[c.id].startsWith("✓") ? "text-emerald-300" : tests[c.id] === "…" ? "text-mut" : "text-red-300"}`}>{tests[c.id] === "…" ? "sending…" : tests[c.id]}</span>}
-                <button type="button" className={btn.small} onClick={() => { setTests((t) => ({ ...t, [c.id]: "…" })); testChannel(c.id).then((x) => setTests((t) => ({ ...t, [c.id]: x.ok ? "✓ sent" : `✕ ${x.detail || "failed"}` }))).catch((e) => setTests((t) => ({ ...t, [c.id]: `✕ ${e.message || e}` }))); }}>test</button>
+                <button type="button" className={btn.small} onClick={() => { setTests((t) => ({ ...t, [c.id]: "…" })); testChannel(c.id).then((x) => setTests((t) => ({ ...t, [c.id]: x.ok ? "✓ sent" : x.timed_out ? "⏱ no answer yet" : `✕ ${x.detail || "failed"}` }))).catch((e) => setTests((t) => ({ ...t, [c.id]: `✕ ${e.message || e}` }))); }}>test</button>
               </div>
             );
           })}
-          {channels.length === 0 && !adding && <div className="rounded-lg border border-dashed border-line p-3 text-[12px] text-mut">No channel yet{canManage ? " — add one now, it takes a minute." : " — ask a maintainer to add one (Settings › Channels); meanwhile, open an incident (step 4)."}</div>}
+          {channels.length === 0 && !adding && <div className="rounded-lg border border-dashed border-line p-3 text-[12px] text-mut">No channel yet{canManage ? " — add one now, it takes a minute." : " — ask a maintainer to add one (Settings › Channels), or tick « no notification » below."}</div>}
+          <label className="flex items-center gap-2 pt-1 text-[12px] text-mut">
+            <input type="checkbox" className="ui-focus accent-sky-500" checked={!!r.no_notification}
+              onChange={(e) => setR((x) => ({ ...x, no_notification: e.target.checked, channels: e.target.checked ? [] : x.channels }))} />
+            no notification — this rule only shows in the cockpit
+          </label>
           {canManage && (adding
             ? <div className="rounded-lg border border-sea/40 p-2.5"><ChannelEditor kinds={kinds} onDone={() => { setAdding(false); onChannelsChanged(); }} onCreated={(c) => setR((x) => ({ ...x, channels: [...x.channels, c.id] }))} /></div>
             : <button type="button" className={btn.small} onClick={() => setAdding(true)}>+ Add a channel</button>)}

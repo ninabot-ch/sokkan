@@ -134,7 +134,20 @@ themselves, with their role in the project), **Slack** (incoming webhook), **e-m
 instance's SMTP: `SOKKAN_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`), **webhook** (JSON
 `{event, alert, rule, link}`, header `X-Sokkan-Signature: sha256=<HMAC of the body>` when a
 secret is set), **PagerDuty** (Events API v2, resolve included). « Instance notifications »
-(Setup › Notifications) is available as a channel too. « Test » sends a « [TEST] » message.
+(Setup › Notifications) is available as a channel too. « Test » sends a « [TEST] » message and
+answers within `SOKKAN_ALERTING_TEST_TIMEOUT_S` (15 s): sent, the channel's error, or « no answer
+after 15 s » (it may still arrive late).
+
+A rule **tells someone**: a new rule ticks every channel of the project, and an active rule
+without channel is refused (422) unless « no notification » is ticked (`no_notification: true`,
+the rule then only shows in the cockpit). A rule proposed by a session is saved off and checked
+when a person turns it on. The Teams channel is picked among the channels mapped to the project
+(`GET /api/alerting/teams-channels`); pasting a raw id stays possible (advanced).
+
+The Teams card follows the alert: after Ack / Silence / Open incident (from Teams or the
+cockpit) it keeps the severity, the host and the value, with the decision written under them,
+and it turns green when the alert resolves. A rule **deleted or turned off while it rings**
+resolves its alerts (a transition « rule deleted by … ») and its channels hear « resolved ».
 
 ### Actions — event-driven, human-gated
 

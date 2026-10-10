@@ -313,7 +313,7 @@ REGISTRY: tuple[Feature, ...] = (
             "under a person's go-ahead.",
             defaults=_both(True), vars=_t("alerting"),
             config=("SOKKAN_ALERTING_TICK_S", "SOKKAN_ALERTING_EVALUATOR",
-                    "SOKKAN_ALERTING_SOURCE_TIMEOUT_S", "SOKKAN_SMTP_HOST", "SOKKAN_SMTP_PORT",
+                    "SOKKAN_ALERTING_SOURCE_TIMEOUT_S", "SOKKAN_ALERTING_TEST_TIMEOUT_S", "SOKKAN_SMTP_HOST", "SOKKAN_SMTP_PORT",
                     "SOKKAN_SMTP_USER", "SOKKAN_SMTP_PASSWORD", "SOKKAN_SMTP_FROM"),
             doc=O),
     Feature("ops_team", "Ops team",

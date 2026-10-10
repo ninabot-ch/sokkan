@@ -104,7 +104,7 @@ def test_roles_viewer_reads_dev_writes_maintainer_manages(world):
     r = c.post("/api/alerting/rules", json=_rule_body(c))
     assert r.status_code == 201, r.text
     rule = r.json()
-    assert rule["sentence"] == ("Alert on every one of the matching events, where action board.card.create")
+    assert rule["sentence"] == ("Alert on every one of the matching events, where action is board.card.create")
     assert rule["query_compiled"] == "audit action=board.card.create" and rule["state"]["state"] == "ok"
     assert _audit("alerting.rule.create")[0]["user"] == "bob@x"
     c = world["as"]("carol@x")

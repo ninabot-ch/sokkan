@@ -118,17 +118,19 @@ def filters_phrase(filters) -> str:
         if not k or k in _TECHNICAL or v == "":
             continue
         shown = display_value(k, v)
-        if k == "mountpoint":
-            what, where = f"the {shown} filesystem", True
-        elif k in _HOST_LABELS:
-            # an address resolved to a name reads alone (« gmk1 »); otherwise say the label
-            what, where = (shown if shown != v else f"{k} {v}"), True
+        if op == "=~":
+            parts.append(f"where {k} matches {v}")
+            continue
+        if op == "!~":
+            parts.append(f"where {k} does not match {v}")
+            continue
+        # a place (a host, a filesystem) reads « on gmk1 » / « except host raspberrypi »
+        place = (f"the {shown} filesystem" if k == "mountpoint"
+                 else (shown if shown != v else f"{k} {v}") if k in _HOST_LABELS else None)
+        if place:
+            parts.append(f"except {place}" if op == "!=" else f"on {place}")
         else:
-            what, where = f"{k} {shown}", False
-        parts.append({"=": f"on {what}" if where else f"where {what}",
-                      "!=": f"except {what}",
-                      "=~": f"where {k} matches {v}",
-                      "!~": f"except where {k} matches {v}"}.get(op, f"where {what}"))
+            parts.append(f"where {k} is not {shown}" if op == "!=" else f"where {k} is {shown}")
     return ", ".join(parts)
 
 
