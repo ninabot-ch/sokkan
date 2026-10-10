@@ -3,6 +3,38 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.5.1 — 2026-10-10 — "Lookout"
+
+What the first day of Operate › Alerts on a real instance showed (Telegram + Teams channels,
+three rules on the host's Prometheus, a live firing acked from Teams).
+
+### Fixed
+- **A rule tells someone.** With two channels in the project none was ticked, and a rule was
+  saved telling nobody. A new rule now ticks every channel of the project; an active rule with
+  no channel is refused (422, « nobody would be told ») unless « no notification » is ticked on
+  purpose (`no_notification`). A rule proposed by a session is checked when a person turns it on.
+- **A rule deleted or turned off while it rings resolves its alerts and says so.** Before, its
+  alerts vanished: no « resolved » was sent and the Teams card stayed « Acknowledged ». Now a
+  transition « rule deleted by … » / « rule turned off by … » and « resolved » to the channels.
+- **The Teams card keeps its details after Ack / Silence / Open incident.** It was replaced by a
+  bare notice; it now keeps the severity, the host and the value, with the decision under them.
+  The card posted when the alert fired follows (also after an Ack in the cockpit) and turns
+  green when the alert resolves, instead of a second card.
+- **« Send a test » never hangs.** The API answers within `SOKKAN_ALERTING_TEST_TIMEOUT_S` (15 s):
+  sent, the channel's error, or « no answer after 15 s »; the browser gives up at 25 s.
+- **A saved channel shows at once** and the form closes on the 201 (it stayed open until a reload).
+- **The Teams channel is picked by name** among the channels mapped to the project
+  (`GET /api/alerting/teams-channels`); pasting a raw id is the advanced path.
+- **The sentence says the label filters**, in words: `up{host!="raspberrypi"}` read « a target is
+  down » and a builder filter printed « (instance=100.76.30.90:9100) » — now « a target is down,
+  except host raspberrypi », « on rpi1 », « where app is api ». Queries with a selector
+  (`node_memory_MemAvailable_bytes{instance="…"}`) are recognised as « memory used ».
+- **The history speaks with the unit**: transitions written before the unit was known read
+  « 70.5 % > 50 % » (was « 70.5 > 50 »).
+- **Sources: « Add Loki »** is proposed when no logs source exists (the log templates need one).
+- Accessibility: the data-source and rule-type cards are native radios (they were read « not
+  checked » when checked).
+
 ## 3.5.0 — 2026-10-10 — "Lookout"
 
 ### Added
