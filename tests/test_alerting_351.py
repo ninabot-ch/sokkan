@@ -8,7 +8,10 @@ import time
 
 import pytest
 
-from test_alerting_api import _audit, _rule_body, world  # noqa: F401 — the shared fixture
+import test_alerting_api as _api
+
+_rule_body = _api._rule_body
+world = _api.world      # the shared fixture (people, projects, fake HTTP)
 
 
 def _hook(c, url="https://hooks.example/351"):
