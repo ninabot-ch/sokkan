@@ -1,0 +1,9 @@
+[Unit]
+Description=SOKKAN support tunnel: watch for a request from the cockpit
+
+[Path]
+PathChanged=/var/lib/docker/volumes/sokkan_sokkan-data/_data/appliance/support-request.json
+Unit=sokkan-support-request.service
+
+[Install]
+WantedBy=multi-user.target

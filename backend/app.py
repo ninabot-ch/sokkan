@@ -91,6 +91,8 @@ import helm_api
 import provision
 import transcript as T
 import updatecheck
+import appliance  # on-prem appliance: support tunnel requests, backup status
+import heartbeat  # supervision heartbeat (off unless SOKKAN_HEARTBEAT_URL is set)
 import usage as usage_mod
 
 _claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
@@ -234,6 +236,8 @@ async def _lifespan(_app: FastAPI):
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    appliance.start()   # journals support-tunnel openings/closings written by the host agent
+    heartbeat.start()   # no-op without SOKKAN_HEARTBEAT_URL
     threading.Thread(target=_usage_refresher, daemon=True, name="sokkan-usage").start()
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
@@ -1961,6 +1965,9 @@ def _transcripts() -> list[Path]:
 
 # 3.2 lot 6 : SCIM 2.0 (Users, Groups) + « Revoke now » (admin)
 app.include_router(revocation.router(require))
+# on-prem appliance: support tunnel (client-controlled, journaled) and supervision heartbeat
+app.include_router(appliance.router(require))
+app.include_router(heartbeat.router(require))
 # 3.4 : OIDC back-channel / front-channel logout (/api/auth/* : no cookie, own checks)
 app.include_router(oidc_logout.router())
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=SOKKAN support tunnel: close at the deadline (fail-closed check)
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sokkan/appliance.env
+ExecStart=/opt/sokkan/scripts/appliance/support-tunnel.sh expire
+PrivateTmp=true
+ProtectHome=true
