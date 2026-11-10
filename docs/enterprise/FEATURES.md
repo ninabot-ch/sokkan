@@ -21,7 +21,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`preview_private_targets`](#preview_private_targets) Preview of private addresses | stable | toggle | off | off | `preview` | — | `SOKKAN_FEATURE_PREVIEW_PRIVATE_TARGETS`<br>`SOKKAN_PREVIEW_ALLOW_PRIVATE` (legacy: 1 = on) |
 | [`magnitude`](#magnitude) Magnitude (local LLM) | stable | toggle | on | on | — | — | `SOKKAN_FEATURE_MAGNITUDE` |
 | [`assistant`](#assistant) Nina (in-app assistant) | stable | toggle | off | off | — | — | `SOKKAN_FEATURE_ASSISTANT` |
-| [`missions_link`](#missions_link) SOKKAN Missions link | stable | toggle | on | off | — | — | `SOKKAN_FEATURE_MISSIONS_LINK` |
+| [`missions_link`](#missions_link) SOKKAN Missions link | stable | toggle | off | off | — | — | `SOKKAN_FEATURE_MISSIONS_LINK` |
 | [`update_check`](#update_check) Update check | stable | toggle | on | on | — | — | `SOKKAN_FEATURE_UPDATE_CHECK`<br>`SOKKAN_UPDATE_CHECK` (legacy) |
 | [`named_secrets`](#named_secrets) Secrets by name | stable | toggle | on | on | — | — | `SOKKAN_FEATURE_NAMED_SECRETS`<br>`SOKKAN_SESSION_SECRETS` (legacy: named = on, all = off, anything else = on) |
 | [`memory_quarantine`](#memory_quarantine) Memory quarantine | stable | invariant | always | always | — | — | `SOKKAN_MEMORY_QUARANTINE_DIR` |
@@ -191,9 +191,9 @@ Nina, the cockpit's help agent. Needs an LLM (SOKKAN_ASSISTANT_LLM_*) and its kn
 
 **SOKKAN Missions link** — stable, toggle.
 
-Header link to the public SOKKAN Missions marketplace, with a counter this instance fetches (6 h cache). Off in the enterprise edition: no call to a public service.
+Header link to the public SOKKAN Missions marketplace, with a counter this instance fetches (6 h cache). Off unless asked for (3.5.2): no call to a public service that the operator did not switch on.
 
-- Defaults: community **on**, enterprise **off**
+- Defaults: community **off**, enterprise **off**
 - Switch: `SOKKAN_FEATURE_MISSIONS_LINK`
 
 ### update_check

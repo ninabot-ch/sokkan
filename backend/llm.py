@@ -56,11 +56,65 @@ def resolve_refs(c: dict) -> dict:
     return {**c, field: modelkeys.get_plain(ref) or ""}
 
 
+_ENC = "_enc"   # llm.json field suffix: the value encrypted with the vault key (Fernet)
+
+
+def _fernet():
+    import secrets_provider
+    return secrets_provider.active().fernet("vault")
+
+
+def _seal(cfg: dict) -> dict:
+    """What goes to disk: every key/token field replaced by `<field>_enc` (3.5.2 — the old
+    `POST /api/llm` wrote the Anthropic key in clear in llm.json; a copy of the data volume,
+    a backup or a support look at the file gave the key away)."""
+    out = dict(cfg)
+    f = None
+    for k in _REF_FIELDS:
+        v = out.pop(k, None)
+        out.pop(k + _ENC, None)
+        if v:
+            f = f or _fernet()
+            out[k + _ENC] = f.encrypt(str(v).encode()).decode()
+    return out
+
+
+def _unseal(c: dict) -> dict:
+    """In memory only. A field that no longer decrypts (vault key changed) = no key."""
+    out = {k: v for k, v in c.items() if not k.endswith(_ENC)}
+    f = None
+    for k in _REF_FIELDS:
+        ct = c.get(k + _ENC)
+        if not ct:
+            continue
+        try:
+            f = f or _fernet()
+            out[k] = f.decrypt(ct.encode()).decode()
+        except Exception:  # noqa: BLE001 — InvalidToken, provider unreachable: never a crash here
+            out[k] = ""
+    return out
+
+
+def _read_file() -> dict:
+    """llm.json decrypted. A file written before 3.5.2 (key in clear) is re-written sealed
+    the first time it is read — best effort, the plain value keeps working if that fails."""
+    c = json.loads(CONFIG.read_text(encoding="utf-8"))
+    if not isinstance(c, dict) or not c:
+        return {}
+    if any(c.get(k) for k in _REF_FIELDS):
+        try:
+            save(_unseal(c) | {k: c[k] for k in _REF_FIELDS if c.get(k)})
+        except Exception:  # noqa: BLE001 — read-only volume, vault provider down
+            pass
+        return {k: v for k, v in c.items() if not k.endswith(_ENC)}
+    return _unseal(c)
+
+
 def load() -> dict:
     """Config LLM : llm.json (posé par le cockpit) prioritaire, sinon fallback
     sur l'env `included` seedé au provisioning (SOKKAN_INFER_BASE_URL/TOKEN/MODEL)."""
     try:
-        c = json.loads(CONFIG.read_text(encoding="utf-8"))
+        c = _read_file()
         if c:
             return resolve_refs(c)
     except (FileNotFoundError, ValueError):
@@ -74,12 +128,27 @@ def load() -> dict:
 
 
 def save(cfg: dict) -> None:
+    """Writes llm.json with every key/token ENCRYPTED (vault key), atomically, 0600."""
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    tmp = CONFIG.with_name(CONFIG.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(_seal(cfg), fh, indent=2)
+    os.replace(tmp, CONFIG)
+
+
+def reencrypt() -> int:
+    """Data-key rotation (scripts/secrets-rotate.py --data-keys vault): the sealed fields of
+    llm.json re-encrypted with the primary key. Returns how many were rewritten."""
     try:
-        CONFIG.chmod(0o600)  # contient une clé/token
-    except OSError:
-        pass
+        raw = json.loads(CONFIG.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return 0
+    plain = _unseal(raw) | {k: raw[k] for k in _REF_FIELDS if raw.get(k)}
+    n = sum(1 for k in _REF_FIELDS if plain.get(k))
+    if n:
+        save(plain)
+    return n
 
 
 def _byok_kind(c: dict) -> str | None:

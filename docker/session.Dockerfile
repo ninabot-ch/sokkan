@@ -9,7 +9,7 @@
 #
 # The CLI comes from the claude-agent-sdk wheel (its bundled native binary), the SAME source
 # as the api's SDK: pin CLAUDE_AGENT_SDK_VERSION to the api's to keep them in step.
-ARG CLAUDE_AGENT_SDK_VERSION=
+ARG CLAUDE_AGENT_SDK_VERSION=0.2.152
 FROM python:3.12-slim AS cli
 ARG CLAUDE_AGENT_SDK_VERSION
 RUN pip install --no-cache-dir "claude-agent-sdk${CLAUDE_AGENT_SDK_VERSION:+==$CLAUDE_AGENT_SDK_VERSION}" \

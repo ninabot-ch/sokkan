@@ -64,11 +64,13 @@ def test_generated_doc_is_up_to_date():
 
 
 # ---- no regression: community defaults = the behaviour before the registry ------------
-def test_community_defaults_are_the_previous_behaviour(clean_env):
+def test_community_defaults_are_the_previous_behaviour(clean_env, monkeypatch):
+    monkeypatch.setattr(F, "_which", lambda b: "/usr/bin/" + b)   # a host with tmux and a browser
     st = F.resolve()
     on = {k for k, s in st.items() if s.enabled}
     # 3.5: alerting is new and on by default — it does nothing until someone writes a rule
-    assert on == {"tmux", "preview", "magnitude", "missions_link", "update_check",
+    # 3.5.2: missions_link is off unless asked for (no outbound call by default)
+    assert on == {"tmux", "preview", "magnitude", "update_check",
                   "named_secrets", "memory_quarantine", "agents", "alerting"}
     assert F.edition() == "community"
     import agents
@@ -239,3 +241,41 @@ def test_routes_follow_the_registry(client, clean_env):
     assert r.status_code == 409 and "multi_project" in r.json()["detail"]
     clean_env.setenv("SOKKAN_FEATURE_MULTI_PROJECT", "1")
     assert client.post("/api/admin/projects", json={"slug": "radio", "name": "Radio"}).status_code == 200
+
+
+# ---- 3.5.2: a feature that needs a binary is off when the host has none ----------------
+@pytest.mark.parametrize("fid,var", [("tmux", "SOKKAN_FEATURE_TMUX"), ("preview", "SOKKAN_FEATURE_PREVIEW")])
+def test_tmux_and_preview_are_off_without_their_binary(clean_env, monkeypatch, fid, var):
+    """The compose image ships neither tmux nor a browser, and compose passes the switch as
+    "" (which cancelled the `=0` the image used to carry): the default must not announce them."""
+    monkeypatch.setattr(F, "_which", lambda b: None)
+    clean_env.setenv(var, "")                       # what `${VAR:-}` gives the container
+    st = F.resolve()[fid]
+    assert not st.enabled and not st.problem
+    assert "not found" in st.reason or "no `tmux`" in st.reason
+    clean_env.setenv(var, "1")                      # asked for explicitly: still off, and reported
+    st = F.resolve()[fid]
+    assert not st.enabled and st.problem
+    assert fid in {p.id for p in F.problems()}
+    monkeypatch.setattr(F, "_which", lambda b: "/usr/bin/" + b)
+    assert F.resolve()[fid].enabled
+
+
+def test_preview_follows_sokkan_chromium(clean_env, monkeypatch):
+    seen = []
+    monkeypatch.setattr(F, "_which", lambda b: seen.append(b) or None)
+    clean_env.setenv("SOKKAN_CHROMIUM", "/opt/chrome/chrome")
+    assert not F.enabled("preview") and seen == ["/opt/chrome/chrome"]
+
+
+def test_shared_review_falls_with_preview(clean_env, monkeypatch):
+    monkeypatch.setattr(F, "_which", lambda b: None)
+    clean_env.setenv("SOKKAN_EDITION", "enterprise")
+    st = F.resolve()
+    assert not st["preview"].enabled and not st["shared_review"].enabled
+
+
+def test_missions_link_is_off_unless_asked(clean_env):
+    assert not F.enabled("missions_link")
+    clean_env.setenv("SOKKAN_FEATURE_MISSIONS_LINK", "1")
+    assert F.enabled("missions_link")

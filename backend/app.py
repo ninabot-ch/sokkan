@@ -1994,6 +1994,14 @@ def _build_version() -> dict:
         except OSError:
             continue
     commit = (os.environ.get("SOKKAN_COMMIT") or "").strip()
+    if commit == "unknown":      # the image's build-arg default: nobody passed the commit
+        commit = ""
+    if not commit:
+        # 3.5.2 — a compose install builds without the build-arg, but the installer writes the
+        # release it put in place as SOKKAN_VERSION=<version>+<commit> (dist/VERSION): read it
+        # there, so that /api/version names the commit and a rollout check can compare.
+        m = re.match(r"^v?\d+(?:\.\d+)*\+([0-9a-f]{7,40})$", (os.environ.get("SOKKAN_VERSION") or "").strip())
+        commit = m.group(1) if m else ""
     if not commit:
         try:
             commit = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],

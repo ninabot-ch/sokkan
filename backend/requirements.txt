@@ -6,5 +6,6 @@ cryptography>=42  # coffre de secrets (vault.py, chiffrement Fernet)
 pyyaml>=6.0
 mcp>=1.2,<2
 # chat interactif : pilote le binaire `claude` via le SDK (stream-json)
-claude-agent-sdk>=0.1.0
+# pinned (image reproducibility) — bump with CLAUDE_CODE_VERSION in docker/api.Dockerfile
+claude-agent-sdk==0.2.152
 tzdata>=2024.1
