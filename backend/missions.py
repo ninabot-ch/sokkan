@@ -21,8 +21,8 @@ import threading
 import time
 import urllib.request
 
-URL = os.environ.get("SOKKAN_MISSIONS_STATS_URL",
-                     "https://app.sokkan.ch/missions/stats.json")
+URL = (os.environ.get("SOKKAN_MISSIONS_STATS_URL")
+       or "https://app.sokkan.ch/missions/stats.json")
 ENABLED = features.enabled("missions_link")
 TTL_S = 6 * 3600
 

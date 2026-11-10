@@ -119,7 +119,7 @@ LEXICAL_WEIGHT = 0.25
 # relative boost for notes marked `priority: high` — MULTIPLICATIVE (score
 # *= 1+boost): a weak match stays weak (no flat +0.08 dominating low-cosine
 # queries), a strong match gets a real nudge. Tunable per install.
-PRIORITY_BOOST = float(os.environ.get("SOKKAN_PRIORITY_BOOST", "0.08"))
+PRIORITY_BOOST = float(os.environ.get("SOKKAN_PRIORITY_BOOST") or "0.08")
 _STOP = {
     "les", "des", "sur", "de", "la", "le", "du", "un", "une", "pour", "dans",
     "avec", "et", "the", "to", "and", "of", "on", "in", "how", "que", "qui",

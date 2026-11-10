@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 CFG = Path(os.environ.get("SOKKAN_PREVIEW_ENVS", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview-envs.json")))
-LOG_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview")))
+LOG_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR") or os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview"))
 
 # Pas de seed par défaut : chaque install déclare ses dev-servers dans
 # preview-envs.json ({name: {cwd, cmd, port, label, host?}}).

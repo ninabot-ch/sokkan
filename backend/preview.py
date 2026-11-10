@@ -21,14 +21,14 @@ from urllib.parse import urlparse
 # repos autorisés au diff (pas de chemin arbitraire) — env JSON {"nom": "/chemin"} ;
 # défaut = le workspace courant
 import json
-_raw_repos = json.loads(os.environ.get("SOKKAN_REPOS", "{}")) or {
+_raw_repos = json.loads(os.environ.get("SOKKAN_REPOS") or "{}") or {
     "workspace": os.environ.get("SOKKAN_PROJECT_WD", os.getcwd())}
 # valeur = chemin (str) OU {"path": ..., "test_cmd": ...} — test_cmd optionnel,
 # lancé UNIQUEMENT sur clic humain (POST /api/preview/test/{repo}), jamais auto
 REPOS = {k: (v["path"] if isinstance(v, dict) else v) for k, v in _raw_repos.items()}
 TEST_CMDS = {k: v.get("test_cmd", "") for k, v in _raw_repos.items() if isinstance(v, dict)}
-SHOT_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview")))
-CHROMIUM = os.environ.get("SOKKAN_CHROMIUM", "chromium")
+SHOT_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR") or os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview"))
+CHROMIUM = os.environ.get("SOKKAN_CHROMIUM") or "chromium"
 DIFF_MAX = 200_000  # octets
 # SSRF policy: by default the screenshot target must resolve to a public address.
 # Set SOKKAN_PREVIEW_ALLOW_PRIVATE=1 to allow private/loopback targets (legitimate

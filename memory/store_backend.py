@@ -214,7 +214,7 @@ def get_store():
                 # SOKKAN 2.x boosted `priority: high` notes by 8 %: keep it unless configured
                 boost = _env("PRIORITY_BOOST") or "0.08"
                 _store = Store(config=SearchConfig.from_env(priority_boost=float(boost)),
-                               max_size=int(os.environ.get("CORTHEXIS_DB_POOL", "4")))
+                               max_size=int(os.environ.get("CORTHEXIS_DB_POOL") or "4"))
     return _store
 
 

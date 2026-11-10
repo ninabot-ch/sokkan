@@ -19,7 +19,7 @@ import threading
 import time
 import urllib.request
 
-BASE = os.environ.get("SOKKAN_DIST_BASE", "https://sokkan.ch").rstrip("/")
+BASE = (os.environ.get("SOKKAN_DIST_BASE") or "https://sokkan.ch").rstrip("/")
 
 
 def _local_version() -> str:

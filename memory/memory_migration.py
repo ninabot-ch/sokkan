@@ -24,7 +24,7 @@ DATA_DIR = Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/s
 MEMORY_DIR = Path(os.environ.get("CORTHEXIS_MEMORY_DIR") or os.environ.get(
     "SOKKAN_MEMORY_DIR", os.path.expanduser("~/.sokkan/memory")))
 LEGACY_DB = store_backend.legacy_db()
-RETRY_WAITING_S = float(os.environ.get("SOKKAN_MIGRATION_RETRY_S", "60"))
+RETRY_WAITING_S = float(os.environ.get("SOKKAN_MIGRATION_RETRY_S") or "60")
 RETRY_BLOCKED_S = 600.0
 
 _thread: threading.Thread | None = None
