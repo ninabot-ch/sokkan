@@ -18,8 +18,9 @@ test("structure validated by Nick (08.10.2026)", () => {
     ["build", ["sessions", "crew", "preview"]],
     // 3.5 (Nick 09.10.2026): Operate › Alerts, the rules engine, between Incidents and Infra
     ["operate", ["incidents", "alerts", "infra", "costs", "journal"]],
-    // `study` exists only with the feature `study_mode` (off by default): see the test below
-    ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study"]],
+    // `study` exists only with the feature `study_mode`, `ingest` only with `doc_ingest` (both
+    // off by default): see the tests below
+    ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study", "ingest"]],
   ]);
 });
 
@@ -32,6 +33,15 @@ test("Setup › Study: only with the feature `study_mode`, for everyone signed i
   assert.deepEqual(resolveTarget(q("tab=study")), { plane: "setup", tab: "study", section: undefined });
   assert.deepEqual(resolveTarget(q("tab=etude")), { plane: "setup", tab: "study", section: undefined });
   assert.deepEqual(resolveTarget(q("plane=setup&tab=study&section=tasks")), { plane: "setup", tab: "study", section: "tasks" });
+});
+
+test("3.6 — Setup › Ingestion: only with the feature `doc_ingest`, for who may review, deep links", () => {
+  assert.ok(!ids(ctx()).setup.includes("ingest"));                                 // off by default
+  const on = { ...ALL, doc_ingest: true };
+  assert.deepEqual(ids(ctx({ f: on })).setup, ["organization", "engines", "magnitude", "secrets", "account", "notifications", "ingest"]);
+  assert.ok(!ids(ctx({ f: on, canDev: false })).setup.includes("ingest"));         // a viewer does not review
+  assert.equal(href("ingest"), "/?plane=setup&tab=ingest");
+  for (const t of ["ingest", "Ingestion", "batches", "lots"]) assert.deepEqual(resolveTarget(q(`tab=${t}`)), { plane: "setup", tab: "ingest", section: undefined });
 });
 
 test("3.5 — Operate › Alerts: feature `alerting`, project-scoped (not ops-only), deep links", () => {

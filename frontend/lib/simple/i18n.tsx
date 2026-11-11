@@ -91,6 +91,16 @@ export function SimpleUIProvider({ initialLang, initialTheme, onChange, children
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 
+/** The same context for ONE screen of the simple profile shown inside the technical cockpit
+ *  (Setup › Ingestion): language and theme are given, <html> is not touched, nothing is saved. */
+export function EmbeddedUIProvider({ lang, theme, children }: { lang: Lang; theme: Theme; children: React.ReactNode }) {
+  const t = useCallback<T>((key, vars) => translate(lang, key, vars), [lang]);
+  const value = useMemo<Ctx>(() => ({
+    lang, t, theme, langPref: lang, themePref: theme, setLangPref: () => {}, setThemePref: () => {},
+  }), [lang, t, theme]);
+  return <C.Provider value={value}>{children}</C.Provider>;
+}
+
 export function useUI(): Ctx {
   const c = useContext(C);
   if (!c) throw new Error("useUI outside SimpleUIProvider");

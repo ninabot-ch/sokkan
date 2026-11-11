@@ -9,6 +9,9 @@ import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
 import { currentProject } from "@/lib/project";
 import BannerSlot from "./BannerSlot";
+import IngestReview from "./IngestReview";
+import { openStudyConsent } from "./StudyConsent";
+import { ingestStatus } from "@/lib/simple/ingest";
 import Composer from "./Composer";
 import Icon, { templateIcon, type IconName } from "./icons";
 import Nina from "./Nina";
@@ -16,7 +19,7 @@ import { Documents, Team, Works } from "./Pages";
 import Settings from "./Settings";
 import Thread from "./Thread";
 
-type View = { name: "home" | "works" | "documents" | "team" } | { name: "work"; sid: string };
+type View = { name: "home" | "works" | "documents" | "team" | "review" } | { name: "work"; sid: string };
 
 function readView(): View {
   if (typeof window === "undefined") return { name: "home" };
@@ -24,7 +27,7 @@ function readView(): View {
   const w = q.get("w");
   if (w && /^[0-9a-f]{8,64}$/.test(w)) return { name: "work", sid: w };
   const v = q.get("v");
-  return v === "works" || v === "documents" || v === "team" ? { name: v } : { name: "home" };
+  return v === "works" || v === "documents" || v === "team" || v === "review" ? { name: v } : { name: "home" };
 }
 
 function hrefOf(v: View): string {
@@ -56,6 +59,14 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   const [settings, setSettings] = useState(false);
   const [nina, setNina] = useState(false);
   const main = useRef<HTMLElement>(null);
+  // « Notes to review » (feature `doc_ingest`): there for the people who may review the
+  // batches of this project — the API says so (403 / 404 otherwise), with how many wait
+  const ingestOn = !!feats.registry?.items.find((i) => i.id === "doc_ingest")?.enabled;
+  const [review, setReview] = useState<number | null>(null);
+  useEffect(() => {
+    if (!ingestOn) { setReview(null); return; }
+    ingestStatus().then((s) => setReview(s.pending_batches)).catch(() => setReview(null));
+  }, [ingestOn]);
 
   const loadHome = useCallback(() => {
     fetchHome(lang).then((h) => { setHome(h); setHomeFailed(false); }).catch(() => setHomeFailed(true));
@@ -73,7 +84,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   useEffect(() => {
-    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", team: "nav.team" } as const;
+    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", team: "nav.team", review: "nav.review" } as const;
     const work = view.name === "work" ? home?.recents.find((r) => r.sid === view.sid)?.title : "";
     if (view.name === "work" && !work) return;   // named once the work is known, never « My work » meanwhile
     document.title = `${view.name === "work" ? work : t(titles[view.name])} — SOKKAN`;
@@ -85,9 +96,10 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  const nav: { id: "home" | "works" | "documents" | "team"; icon: IconName; count?: number }[] = [
+  const nav: { id: "home" | "works" | "documents" | "team" | "review"; icon: IconName; count?: number }[] = [
     { id: "home", icon: "home" }, { id: "works", icon: "works", count: home?.works_total || undefined },
     { id: "documents", icon: "page" }, { id: "team", icon: "crew" },
+    ...(review !== null ? [{ id: "review" as const, icon: "seal" as const, count: review || undefined }] : []),
   ];
   const pct = home?.usage.pct;
   const name = (me?.name && !me.name.includes("@") ? me.name : "") || me?.email || "";
@@ -156,6 +168,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "team" && <Team enabled={!!feats.agents} />}
+        {view.name === "review" && <IngestReview onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}
           onBack={() => go({ name: "works" })} onChanged={loadHome} />}
         {nina && <Nina onClose={() => setNina(false)} />}
@@ -219,6 +232,11 @@ function Home({ home, failed, retry, onStarted }: {
             setTpl(null);
             onStarted(r.session_id);
           } catch (e) {
+            if (e instanceof ApiError && e.code === "study_consent") {
+              // study mode: no work before the consent — open « What is recorded » right away
+              openStudyConsent();
+              throw new Error(t("home.need.consent"));
+            }
             throw new Error(e instanceof ApiError && e.code === "empty" ? t("home.need")
               : e instanceof ApiError && e.code === "classified" ? t("up.err.classified", { name: "" }) : t("home.failed"));
           }

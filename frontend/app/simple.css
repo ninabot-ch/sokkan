@@ -17,9 +17,13 @@
    default, 14 px body, radii 10 / 12 / 999, two named shadows, glass, ONE motion curve.
    Floor: 12 px text, 40 px targets, AA contrast in both themes, no ambient motion when the
    system asks for reduced motion.
+
+   One screen of the simple profile also lives INSIDE the technical cockpit (the review of the
+   ingestion batches, Setup › Ingestion): `.sk.sk-embed[data-sk-theme]` carries the same tokens
+   on its own element, without touching <html> — the rest of the cockpit keeps its styles.
    ============================================================================================ */
 
-html[data-sk-theme] {
+.sk-embed, html[data-sk-theme] {
   /* type scale — 12 px is the floor, 14 px the body */
   --sk-fs-xs: 12px;
   --sk-fs-sm: 13px;
@@ -56,7 +60,7 @@ html[data-sk-theme] {
 }
 
 /* ---- light (default): warm paper, darkened gold for contrast — after sokkan.ch --------- */
-html[data-sk-theme="light"] {
+.sk-embed[data-sk-theme="light"], html[data-sk-theme="light"] {
   color-scheme: light;
   --sk-bg: #f6f4ef;
   --sk-drawer: #ece9e0;
@@ -91,7 +95,7 @@ html[data-sk-theme="light"] {
 }
 
 /* ---- dark: SOKKAN's night blue ------------------------------------------------------------ */
-html[data-sk-theme="dark"] {
+.sk-embed[data-sk-theme="dark"], html[data-sk-theme="dark"] {
   color-scheme: dark;
   --sk-bg: #0c1018;
   --sk-drawer: #10151e;
@@ -541,3 +545,65 @@ html[data-sk-theme] body {
 .sk-act { align-items: flex-start; }
 .sk-act > .sk-act-ico, .sk-act > .sk-spin { margin-top: 3px; }
 .sk-deliv-card > .sk-grow { flex: 1 1 220px; }
+
+/* ================================== embedded in the technical cockpit ====================== */
+.sk.sk-embed { height: auto; min-height: 100%; display: block; overflow: visible; border-radius: var(--sk-r-md); }
+.sk-embed .sk-page { padding-top: var(--sk-s5); }
+.sk-embed .sk-scrim { position: fixed; }
+
+/* ================================== study band, consent (feature study_mode) ================ */
+.sk-band { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sk-s1) var(--sk-s3);
+  padding: var(--sk-s2) var(--sk-s5); border-bottom: 1px solid var(--sk-line); background: var(--sk-drawer);
+  color: var(--sk-text-soft); font-size: var(--sk-fs-sm); }
+.sk-band.is-ask { background: var(--sk-warn-soft); border-bottom-color: var(--sk-warn); color: var(--sk-text-strong); }
+.sk-band .sk-dot { color: var(--sk-ok); }
+.sk-band.is-ask .sk-dot { color: var(--sk-warn); }
+.sk-band-strong { font-weight: 600; color: var(--sk-text-strong); }
+.sk .sk-band-link { min-height: 28px; padding: 0 var(--sk-s2); border-radius: var(--sk-r-sm); color: var(--sk-sea);
+  font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.sk .sk-band-link:hover { background: var(--sk-sea-soft); }
+.sk-dialog-wide { width: min(880px, 100%); }
+.sk-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sk-s3); }
+.sk-col { border: 1px solid var(--sk-line); border-left: 3px solid var(--sk-line-strong); border-radius: var(--sk-r-sm);
+  background: var(--sk-bg); padding: var(--sk-s3) var(--sk-s4); display: flex; flex-direction: column; gap: var(--sk-s2); }
+.sk-col.is-always { border-left-color: var(--sk-ok); }
+.sk-col.is-consent { border-left-color: var(--sk-brass-fill); }
+.sk-col ul { margin: 0; padding-left: var(--sk-s4); display: flex; flex-direction: column; gap: var(--sk-s2);
+  color: var(--sk-text-soft); font-size: var(--sk-fs-sm); }
+.sk-check { display: inline-flex; align-items: center; gap: var(--sk-s2); min-height: var(--sk-target); padding: 0 var(--sk-s3);
+  border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm); background: var(--sk-surface); cursor: pointer; }
+.sk-check.is-on { border-color: var(--sk-sea); background: var(--sk-sea-soft); color: var(--sk-text-strong); font-weight: 600; }
+.sk-check input { width: 18px; height: 18px; accent-color: var(--sk-sea); }
+
+/* ================================== ingestion batches: review (feature doc_ingest) ========== */
+.sk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: var(--sk-s3); }
+.sk-stat { background: var(--sk-surface); border: 1px solid var(--sk-line); border-radius: var(--sk-r-md);
+  padding: var(--sk-s3) var(--sk-s4); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sk-stat b { font: 600 var(--sk-fs-xl) / 1.2 var(--sk-display); color: var(--sk-text-strong); font-variant-numeric: tabular-nums; }
+.sk-stat span { font-size: var(--sk-fs-sm); color: var(--sk-text-muted); }
+.sk-stat.is-flag b { color: var(--sk-warn); }
+.sk-batch { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sk-s2) var(--sk-s4); align-items: center; }
+.sk .sk-card-btn[aria-current="true"] { border-color: var(--sk-sea); box-shadow: inset 3px 0 0 var(--sk-sea); }
+.sk-note { background: var(--sk-surface); border: 1px solid var(--sk-line); border-radius: var(--sk-r-md);
+  padding: var(--sk-s4); display: flex; flex-direction: column; gap: var(--sk-s3); }
+.sk-note.is-flagged { border-left: 4px solid var(--sk-warn); }
+.sk-note.is-approved { border-left: 4px solid var(--sk-ok); }
+.sk-note.is-rejected { border-left: 4px solid var(--sk-line-strong); opacity: 0.75; }
+.sk-note-title { font-weight: 600; color: var(--sk-text-strong); font-size: var(--sk-fs-lg); overflow-wrap: anywhere; }
+.sk-note-src { font-family: var(--sk-mono); font-size: var(--sk-fs-xs); color: var(--sk-text-muted); overflow-wrap: anywhere; }
+.sk-note-body { border-top: 1px solid var(--sk-line); padding-top: var(--sk-s3); max-height: 360px; overflow-y: auto; }
+.sk-pill-flag { color: var(--sk-warn); background: var(--sk-warn-soft); border-color: var(--sk-warn); }
+.sk-section-head { display: flex; align-items: baseline; gap: var(--sk-s3); flex-wrap: wrap; margin-top: var(--sk-s4); }
+.sk-progress { height: 6px; border-radius: var(--sk-r-pill); background: var(--sk-sunken); overflow: hidden; }
+.sk-progress i { display: block; height: 100%; background: var(--sk-brass-fill); border-radius: var(--sk-r-pill);
+  transition: width var(--sk-dur-slow) var(--sk-ease); }
+.sk-decide { position: sticky; bottom: 0; background: var(--sk-glass); backdrop-filter: blur(10px);
+  border: 1px solid var(--sk-line); border-radius: var(--sk-r-md); padding: var(--sk-s3) var(--sk-s4);
+  display: flex; flex-direction: column; gap: var(--sk-s2); box-shadow: var(--sk-shadow); }
+.sk-reason { display: flex; gap: var(--sk-s2); flex-wrap: wrap; align-items: center; }
+.sk-reason .sk-input { flex: 1 1 240px; }
+@media (max-width: 760px) {
+  .sk-cols { grid-template-columns: minmax(0, 1fr); }
+  .sk-batch { grid-template-columns: minmax(0, 1fr); }
+  .sk-band { padding-left: var(--sk-s4); padding-right: var(--sk-s4); }
+}

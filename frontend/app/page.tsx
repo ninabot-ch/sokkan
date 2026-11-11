@@ -150,7 +150,8 @@ function CockpitBody() {
   useEffect(() => { navLast().then(setLast); }, []);
 
   const studyOn = useFeatureOn("study_mode");  // Setup › Study (feature off by default)
-  const planes = visiblePlanes({ f: { ...feats, study_mode: studyOn }, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
+  const ingestOn = useFeatureOn("doc_ingest");  // Setup › Ingestion (feature off by default)
+  const planes = visiblePlanes({ f: { ...feats, study_mode: studyOn, doc_ingest: ingestOn }, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
   // availability is known only once features, Helm access and the remembered plane answered —
   // never decide on the loading defaults
   const settled = !!feats.loaded && helmFor === !!feats.helm && last !== undefined;
@@ -352,4 +353,4 @@ function CockpitBody() {
   );
 }
 
-const PLANE_SETUP: SubTab[] = ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study"];
+const PLANE_SETUP: SubTab[] = ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study", "ingest"];

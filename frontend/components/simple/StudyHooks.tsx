@@ -9,6 +9,7 @@
 //   GET     /api/study/me                        {enabled, active, scenarios[], consent{given}}
 import { useEffect, useState } from "react";
 import { useFeatures } from "@/lib/features";
+import { refreshStudy } from "@/lib/study";
 import { useT } from "@/lib/simple/i18n";
 import Icon from "./icons";
 
@@ -21,27 +22,32 @@ async function tolerant<T>(url: string, init?: RequestInit): Promise<T | null> {
   } catch { return null; }
 }
 
-export function useStudy(sid: string): Study | null {
+/** `refreshKey`: anything that changes when the tag can have changed — the work is tagged by
+ *  its first turn (after this hook first asked), so the thread passes its state and the
+ *  validation of its deliverable: the two questions then appear without a reload. */
+export function useStudy(sid: string, refreshKey: string = ""): Study | null {
   const on = !!useFeatures().registry?.items.find((i) => i.id === "study_mode")?.enabled;
   const [study, setStudy] = useState<Study | null>(null);
+  useEffect(() => { setStudy(null); }, [sid]);
   useEffect(() => {
-    setStudy(null);
-    if (!on) return;
+    if (!on) { setStudy(null); return; }
     let live = true;
     (async () => {
       const me = await tolerant<{ enabled: boolean; active: boolean; scenarios?: string[]; consent?: { given?: boolean } | null }>("/api/study/me");
-      if (!live || !me?.enabled || !me.active || !me.consent?.given) return;
+      if (!live) return;
+      if (!me?.enabled || !me.active || !me.consent?.given) { setStudy(null); return; }
       const tag = await tolerant<Study["tag"]>(`/api/sessions/${sid}/study`);
       if (live) setStudy({ scenarios: me.scenarios || [], tag });
     })();
     return () => { live = false; };
-  }, [on, sid]);
+  }, [on, sid, refreshKey]);
   return study;
 }
 
 export function StudyTag({ sid, study }: { sid: string; study: Study }) {
   const t = useT();
   const [value, setValue] = useState(study.tag?.scenario || "");
+  useEffect(() => { setValue(study.tag?.scenario || ""); }, [study.tag?.scenario]);
   if (!study.scenarios.length) return null;
   return (
     <div className="sk-study-row">
@@ -84,6 +90,7 @@ export function StudyFeedback({ sid }: { sid: string }) {
         setState("busy");
         const r = await tolerant(`/api/sessions/${sid}/study/feedback`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ useful, verify_minutes: Number(minutes) }) });
         setState(r ? "sent" : "ask");
+        if (r) refreshStudy();   // the band's « n works are waiting for your two answers »
       }}>{t("st.fb.send")}</button></div>
     </section>
   );

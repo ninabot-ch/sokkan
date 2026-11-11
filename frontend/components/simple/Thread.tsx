@@ -101,9 +101,11 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   };
 
   const canDrive = !!work?.can_drive;
-  const study = useStudy(sid);
   const waiting = items.some((it) => it.k === "approval" && !it.decided);
   const lastDeliverable = work?.deliverables[0];
+  // study mode: the work is tagged by its first turn, the two questions come with the
+  // validation — the tag is asked again when either can have changed
+  const study = useStudy(sid, `${working ? 1 : 0}${lastDeliverable?.validated ? 1 : 0}${work?.deliverables.length || 0}`);
   const liveAct = useMemo(() => {
     const last = items[items.length - 1];
     return last?.k === "acts" && last.acts.some((a) => a.state === "live");
