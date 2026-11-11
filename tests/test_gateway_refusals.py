@@ -52,7 +52,7 @@ def test_the_contract_holds_the_four_study_refusals_and_the_new_412():
     assert REFUSALS["user_limit_reached"]["body"]["error"]["code"] == "user_limit_reached"
     assert "too many distinct users today" in REFUSALS["user_limit_reached"]["message"]
     m412 = REFUSALS["study_mode_required"]["message"]
-    assert "tied to a study" in m412 and "x-sokkan-study" not in m412 and "heg-eskills" not in m412
+    assert "tied to a study" in m412 and "x-sokkan-study" not in m412 and "etude-pilote" not in m412
     assert "code" not in CONTRACT["tenant_cap"]["body"]["error"]        # the tenant's own 429 has none
 
 
@@ -144,7 +144,7 @@ def router(monkeypatch):
 
 
 ASK = {"model": "sokkan-ship", "max_tokens": 16, "stream": True, "messages": [{"role": "user", "content": "bonjour"}]}
-STUDY_HEADERS = {"x-sokkan-study": "heg-eskills-2027", "x-sokkan-user": "P6"}
+STUDY_HEADERS = {"x-sokkan-study": "etude-pilote-2027", "x-sokkan-user": "P6"}
 
 
 def test_the_gateway_itself_forbids_the_retry_of_the_four_and_of_them_only():
@@ -178,7 +178,7 @@ def test_the_tenant_wide_429_keeps_the_routers_own_message(router):
 # ---- the session: one sentence, with the code ------------------------------------------------
 def _session():
     import agentchat
-    return agentchat.AgentSession("s-refusal", cwd="/tmp", user="camille@eskills.example")
+    return agentchat.AgentSession("s-refusal", cwd="/tmp", user="camille@atelier.example")
 
 
 def _result(text: str):

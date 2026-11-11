@@ -4,11 +4,14 @@
     SOKKAN_CLOUD_SRC=/path/to/sokkan-cloud python tests/fixtures/gateway_contract/regenerate.py
 
 Plays the gateway's own app (infer/gateway.py) in-process on a throw-away database, upstream
-replaced by a canned answer, tenant set as in § 2 of infer/pilote-etude.md (study
-heg-eskills-2027, audit_required, expires 2027-04-30, max_users_day 5), and writes what it
-ANSWERED: status, body and the headers that matter (`x-sokkan-error`, `x-should-retry`,
-`retry-after`) of the four study refusals and of the tenant-wide 429. The `GET /usage` block is
-the example of the page, verbatim. Needs the gateway's dependencies (fastapi, httpx)."""
+replaced by a canned answer, tenant set with the values of § 2 of infer/pilote-etude.md
+(audit_required, expires 2027-04-30, max_users_day 5) under a neutral name and a neutral study
+identifier, and writes what it ANSWERED: status, body and the headers that matter
+(`x-sokkan-error`, `x-should-retry`, `retry-after`) of the four study refusals and of the
+tenant-wide 429. The `GET /usage` block is the example of the page, verbatim but for ONE field:
+the study identifier, which the page takes from a real study, is replaced by a neutral one
+(neutral.py — the same substitution the test applies before it compares). Needs the gateway's
+dependencies (fastapi, httpx)."""
 from __future__ import annotations
 
 import json
@@ -27,13 +30,15 @@ if not (SRC / "infer" / "gateway.py").exists():
 os.environ.update(SOKKAN_INFER_UPSTREAM_KEY="up", SOKKAN_INFER_ADMIN_TOKEN="adm", SOKKAN_INFER_JUDGE="",
                   SOKKAN_INFER_DB=tempfile.mktemp(suffix=".db"))
 sys.path.insert(0, str(SRC / "infer"))
+sys.path.insert(0, str(HERE))
 import coding  # noqa: E402
 import gateway  # noqa: E402
+import neutral  # noqa: E402
 import study  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 ADM = {"Authorization": "Bearer adm"}
-PILOT = {"study_id": "heg-eskills-2027", "study_mode": True, "audit_required": True, "expires_at": "2027-04-30",
+PILOT = {"study_id": neutral.STUDY_ID, "study_mode": True, "audit_required": True, "expires_at": "2027-04-30",
          "tokens_day": 6_000_000, "tokens_month": 120_000_000, "deep_per_user_day": 20, "max_users_day": 5}
 KEPT = ("x-sokkan-error", "x-should-retry", "retry-after")
 # the words of each refusal as they stand in the source (the test looks for them in gateway.py)
@@ -70,12 +75,12 @@ def _fresh(**patch) -> tuple[TestClient, str]:
     gateway._alerted.clear()
     study.now = lambda: datetime(2026, 11, 11, 12, tzinfo=timezone.utc)
     c = TestClient(gateway.app)
-    tok = c.post("/admin/tenant", json={"client": "eskills", "house": 1}, headers=ADM).json()["token"]
-    assert c.patch("/admin/tenant/eskills", json={**PILOT, **patch}, headers=ADM).status_code == 200
+    tok = c.post("/admin/tenant", json={"client": neutral.TENANT, "house": 1}, headers=ADM).json()["token"]
+    assert c.patch(f"/admin/tenant/{neutral.TENANT}", json={**PILOT, **patch}, headers=ADM).status_code == 200
     return c, tok
 
 
-def _ask(c, tok, user="P1", sid="heg-eskills-2027"):
+def _ask(c, tok, user="P1", sid=neutral.STUDY_ID):
     h = {"x-api-key": tok, "x-sokkan-user": user}
     if sid:
         h["x-sokkan-study"] = sid
@@ -115,7 +120,7 @@ def main() -> None:
     tenant_cap = _seen(_ask(c, tok))
 
     doc = (SRC / "infer" / "pilote-etude.md").read_text(encoding="utf-8")
-    usage = json.loads(re.search(r"### `GET /usage`.*?```json\n(.*?)```", doc, re.S).group(1))
+    usage = neutral.usage(json.loads(re.search(r"### `GET /usage`.*?```json\n(.*?)```", doc, re.S).group(1)))
     gw = (SRC / "infer" / "gateway.py").read_text(encoding="utf-8")
     refusals = []
     for code, seen in played.items():
@@ -130,9 +135,10 @@ def main() -> None:
         "_source": (f"sokkan-cloud branch {git('rev-parse', '--abbrev-ref', 'HEAD')} ({git('rev-parse', '--short', 'HEAD')}"
                     f"{', tree not clean' if git('status', '--porcelain', '--untracked-files=no') else ''}), written by "
                     "tests/fixtures/gateway_contract/regenerate.py: `usage` is the `GET /usage` example of "
-                    "infer/pilote-etude.md § 4, verbatim; the four study refusals and the tenant-wide 429 are what "
-                    "the gateway's app ANSWERED when played in-process on a throw-away database (tenant set as in "
-                    "§ 2 of the page: study heg-eskills-2027, audit_required, expires 2027-04-30, max_users_day 5; "
+                    "infer/pilote-etude.md § 4, verbatim but for `study.study_id`, replaced by a neutral identifier "
+                    "(tests/fixtures/gateway_contract/neutral.py, applied again by the test before it compares); the four study refusals and the tenant-wide 429 are what "
+                    "the gateway's app ANSWERED when played in-process on a throw-away database (a tenant with a "
+                    f"neutral name, set with the values of § 2 of the page: study {neutral.STUDY_ID}, audit_required, expires 2027-04-30, max_users_day 5; "
                     "sixth identity of the day for user_limit_reached; clock set after the end date for the 410). "
                     "`headers` holds, of each answer, x-sokkan-error, x-should-retry and retry-after WHEN SENT: "
                     "since study-no-retry the four study refusals carry `x-should-retry: false`, the tenant-wide "

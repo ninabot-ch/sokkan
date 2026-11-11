@@ -29,15 +29,15 @@ from fastapi.testclient import TestClient
 from simple_fixtures import docx
 
 ROOT = Path(__file__).resolve().parent.parent
-OWNER = "admin@eskills.example"
+OWNER = "admin@atelier.example"
 OWNER_TOKEN = "owner-token-0123456789"
-STUDY = "heg-eskills-2027"
-PEOPLE = [("anaelle.rochat@eskills.example", "Anaëlle Rochat", "formation"),
-          ("benoit.favre@eskills.example", "Benoît Favre", "qualite"),
-          ("cleo.dumas@eskills.example", "Cléo Dumas", "direction")]
+STUDY = "etude-pilote-2027"
+PEOPLE = [("anaelle.rochat@atelier.example", "Anaëlle Rochat", "formation"),
+          ("benoit.favre@atelier.example", "Benoît Favre", "qualite"),
+          ("cleo.dumas@atelier.example", "Cléo Dumas", "direction")]
 # what must never be in a researcher's package
 NAMES = [x for e, n, p in PEOPLE for x in (e, e.split("@")[0], *n.split(" "))] + \
-        ["eskills.example", OWNER, "formation", "qualite", "direction"]
+        ["atelier.example", OWNER, "formation", "qualite", "direction"]
 
 
 class _SilentClient:
@@ -91,7 +91,7 @@ def box(tmp_path, monkeypatch):
               "CLAUDE_CODE_OAUTH_TOKEN"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setattr(iam, "DB", tmp_path / "iam.db")
-    monkeypatch.setattr(iam, "SEED", {OWNER: ("owner", "Admin eSkills")})
+    monkeypatch.setattr(iam, "SEED", {OWNER: ("owner", "Admin Atelier")})
     iam.init(force=True)
     monkeypatch.setattr(iam, "DEFAULT_ROLE", "none")          # what the appliance profile sets
     monkeypatch.setattr(projects, "DB", tmp_path / "projects.db")
@@ -488,7 +488,7 @@ def test_three_named_accounts_are_three_pseudonyms_three_actors_and_a_project_ea
     assert admin["single_identity"] is False and admin["auth_mode"] == "local"
     assert [(p["pseudonym"], p["email"]) for p in admin["participants"]] == [
         (f"P{i}", m) for i, (m, _n, _p) in enumerate(PEOPLE, 1)]      # the local table, admins only
-    tok = owner.post("/api/admin/study/tokens", json={"label": "HEG", "days": 30}).json()["token"]
+    tok = owner.post("/api/admin/study/tokens", json={"label": "labo", "days": 30}).json()["token"]
     researcher = TestClient(box["app"].app)
     researcher.headers["authorization"] = f"Bearer {tok}"
     blob = _everything_exported(researcher)
@@ -512,7 +512,7 @@ def test_the_owner_token_alone_is_one_identity_and_the_study_says_so(box):
     assert study.single_identity() is True
     assert "personal access code" in features._study_check()
     assert box["owner"]().get("/api/admin/study").json()["single_identity"] is True
-    code = localaccounts.add("nouvelle@eskills.example", "Nouvelle", project="essai")["code"]
+    code = localaccounts.add("nouvelle@atelier.example", "Nouvelle", project="essai")["code"]
     assert code and study.single_identity() is False and features._study_check() is None
 
 
@@ -859,9 +859,19 @@ def test_sessions_on_the_local_engine_get_medium_effort_and_the_study_headers(bo
 # `GET /usage` example of the gateway's own documentation (sokkan-cloud infer/pilote-etude.md
 # § 4) and the four refusals as its app answers them (infer/gateway.py `_refuse`), written by
 # tests/fixtures/gateway_contract/regenerate.py. When a checkout of sokkan-cloud is at hand
-# (SOKKAN_CLOUD_SRC), the copy is compared with it.
+# (SOKKAN_CLOUD_SRC), the copy is compared with it — after ONE substitution, the same on both
+# sides (tests/fixtures/gateway_contract/neutral.py): the study identifier of the page's example,
+# which names a real study, is replaced by a neutral one. Nothing else is touched.
 # The refusals themselves (router, session, simple profile): tests/test_gateway_refusals.py.
 CONTRACT = ROOT / "tests" / "fixtures" / "gateway_contract"
+
+
+def _neutral():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gateway_contract_neutral", CONTRACT / "neutral.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _contract() -> dict:
@@ -881,7 +891,9 @@ def test_the_frozen_contract_is_the_gateways_own_text():
         pytest.skip("no sokkan-cloud checkout (SOKKAN_CLOUD_SRC): the frozen copy is used as is")
     doc = (cloud / "infer" / "pilote-etude.md").read_text(encoding="utf-8")
     block = re.search(r"### `GET /usage`.*?```json\n(.*?)```", doc, re.S).group(1)
-    assert json.loads(block) == _contract()["usage"]
+    neutral = _neutral()
+    assert _contract()["usage"]["study"]["study_id"] == neutral.STUDY_ID       # the frozen copy is neutral
+    assert neutral.usage(json.loads(block)) == neutral.usage(_contract()["usage"]) == _contract()["usage"]
     for h in _contract()["headers_sent"]:
         assert f"`{h}: <" in doc, h
     gw = (cloud / "infer" / "gateway.py").read_text(encoding="utf-8")

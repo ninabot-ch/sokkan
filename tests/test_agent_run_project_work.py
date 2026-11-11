@@ -30,7 +30,7 @@ def run(tmp_path, monkeypatch):
 
     def session(mode="acceptEdits"):
         s = agentchat.AgentSession("run-1", cwd=str(data / "projects" / project["slug"] / "work"),
-                                   user="ana@eskills.example",
+                                   user="ana@atelier.example",
                                    policy={"agent": "redacteur", "tools": ["Write", "Edit", "Read"], "mcp": []})
         s.mode = mode
         return s
