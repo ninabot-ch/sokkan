@@ -55,6 +55,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`classification`](#classification) Classification and clearances | stable | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
+| [`study_mode`](#study_mode) Study mode (audited use) | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_STUDY_MODE` |
 
 ## Dependency graph
 
@@ -101,6 +102,7 @@ graph LR
   classification["Classification and clearances"]
   teams["Microsoft Teams"]
   connect_ai["Connect your AI"]
+  study_mode["Study mode (audited use)"]
   preview_private_targets --> preview
   agents_cli_login --> agents
   four_eyes --> agents
@@ -548,3 +550,13 @@ Setup › Engines: one screen to connect the engines (Claude login or key, OpenA
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`
 - Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
+
+### study_mode
+
+**Study mode (audited use)** — beta, toggle.
+
+The instance is used under a research protocol: work tagged with the study, the participant, a scenario (S1…S6) and a reference time; people pseudonymised at the source (local correspondence table, never exported; the inference gateway receives the pseudonym and `x-sokkan-study`); two questions at the end of a task; a permanent banner, a plain-language page « What is recorded », explicit consent per person before the first session, withdrawable; a researcher's export package — metadata only by default, content only for the scenarios a person agreed to — read with a read-only export token. Whether a study is active, its end date and its ceilings are READ from the inference gateway (`GET /usage`); SOKKAN_STUDY_ID declares one locally when the gateway does not. Requires no other feature: the journal of human validations it exports is always on. Off: nothing is tagged, no pseudonym is allocated, the gateway receives what it received before.
+
+- Defaults: community **off**, enterprise **off**
+- Switch: `SOKKAN_FEATURE_STUDY_MODE`
+- Doc: [docs/enterprise/STUDY-MODE.md](../../docs/enterprise/STUDY-MODE.md)

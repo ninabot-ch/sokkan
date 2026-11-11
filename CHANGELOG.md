@@ -3,13 +3,13 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6 (on-prem appliance, branch `onprem-appliance`)
+## Unreleased — 3.6 (pilot candidate, branch `pilot-integration`)
 
 SOKKAN installed on a box at a site with no engineer: reproducible images, one verified
 upgrade path, named people, a local model, HTTPS, an encrypted backup, a support tunnel the
 client controls. Minor release (new variables, changed defaults). Docs: `docs/appliance/`.
 
-### Added
+### Appliance — Added
 - **Appliance profile** — `install.sh --profile appliance --version <ver+hash>`: `.env` written from
   `deploy/appliance/env.appliance.example`, release pinned, prebuilt signed images, local engine
   preselected, HTTPS on the LAN (`tls` service, local CA), dead screens off, host units installed.
@@ -29,7 +29,7 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
   publisher; `upgrade.sh --images` runs prebuilt images verified by digest.
 - `docs/ENVIRONMENT.md` (generated): every variable passed to the api container.
 
-### Changed
+### Appliance — Changed
 - **One upgrade path**: `install.sh` on an existing install runs the release's `scripts/upgrade.sh`;
   both verify the release, record the previous version (`.sokkan-previous`), write
   `SOKKAN_VERSION` and `SOKKAN_COMMIT`, and wait until `/api/version` answers the new version.
@@ -44,17 +44,17 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
 - The Claude Code CLI, `claude-agent-sdk` and every Python package of the api image are pinned
   (`docker/constraints.txt`).
 
-### Fixed
+### Appliance — Fixed
 - ~95 variables read by the backend never reached the api container (declared now; a test fails on
   any new one). Empty values are tolerated everywhere they are passed.
 - `/api/version` answered `commit: "unknown"` on every compose install.
 
-### Security
+### Appliance — Security
 - `llm.json` no longer holds a model key in clear (encrypted with the vault key; a file written
   before is sealed at first read; covered by key rotation).
 - A Preview dev-server no longer inherits the api's environment (keys, tokens, passwords).
 
-### Upgrade notes
+### Appliance — Upgrade notes
 - `SOKKAN_FEATURE_MISSIONS_LINK` unset → the header link disappears; set `=1` to keep it.
 - Preview needs a browser the api process can find: `chromium` in its `PATH`, or
   `SOKKAN_CHROMIUM=/path/to/chromium` (a snap install is usually NOT in a service's `PATH`).
@@ -65,6 +65,37 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
   appliance profile, scripts that talk to the plain port on the loopback must use HTTPS too.
 - From ≤ 3.5.1, upgrade with the installer (`curl -fsSL https://sokkan.ch/install.sh | sh`) to get
   the new path; `./scripts/upgrade.sh` of an older tree still works but without verification.
+
+### Study mode — Added
+- **Journal of human validations** (always on). Every approval a session asks for and every
+  decision is written durably in `audit.db` (table `hitl`): allow, deny, allow with an edited
+  input, answer to a question, change of approval mode — with the session, the project, who
+  decided, the tool, a summary of the input with secrets masked, when it was asked, when it was
+  decided, the delay and the origin (owner, another dev of the project, delegated share,
+  Microsoft Teams). An approval nobody clicked (approval mode, agent policy, sandbox) is a row
+  of its own, marked automatic with its reason. Before, the owner's click left no trace: only
+  the delegated decisions were journaled (they still are, unchanged). A request pending when
+  the API stops is closed as `interrupted` at the next start. Export: `GET /api/hitl/journal`
+  (JSON or CSV; project, person, period) for the admins of the instance or of the project;
+  owner decisions also show in Operate › Journal.
+- **Study mode** (feature `study_mode`, off by default — docs/enterprise/STUDY-MODE.md): an
+  instance used under a research protocol. Sessions and cards tagged with the study, the
+  participant, a scenario (S1…S6) and a reference time; people pseudonymised at the source
+  (P1, P2… in a local correspondence table that is never exported); explicit consent per
+  person before the first session, withdrawable; two questions at the end of a task; a
+  permanent banner and Setup › Study (« What is recorded », consent, tasks) in French and in
+  English; a researcher's export package — metadata only by default, content only for the
+  scenarios a person agreed to, secrets masked, refused if it names anybody — behind a
+  read-only export token. Whether a study is active, its end date and its ceilings are read
+  from the inference gateway (`GET /usage`: `study`, `limits`, `used`, all optional);
+  `SOKKAN_STUDY_ID` declares one locally. A refusal of the gateway — free period over (410),
+  study mode required (412), personal ceiling (429) — is said in words in the session, in
+  English and in French; the banner announces the end of the free period.
+
+### Study mode — Changed
+- In study mode the inference gateway receives the person's pseudonym in `x-sokkan-user`
+  (sessions and Nina) and the study in `x-sokkan-study`; outside a study, nothing changes.
+- The `permission`, `question` and their `…_resolved` events of a session carry a `ts`.
 
 ## 3.5.1 — 2026-10-10 — "Lookout"
 

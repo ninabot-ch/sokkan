@@ -685,6 +685,8 @@ def _decide_tool(pu: dict, row: dict, verb: str, email: str) -> tuple[str, str]:
     sess = agentchat.peek(run["session_id"])
     if pid not in pend or sess is None:
         raise agents.AgentError("this tool call no longer waits (decided, or the run ended)")
+    import hitl_journal
+    hitl_journal.attribute(pid, email, "teams")   # the journal names who decided, from where
     _resolve_permission(sess, pid, {
         "decision": "allow" if verb == "approve" else "deny",
         "message": None if verb == "approve" else f"Denied by {email} (Microsoft Teams)"})

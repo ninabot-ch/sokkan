@@ -81,6 +81,7 @@ the standard `ANTHROPIC_BASE_URL` setting.
 | [OPERATIONS.md](OPERATIONS.md) | runbook: install, SSO, features, backup, upgrade, monitoring, incidents, secrets, go-live checklist |
 | [SECURITY.md](SECURITY.md) | security model; classification and clearances (§ 8, 3.4) |
 | [TEAMS.md](TEAMS.md) | Microsoft Teams: app registration, Graph permissions, manifest, variables, limits (3.4) |
+| [STUDY-MODE.md](STUDY-MODE.md) | Journal of human validations (always on) and study mode: what is collected, consent, the researcher's export package and procedure |
 | [hld-overview.html](hld-overview.html) · [PNG](hld-overview.png) · [PDF](hld-overview.pdf) | one-page overview for decision-makers (French) |
 | [../MULTIUSER.md](../MULTIUSER.md), [../AGENTS.md](../AGENTS.md), [../OPERATE.md](../OPERATE.md), [../UPGRADE.md](../UPGRADE.md), [../RELEASING.md](../RELEASING.md) | the contractual specs these pages summarise |
 

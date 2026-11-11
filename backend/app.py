@@ -58,6 +58,7 @@ import oidc
 import oidc_logout  # 3.4: OIDC back-channel / front-channel logout
 import revocation  # 3.2 lot 6: SCIM, « Revoke now », owner checks
 import sandbox  # 3.2 lot 8: per-project confinement of sessions
+import study  # feature study_mode (routes in study_api.py)
 import agentchat
 import agentcost
 import agents
@@ -88,6 +89,7 @@ import projects
 import forge.routes as forge_routes
 import helm  # 3.3 Helm : hiérarchie, avancement, suggestions, brief
 import helm_api
+import hitl_journal  # journal of human validations (always on)
 import provision
 import transcript as T
 import updatecheck
@@ -235,6 +237,11 @@ async def _lifespan(_app: FastAPI):
         memory_migration.start(on_done=_start_store_indexer)
     else:
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
+    # a request still pending belonged to the previous process: closed as `interrupted`
+    _n = hitl_journal.mark_interrupted()
+    if _n:
+        print(f"[sokkan] validations journal: {_n} pending request(s) of the previous "
+              "process closed as interrupted", file=sys.stderr)
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
     appliance.start()   # journals support-tunnel openings/closings written by the host agent
@@ -1810,19 +1817,27 @@ async def agent_ws(websocket: WebSocket, sid: str):
                     })
                 continue
             if t == "user" and msg.get("text", "").strip():
+                blocked = study.gate(wsu["email"])  # study mode: consent before working
+                if blocked:
+                    await websocket.send_json({"type": "error", "message": blocked})
+                    continue
                 _bg(session.handle_user(msg["text"]))
             elif t == "permission":
+                hitl_journal.attribute(msg.get("id", ""), wsu["email"], hitl_journal.origin_of(
+                    wsu["email"], sid, session.user))
                 session.resolve_permission(msg.get("id", ""), {
                     "decision": msg.get("decision", "deny"),
                     "updated_input": msg.get("updated_input"),
                     "message": msg.get("message"),
                 })
             elif t == "answer":
+                hitl_journal.attribute(msg.get("id", ""), wsu["email"], hitl_journal.origin_of(
+                    wsu["email"], sid, session.user))
                 session.resolve_question(msg.get("id", ""), msg.get("answers", {}))
             elif t == "interrupt":
                 await session.interrupt()
             elif t == "mode":
-                await session.set_mode(msg.get("mode", "default"))
+                await session.set_mode(msg.get("mode", "default"), actor=wsu["email"])
     except WebSocketDisconnect:
         pass
     finally:
@@ -1939,7 +1954,8 @@ _AUTH_FREE = ("/api/auth/", "/api/health", "/api/version", "/api/edge/ask", "/ap
               "/api/memory/hook",  # jeton x-sokkan-hook-token (hooks des sessions terminal)
               forge_routes.CRED_PATH,  # 3.2 lot 5 : ticket de session + loopback seulement
               "/api/scim/",  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)
-              "/api/teams/messages")  # 3.4 : JWT Bot Framework vérifié par teams.botauth
+              "/api/teams/messages",  # 3.4 : JWT Bot Framework vérifié par teams.botauth
+              "/api/study/export")  # study_mode : jeton d'export en lecture seule, ou admin
 
 
 @app.middleware("http")
@@ -3205,7 +3221,11 @@ def project_budget_set(body: BudgetIn, u: dict = Depends(require("admin"))) -> d
 
 
 # --- 3.2 ui features: shared_review, byok_admin, connect_ai (routes in uiroutes.py) ------
+import hitl_api  # noqa: E402 — export of the journal of human validations (always on)
+import study_api  # noqa: E402 — feature study_mode
 import uiroutes  # noqa: E402
+app.include_router(hitl_api.router)
+app.include_router(study_api.router)
 import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 

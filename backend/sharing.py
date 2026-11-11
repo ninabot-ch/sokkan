@@ -303,6 +303,8 @@ def decide(user: dict, share_id: int, permission_id: str, allow: bool, message: 
     import agentchat
     sess = agentchat.peek(v["target"])
     who = user.get("email") or ""
+    import hitl_journal
+    hitl_journal.attribute(permission_id, who, "share")   # the journal names who decided
     sess.resolve_permission(permission_id, {
         "decision": "allow" if allow else "deny",
         "message": None if allow else (message or f"Denied by {who} (delegated review)")})

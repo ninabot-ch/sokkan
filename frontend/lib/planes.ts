@@ -12,7 +12,7 @@ export type SubTab =
   | "helm" | "board" | "corthexis"
   | "sessions" | "crew" | "preview"
   | "incidents" | "alerts" | "infra" | "costs" | "journal"
-  | "organization" | "engines" | "magnitude" | "secrets" | "account" | "notifications";
+  | "organization" | "engines" | "magnitude" | "secrets" | "account" | "notifications" | "study";
 
 export interface PlaneDef {
   id: PlaneId;
@@ -34,7 +34,9 @@ export const PLANES: PlaneDef[] = [
   { id: "setup", label: "Setup", key: "s", blurb: "configure: organization, engines, GPUs, secrets, you",
     tabs: [{ id: "organization", label: "Organization" }, { id: "engines", label: "Engines" },
       { id: "magnitude", label: "Magnitude" }, { id: "secrets", label: "Secrets" },
-      { id: "account", label: "My account" }, { id: "notifications", label: "Notifications" }] },
+      { id: "account", label: "My account" }, { id: "notifications", label: "Notifications" },
+      // feature `study_mode` (off by default): what is recorded, consent, tasks, export
+      { id: "study", label: "Study" }] },
 ];
 
 export const PLANE_OF: Record<SubTab, PlaneId> = Object.fromEntries(
@@ -66,6 +68,7 @@ export const LEGACY: Record<string, { tab: SubTab; section?: string }> = {
   "connect-ai": { tab: "engines" }, connect: { tab: "engines" }, engines: { tab: "engines" },
   secrets: { tab: "secrets" }, vault: { tab: "secrets" },
   notify: { tab: "notifications" }, notifications: { tab: "notifications" },
+  study: { tab: "study" }, etude: { tab: "study" }, consent: { tab: "study", section: "consent" },
 };
 
 export interface Target { plane: PlaneId; tab: SubTab | null; section?: string }
@@ -98,7 +101,7 @@ export function href(tab: SubTab, params: Record<string, string> = {}): string {
 export interface VisCtx {
   /** feature flags as /api/features serves them */
   f: { preview?: boolean; infra?: boolean; observe?: boolean; magnitude?: boolean; agents?: boolean;
-    agents_viewer_readonly?: boolean; helm?: boolean; alerting?: boolean };
+    agents_viewer_readonly?: boolean; helm?: boolean; alerting?: boolean; study_mode?: boolean };
   /** selected project slug */
   project: string;
   /** dev or more in the selected project */
@@ -123,6 +126,8 @@ export function tabVisible(t: SubTab, c: VisCtx): boolean {
     case "magnitude": return !!c.f.magnitude;
     case "crew": return !!c.f.agents && (c.canDev || !!c.f.agents_viewer_readonly);
     case "helm": return !!c.f.helm && c.steers;
+    // feature `study_mode`: the page exists for everyone signed in (consent is per person)
+    case "study": return !!c.f.study_mode;
     default: return true;
   }
 }

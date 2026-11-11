@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -47,10 +48,12 @@ except ImportError:  # pragma: no cover
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import budgets  # budgets par projet, jour / mois (3.2 lot 4)
 import connectai  # 3.2 Connect your AI: engine of a Crew card / a project
+import hitl_journal  # every approval asked and every decision, durable
 import instance  # budgets de coût (hard stop HITL par session)
 import memrecall  # rappel mémoire à chaque tour + sous-agents (3.0)
 import llm  # config LLM par instance (BYOK / inférence incluse)
 import notify  # HITL push : ping si une permission traîne sans réponse
+import study  # feature study_mode: consent gate, turn metadata (pseudonymised)
 import vault  # coffre de secrets par instance → env des sessions (jamais au LLM)
 
 CWD = os.environ.get("SOKKAN_AGENT_CWD") or (
@@ -274,6 +277,7 @@ class AgentSession:
         # 3.2 lot 8: project whose sandbox confines this session (None = not confined)
         self.sandboxed: str | None = None
         self._bash_off_noted = False
+        self._refusal_said: str | None = None
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -497,6 +501,17 @@ class AgentSession:
             except Exception:  # noqa: BLE001 — l'état du run ne bloque jamais l'outil
                 pass
 
+    # ---- journal des validations (hitl_journal) ------------------------------
+    def _journal_auto(self, tool_name: str, input_data: dict, allowed: bool, reason: str) -> None:
+        """An approval nobody clicked (mode, agent policy, sandbox): told apart from a
+        person's decision in the journal."""
+        hitl_journal.automatic(
+            "question" if tool_name == "AskUserQuestion" else "permission",
+            session_id=self.sid, tool=tool_name, title=_tool_title(tool_name, input_data),
+            input_data=input_data, allowed=allowed, reason=reason, mode=self.mode,
+            secrets=self.redact_values, owner=self.user,
+            agent_run=str((self.policy or {}).get("agent") or ""))
+
     # ---- callback de permission (cœur de l'interactivité) -------------------
     async def _can_use_tool(self, tool_name: str, input_data: dict, context: Any):
         loop = asyncio.get_event_loop()
@@ -509,6 +524,7 @@ class AgentSession:
             if isinstance(checked, str):
                 if tool_name == "Bash" and checked == sandbox.BASH_OFF:
                     self._sandbox_bash_off()
+                self._journal_auto(tool_name, input_data, False, "sandbox")
                 return PermissionResultDeny(message=checked)
             input_data = checked
 
@@ -517,15 +533,18 @@ class AgentSession:
             # consigne, un outil hors de la liste de l'agent est refusé sans réveiller
             # personne. Le reste suit le gate humain normal (ping HITL).
             if tool_name == "AskUserQuestion":
+                self._journal_auto(tool_name, input_data, False, "policy:unattended_question")
                 return PermissionResultDeny(message=(
                     "This is an unattended agent run: nobody can answer. Decide with your "
                     "best judgement, and list the open question in your final deliverable."))
             if not self._tool_permitted(tool_name):
+                self._journal_auto(tool_name, input_data, False, "policy:tool_not_allowed")
                 return PermissionResultDeny(message=(
                     f"{tool_name} is not in this agent's allowed tools. Do without it, or say "
                     "in your deliverable that the agent needs it."))
             if tool_name in _EDIT_TOOLS and _in_memory_dirs(
                     str(input_data.get("file_path") or input_data.get("notebook_path") or "")):
+                self._journal_auto(tool_name, input_data, False, "policy:memory_write")
                 return PermissionResultDeny(message=(
                     "An agent run does not write memory files directly: use "
                     "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
@@ -536,11 +555,16 @@ class AgentSession:
             qid = uuid.uuid4().hex
             fut: asyncio.Future = loop.create_future()
             self._questions[qid] = fut
-            self._emit({"type": "question", "id": qid,
+            hitl_journal.requested(qid, "question", session_id=self.sid, tool=tool_name,
+                                   title=_tool_title(tool_name, input_data),
+                                   input_data=input_data, mode=self.mode,
+                                   secrets=self.redact_values, owner=self.user)
+            self._emit({"type": "question", "id": qid, "ts": time.time(),
                         "questions": input_data.get("questions", [])})
             try:
                 answers = await fut
             except asyncio.CancelledError:
+                hitl_journal.decided(qid, "cancelled")
                 return PermissionResultDeny(message="Question cancelled")
             finally:
                 self._questions.pop(qid, None)
@@ -553,6 +577,7 @@ class AgentSession:
         # c'est une vraie question à l'utilisateur, pas un simple gate de permission.
         if self.mode == "bypassPermissions" or (
                 self.mode == "acceptEdits" and tool_name in _EDIT_TOOLS):
+            self._journal_auto(tool_name, input_data, True, f"mode:{self.mode}")
             return PermissionResultAllow(updated_input=input_data)
 
         # outil mutant (Bash/Edit/Write/…) : demande d'autorisation
@@ -560,13 +585,18 @@ class AgentSession:
         fut = loop.create_future()
         self._perms[pid] = fut
         title = _tool_title(tool_name, input_data)
-        self._emit({"type": "permission", "id": pid, "tool": tool_name,
+        hitl_journal.requested(pid, "permission", session_id=self.sid, tool=tool_name,
+                               title=title, input_data=input_data, mode=self.mode,
+                               secrets=self.redact_values, owner=self.user,
+                               agent_run=str((self.policy or {}).get("agent") or ""))
+        self._emit({"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
                     "title": title, "input": input_data})
         self._arm_hitl_notify(pid, title)  # ping si tu ne réponds pas à temps
         self._set_waiting(True)
         try:
             decision = await fut
         except asyncio.CancelledError:
+            hitl_journal.decided(pid, "cancelled")
             return PermissionResultDeny(message="Request cancelled")
         finally:
             self._perms.pop(pid, None)
@@ -613,18 +643,28 @@ class AgentSession:
         t.add_done_callback(self._notify_tasks.discard)
 
     def resolve_permission(self, pid: str, decision: dict) -> None:
+        """Who decides is declared by the caller just before (hitl_journal.attribute):
+        the cockpit's WebSocket, a delegated share, Microsoft Teams."""
         fut = self._perms.get(pid)
         if fut and not fut.done():
             fut.set_result(decision)
+            allow = decision.get("decision") == "allow"
+            hitl_journal.decided(
+                pid, "allow" if allow else "deny",
+                edited_input=decision.get("updated_input") if allow else None,
+                message=None if allow else (decision.get("message") or ""),
+                secrets=self.redact_values, fallback_owner=self.user)
             # évent de réconciliation : au replay (refresh), les cartes déjà
             # résolues ne doivent pas se ré-afficher comme actionnables
-            self._emit({"type": "permission_resolved", "id": pid})
+            self._emit({"type": "permission_resolved", "id": pid, "ts": time.time()})
 
     def resolve_question(self, qid: str, answers: dict) -> None:
         fut = self._questions.get(qid)
         if fut and not fut.done():
             fut.set_result(answers)
-            self._emit({"type": "question_resolved", "id": qid})
+            hitl_journal.decided(qid, "answer", message=answers, secrets=self.redact_values,
+                                 fallback_owner=self.user)
+            self._emit({"type": "question_resolved", "id": qid, "ts": time.time()})
 
     # ---- un tour ------------------------------------------------------------
     async def handle_user(self, text: str) -> None:
@@ -642,6 +682,12 @@ class AgentSession:
                                     "Organisation, or spawn a fresh session.")})
             return
         # 3.2 lot 4: the project's day / month ceiling — warn at 80 %, hard stop at 100 %
+        if not self.policy:
+            # study mode: a person works only once they have consented (audited free tier)
+            blocked = study.gate(self.user)
+            if blocked:
+                self._emit({"type": "error", "message": blocked})
+                return
         bstate, bmsg = budgets.check(session_project(self.sid))
         if bstate == "stop":
             self._emit({"type": "error", "message": bmsg})
@@ -652,16 +698,42 @@ class AgentSession:
         await self.ensure_started()
         assert self.client is not None
         self._busy = True
+        self._refusal_said = None
         self._emit({"type": "status", "state": "working"})
+        # study mode: duration and tier of the turn of a consenting participant (never its text)
+        turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)
+        t_in, t_out, before = self.tokens_in, self.tokens_out, self.last_result
+        failed = False
         try:
             await self.client.query(text)
             async for msg in self.client.receive_response():
                 self._translate(msg)
         except Exception as e:  # noqa: BLE001
+            failed = True
             self._emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            self._explain_refusal(str(e))
         finally:
             self._busy = False
+            study.turn_end(turn, model=self._model_seen or "",
+                           tokens_in=self.tokens_in - t_in, tokens_out=self.tokens_out - t_out,
+                           is_error=failed or bool(self.last_result is not before and (
+                               self.last_result or {}).get("is_error")))
             self._emit({"type": "status", "state": "idle"})
+
+    def _explain_refusal(self, text: str) -> None:
+        """The gateway refused for a study reason (free period over, study mode required,
+        personal ceiling): say it in words, in English and in French, once per turn."""
+        why = study.explain_refusal(text)
+        if why and why != self._refusal_said:
+            self._refusal_said = why
+            self._emit({"type": "error", "message": why})
+
+    def _study_owner(self) -> str:
+        """The person a session's work belongs to: who opened it (board), else who attached."""
+        try:
+            return board.get_session_owner(self.sid) or self.user
+        except Exception:  # noqa: BLE001
+            return self.user
 
     async def interrupt(self) -> None:
         if self.client is not None:
@@ -670,13 +742,15 @@ class AgentSession:
             except Exception as e:  # noqa: BLE001
                 self._emit({"type": "error", "message": f"interrupt: {e}"})
 
-    async def set_mode(self, mode: str) -> None:
+    async def set_mode(self, mode: str, actor: str = "") -> None:
         """Change le mode de permission de la session (default / acceptEdits /
         bypassPermissions / plan). bypass & acceptEdits sont appliqués dans
         `_can_use_tool` (SDK laissé sur default pour garder AskUserQuestion
         interactif) ; seul `plan` est engagé au niveau du SDK."""
         if mode not in VALID_MODES:
             return
+        if mode != self.mode:
+            hitl_journal.mode_changed(self.sid, self.mode, mode, actor=actor, owner=self.user)
         self.mode = mode
         if self.client is not None:
             try:
@@ -735,6 +809,8 @@ class AgentSession:
                 "is_error": bool(getattr(msg, "is_error", False)),
                 "subtype": getattr(msg, "subtype", "") or "",
             }
+            if getattr(msg, "is_error", False):
+                self._explain_refusal(getattr(msg, "result", "") or "")
             self._emit({
                 "type": "result",
                 "text": getattr(msg, "result", "") or "",
@@ -787,6 +863,8 @@ class AgentSession:
             t = getattr(b, "text", "") or ""
             if t.strip():
                 self._emit({"type": "text", "text": t})
+                if t.lstrip().startswith("API Error"):   # the CLI's own line for a refusal
+                    self._explain_refusal(t)
         elif isinstance(b, ThinkingBlock):
             self._emit({"type": "thinking",
                         "text": getattr(b, "thinking", "") or ""})

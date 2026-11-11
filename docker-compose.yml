@@ -208,6 +208,15 @@ services:
       SOKKAN_ROUTER_URL: ${SOKKAN_ROUTER_URL:-}
       SOKKAN_ROUTER_MODEL: ${SOKKAN_ROUTER_MODEL:-}
       SOKKAN_ROUTER_WELCOME_URL: ${SOKKAN_ROUTER_WELCOME_URL:-}
+      # study mode (docs/enterprise/STUDY-MODE.md): audited use under a research protocol —
+      # tags, pseudonyms at the source, consent, researcher's export. The state (active,
+      # end date, ceilings) is read from the inference gateway; SOKKAN_STUDY_ID declares a
+      # study locally when the gateway does not serve it.
+      SOKKAN_FEATURE_STUDY_MODE: ${SOKKAN_FEATURE_STUDY_MODE:-}
+      SOKKAN_STUDY_ID: ${SOKKAN_STUDY_ID:-}
+      SOKKAN_STUDY_EXPIRES_AT: ${SOKKAN_STUDY_EXPIRES_AT:-}
+      SOKKAN_STUDY_AUDIT_REQUIRED: ${SOKKAN_STUDY_AUDIT_REQUIRED:-}
+      SOKKAN_STUDY_DB: ${SOKKAN_STUDY_DB:-}
       SOKKAN_GATEWAY_URL: ${SOKKAN_GATEWAY_URL:-}
       SOKKAN_GATEWAY_ADMIN_TOKEN: ${SOKKAN_GATEWAY_ADMIN_TOKEN:-}
       SOKKAN_GATEWAY_CLIENT: ${SOKKAN_GATEWAY_CLIENT:-}

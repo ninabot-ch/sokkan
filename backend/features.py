@@ -137,6 +137,14 @@ def _cortex_configured() -> bool:
     return bool((os.environ.get("SOKKAN_CORTEX_URL") or "").strip())
 
 
+def _study_check() -> str | None:
+    if (os.environ.get("SOKKAN_AUTH_MODE") or "local").strip() == "local":
+        return ("local sign-in is ONE identity: every volunteer would share a single "
+                "pseudonym — give each person their own account (OIDC, LDAPS or Cloudflare "
+                "Access) before the study starts")
+    return None
+
+
 def _gitlab_check() -> str | None:
     if not (os.environ.get("SOKKAN_GITLAB_CLIENT_ID") or "").strip():
         return "no GitLab OAuth application (SOKKAN_GITLAB_CLIENT_ID): nobody can link an account"
@@ -484,6 +492,24 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_CONNECT_AI_MODE", "SOKKAN_ROUTER_URL", "SOKKAN_ROUTER_MODEL",
                     "SOKKAN_ROUTER_WELCOME_URL"),
             doc="docs/enterprise/UI-FEATURES.md"),
+    Feature("study_mode", "Study mode (audited use)",
+            "The instance is used under a research protocol: work tagged with the study, the "
+            "participant, a scenario (S1…S6) and a reference time; people pseudonymised at "
+            "the source (local correspondence table, never exported; the inference gateway "
+            "receives the pseudonym and `x-sokkan-study`); two questions at the end of a "
+            "task; a permanent banner, a plain-language page « What is recorded », explicit "
+            "consent per person before the first session, withdrawable; a researcher's export "
+            "package — metadata only by default, content only for the scenarios a person "
+            "agreed to — read with a read-only export token. Whether a study is active, its "
+            "end date and its ceilings are READ from the inference gateway (`GET /usage`); "
+            "SOKKAN_STUDY_ID declares one locally when the gateway does not. Requires no "
+            "other feature: the journal of human validations it exports is always on. Off: "
+            "nothing is tagged, no pseudonym is allocated, the gateway receives what it "
+            "received before.",
+            status="beta", defaults=_both(False), vars=_t("study_mode"),
+            config=("SOKKAN_STUDY_ID", "SOKKAN_STUDY_EXPIRES_AT", "SOKKAN_STUDY_AUDIT_REQUIRED",
+                    "SOKKAN_STUDY_DB"),
+            check=_study_check, doc="docs/enterprise/STUDY-MODE.md"),
 )
 
 BY_ID: dict[str, Feature] = {f.id: f for f in REGISTRY}

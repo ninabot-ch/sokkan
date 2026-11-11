@@ -19,6 +19,7 @@ import Setup from "@/components/Setup";
 import { MeProvider, useCan, useMe } from "@/lib/me";
 import type { Me, ProjectsList } from "@/lib/types";
 import { FeaturesProvider, useFeatures } from "@/lib/features";
+import { useFeatureOn } from "@/lib/uifeatures";
 import { fetchProjects, fetchSessions } from "@/lib/api";
 import { currentProject, installProjectFetch, noteTab, switchProject } from "@/lib/project";
 import Wordmark from "@/components/Wordmark";
@@ -120,7 +121,8 @@ function CockpitBody() {
   const [last, setLast] = useState<string | null | undefined>(undefined);
   useEffect(() => { navLast().then(setLast); }, []);
 
-  const planes = visiblePlanes({ f: feats, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
+  const studyOn = useFeatureOn("study_mode");  // Setup › Study (feature off by default)
+  const planes = visiblePlanes({ f: { ...feats, study_mode: studyOn }, project: currentProject(), canDev, ops: me?.ops, steers: steers || helmRO });
   // availability is known only once features, Helm access and the remembered plane answered —
   // never decide on the loading defaults
   const settled = !!feats.loaded && helmFor === !!feats.helm && last !== undefined;
@@ -322,4 +324,4 @@ function CockpitBody() {
   );
 }
 
-const PLANE_SETUP: SubTab[] = ["organization", "engines", "magnitude", "secrets", "account", "notifications"];
+const PLANE_SETUP: SubTab[] = ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study"];

@@ -18,8 +18,20 @@ test("structure validated by Nick (08.10.2026)", () => {
     ["build", ["sessions", "crew", "preview"]],
     // 3.5 (Nick 09.10.2026): Operate › Alerts, the rules engine, between Incidents and Infra
     ["operate", ["incidents", "alerts", "infra", "costs", "journal"]],
-    ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications"]],
+    // `study` exists only with the feature `study_mode` (off by default): see the test below
+    ["setup", ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study"]],
   ]);
+});
+
+test("Setup › Study: only with the feature `study_mode`, for everyone signed in, deep links", () => {
+  assert.ok(!ids(ctx()).setup.includes("study"));                                  // off by default
+  const on = { ...ALL, study_mode: true };
+  assert.deepEqual(ids(ctx({ f: on })).setup, ["organization", "engines", "magnitude", "secrets", "account", "notifications", "study"]);
+  assert.ok(ids(ctx({ f: on, canDev: false, ops: false, steers: false })).setup.includes("study"));  // a viewer consents too
+  assert.equal(href("study"), "/?plane=setup&tab=study");
+  assert.deepEqual(resolveTarget(q("tab=study")), { plane: "setup", tab: "study", section: undefined });
+  assert.deepEqual(resolveTarget(q("tab=etude")), { plane: "setup", tab: "study", section: undefined });
+  assert.deepEqual(resolveTarget(q("plane=setup&tab=study&section=tasks")), { plane: "setup", tab: "study", section: "tasks" });
 });
 
 test("3.5 — Operate › Alerts: feature `alerting`, project-scoped (not ops-only), deep links", () => {

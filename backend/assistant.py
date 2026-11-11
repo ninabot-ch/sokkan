@@ -252,7 +252,7 @@ _primary_down_until = 0.0
 def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str,
          state: dict | None = None) -> str:
     """Un aller-retour modèle. Deux dialectes, une seule sortie texte."""
-    hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
+    hdr_user = llm.identity_headers(user_email, "assistant:")  # study mode: pseudonym
     if cfg.get("api") == "openai":
         r = httpx.post(
             f"{cfg['url']}/chat/completions",
@@ -293,7 +293,7 @@ def configured() -> bool:
 def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
             state: dict | None = None) -> Iterator[str]:
     """Lit un flux SSE et n'en rend que le texte. Deux dialectes, une sortie."""
-    hdr_user = {"x-sokkan-user": f"assistant:{user_email}"}
+    hdr_user = llm.identity_headers(user_email, "assistant:")  # study mode: pseudonym
     openai = cfg.get("api") == "openai"
     url = f"{cfg['url']}/chat/completions" if openai else f"{cfg['url']}/v1/messages"
     headers = ({"Authorization": f"Bearer {cfg['token']}"} if openai
