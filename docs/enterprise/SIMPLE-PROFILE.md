@@ -37,6 +37,9 @@ waits for the person.
    no path, no internal brief; the raw material is under *Détail technique*, folded.
 3. **Approval card** — « L'agent veut enregistrer "Plan de formation – v2" », the person's documents the
    agent actually opened with their age, *Autoriser / Voir le brouillon / Refuser*.
+   *Voir le brouillon* also lets the person **correct the text** before allowing: the save then carries
+   their text (the agent's path untouched). A work opened from the simple profile never asks to approve a
+   shell command: it is refused to the agent, which is told to use the file tools.
 4. **Deliverable** — preview, *Télécharger en Word* (or the text), *Valider le livrable*: who, when and
    the SHA-256 of exactly what was validated go to the journal; a later change shows « modified since
    your validation ».
@@ -90,6 +93,12 @@ falls under 4.5:1 in either theme, or when the two dictionaries differ.
 
 * A person's approve / refuse click is not yet a line of the journal (the validation of a deliverable is).
 * A classified document cannot go to an agent session (transcripts do not carry a level yet).
-* The study-mode band of a pilot has its slot (`components/simple/BannerSlot.tsx`) but is not in this feature.
+* Study mode (another feature): the band has its slot (`components/simple/BannerSlot.tsx`); the scenario tag
+  and the two end-of-task questions are wired (`components/simple/StudyHooks.tsx`) and appear when a
+  `study_mode` feature is in the registry — every call tolerates a missing route.
+* On a custom engine served by vLLM, the CLI's default reasoning effort is refused (« Unexpected reasoning
+  effort high »): run the API with `CLAUDE_CODE_EFFORT_LEVEL=medium`.
+* Time to a first draft is the engine's: 81 s on an idle qwen3.8-27b, 5 to 7 minutes when 4-8 other requests
+  share it (measured 11.11.2026).
 * Local auth has one identity: several people on the simple profile need SSO.
 * The sign-in screen is the cockpit's (English).
