@@ -65,8 +65,31 @@ export const fetchPrefs = () => get<Prefs>("/api/me/prefs");
 export const savePrefs = (p: Partial<Pick<Prefs, "profile" | "lang" | "theme">>) => send<Prefs>("/api/me/prefs", "PUT", p);
 export const fetchHome = (lang: string) => get<HomeData>(`/api/simple/home?lang=${lang}`);
 export const fetchWorks = () => get<{ works: Recent[] }>("/api/simple/works");
-export const startWork = (ask: string, playbook: string, documents: string[], lang: string) =>
-  send<{ session_id: string; title: string }>("/api/simple/start", "POST", { ask, playbook, documents, lang });
+/** One id per click on « Start »: the server opens ONE work per id, so the same id can be
+ *  sent again when the answer was lost on the way (network change, proxy timeout). */
+export function newRequestId(): string {
+  const b = new Uint8Array(16);
+  try { crypto.getRandomValues(b); } catch { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Start a work. A failure that says nothing about the work itself — no answer at all, or
+ *  a 5xx from the way — is asked again with the SAME id before anything is shown: the work
+ *  may well have started. A refusal (4xx) is final and thrown as it is. */
+export async function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string) {
+  let last: unknown;
+  for (const wait of [0, 1500, 4000]) {
+    if (wait) await pause(wait);
+    try {
+      return await send<{ session_id: string; title: string }>("/api/simple/start", "POST",
+        { ask, playbook, documents, lang, request_id: requestId });
+    } catch (e) {
+      if (e instanceof ApiError && e.status < 500) throw e;
+      last = e;
+    }
+  }
+  throw last;
+}
 export const fetchWork = (sid: string) => get<Work>(`/api/simple/sessions/${sid}`);
 export const sendMessage = (sid: string, text: string, documents: string[]) =>
   send<{ ok: boolean }>(`/api/simple/sessions/${sid}/message`, "POST", { text, documents });

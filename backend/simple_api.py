@@ -27,6 +27,8 @@ app.py), which translates events with `plain.View` built by `make_view` below.
 """
 from __future__ import annotations
 
+import hashlib
+import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -93,6 +95,9 @@ class StartIn(BaseModel):
     playbook: str = ""
     documents: list[str] = []
     lang: str = "fr"
+    # 3.6.3: one id per click on « Start » (hex, made by the browser). The same id sent again —
+    # the answer was lost on the way, the person clicked twice — opens the SAME work.
+    request_id: str = ""
 
 
 class MessageIn(BaseModel):
@@ -278,6 +283,16 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         label = pb["i18n"][lang]["label"] if pb else ""
         if not ask and not pb:
             raise HTTPException(400, {"code": "empty", "message": "say what you want to obtain"})
+        # idempotence: the work id is derived from (person, project, request id). When the
+        # browser lost the answer of a start that DID happen, its retry finds the work instead
+        # of opening a second one — and never somebody else's, the person is in the id.
+        sid = agentchat.new_sid()
+        rid = (body.request_id or "").strip().lower()
+        if re.fullmatch(r"[0-9a-f]{16,64}", rid):
+            sid = hashlib.sha256(f"{email}\0{slug}\0{rid}".encode()).hexdigest()[:32]
+            if board.get_session_project(sid) == slug and board.get_session_owner(sid) == email:
+                s = next((x for x in board.list_sessions() if x["session_id"] == sid), None) or {}
+                return {"session_id": sid, "title": s.get("title") or "", "replayed": True}
         _study_gate(email)
         docs = _docs(body.documents, slug, pu)
         if not ask:
@@ -285,7 +300,6 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 raise HTTPException(400, {"code": "empty", "message":
                                           "say what you want to obtain, or attach a document"})
             ask = label
-        sid = agentchat.new_sid()
         title = simple.title_for(ask if ask != label else "", label)
         s = board.add_sdk_session(sid, "docs", title=title, prompt=ask, project=slug, owner=email)
         simple.add_work(sid, slug, email, ask, body.playbook, lang)

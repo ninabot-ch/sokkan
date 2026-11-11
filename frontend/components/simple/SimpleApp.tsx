@@ -3,7 +3,7 @@
 // recent works with the last sentence + today's usage), the current view, Nina and Settings.
 // Structure borrowed from Nokker (drawer + thread + ONE composer); the brand is SOKKAN's.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, fetchHome, savePrefs, startWork, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
+import { ApiError, fetchHome, newRequestId, savePrefs, startWork, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
 import { SimpleUIProvider, useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
@@ -206,6 +206,9 @@ function Home({ home, failed, retry, onStarted }: {
   const { lang } = useUI();
   const [tpl, setTpl] = useState<TaskTemplate | null>(null);
   const [focusKey, setFocusKey] = useState<string | undefined>(undefined);
+  // one id per work asked: kept while the same request is tried again, so a second click
+  // after a lost answer opens the work that did start instead of a twin
+  const pending = useRef<{ sig: string; id: string } | null>(null);
   if (!home) {
     return (
       <div className="sk-scroll"><div className="sk-page">
@@ -227,11 +230,15 @@ function Home({ home, failed, retry, onStarted }: {
             <button className="sk-chip-x" style={{ marginRight: 0 }} onClick={() => setTpl(null)} aria-label={t("home.template.off")}><Icon name="close" small /></button></div>
         ) : undefined}
         onSubmit={async (text, docs) => {
+          const sig = JSON.stringify([text, tpl?.id || "", docs.map((d) => d.id)]);
+          if (pending.current?.sig !== sig) pending.current = { sig, id: newRequestId() };
           try {
-            const r = await startWork(text, tpl?.id || "", docs.map((d) => d.id), lang);
+            const r = await startWork(text, tpl?.id || "", docs.map((d) => d.id), lang, pending.current.id);
+            pending.current = null;
             setTpl(null);
             onStarted(r.session_id);
           } catch (e) {
+            if (e instanceof ApiError && e.status < 500) pending.current = null;   // refused: nothing was started
             if (e instanceof ApiError && e.code === "study_consent") {
               // study mode: no work before the consent — open « What is recorded » right away
               openStudyConsent();

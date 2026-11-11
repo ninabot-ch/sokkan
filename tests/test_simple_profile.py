@@ -99,6 +99,32 @@ def test_usage_gauge_follows_the_project_budget(world, monkeypatch):
 
 
 # ---- start -----------------------------------------------------------------------------------
+def test_starting_twice_with_the_same_request_id_opens_one_work(world):
+    """3.6.3: the browser lost the answer of a start that happened (network change) and asks
+    again, or the person clicks a second time: the same work, one turn, one line in the journal."""
+    c = world["as"]("bob@x")
+    body = {"ask": "Relance du devis de mars", "lang": "fr", "request_id": "ab" * 16}
+    first = c.post("/api/simple/start", json=body)
+    again = c.post("/api/simple/start", json=body)
+    assert first.status_code == again.status_code == 200, again.text
+    sid = first.json()["session_id"]
+    assert again.json()["session_id"] == sid and again.json()["title"] == first.json()["title"]
+    assert again.json().get("replayed") is True and "replayed" not in first.json()
+    assert len(world["turns"]) == 1 and len(world["audit"]("session.spawn")) == 1
+    assert [w["sid"] for w in c.get("/api/simple/works").json()["works"]].count(sid) == 1
+    # the id belongs to the person and the project: the same one from somebody else is another work
+    other = world["as"]("dave@x").post("/api/simple/start", json=body).json()["session_id"]
+    assert other != sid
+    radio = world["as"]("alice@x", "radio").post("/api/simple/start", json=body).json()["session_id"]
+    assert radio not in (sid, other)
+    # no id, or one that is not an id: every start is a new work, as before
+    c = world["as"]("bob@x")
+    a = c.post("/api/simple/start", json={"ask": "Autre demande"}).json()["session_id"]
+    b = c.post("/api/simple/start", json={"ask": "Autre demande"}).json()["session_id"]
+    bad = c.post("/api/simple/start", json={"ask": "Autre demande", "request_id": "../../x"}).json()["session_id"]
+    assert len({sid, a, b, bad}) == 4
+
+
 def test_start_a_work_with_documents_and_a_template(world):
     c = world["as"]("bob@x")
     d1 = put(c, "Brief client.docx", docx(("Douze assistantes, deux jours.",))).json()

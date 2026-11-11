@@ -73,7 +73,7 @@ reading aid, **not** the memory ingestion (structure, chunks, notes), which is s
 ## API
 
     GET/PUT /api/me/prefs                      PUT /api/admin/prefs/{email}
-    GET /api/simple/home · /api/simple/works   POST /api/simple/start
+    GET /api/simple/home · /api/simple/works   POST /api/simple/start   (`request_id`: one work per id)
     GET /api/simple/sessions/{sid}             POST …/message
     GET|POST …/deliverables                    GET …/deliverables/{name}[/download?format=md|docx]
     POST …/deliverables/{name}/validate
