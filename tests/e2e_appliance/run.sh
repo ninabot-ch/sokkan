@@ -14,6 +14,8 @@
 #                               (/proc/pressure/memory « some avg10 ») goes above this
 #   E2E_KEEP=1                  keep the machine and its volume at the end (debugging)
 #   INSTALLER_OLD=<file>        the installer a client of 3.4.6 used (default: sokkan.ch/install.sh)
+#   E2E_OLD=3.5.1+<commit>      upgrade phase: start from that release instead of 3.4.6 (its dist is
+#                               archived below; the commit is `git rev-parse --short v3.5.1`)
 #
 # Sources: the releases are `git archive` of their tags (v3.4.6, v3.5.1) and of HEAD of this
 # checkout (COMMITTED state — commit first). Results: $E2E_WORK/work/results.json (+ logs),
@@ -149,7 +151,7 @@ case "$WHAT" in all|appliance)
     phase after-reboot "E2E_REBOOT_T0=$T0"
   fi ;;
 esac
-case "$WHAT" in all|upgrade) phase upgrade ;; esac
+case "$WHAT" in all|upgrade) phase upgrade "${E2E_OLD:+E2E_OLD=$E2E_OLD}" ;; esac
 docker inspect "$NAME" >/dev/null 2>&1 && docker exec "$NAME" python3 /harness/e2e_appliance/suite.py report | tee "$W/work/report.txt"
 PEAK="$(awk 'BEGIN{m=0} {if ($4>m) m=$4} END{printf "%d", m/1048576}' "$W/work/mem.tsv" 2>/dev/null || echo '?')"
 PSI="$(awk 'BEGIN{m=0} {if ($3>m) m=$3} END{print m}' "$W/work/mem.tsv" 2>/dev/null || echo '?')"

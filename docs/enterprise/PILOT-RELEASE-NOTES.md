@@ -5,8 +5,10 @@ installs it. **Nothing is released**: this branch is a candidate — no tag, no 
 merged in `main`, not on GitHub, deployed nowhere. Proposed version: **3.6.0** (a minor: new
 variables, changed defaults); the name is to be chosen (§ 7).
 
-State of this page: 11.11.2026. Every figure below was measured on this branch; where a thing
-was not played, the page says so.
+State of this page: 11.11.2026, commit `1d5813e` for the suite, the upgrade bench and the two
+fixes h and i; the appliance phase of the bench, the journey, `next build` and the mutations
+are those of `8257d42` and were not replayed since. Every figure below was measured on this
+branch; where a thing was not played, the page says so.
 
 ## 1. What the candidate holds
 
@@ -30,6 +32,8 @@ was not played, the page says so.
 | e | The review of the batches was an API with no screen | « Notes to review » (simple profile) and Setup › Ingestion (technical cockpit): one screen, French / English, every decision journaled |
 | f | The appliance profile knew none of the three other lots; five variables were read and never declared; the local engine failed with a 400 on the CLI's default reasoning effort | The profile turns the four features on with their needs, `SOKKAN_PROFILE_DEFAULT=simple`, `CLAUDE_CODE_EFFORT_LEVEL=medium`; the guard passes; the release images carry the document extractors |
 | g | **On an appliance the study was never read and never announced**: sessions go through the local router, which sent neither `x-sokkan-study` nor the pseudonym, and `GET /usage` was only asked in « included » mode — the gateway would have answered 412 to every Deep request of a study tenant | The api reads `GET /usage` on the Deep gateway; sessions send the study and the pseudonym; the router forwards both (never an address) and hands the refusals 410 / 412 / 429-per-person back as the gateway worded them, with `x-should-retry: false` |
+| h | The instance knew the gateway of `study-quotas` 664a47f; its head f260ada changed the text of the 412 and added a 429 `user_limit_reached` (too many distinct people today, `max_users_day`) that the local router turned into « wait a minute and send again ». In the simple profile every refusal read « a technical problem, you can send your request again » | The four study refusals are handed back once, never retried; the session says one sentence with the gateway's code (no variable name in it, no generic 429 sentence on top); the simple profile has a notice per refusal, French and English. Tests: `tests/test_gateway_refusals.py`, written from what the gateway **answered** (its app played on a throw-away database), not from the instance's code |
+| i | Since 3.2 an agent run (Crew) could not write a file in the work folder of a project other than `default` (`agentchat._in_memory_dirs` matched the whole `<data>/projects` tree) | It writes in `<data>/projects/<its project>/work`; the memory directories, the quarantine and the other projects stay closed (`tests/test_agent_run_project_work.py`) |
 
 ## 2. Features and what each needs
 
@@ -87,11 +91,11 @@ mount the documents read-only (`docker-compose.doc-ingest.yml`); review in « No
 
 | | Result |
 |---|---|
-| Test suite, one file per process, Postgres pgvector (throw-away) | **1 542 passed, 0 failed, 68 skipped** (116 files) — `main` on the same host and environment: 1 152 passed, 0 failed, 66 skipped (95 files). No failure on `main` to carry over. Skipped, as on `main`: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (7), sandbox / bubblewrap (5), CLI end-to-end (4), runners (3), 3 single ones; new: rclone (2). The Postgres files ran |
-| ruff · tsc · `next build` | ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean · `next build` OK (first load of `/`: 323 kB; the review screen is a lazy chunk) |
-| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass (`memory/core` matches CortHeXis v2.1.2; 30 tokens × 2 themes, 329 sentences × 2 languages) |
-| Mutations of the integration tests (one guard removed at a time) | 22 of 22 killed: each of the guards a-g removed in turn makes `tests/test_pilot_integration.py` fail |
-| Appliance bench, Docker-in-Docker, mock model and gateway | T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). The upgrade phase (T8-T10) was **not** replayed |
+| Test suite, one file per process, Postgres pgvector (throw-away) | **1 574 passed, 0 failed, 67 skipped** (118 files) on `1d5813e` — it was 1 542 / 0 / 68 (116 files) on `8257d42`: + 31 tests (the gateway's refusals 25 + 1, the agent-run work folder 5), and the comparison of the frozen contract with the gateway's checkout now **runs** (it was skipped: no checkout on the build host — played against the checkout it was red, the contract being that of 664a47f). `main` in the first environment: 1 152 passed, 0 failed, 66 skipped (95 files). Skipped: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (9), sandbox / bubblewrap (5), runners (3, no Docker daemon), CLI end-to-end (2), rclone (2), 2 single ones (root ignores directory permissions; no Prometheus to backtest on). The Postgres files ran. **How the figure was obtained**: a new `python:3.12-slim` container (the first environment was gone): a first pass gave 1 546 passed, 1 failed, 74 skipped — the failure (`test_backup_restore`, `pg_restore` 17 of the container against the Postgres 16 server: « unrecognized configuration parameter transaction_timeout ») and 7 of the skips (no `curl`, no `docker` CLI, Node 20 instead of 22) came from that container; the four files concerned were replayed with a Postgres 16 client, curl, the docker CLI and Node 22: all green, which gives the total. Not one process from a single environment, then |
+| ruff · tsc · `next build` | ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean — both replayed on `1d5813e` · `next build` OK on `8257d42` (first load of `/`: 323 kB; the review screen is a lazy chunk), **not** replayed since (two front files changed: a list of codes in `Thread.tsx`, eight sentences in `dict.ts`) |
+| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass (`memory/core` matches CortHeXis v2.1.2; 30 tokens × 2 themes, 333 sentences × 2 languages). The first three replayed on `1d5813e`; `check-corthexis-sync.sh` not replayed (`memory/core` untouched since) |
+| Mutations of the integration tests (one guard removed at a time) | 22 of 22 killed: each of the guards a-g removed in turn makes `tests/test_pilot_integration.py` fail (on `8257d42`, not replayed). h: with the six changed files put back as they were, 19 of the 25 tests of `tests/test_gateway_refusals.py` fail. i: the refusal was reproduced on the unchanged code before the fix (a `Write` in `<data>/projects/formation/work` refused as « memory file ») |
+| Appliance bench, Docker-in-Docker, mock model and gateway | T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). **Upgrade phase, replayed on `3.5.1+1d5813e`** (`run.sh upgrade`, a blank machine each time): from **3.4.6** T8 PASS (installer: 17 s, `/api/health` away 3.1 s at most, 538 MB after), T10 PASS (rollback 15 s, 4.1 s away), T9 PASS (`scripts/upgrade.sh`: 3 s, 3.1 s away, 805 files, same tree as the installer's); from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, a switch added to the bench for this) T8 PASS (20 s, 4.1 s away), T10 PASS (15 s, 3.1 s), T9 PASS (4 s, 5.1 s away, same tree). Machine peak 1.2 GB. Both versions carry the number 3.5.1: on the second run old and new are told apart by `/api/version.dist`, `SOKKAN_COMMIT`, `.sokkan-previous` and the files of the newer release, not by the version. The data checked across an upgrade: the access token, one board card, the length of the journal — an instance with months of sessions and a memory was not played. The appliance phase (T1-T7, T11-T14) was **not** replayed on `1d5813e` |
 | One journey of Camille on a throw-away instance, real local model (`qwen3.8-27b`, vLLM, 4× B60), study mode on | played once on the fixed code — see below |
 
 **The journey** (11.11.2026, the model otherwise idle, one stream): sign-in with a personal
@@ -112,9 +116,10 @@ new rule « a session with documents does not write memory files » matched the 
 `<data>/projects` tree, so in a project other than `default` the save of the deliverable
 itself was refused, and the model fell back on the memory. Fixed (the rule matches the memory
 directories and the quarantine only), with a test that fails on the old code; the figures
-above are the replay. The same over-broad match exists **for agent runs** since 3.2
-(`agentchat._in_memory_dirs`): a Crew agent cannot write a file in the work folder of a project
-other than `default`. Not changed here — to decide.
+above are the replay. The same over-broad match existed **for agent runs** since 3.2
+(`agentchat._in_memory_dirs`): a Crew agent could not write a file in the work folder of a
+project other than `default`. Reproduced and fixed on this branch (§ 1, i): only the run's own
+work folder opens; not played with a real Crew agent on a real model.
 
 **A batch review, for real** (same instance, the memory agent on the same model, 2 streams):
 14 documents → 23 notes, 2 flagged, 5 documents without a note, 2 unreadable, in 63 s; 8
@@ -127,10 +132,20 @@ is a line of the journal under the reviewer's name. Captures: `docs/ui/pilot-int
 Of the integration:
 
 * **Never played against the production gateway.** The contract (`GET /usage`, headers, 410 /
-  412 / 429) is tested against the gateway's own documentation and source text
+  412 / the two 429) is tested against the gateway's own documentation, its source text and
+  the bodies its app answered when played in-process on a throw-away database, head f260ada
   (`tests/fixtures/gateway_contract/`, compared with a `sokkan-cloud` checkout when one is at
-  hand) and against a fake gateway on a real socket. The branch `study-quotas` of `sokkan-cloud`
-  is itself not deployed.
+  hand — the comparison is **skipped** where there is none) and against a fake gateway on a
+  real socket. The branch `study-quotas` of `sokkan-cloud` is itself not deployed.
+* **No retry guard without the local router.** The gateway sends no `x-should-retry` on its
+  refusals; the router of the appliance adds it. An instance whose sessions call the gateway
+  directly would let the CLI retry the two 429 before the sentence appears — not the pilot's
+  setting, and not played.
+* **The four refusal notices of the simple profile were not looked at in a browser** (tests
+  on the events and on the two dictionaries, `tsc` clean; no capture).
+* **Other inference errors in the simple profile** (402, tenant-wide 429, unreachable) still
+  read « a technical problem, you can send your request again », the readable sentence being
+  under « technical detail ». Unchanged here.
 * **The tier and the reason of an escalation are not in the box's journal** (the CLI does not
   expose them): join with the gateway's export on the pseudonym and the time.
 * **The journal's own export** (`/api/hitl/journal`, instance admins) names people: it is the
@@ -177,9 +192,20 @@ Decisions (Nick):
 Technical:
 
 - [ ] `main` has not moved since `6f7fee5` (else: merge `main` into the branch, replay § 4).
-- [ ] The suite of § 4 green on the commit that will be tagged, with Postgres.
-- [ ] `tests/e2e_appliance/run.sh all` (T0-T14, with the upgrade phase T8-T10 from 3.4.6 and
-      3.5.1 — the upgrade phase was **not** replayed on this branch).
+      Checked on 11.11.2026 against the forge: `main` is still `6f7fee5`.
+- [ ] The suite of § 4 green on the commit that will be tagged, with Postgres. Last count:
+      1 574 passed, 0 failed, 67 skipped on `1d5813e` (§ 4 says how it was put together).
+- [x] The upgrade phase T8-T10 replayed on the branch, from 3.4.6 and from 3.5.1: all PASS on
+      `3.5.1+1d5813e` (11.11.2026; `tests/e2e_appliance/results/3.5.1_1d5813e*.json`).
+- [ ] `tests/e2e_appliance/run.sh all` (T0-T14 in one run) on the commit that will be tagged:
+      the appliance phase was last played on `8257d42`, the upgrade phase on `1d5813e`, never
+      both on the same commit — and not with `VERSION` at 3.6.0.
+- [x] The instance knows the gateway's 429 `user_limit_reached` and the new text of the 412
+      (`study-quotas` f260ada), in the session and in the simple profile, French and English
+      (§ 1, h). To redo if `study-quotas` moves again before it is merged: with the checkout at
+      hand `tests/test_pilot_integration.py::test_the_frozen_contract_is_the_gateways_own_text`
+      goes red.
+- [x] The agent-run defect `agentchat._in_memory_dirs` (§ 1, i): reproduced, fixed, tested.
 - [ ] One journey on the delivered box, with the real gateway and a test tenant: a Deep
       escalation answered, then the three refusals seen in words.
 - [ ] `restore.sh` of the instances already running (internal, demo): they still have the

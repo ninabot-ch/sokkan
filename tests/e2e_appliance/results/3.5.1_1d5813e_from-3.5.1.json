@@ -1,0 +1,57 @@
+[
+ {
+  "id": "T0",
+  "name": "publisher side: release signed, images built from the tarball, pushed and signed",
+  "pass": true,
+  "measures": {
+   "build_sign_s": 203,
+   "images": [
+    "api=localhost:5000/sokkan/sokkan-api@sha256:d8a4590fc66a551a49b51e684c1714c29b3fe379ece819f84f786d8c9e9d3725",
+    "web=localhost:5000/sokkan/sokkan-web@sha256:d9990b95a5060ccb7bb30456201d49333bdc984d9b9dbbb7f5a654730429dac0"
+   ]
+  },
+  "detail": "",
+  "ts": 1794390393
+ },
+ {
+  "id": "T8",
+  "name": "in-place upgrade 3.5.1+6f7fee5 → 3.5.1+1d5813e by the installer (entry A)",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 20,
+   "interruption_s": 4.1,
+   "ram_after_upgrade_mb": 551,
+   "source_install_s": 153,
+   "test_s": 176.5
+  },
+  "detail": "",
+  "ts": 1794390572
+ },
+ {
+  "id": "T10",
+  "name": "rollback 3.5.1+1d5813e → 3.5.1+6f7fee5, then forward again: one command each way",
+  "pass": true,
+  "measures": {
+   "rollback_s": 15,
+   "interruption_s": 3.1,
+   "test_s": 19.2
+  },
+  "detail": "",
+  "ts": 1794390591
+ },
+ {
+  "id": "T9",
+  "name": "in-place upgrade 3.5.1+6f7fee5 → 3.5.1+1d5813e by scripts/upgrade.sh (entry B) — same result as entry A",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 4,
+   "interruption_s": 5.1,
+   "files": 805,
+   "dist": "3.5.1+1d5813e",
+   "note": "a 3.5.1 tree runs ITS upgrade.sh (no verification, no health gate); from 3.6 on both entries are the same script",
+   "test_s": 8.3
+  },
+  "detail": "",
+  "ts": 1794390599
+ }
+]

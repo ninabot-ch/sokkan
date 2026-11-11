@@ -43,7 +43,9 @@ REG = "localhost:5000/sokkan"
 HOSTNAME = "sokkan.e2e.lan"
 HTTPS_BASE = f"https://{HOSTNAME}"
 NEW = (DISTS / "NEW_VERSION").read_text().strip() if (DISTS / "NEW_VERSION").exists() else ""
-OLD = "3.4.6+3ea74f5"
+# the release the upgrade phase starts from: 3.4.6 (the oldest a client runs) unless E2E_OLD names
+# another dist present in /dists (e.g. 3.5.1+6f7fee5 — the instances we run ourselves)
+OLD = os.environ.get("E2E_OLD") or "3.4.6+3ea74f5"
 RESULTS = WORK / "results.jsonl"
 PEOPLE = [("ana@pilot.example", "Ana", "projet-ana"), ("ben@pilot.example", "Ben", "projet-ben"),
           ("cleo@pilot.example", "Cléo", "projet-cleo")]
@@ -1049,7 +1051,7 @@ def upgrade() -> None:
     @test("T9", f"in-place upgrade {OLD} → {NEW} by scripts/upgrade.sh (entry B) — same result as entry A")
     def t9():
         # the tree is back on 3.4.6 (T10): its own upgrade.sh, as an operator would type it
-        assert (http(BASE + "/api/version")[1] or {}).get("version") == OLD.split("+")[0], "T10 did not leave a 3.4.6"
+        assert (http(BASE + "/api/version")[1] or {}).get("version") == OLD.split("+")[0], f"T10 did not leave a {OLD}"
         stop, samples = threading.Event(), []
         th = threading.Thread(target=downtime_probe, args=(stop, samples))
         th.start()
@@ -1070,7 +1072,7 @@ def upgrade() -> None:
         diff = sorted(set(a) ^ set(b)) + sorted(k for k in set(a) & set(b) if a[k] != b[k])
         assert a and not diff, f"entry A and entry B leave different trees: {diff[:8]}"
         return {"upgrade_s": round(dur), "interruption_s": longest_outage(samples), "files": len(b),
-                "dist": v["dist"], "note": "a 3.4.6 tree runs ITS upgrade.sh (no verification, no health gate); "
+                "dist": v["dist"], "note": f"a {OLD.split('+')[0]} tree runs ITS upgrade.sh (no verification, no health gate); "
                 "from 3.6 on both entries are the same script"}
 
     if t8():
