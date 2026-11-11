@@ -127,6 +127,7 @@ def _start_store_indexer() -> None:
                                 activate_first_only=True)
     _index_runner.start()
     _sync_project_indexers()
+    threading.Thread(target=_project_indexers_loop, daemon=True, name="sokkan-index-projects").start()
     threading.Thread(target=_warm_query_embedder, daemon=True, name="sokkan-embed-warm").start()
 
 
@@ -157,6 +158,23 @@ def _warm_query_embedder() -> None:
 
 
 _project_runners: dict = {}
+_project_runners_lock = threading.Lock()
+
+
+def _project_indexers_loop(every: float = 60.0, rounds: int | None = None) -> None:
+    """3.6.3: a project is not always created through this process. The appliance creates a
+    person's project from its command line (`accounts.sh add --project`, the installer's
+    SOKKAN_ACCOUNTS): no route ran, so that project's memory folder had no indexer until the
+    api restarted — its notes were on disk, in nobody's list and in no recall. Look again
+    every minute; a project that already has its indexer costs one dictionary lookup."""
+    n = 0
+    while rounds is None or n < rounds:
+        n += 1
+        time.sleep(every)
+        try:
+            _sync_project_indexers()
+        except Exception as e:  # noqa: BLE001 — tried again at the next round
+            print(f"[sokkan] project indexers: {e!r}", file=sys.stderr)
 
 
 def _sync_project_indexers() -> None:
@@ -169,11 +187,18 @@ def _sync_project_indexers() -> None:
 
     for p in projects.list_projects():
         slug = p["slug"]
-        if slug == projects.DEFAULT_PROJECT or slug in _project_runners:
-            continue
-        d = store_backend.memory_dir_for(slug)
-        d.mkdir(parents=True, exist_ok=True)
-        cfg = IndexConfig.from_env(memory_dir=d, project=slug, normalize=False)
+        with _project_runners_lock:      # a route and the minute loop may both see a new project
+            if slug == projects.DEFAULT_PROJECT or slug in _project_runners:
+                continue
+            _project_runners[slug] = None
+        try:
+            d = store_backend.memory_dir_for(slug)
+            d.mkdir(parents=True, exist_ok=True)
+            cfg = IndexConfig.from_env(memory_dir=d, project=slug, normalize=False)
+        except Exception:
+            with _project_runners_lock:
+                _project_runners.pop(slug, None)     # not started: seen again at the next look
+            raise
 
         def _start(cfg=cfg, slug=slug) -> None:
             while True:
@@ -188,7 +213,6 @@ def _sync_project_indexers() -> None:
             _project_runners[slug] = r
             r.start()
 
-        _project_runners[slug] = None
         threading.Thread(target=_start, daemon=True, name=f"sokkan-index-{slug}").start()
 
 
