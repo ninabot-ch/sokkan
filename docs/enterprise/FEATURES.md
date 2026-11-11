@@ -55,6 +55,8 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`classification`](#classification) Classification and clearances | stable | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
+| [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
+| [`simple_profile`](#simple_profile) Simple profile | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
 
 ## Dependency graph
 
@@ -101,6 +103,8 @@ graph LR
   classification["Classification and clearances"]
   teams["Microsoft Teams"]
   connect_ai["Connect your AI"]
+  documents["Document drop"]
+  simple_profile["Simple profile"]
   preview_private_targets --> preview
   agents_cli_login --> agents
   four_eyes --> agents
@@ -129,6 +133,7 @@ graph LR
   teams --> assistant
   teams --> classification
   teams --> sso
+  simple_profile --> documents
   four_eyes -.-x admin_approval
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
@@ -548,3 +553,25 @@ Setup › Engines: one screen to connect the engines (Claude login or key, OpenA
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`
 - Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
+
+### documents
+
+**Document drop** — beta, toggle.
+
+People attach documents (PDF, docx, pptx, xlsx, txt, md) to a project or a session: size and types bounded (extension AND content checked), names sanitised, stored in the project's own space where the session's agent reads them (with a text copy), every upload / download / removal in the journal, project roles and clearances applied. Off: no upload route (404), nothing stored.
+
+- Defaults: community **off**, enterprise **off**
+- Required by: `simple_profile`
+- Switch: `SOKKAN_FEATURE_DOCUMENTS`
+- Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)
+
+### simple_profile
+
+**Simple profile** — beta, toggle.
+
+A second way into the same cockpit for people who never saw a terminal: a task-first home (« what are we working on? », attach documents, four business task templates), a plain-language thread (no tool names, technical detail folded), an approval card that says what the agent wants to save and from which sources, a deliverable to preview, download and validate; French and English; light theme by default. Chosen per person (simple / technical); the technical profile keeps every existing screen. From the simple profile the approval mode cannot be changed.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `documents`
+- Switch: `SOKKAN_FEATURE_SIMPLE_PROFILE`
+- Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)

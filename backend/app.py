@@ -1593,6 +1593,9 @@ def features_flags() -> dict:
         "alerting": on("alerting"),
         # 3.2.2 : démo publique « Captains » (Helm, projets, Setup en lecture seule)
         "demo_captains": demo_captains.enabled(),
+        # 3.6 : dépôt de documents, profil simple (réglage par personne : /api/me/prefs)
+        "documents": on("documents"),
+        "simple_profile": on("simple_profile"),
         "registry": features.as_api(),
     }
 
@@ -1765,14 +1768,29 @@ async def agent_ws(websocket: WebSocket, sid: str):
     resume = websocket.query_params.get("resume") or None
     session = agentchat.get_or_create(sid, resume=resume, user=wsu["email"])
     queue = session.subscribe()
+    # 3.6 simple profile : `?view=simple` = le même flux, traduit en langage courant
+    # (plain.View : ni nom d'outil, ni chemin, ni consigne interne ; le détail reste repliable)
+    view = None
+    if websocket.query_params.get("view") == "simple" and features.enabled("simple_profile"):
+        view = simple_api.make_view(sid)
+
+    async def emit(ev: dict) -> None:
+        if view is None:
+            if ev.get("type") != "user_echo":   # écho réservé à la vue simple (le pane technique affiche déjà la saisie)
+                await websocket.send_json(ev)
+            return
+        if ev.get("type") == "text":
+            simple.note_last_line(sid, plain.last_line([ev]))
+        for out in view.feed(ev):
+            await websocket.send_json(out)
 
     async def pump() -> None:
         # replay du buffer (refresh) puis flux temps réel
         for ev in list(session.events):
-            await websocket.send_json(ev)
+            await emit(ev)
         while True:
             ev = await queue.get()
-            await websocket.send_json(ev)
+            await emit(ev)
 
     pump_task = asyncio.create_task(pump())
     can_drive = iam.rank(wsu["role"]) >= iam.rank("dev")
@@ -1805,7 +1823,12 @@ async def agent_ws(websocket: WebSocket, sid: str):
             elif t == "interrupt":
                 await session.interrupt()
             elif t == "mode":
-                await session.set_mode(msg.get("mode", "default"))
+                # 3.6 : depuis le profil simple, le mode d'approbation ne se change pas
+                if not uiprefs.may_change_mode(wsu["email"]):
+                    await emit({"type": "error", "message":
+                                "The approval mode cannot be changed from the simple profile."})
+                else:
+                    await session.set_mode(msg.get("mode", "default"))
     except WebSocketDisconnect:
         pass
     finally:
@@ -3116,6 +3139,16 @@ import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 
 app.include_router(uiroutes.router)
+
+# 3.6 — dépôt de documents (feature `documents`) et profil simple (feature `simple_profile`)
+import documents_api  # noqa: E402
+import plain  # noqa: E402
+import simple  # noqa: E402
+import simple_api  # noqa: E402
+import uiprefs  # noqa: E402
+
+app.include_router(documents_api.router)
+app.include_router(simple_api.router(bg=_bg, preseed=_memory_preseed, shown_name=_shown_name))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402

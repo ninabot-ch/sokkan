@@ -8,3 +8,5 @@ mcp>=1.2,<2
 # chat interactif : pilote le binaire `claude` via le SDK (stream-json)
 claude-agent-sdk>=0.1.0
 tzdata>=2024.1
+# text copy of a dropped PDF (feature `documents`, backend/doctext.py) — optional at runtime
+pypdf>=4.0
