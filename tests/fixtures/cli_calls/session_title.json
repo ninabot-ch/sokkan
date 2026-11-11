@@ -1,0 +1,65 @@
+{
+  "_source": "What the CLI bundled with claude-agent-sdk 0.2.152 (claude-cli 2.1.259) SENT to a recording endpoint for one first message of a session, env as backend/llm.session_env sets it on an appliance — captured 11.11.2026, not written from the router's code. Changed by hand: device and session ids zeroed, the naming instructions cut after their first sentence. The request of the conversation itself (second call of the same capture) declared 28 tools and carried `thinking` and `context_management`; it is not kept here (80 kB).",
+  "session_title": {
+    "path": "/v1/messages?beta=true",
+    "headers": {
+      "user-agent": "claude-cli/2.1.259 (external, sdk-py, agent-sdk/0.2.152)",
+      "anthropic-version": "2023-06-01",
+      "x-app": "cli",
+      "x-sokkan-study": "essai",
+      "x-sokkan-user": "P1"
+    },
+    "body": {
+      "model": "sokkan-ship",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<session>\nVoici le devis. Propose-moi une version plus ferme du mail de relance /deep\n</session>\n\nWrite the title in the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions."
+            }
+          ]
+        }
+      ],
+      "system": [
+        {
+          "type": "text",
+          "text": "x-anthropic-billing-header: cc_version=2.1.259.101; cc_entrypoint=sdk-py;"
+        },
+        {
+          "type": "text",
+          "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+        },
+        {
+          "type": "text",
+          "text": "You are naming a coding session so the user can pick it out of a long list of sessions. […]"
+        }
+      ],
+      "tools": [],
+      "metadata": {
+        "user_id": "{\"device_id\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"account_uuid\": \"\", \"session_id\": \"00000000-0000-0000-0000-000000000000\"}"
+      },
+      "max_tokens": 32000,
+      "output_config": {
+        "effort": "medium",
+        "format": {
+          "type": "json_schema",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "stream": true
+    }
+  }
+}

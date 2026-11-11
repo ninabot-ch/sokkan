@@ -22,6 +22,12 @@ again at every request, never sticky:
 Nothing goes to Deep when SOKKAN_DEEP_URL / SOKKAN_DEEP_TOKEN are not set, or when
 SOKKAN_ESCALATION=0 (then only `requested` and `ship_down` remain).
 
+Side calls of the CLI (`side_call`: sent by the CLI, no tool declared — the title of the
+session, a summary…) are not the person asking: they stay on the local model whatever they
+carry (reason `side_call`), and are not sent to Deep when it is down either. The title call
+holds the person's first message: with « /deep » in it, one question used to count two Deep
+escalations of the person's day on the gateway.
+
 Run: `uvicorn shiprouter:app --host 0.0.0.0 --port 8096 --app-dir /app/backend` (the `router`
 service of the appliance profile). It keeps no content: `/stats` and the log carry tier,
 reason, status and duration only.
@@ -146,11 +152,29 @@ def approx_tokens(payload: dict) -> int:
     return n // 4
 
 
+def side_call(payload: dict, headers) -> bool:
+    """A call the CLI makes for itself next to the conversation: it comes from the CLI
+    (`x-app: cli`, user agent `claude-cli/…`) and declares NO tool, where every request of
+    the conversation loop declares them (28 on the capture of 11.11.2026, sub-agents too).
+    Seen: the title of the session (`tools: []`, the person's first message between
+    <session> tags — tests/fixtures/cli_calls/). Same shape, not captured here: the summary
+    of a fetched page, of a tool run, the check of a shell command. A request without tools
+    from anything else (the cockpit's assistant, a script) is somebody asking: not one."""
+    if payload.get("tools"):
+        return False
+    ua = (headers.get("user-agent") or "").strip().lower()
+    return (headers.get("x-app") or "").strip().lower() == "cli" or ua.startswith("claude-cli/")
+
+
 def decide(payload: dict, headers, c: dict | None = None) -> tuple[str, str]:
     """(tier, reason) for this request. tier = "ship" | "deep"."""
     c = c or cfg()
     if not deep_ready(c):
         return "ship", "deep_not_configured"
+    if side_call(payload, headers):
+        # never Deep, by name, by keyword, by size or by failure: not an escalation of the
+        # person's day. A box WITHOUT local model has nowhere else to send it.
+        return ("ship", "side_call") if c["ship_url"] else ("deep", "no_local_model")
     asked = (headers.get("x-sokkan-tier") or "").strip().lower()
     model = str(payload.get("model") or "")
     if asked == "deep" or model in (c["deep_model"], "sokkan-deep"):
@@ -273,7 +297,7 @@ async def messages(request: Request):
     client = _client(c)
     r, status, err = await _open(client, tier, payload, c, request.headers)
     ship_failed = tier == "ship" and (r is None or status >= 500)
-    if ship_failed and c["fallback"] and deep_ready(c):
+    if ship_failed and c["fallback"] and deep_ready(c) and reason != "side_call":
         if r is not None:
             await r.aclose()
         _stats["ship_down"] += 1
@@ -293,8 +317,9 @@ async def messages(request: Request):
         if refusal:
             # 410 / 412 / 429 (a person's ceiling, too many people today) of the study: handed
             # back as the gateway said it
-            # (status, code, its sentence), and never retried by the CLI — the gateway sends no
-            # `x-should-retry` itself, and the CLI retries a bare 429 for minutes
+            # (status, code, its sentence), and never retried by the CLI — the gateway sends
+            # `x-should-retry: false` itself since sokkan-cloud `study-no-retry`; one deployed
+            # before does not, and the CLI retries a bare 429 for minutes
             return Response(raw, status_code=status,
                             media_type=r.headers.get("content-type", "application/json"),
                             headers={"x-sokkan-tier": tier, "x-sokkan-reason": reason,

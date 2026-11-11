@@ -349,3 +349,85 @@ def test_session_stream_turns_a_cli_error_line_into_words():
     import agentchat
     src = inspect.getsource(agentchat)
     assert "llmerrors.from_text" in src and '"code": h["code"]' in src
+
+
+# ---------------------------------------------------------------- side calls of the CLI
+# The CLI makes calls of its own next to the conversation: the first one names the session
+# and CARRIES THE PERSON'S WORDS. Input: tests/fixtures/cli_calls/session_title.json, what
+# the bundled CLI really sent (see `_source` in the file) — not written from the router.
+from pathlib import Path  # noqa: E402
+
+TITLE = json.loads((Path(__file__).parent / "fixtures" / "cli_calls" / "session_title.json")
+                   .read_text(encoding="utf-8"))["session_title"]
+CLI = {k: v for k, v in TITLE["headers"].items() if k in ("user-agent", "x-app", "anthropic-version")}
+STUDY = {"x-sokkan-study": "essai-icebreaker", "x-sokkan-user": "P3"}
+TOOLS = [{"name": "Read", "description": "read a file", "input_schema": {"type": "object"}}]
+
+
+def test_the_captured_title_call_is_what_the_test_thinks_it_is():
+    body = TITLE["body"]
+    assert body["tools"] == [] and "/deep" in body["messages"][-1]["content"][0]["text"]
+    assert TITLE["headers"]["x-app"] == "cli" and TITLE["headers"]["user-agent"].startswith("claude-cli/")
+    assert shiprouter.side_call(body, TITLE["headers"])
+    assert not shiprouter.side_call({**body, "tools": TOOLS}, TITLE["headers"])       # the conversation
+    assert not shiprouter.side_call(msg("résume /deep"), {"user-agent": "python-httpx/0.27"})  # not the CLI
+
+
+def test_one_question_with_the_keyword_is_one_escalation_not_two(box):
+    """Seen on the real gateway (11.11.2026): « … /deep » as a first message counted TWO Deep
+    escalations of the person's day — the session-title call was escalated with it."""
+    c, ship, deep, _ = box
+    said = "Voici le devis. Propose-moi une version plus ferme du mail de relance /deep"
+    title = c.post(TITLE["path"], json=TITLE["body"], headers={**CLI, **STUDY})
+    asked = c.post("/v1/messages?beta=true", json=msg(said, tools=TOOLS), headers={**CLI, **STUDY})
+    assert (title.status_code, asked.status_code) == (200, 200)
+    assert (title.headers["x-sokkan-tier"], title.headers["x-sokkan-reason"]) == ("ship", "side_call")
+    assert (asked.headers["x-sokkan-tier"], asked.headers["x-sokkan-reason"]) == ("deep", "keyword")
+    assert len(deep.seen) == 1 and deep.seen[0]["body"]["tools"] == TOOLS     # ONE call left the box
+    assert len(ship.seen) == 1 and ship.seen[0]["body"]["model"] == "qwen3.8-27b"
+    assert "x-sokkan-user" not in ship.seen[0]["headers"]
+    assert shiprouter.stats()["counts"] == {"ship:side_call": 1, "deep:keyword": 1}
+
+
+@pytest.mark.parametrize("change,headers", [
+    ({}, {}),                                            # the keyword in the person's words
+    ({"model": "sokkan-deep"}, {}),                      # the session's model is Deep: its side calls are not
+    ({}, {"x-sokkan-tier": "deep"}),
+    ({"tools": None}, {}),                               # no `tools` key at all
+])
+def test_a_side_call_of_the_cli_never_goes_to_deep(box, change, headers):
+    c, ship, deep, mp = box
+    mp.setenv("SOKKAN_ESCALATION_MIN_PROMPT_TOKENS", "5")          # … nor for its size
+    body = {k: v for k, v in {**TITLE["body"], **change}.items() if v is not None}
+    r = c.post(TITLE["path"], json=body, headers={**CLI, **STUDY, **headers})
+    assert r.status_code == 200
+    assert (r.headers["x-sokkan-tier"], r.headers["x-sokkan-reason"]) == ("ship", "side_call")
+    assert deep.seen == [] and len(ship.seen) == 1
+
+
+def test_a_side_call_is_not_sent_to_deep_when_the_local_model_is_down(box):
+    """The conversation falls back to Deep (and that is one escalation); the title of the
+    session is not worth a second one: the CLI gets a readable error, once, and goes on."""
+    c, ship, deep, mp = box
+    mp.setenv("SOKKAN_SHIP_URL", _dead_url())
+    r = c.post(TITLE["path"], json=TITLE["body"], headers={**CLI, **STUDY})
+    assert r.status_code == 503 and r.headers["x-should-retry"] == "false"
+    assert (r.headers["x-sokkan-tier"], r.headers["x-sokkan-reason"]) == ("ship", "side_call")
+    assert deep.seen == []
+    asked = c.post("/v1/messages", json=msg("bonjour", tools=TOOLS), headers={**CLI, **STUDY})
+    assert asked.headers["x-sokkan-reason"] == "ship_down" and len(deep.seen) == 1
+
+
+def test_a_request_without_tools_that_is_not_the_cli_keeps_its_escalation(box):
+    """The assistant of the cockpit talks to the router without tools: a person typed that."""
+    c, ship, deep, _ = box
+    r = c.post("/v1/messages", json=msg("analyse ce contrat /deep"), headers={"anthropic-version": "2023-06-01"})
+    assert (r.headers["x-sokkan-tier"], r.headers["x-sokkan-reason"]) == ("deep", "keyword")
+
+
+def test_a_box_without_local_model_still_serves_its_side_calls(box):
+    """Deep only (no SOKKAN_SHIP_URL — not the appliance profile): there is nowhere else to go."""
+    c, ship, deep, mp = box
+    mp.delenv("SOKKAN_SHIP_URL")
+    r = c.post(TITLE["path"], json=TITLE["body"], headers=CLI)
+    assert r.status_code == 200 and r.headers["x-sokkan-reason"] == "no_local_model" and len(deep.seen) == 1
