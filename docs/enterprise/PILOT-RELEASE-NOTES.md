@@ -1,14 +1,16 @@
 # Pilot candidate — release notes (branch `pilot-integration`)
 
 For whoever decides to cut the release of the HEG-Genève × eSkills pilot, and for whoever
-installs it. **Nothing is released**: this branch is a candidate — no tag, no version bump, not
-merged in `main`, not on GitHub, deployed nowhere. Proposed version: **3.6.0** (a minor: new
-variables, changed defaults); the name is to be chosen (§ 7).
+installs it. **Nothing is released**: this branch is a candidate — no tag, not merged in `main`,
+not on GitHub, deployed nowhere. The version is set on the branch: **3.6.0 « Icebreaker »**
+(a minor: new variables, changed defaults), commit `11182ac` (`VERSION`, dated CHANGELOG, Chart
+`appVersion`).
 
-State of this page: 11.11.2026, commit `1d5813e` for the suite, the upgrade bench and the two
-fixes h and i; the appliance phase of the bench, the journey, `next build` and the mutations
-are those of `8257d42` and were not replayed since. Every figure below was measured on this
-branch; where a thing was not played, the page says so.
+State of this page: 11.11.2026. The whole battery was replayed on **`11182ac`** — the commit that
+sets the version: the suite in one pass, `run.sh all` (T0-T14), the upgrade phase from 3.5.1,
+`tsc`, `next build`, ruff and the four guards (§ 4, first lines of each row). The journeys (local
+model, real gateway) and the mutations are those of earlier commits and were not replayed. Every
+figure below was measured on this branch; where a thing was not played, the page says so.
 
 ## 1. What the candidate holds
 
@@ -94,11 +96,11 @@ mount the documents read-only (`docker-compose.doc-ingest.yml`); review in « No
 
 | | Result |
 |---|---|
-| Test suite, one file per process, Postgres pgvector (throw-away) | **1 574 passed, 0 failed, 67 skipped** (118 files) on `1d5813e` — it was 1 542 / 0 / 68 (116 files) on `8257d42`: + 31 tests (the gateway's refusals 25 + 1, the agent-run work folder 5), and the comparison of the frozen contract with the gateway's checkout now **runs** (it was skipped: no checkout on the build host — played against the checkout it was red, the contract being that of 664a47f). `main` in the first environment: 1 152 passed, 0 failed, 66 skipped (95 files). Skipped: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (9), sandbox / bubblewrap (5), runners (3, no Docker daemon), CLI end-to-end (2), rclone (2), 2 single ones (root ignores directory permissions; no Prometheus to backtest on). The Postgres files ran. **How the figure was obtained**: a new `python:3.12-slim` container (the first environment was gone): a first pass gave 1 546 passed, 1 failed, 74 skipped — the failure (`test_backup_restore`, `pg_restore` 17 of the container against the Postgres 16 server: « unrecognized configuration parameter transaction_timeout ») and 7 of the skips (no `curl`, no `docker` CLI, Node 20 instead of 22) came from that container; the four files concerned were replayed with a Postgres 16 client, curl, the docker CLI and Node 22: all green, which gives the total. Not one process from a single environment, then |
-| ruff · tsc · `next build` | ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean — both replayed on `1d5813e` · `next build` OK on `8257d42` (first load of `/`: 323 kB; the review screen is a lazy chunk), **not** replayed since (two front files changed: a list of codes in `Thread.tsx`, eight sentences in `dict.ts`) |
-| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass (`memory/core` matches CortHeXis v2.1.2; 30 tokens × 2 themes, 333 sentences × 2 languages). The first three replayed on `1d5813e`; `check-corthexis-sync.sh` not replayed (`memory/core` untouched since) |
+| Test suite, one file per process, Postgres pgvector (throw-away) | **1 595 passed, 0 failed, 67 skipped** (118 files, 810 s) on **`11182ac`** (`VERSION` 3.6.0), in ONE pass of ONE new container (`python:3.12-slim` + Postgres 16 client, curl, Node 22, docker CLI; pgvector pg16 next to it; `SOKKAN_CLOUD_SRC` = `sokkan-cloud` 293573d, so the comparison of the frozen contract ran). Same count as on `9212f9a`. Skipped: Helm chart (no `helm` binary), OpenBao (no test server), embedding / rerank service, bubblewrap, runners (no Docker daemon in the container), CLI end-to-end, rclone, Prometheus backtest, root ignoring directory permissions. **History**: 1 574 passed, 0 failed, 67 skipped on `1d5813e` (a total put together from two environments, see the end of this cell) — it was 1 542 / 0 / 68 (116 files) on `8257d42`: + 31 tests (the gateway's refusals 25 + 1, the agent-run work folder 5), and the comparison of the frozen contract with the gateway's checkout now **runs** (it was skipped: no checkout on the build host — played against the checkout it was red, the contract being that of 664a47f). `main` in the first environment: 1 152 passed, 0 failed, 66 skipped (95 files). Skipped: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (9), sandbox / bubblewrap (5), runners (3, no Docker daemon), CLI end-to-end (2), rclone (2), 2 single ones (root ignores directory permissions; no Prometheus to backtest on). The Postgres files ran. **How the figure was obtained**: a new `python:3.12-slim` container (the first environment was gone): a first pass gave 1 546 passed, 1 failed, 74 skipped — the failure (`test_backup_restore`, `pg_restore` 17 of the container against the Postgres 16 server: « unrecognized configuration parameter transaction_timeout ») and 7 of the skips (no `curl`, no `docker` CLI, Node 20 instead of 22) came from that container; the four files concerned were replayed with a Postgres 16 client, curl, the docker CLI and Node 22: all green, which gives the total. Not one process from a single environment, then |
+| ruff · tsc · `next build` | **On `11182ac`**: ruff clean on `backend tests memory scripts` (in the suite's container), `tsc --noEmit` clean and `next build` OK in a new `node:22-bookworm` container on the build host (`npm ci` + both: 62 s; first load of `/`: 323 kB). **Before**: ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean — both replayed on `1d5813e` · `next build` OK on `8257d42` (first load of `/`: 323 kB; the review screen is a lazy chunk), **not** replayed since (two front files changed: a list of codes in `Thread.tsx`, eight sentences in `dict.ts`) |
+| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass on **`11182ac`** (`memory/core` matches CortHeXis v2.1.2, compared with an archive of that tag; 30 tokens × 2 themes, 334 sentences × 2 languages) |
 | Mutations of the integration tests (one guard removed at a time) | 22 of 22 killed: each of the guards a-g removed in turn makes `tests/test_pilot_integration.py` fail (on `8257d42`, not replayed). h: with the six changed files put back as they were, 19 of the 25 tests of `tests/test_gateway_refusals.py` fail. i: the refusal was reproduced on the unchanged code before the fix (a `Write` in `<data>/projects/formation/work` refused as « memory file ») |
-| Appliance bench, Docker-in-Docker, mock model and gateway | T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). **Upgrade phase, replayed on `3.5.1+1d5813e`** (`run.sh upgrade`, a blank machine each time): from **3.4.6** T8 PASS (installer: 17 s, `/api/health` away 3.1 s at most, 538 MB after), T10 PASS (rollback 15 s, 4.1 s away), T9 PASS (`scripts/upgrade.sh`: 3 s, 3.1 s away, 805 files, same tree as the installer's); from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, a switch added to the bench for this) T8 PASS (20 s, 4.1 s away), T10 PASS (15 s, 3.1 s), T9 PASS (4 s, 5.1 s away, same tree). Machine peak 1.2 GB. Both versions carry the number 3.5.1: on the second run old and new are told apart by `/api/version.dist`, `SOKKAN_COMMIT`, `.sokkan-previous` and the files of the newer release, not by the version. The data checked across an upgrade: the access token, one board card, the length of the journal — an instance with months of sessions and a memory was not played. The appliance phase (T1-T7, T11-T14) was **not** replayed on `1d5813e` |
+| Appliance bench, Docker-in-Docker, mock model and gateway | **On `3.6.0+11182ac`, `run.sh all` in one run (461 s, a blank machine): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (build and sign 49 s with a warm build cache, 208-216 s cold; install 18 s; 570 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.7 s; reboot → healthy 19 s; T14: 58 variables; T8 installer 18 s, `/api/health` away 4.1 s; T10 rollback 17 s, 3.1 s away; T9 `scripts/upgrade.sh` 4 s, 4.1 s away, 826 files, same tree). **Then `run.sh upgrade` from 3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, another blank machine, 453 s): T0, T8 (18 s, 4.4 s away), T10 (17 s, 3.1 s), T9 (4 s, 3.0 s away, 826 files) all PASS. **The version number now tells old from new**: `/api/version.version` is asserted 3.4.6 / 3.5.1 before the upgrade and after the rollback, 3.6.0 (`dist` `3.6.0+11182ac`) after the upgrade. Machine peak of the full run: 6 026 MiB — **the 6 GB cap is reached** at the end of the appliance phase (16 sessions left open), host pressure peak 10.10 for a watchdog threshold of 10. A first attempt of `run.sh all`, played while the test suite ran on the same host, was stopped by that watchdog after T12 (host pressure 11; T0-T7 and T12 had passed): replayed alone, it is the run above. Results: `tests/e2e_appliance/results/3.6.0_11182ac*.json`. **Earlier runs**: T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). **Upgrade phase, replayed on `3.5.1+1d5813e`** (`run.sh upgrade`, a blank machine each time): from **3.4.6** T8 PASS (installer: 17 s, `/api/health` away 3.1 s at most, 538 MB after), T10 PASS (rollback 15 s, 4.1 s away), T9 PASS (`scripts/upgrade.sh`: 3 s, 3.1 s away, 805 files, same tree as the installer's); from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, a switch added to the bench for this) T8 PASS (20 s, 4.1 s away), T10 PASS (15 s, 3.1 s), T9 PASS (4 s, 5.1 s away, same tree). Machine peak 1.2 GB. Both versions carry the number 3.5.1: on the second run old and new are told apart by `/api/version.dist`, `SOKKAN_COMMIT`, `.sokkan-previous` and the files of the newer release, not by the version. The data checked across an upgrade: the access token, one board card, the length of the journal — an instance with months of sessions and a memory was not played. The appliance phase (T1-T7, T11-T14) was **not** replayed on `1d5813e` |
 | One journey of Camille on a throw-away instance, real local model (`qwen3.8-27b`, vLLM, 4× B60), study mode on | played once on the fixed code — see below |
 
 **The journey** (11.11.2026, the model otherwise idle, one stream): sign-in with a personal
@@ -219,14 +221,19 @@ Decisions (Nick):
 Technical:
 
 - [ ] `main` has not moved since `6f7fee5` (else: merge `main` into the branch, replay § 4).
-      Checked on 11.11.2026 against the forge: `main` is still `6f7fee5`.
-- [ ] The suite of § 4 green on the commit that will be tagged, with Postgres. Last count:
-      1 574 passed, 0 failed, 67 skipped on `1d5813e` (§ 4 says how it was put together).
-- [x] The upgrade phase T8-T10 replayed on the branch, from 3.4.6 and from 3.5.1: all PASS on
-      `3.5.1+1d5813e` (11.11.2026; `tests/e2e_appliance/results/3.5.1_1d5813e*.json`).
-- [ ] `tests/e2e_appliance/run.sh all` (T0-T14 in one run) on the commit that will be tagged:
-      the appliance phase was last played on `8257d42`, the upgrade phase on `1d5813e`, never
-      both on the same commit — and not with `VERSION` at 3.6.0.
+      Checked again on 11.11.2026 after the battery, against the forge: `main` is still `6f7fee5`
+      — to check once more at the moment of the cut.
+- [x] The suite of § 4 green on the commit that sets the version, with Postgres, in one pass:
+      1 595 passed, 0 failed, 67 skipped on `11182ac` (`VERSION` 3.6.0). Holds for the tag as long
+      as only documentation follows `11182ac` and the merge is a fast-forward (§ 7).
+- [x] The upgrade phase T8-T10 from 3.4.6 and from 3.5.1: all PASS on `3.6.0+11182ac`
+      (11.11.2026; `tests/e2e_appliance/results/3.6.0_11182ac*.json`); the version number tells
+      old from new.
+- [x] `tests/e2e_appliance/run.sh all` (T0-T14 in one run) with `VERSION` at 3.6.0: 16 records,
+      all PASS on `3.6.0+11182ac`. The machine reaches its 6 GB cap at the end of the appliance
+      phase (sessions are never closed — § 5).
+- [x] `tsc --noEmit`, `next build`, ruff and the four guards (`gen-features-doc --check`,
+      `gen-env-doc --check`, `check-simple-tokens.py`, `check-corthexis-sync.sh`) on `11182ac`.
 - [x] The instance knows the gateway's 429 `user_limit_reached` and the new text of the 412
       (`study-quotas` f260ada), in the session and in the simple profile, French and English
       (§ 1, h). To redo if `study-quotas` moves again before it is merged: with the checkout at
@@ -253,10 +260,13 @@ that already exists in the `nokker-beta` Public Cloud project, in a dedicated Ha
 Exoscale has no native registry (only a third-party Marketplace listing, billed on top of the ISV credit).
 
 ```sh
-# 1. in /root/sokkan, once the check-list is done
-git merge --no-ff pilot-integration
-# 2. VERSION → 3.6.0 ; CHANGELOG: « ## Unreleased — 3.6 (…) » → « ## 3.6.0 — <date> — "Icebreaker" »
-#    (one section: the areas stay as sub-headings) ; deploy/helm Chart appVersion → 3.6.0
+# 1. in /root/sokkan (on main), once the check-list is done. FAST-FORWARD: main is an ancestor of
+#    the branch, so main lands on the very commits that were verified (a --no-ff merge would tag
+#    a commit nobody tested). If it refuses, main has moved: merge main into the branch, replay § 4.
+git fetch origin && git merge --ff-only origin/pilot-integration
+# 2. nothing to do: VERSION, the dated CHANGELOG section and the Chart appVersion are on the branch
+#    since 11182ac. If the cut is not made on 2026-11-11, fix the date of the section first
+#    (cut-release.sh commits VERSION and CHANGELOG.md if they differ, then tags).
 # 3. from ninabot-pro — a minor needs the two banners
 infra/sokkan/cut-release.sh 3.6.0 --dry-run
 infra/sokkan/cut-release.sh 3.6.0 --pastille-fr "3.6 « Icebreaker » — …" --pastille-en "3.6 “Icebreaker” — …"
