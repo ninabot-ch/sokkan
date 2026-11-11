@@ -28,8 +28,9 @@ forked. The only difference is *where the Claude Code CLI of a session executes*
 ```
 
 * **The cockpit still drives every session with the Agent SDK** — permissions (Allow / Deny),
-  questions, memory-recall hooks, budgets, event translation do not change. `agentchat` asks
-  `runner.client_args()` for the SDK client's options and transport: `local` → no transport,
+  questions, memory-recall hooks, budgets, event translation do not change. The engine's
+  adapter (`backend/harness/legacy.py`, `client_args()`) builds the SDK client's options and
+  transport for the instance's runner: `local` → no transport,
   the SDK spawns the CLI in the api as before; `kubernetes` / `docker` → a `RunnerTransport`
   that carries the same stream-json protocol to the session's container.
 * **Session pod** = the session image ([`docker/session.Dockerfile`](../../docker/session.Dockerfile):

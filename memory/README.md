@@ -154,8 +154,9 @@ switch (`core.switch`, bench before switch). By hand: `python -m core.indexer [-
 through the cockpit API.
 
 **Recall at every turn** (`core/recall.py`). SOKKAN installs two hooks in every session it
-starts: in-process callbacks for chat sessions (`backend/memrecall.py`, Agent SDK
-`hooks=`), command hooks through `claude --settings` for terminal sessions
+starts: in-process callbacks for chat sessions (the content comes from
+`backend/memrecall.py`, the engine's adapter delivers it — `backend/harness/legacy.py`,
+Agent SDK `hooks=`), command hooks through `claude --settings` for terminal sessions
 (`memory/recall_hook.py`, which posts to the warm backend, `POST /api/memory/hook`,
 token file `data/claude-hooks/recall-token`, and falls back to an in-process recall).
 
