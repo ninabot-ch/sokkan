@@ -34,6 +34,7 @@ branch; where a thing was not played, the page says so.
 | g | **On an appliance the study was never read and never announced**: sessions go through the local router, which sent neither `x-sokkan-study` nor the pseudonym, and `GET /usage` was only asked in « included » mode — the gateway would have answered 412 to every Deep request of a study tenant | The api reads `GET /usage` on the Deep gateway; sessions send the study and the pseudonym; the router forwards both (never an address) and hands the refusals 410 / 412 / 429-per-person back as the gateway worded them, with `x-should-retry: false` |
 | h | The instance knew the gateway of `study-quotas` 664a47f; its head f260ada changed the text of the 412 and added a 429 `user_limit_reached` (too many distinct people today, `max_users_day`) that the local router turned into « wait a minute and send again ». In the simple profile every refusal read « a technical problem, you can send your request again » | The four study refusals are handed back once, never retried; the session says one sentence with the gateway's code (no variable name in it, no generic 429 sentence on top); the simple profile has a notice per refusal, French and English. Tests: `tests/test_gateway_refusals.py`, written from what the gateway **answered** (its app played on a throw-away database), not from the instance's code |
 | i | Since 3.2 an agent run (Crew) could not write a file in the work folder of a project other than `default` (`agentchat._in_memory_dirs` matched the whole `<data>/projects` tree) | It writes in `<data>/projects/<its project>/work`; the memory directories, the quarantine and the other projects stay closed (`tests/test_agent_run_project_work.py`) |
+| j | In the simple profile a later message that begins with « / » (« /deep Propose-moi… », the escalation keyword first) was a slash command for the CLI: the person read « Unknown command: /deep » and nothing went to a model (found on the journey against the real gateway) | The brief comes first for such a message; the person's words stay whole and the router finds the keyword (`tests/test_simple_profile.py`) |
 
 ## 2. Features and what each needs
 
@@ -131,7 +132,12 @@ is a line of the journal under the reviewer's name. Captures: `docs/ui/pilot-int
 
 Of the integration:
 
-* **Never played against the production gateway.** The contract (`GET /usage`, headers, 410 /
+* **Played once against the production gateway** (11.11.2026, test tenant, `b2ce8bd`): the study
+  read from `GET /usage`, a Deep escalation answered, 412, 429 `user_daily_cap` and 429
+  `user_limit_reached` seen on screen in French and English, handed back once by the local router
+  — captures, exact texts, request counts and the defects found:
+  `docs/ui/pilot-integration/passerelle-reelle/README.md`. 410 `study_expired` was not played.
+  Before that journey: the contract (`GET /usage`, headers, 410 /
   412 / the two 429) is tested against the gateway's own documentation, its source text and
   the bodies its app answered when played in-process on a throw-away database, head f260ada
   (`tests/fixtures/gateway_contract/`, compared with a `sokkan-cloud` checkout when one is at
@@ -139,10 +145,18 @@ Of the integration:
   real socket. The branch `study-quotas` of `sokkan-cloud` is itself not deployed.
 * **No retry guard without the local router.** The gateway sends no `x-should-retry` on its
   refusals; the router of the appliance adds it. An instance whose sessions call the gateway
-  directly would let the CLI retry the two 429 before the sentence appears — not the pilot's
-  setting, and not played.
-* **The four refusal notices of the simple profile were not looked at in a browser** (tests
-  on the events and on the two dictionaries, `tsc` clean; no capture).
+  directly lets the CLI retry the two 429 before the sentence appears — not the pilot's
+  setting; played once on the real gateway: 177 s of spinner before the notice. The fix is the
+  gateway's (send the header on its study refusals).
+* **Three of the four refusal notices of the simple profile were looked at in a browser**, on
+  the real gateway (see above); the fourth (`study_expired`) has tests only.
+* **A person's token ceiling must be sized on a whole work**: one request of a session is
+  ≈ 29 000 tokens and a short work 200 000; with `user_tokens_day` 20 000 the gateway serves one
+  request per person and per day.
+* **The session-title call of the CLI is escalated with the first message**: « /deep » in the
+  first message of a work counts two Deep escalations of the person's day.
+* **After a restart of the api a work reopens with an empty thread** (the deliverable and its
+  validation are kept; seen on the throw-away instance, not investigated).
 * **Other inference errors in the simple profile** (402, tenant-wide 429, unreachable) still
   read « a technical problem, you can send your request again », the readable sentence being
   under « technical detail ». Unchanged here.
@@ -209,7 +223,9 @@ Technical:
       goes red.
 - [x] The agent-run defect `agentchat._in_memory_dirs` (§ 1, i): reproduced, fixed, tested.
 - [ ] One journey on the delivered box, with the real gateway and a test tenant: a Deep
-      escalation answered, then the three refusals seen in words.
+      escalation answered, then the three refusals seen in words. Played on 11.11.2026 on a
+      throw-away instance of `b2ce8bd` (not the delivered box, no installer, no HTTPS):
+      `docs/ui/pilot-integration/passerelle-reelle/README.md`.
 - [ ] `restore.sh` of the instances already running (internal, demo): they still have the
       script that breaks on a started machine — fixed in this release, to roll out.
 - [ ] `sokkan-cloud/site/site/install.sh` replaced by `scripts/install.sh` of this release.
