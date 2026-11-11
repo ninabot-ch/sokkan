@@ -1040,14 +1040,15 @@ def upgrade() -> None:
         t0 = time.time()
         r = sh(f"sh scripts/upgrade.sh '{NEW}'", cwd=d, timeout=5400)
         dur = time.time() - t0
-        wait_health(1500, NEW)
-        time.sleep(3)
-        stop.set()
-        th.join()
+        try:
+            wait_health(600, NEW)
+        finally:
+            stop.set()
+            th.join()
         (WORK / "upgrade-B.log").write_text(r.stdout + "\n--- stderr\n" + r.stderr)
         assert r.returncode == 0, f"upgrade rc={r.returncode}: {(r.stderr or r.stdout)[-500:]}"
         v = http(BASE + "/api/version")[1]
-        assert v["version"] == NEW.split("+")[0], v
+        assert v["version"] == NEW.split("+")[0] and v["dist"] == NEW, v
         check_kept(ctx["tok"], ctx["before"])
         a, b = ctx.get("tree_A") or {}, tree_of(d)
         diff = sorted(set(a) ^ set(b)) + sorted(k for k in set(a) & set(b) if a[k] != b[k])

@@ -77,7 +77,13 @@ if [ "$IMAGES" = 1 ] && ! $DC image inspect "sokkan-api:$ITAG" >/dev/null 2>&1; 
 fi
 grep -v -e '^SOKKAN_VERSION=' -e '^COMPOSE_FILE=' -e '^SOKKAN_COMMIT=' -e '^SOKKAN_IMAGE_TAG=' .env > .env.tmp || true
 printf 'SOKKAN_VERSION=%s\n' "$VER" >> .env.tmp
-case "$VER" in *+*) printf 'SOKKAN_COMMIT=%s\n' "${VER#*+}" >> .env.tmp ;; esac
+# SOKKAN_COMMIT (build arg of the image, read by /api/version) is kept up to date by the
+# scripts of 3.6+ only: for an older target the line is REMOVED — left behind, the next upgrade
+# run by that older release's own script would build the new version with this old commit
+# (seen on the test bench: /api/version answered 3.5.1+<commit of 3.4.6>).
+if [ -f scripts/verify-release.sh ]; then
+  case "$VER" in *+*) printf 'SOKKAN_COMMIT=%s\n' "${VER#*+}" >> .env.tmp ;; esac
+fi
 [ -n "$KEEP" ] && [ "$KEEP" != "docker-compose.yml" ] && printf 'COMPOSE_FILE=%s\n' "$KEEP" >> .env.tmp
 [ "$IMAGES" = 1 ] && printf 'SOKKAN_IMAGE_TAG=%s\n' "$ITAG" >> .env.tmp
 cat .env.tmp > .env && rm -f .env.tmp

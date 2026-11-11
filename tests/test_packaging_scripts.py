@@ -187,7 +187,9 @@ def test_rollback_without_argument_goes_back_to_the_previous_version(world):
     r = _sh(d / "scripts" / "rollback.sh", cwd=d, env=env)
     assert r.returncode == 0, r.stderr + r.stdout
     e = _env(d)
-    assert e["SOKKAN_VERSION"] == V_OLD and e["SOKKAN_COMMIT"] == "3ea74f5"
+    # an older release does not maintain SOKKAN_COMMIT: the line must not survive the rollback
+    # (its own upgrade.sh would later build the next version with this stale commit)
+    assert e["SOKKAN_VERSION"] == V_OLD and "SOKKAN_COMMIT" not in e
     assert "# 3.4.6" in (d / "docker-compose.yml").read_text()
     assert (d / ".sokkan-previous").read_text().strip() == V_NEW     # and forward again is one command
     assert not (d / "backend" / "only_3_6_0.py").exists()
