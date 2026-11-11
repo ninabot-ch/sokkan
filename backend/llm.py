@@ -184,10 +184,22 @@ def session_env(user_email: str = "") -> dict:
         tier = c.get("model") or DEFAULT_INCLUDED_MODEL
         env["ANTHROPIC_MODEL"] = tier
         env["ANTHROPIC_SMALL_FAST_MODEL"] = c.get("small_model") or tier
-        if user_email:
-            env["ANTHROPIC_CUSTOM_HEADERS"] = f"x-sokkan-user: {user_email}"
+        hdrs = identity_headers(user_email)
+        if hdrs:  # one `Name: value` per line (Claude Code's format for several headers)
+            env["ANTHROPIC_CUSTOM_HEADERS"] = "\n".join(f"{k}: {v}" for k, v in hdrs.items())
         return env
     return {}
+
+
+def identity_headers(user_email: str = "", prefix: str = "") -> dict[str, str]:
+    """Who an inference call is attributed to on the gateway: `x-sokkan-user` (per-user
+    metering). In study mode (feature `study_mode`, study active) the PSEUDONYM replaces the
+    e-mail and `x-sokkan-study` names the study — the e-mail never leaves the instance."""
+    try:
+        import study
+        return study.gateway_headers(user_email, prefix)
+    except Exception:  # noqa: BLE001 — never an e-mail by accident: no header at all
+        return {}
 
 
 def tier_catalog() -> list[dict]:
@@ -235,16 +247,17 @@ def set_tier(tier: str) -> None:
     save(c)
 
 
-def usage() -> dict | None:
+def usage(headers: dict | None = None) -> dict | None:
     """En mode included : usage/quota du jour depuis la passerelle (token instance).
-    None si pas en mode included (BYOK = aucun quota côté NINABOT)."""
+    None si pas en mode included (BYOK = aucun quota côté NINABOT). `headers` : identity
+    headers (x-sokkan-user) — the gateway then also answers that person's own consumption."""
     c = load()
     if c.get("mode") != "included" or not (c.get("base_url") and c.get("auth_token")):
         return None
     import httpx
     try:
         r = httpx.get(f"{c['base_url'].rstrip('/')}/usage",
-                      headers={"x-api-key": c["auth_token"]}, timeout=8)
+                      headers={**(headers or {}), "x-api-key": c["auth_token"]}, timeout=8)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError:
