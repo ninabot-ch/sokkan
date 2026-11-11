@@ -1,25 +1,26 @@
-# Pilot release — release notes (branch `pilot-integration`)
+# Pilot release — release notes (branch `release-3.6.2`)
 
 For whoever decides to cut the release of the pilot (run with a research partner), and for whoever
 installs it. **3.6.0 « Icebreaker » is released**: 2026-11-11, commit `fee1818`, tag `v3.6.0`,
-dist `3.6.0+fee1818` (a minor: new variables, changed defaults). **3.6.1 is a candidate**: set on
-this branch by `ea3603c` (`VERSION`, dated CHANGELOG, Chart `appVersion`) — no tag, not merged in
-`main`, deployed nowhere. It is the same product as 3.6.0: the test suite fixed for one process
-on SQLite, and neutral demonstration names (CHANGELOG, section 3.6.1). Outside tests and
-documentation, three files differ between `v3.6.0` and `ea3603c`: `VERSION`, the Chart's
-`appVersion` and one comment in `backend/features.py`.
+dist `3.6.0+fee1818` (a minor: new variables, changed defaults). **3.6.1 is released and signed**:
+2026-11-11, commit `f78ae68`, tag `v3.6.1`, dist `3.6.1+f78ae68`, the tarball served with its
+`.sha256` and its `.sig`. It is the same product as 3.6.0: the test suite fixed for one process on
+SQLite, and neutral demonstration names (CHANGELOG, section 3.6.1). **3.6.2 is a candidate**: set
+on this branch by `05cf279` (`VERSION`, dated CHANGELOG, Chart `appVersion`) — no tag, not merged
+in `main`, deployed nowhere. Over 3.6.1 it brings two things (CHANGELOG, section 3.6.2): the
+feature « Export our work » (`work_export`: off by default, on in the appliance profile) and a fix
+of `scripts/rollback.sh`, which left a top-level file of the newer release in the tree.
 
-State of this page: 11.11.2026. On **`3.6.1+ea3603c`** the appliance bench was replayed: `run.sh
-all` (T0-T14) and the upgrade phase from 3.4.6, from 3.5.1 and from 3.6.0 as published (§ 4, first
-lines of the bench row). The test suite on `ea3603c` was not replayed for this page: its figures
-are those reported by the work that prepared 3.6.1 (§ 4). `tsc`, `next build`, ruff and the four
-guards are those of `11182ac` (3.6.0); the journeys (local model, real gateway) and the mutations
-are those of earlier commits. Where a thing was not played, the page says so.
+State of this page: 11.11.2026. On **`3.6.2+05cf279`** everything § 4 marks « 3.6.2 » was
+replayed: the test suite twice (Postgres, one file per process; then as the public CI plays it),
+ruff, `tsc`, `next build`, the four guards, `run.sh all` (T0-T14) and the upgrade phase from
+3.5.1, from 3.6.0 and from 3.6.1 as published. The journeys (local model, real gateway) and the
+mutations are those of earlier commits. Where a thing was not played, the page says so.
 
 ## 1. What the candidate holds
 
 v3.5.1 (`6f7fee5`) plus four lots, merged in this order, plus what holds between them — released as
-3.6.0; 3.6.1 adds nothing to the product (see the head of this page).
+3.6.0; 3.6.1 adds nothing to the product; 3.6.2 adds the two things under the tables.
 
 | Lot (branch) | What it brings | Its own page |
 |---|---|---|
@@ -45,6 +46,13 @@ v3.5.1 (`6f7fee5`) plus four lots, merged in this order, plus what holds between
 | k | The CLI's session-title call carries the person's first message: with the escalation keyword in it (« … /deep ») the local router sent it to Deep too, and ONE question counted TWO Deep escalations of the person's day on the gateway (`deep_user_day` 2, found on the journey against the real gateway) | A call of the CLI that declares no tool (title of the session, summaries) is a side call: it stays on the local model whatever it carries or asks for, and is not sent to Deep when the local model is down (`backend/shiprouter.side_call`; `tests/test_shiprouter.py`, input = the call the bundled CLI really sent, `tests/fixtures/cli_calls/`). Replayed with the real CLI through the router: 2 Deep calls before, 1 after |
 | l | On an appliance the notice of a person's ceiling (429 `user_daily_cap`) said « tomorrow », although only the stronger model is closed and the model of the box remains | Its own sentence on an appliance, French and English (`no.user_daily_cap_local`; `study.local_model_remains`): carry on right away with the usual model, the stronger one opens again tomorrow (`tests/test_gateway_refusals.py`) |
 
+**On top, in 3.6.2:**
+
+| | What was missing | Now |
+|---|---|---|
+| m | An organisation had no way to take with it what it built on the instance: a backup restores an instance, nobody reads it | « Export our work » (feature `work_export`): an instance admin downloads one zip readable without SOKKAN — memory notes, tools (Crew agents, project instructions, what the workspace holds as skills, commands and sub-agents, the declared connectors without any secret), deliverables, a README in English and French, a manifest with the SHA-256 of every file. `GET /api/admin/work-export`; Setup › Organization, and Settings › Our work in the simple profile (`docs/enterprise/OPERATIONS.md` § 5.2; `tests/test_work_export.py`) |
+| n | After a rollback from 3.6 to 3.5.1 or 3.4.6, `docker-compose.doc-ingest.yml` (a top-level file new in 3.6) stayed in the tree, and in `COMPOSE_FILE` when the instance named it | `scripts/rollback.sh` knows every top-level entry a release has ever shipped and removes the ones the target release does not have. A name outside that list and outside the target release is never removed; never removed either: `.env` and any `.env.*`, `docker-compose.override.yml`, the workspace, a local data folder (`SOKKAN_DATA_DIR`), `.git`, the data volumes. A test fails when the repository gains a top-level entry the script does not know (`tests/test_packaging_scripts.py`); T10 of the appliance bench fails on any file of the newer release left after a rollback |
+
 ## 2. Features and what each needs
 
 | Feature | Status | Default | Requires | Switch |
@@ -52,6 +60,7 @@ v3.5.1 (`6f7fee5`) plus four lots, merged in this order, plus what holds between
 | `documents` | beta | off | — | `SOKKAN_FEATURE_DOCUMENTS` |
 | `simple_profile` | beta | off | `documents` | `SOKKAN_FEATURE_SIMPLE_PROFILE` (+ `SOKKAN_PROFILE_DEFAULT`, `SOKKAN_PROFILE_LOCKED`) |
 | `study_mode` | beta | off | — ; the journal of validations it exports is always on | `SOKKAN_FEATURE_STUDY_MODE` |
+| `work_export` | beta | off (on in the appliance profile) | — ; instance admins only | `SOKKAN_FEATURE_WORK_EXPORT` |
 | `doc_ingest` | experimental | off | `agents`, `memory_quarantine` (an invariant), a **local** model endpoint, the extractors in the image | `SOKKAN_FEATURE_DOC_INGEST` |
 | named local accounts | — (not a feature: local sign-in) | — | `SOKKAN_AUTH_MODE=local`; one project per person needs `multi_project` and `SOKKAN_DEFAULT_ROLE=none` | `scripts/appliance/accounts.sh` |
 | local router Ship → Deep | — (compose profile `appliance`) | — | `SOKKAN_SHIP_URL`; Deep needs `SOKKAN_DEEP_URL` + `SOKKAN_DEEP_TOKEN` | `COMPOSE_PROFILES=appliance` |
@@ -75,6 +84,7 @@ SOKKAN_FEATURE_DOCUMENTS=1
 SOKKAN_FEATURE_SIMPLE_PROFILE=1
 SOKKAN_PROFILE_DEFAULT=simple
 SOKKAN_FEATURE_STUDY_MODE=1       # inert until a study is active
+SOKKAN_FEATURE_WORK_EXPORT=1      # « Export our work », instance admins only (3.6.2)
 SOKKAN_FEATURE_DOC_INGEST=1       # reads nothing until a source is declared on the host
 SOKKAN_DOC_INGEST_LLM_URL=http://host.docker.internal:8004/v1
 SOKKAN_DOC_INGEST_LLM_MODEL=qwen3.8-27b
@@ -101,11 +111,11 @@ mount the documents read-only (`docker-compose.doc-ingest.yml`); review in « No
 
 | | Result |
 |---|---|
-| Test suite, one file per process, Postgres pgvector (throw-away) | **On `ea3603c` (3.6.1), reported by the work that prepared it and not replayed for this page**: 1 595 passed, 0 failed with Postgres, one file per process; 1 485 passed, 0 failed, 181 skipped as the public CI plays it (ONE `pytest -q` process, SQLite, not root, no gateway checkout). On 3.6.0 the public CI was red on three tests that our passes — one file per process — did not see: defects of the tests, fixed in 3.6.1 (CHANGELOG). **On 3.6.0**: **1 595 passed, 0 failed, 67 skipped** (118 files, 810 s) on **`11182ac`** (`VERSION` 3.6.0), in ONE pass of ONE new container (`python:3.12-slim` + Postgres 16 client, curl, Node 22, docker CLI; pgvector pg16 next to it; `SOKKAN_CLOUD_SRC` = `sokkan-cloud` 293573d, so the comparison of the frozen contract ran). Same count as on `9212f9a`. Skipped: Helm chart (no `helm` binary), OpenBao (no test server), embedding / rerank service, bubblewrap, runners (no Docker daemon in the container), CLI end-to-end, rclone, Prometheus backtest, root ignoring directory permissions. **History**: 1 574 passed, 0 failed, 67 skipped on `1d5813e` (a total put together from two environments, see the end of this cell) — it was 1 542 / 0 / 68 (116 files) on `8257d42`: + 31 tests (the gateway's refusals 25 + 1, the agent-run work folder 5), and the comparison of the frozen contract with the gateway's checkout now **runs** (it was skipped: no checkout on the build host — played against the checkout it was red, the contract being that of 664a47f). `main` in the first environment: 1 152 passed, 0 failed, 66 skipped (95 files). Skipped: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (9), sandbox / bubblewrap (5), runners (3, no Docker daemon), CLI end-to-end (2), rclone (2), 2 single ones (root ignores directory permissions; no Prometheus to backtest on). The Postgres files ran. **How the figure was obtained**: a new `python:3.12-slim` container (the first environment was gone): a first pass gave 1 546 passed, 1 failed, 74 skipped — the failure (`test_backup_restore`, `pg_restore` 17 of the container against the Postgres 16 server: « unrecognized configuration parameter transaction_timeout ») and 7 of the skips (no `curl`, no `docker` CLI, Node 20 instead of 22) came from that container; the four files concerned were replayed with a Postgres 16 client, curl, the docker CLI and Node 22: all green, which gives the total. Not one process from a single environment, then |
-| ruff · tsc · `next build` | **On `11182ac`**: ruff clean on `backend tests memory scripts` (in the suite's container), `tsc --noEmit` clean and `next build` OK in a new `node:22-bookworm` container on the build host (`npm ci` + both: 62 s; first load of `/`: 323 kB). **Before**: ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean — both replayed on `1d5813e` · `next build` OK on `8257d42` (first load of `/`: 323 kB; the review screen is a lazy chunk), **not** replayed since (two front files changed: a list of codes in `Thread.tsx`, eight sentences in `dict.ts`) |
-| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass on **`11182ac`** (`memory/core` matches CortHeXis v2.1.2, compared with an archive of that tag; 30 tokens × 2 themes, 334 sentences × 2 languages) |
+| Test suite, one file per process, Postgres pgvector (throw-away) | **On `05cf279` (3.6.2), both replayed for this page**: **1 618 passed, 0 failed, 67 skipped** (119 files, 674 s) with Postgres, one file per process, in ONE pass of ONE new container (`python:3.12-slim` + Postgres 16 client, curl, Node 22, docker CLI; pgvector pg16 next to it; a gateway checkout at hand, so the comparison of the frozen contract ran); **1 507 passed, 0 failed, 182 skipped** (420 s) as the public CI plays it (ONE `pytest -q` process, SQLite, not root, no gateway checkout). + 23 tests over 3.6.1: « Export our work » (20, one of them Postgres only) and the rollback (3). Skipped with Postgres: the same reasons as on 3.6.0 (below). **On `ea3603c` (3.6.1), reported by the work that prepared it and not replayed for this page**: 1 595 passed, 0 failed with Postgres, one file per process; 1 485 passed, 0 failed, 181 skipped as the public CI plays it (ONE `pytest -q` process, SQLite, not root, no gateway checkout). On 3.6.0 the public CI was red on three tests that our passes — one file per process — did not see: defects of the tests, fixed in 3.6.1 (CHANGELOG). **On 3.6.0**: **1 595 passed, 0 failed, 67 skipped** (118 files, 810 s) on **`11182ac`** (`VERSION` 3.6.0), in ONE pass of ONE new container (`python:3.12-slim` + Postgres 16 client, curl, Node 22, docker CLI; pgvector pg16 next to it; `SOKKAN_CLOUD_SRC` = `sokkan-cloud` 293573d, so the comparison of the frozen contract ran). Same count as on `9212f9a`. Skipped: Helm chart (no `helm` binary), OpenBao (no test server), embedding / rerank service, bubblewrap, runners (no Docker daemon in the container), CLI end-to-end, rclone, Prometheus backtest, root ignoring directory permissions. **History**: 1 574 passed, 0 failed, 67 skipped on `1d5813e` (a total put together from two environments, see the end of this cell) — it was 1 542 / 0 / 68 (116 files) on `8257d42`: + 31 tests (the gateway's refusals 25 + 1, the agent-run work folder 5), and the comparison of the frozen contract with the gateway's checkout now **runs** (it was skipped: no checkout on the build host — played against the checkout it was red, the contract being that of 664a47f). `main` in the first environment: 1 152 passed, 0 failed, 66 skipped (95 files). Skipped: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (9), sandbox / bubblewrap (5), runners (3, no Docker daemon), CLI end-to-end (2), rclone (2), 2 single ones (root ignores directory permissions; no Prometheus to backtest on). The Postgres files ran. **How the figure was obtained**: a new `python:3.12-slim` container (the first environment was gone): a first pass gave 1 546 passed, 1 failed, 74 skipped — the failure (`test_backup_restore`, `pg_restore` 17 of the container against the Postgres 16 server: « unrecognized configuration parameter transaction_timeout ») and 7 of the skips (no `curl`, no `docker` CLI, Node 20 instead of 22) came from that container; the four files concerned were replayed with a Postgres 16 client, curl, the docker CLI and Node 22: all green, which gives the total. Not one process from a single environment, then |
+| ruff · tsc · `next build` | **On `05cf279` (3.6.2)**: ruff clean on `backend tests memory scripts` (in the suite's container) and on `tests/e2e_appliance/`; `tsc --noEmit` clean and `next build` OK in a new `node:22-bookworm` container on the build host (`npm ci` + both: 57 s; first load of `/`: 323 kB). **On `11182ac`**: ruff clean on `backend tests memory scripts` (in the suite's container), `tsc --noEmit` clean and `next build` OK in a new `node:22-bookworm` container on the build host (`npm ci` + both: 62 s; first load of `/`: 323 kB). **Before**: ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean — both replayed on `1d5813e` · `next build` OK on `8257d42` (first load of `/`: 323 kB; the review screen is a lazy chunk), **not** replayed since (two front files changed: a list of codes in `Thread.tsx`, eight sentences in `dict.ts`) |
+| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass on **`05cf279`** (`memory/core` matches CortHeXis v2.1.2, compared with a checkout of that tag; 30 tokens × 2 themes, 337 sentences × 2 languages). Before: all four pass on **`11182ac`** (`memory/core` matches CortHeXis v2.1.2, compared with an archive of that tag; 30 tokens × 2 themes, 334 sentences × 2 languages) |
 | Mutations of the integration tests (one guard removed at a time) | 22 of 22 killed: each of the guards a-g removed in turn makes `tests/test_pilot_integration.py` fail (on `8257d42`, not replayed). h: with the six changed files put back as they were, 19 of the 25 tests of `tests/test_gateway_refusals.py` fail. i: the refusal was reproduced on the unchanged code before the fix (a `Write` in `<data>/projects/formation/work` refused as « memory file ») |
-| Appliance bench, Docker-in-Docker, mock model and gateway | **On `3.6.1+ea3603c`, `run.sh all` in one run (490 s, a blank machine, `E2E_MEM=7g E2E_SWAP=7g` — see the end of this paragraph): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (build and sign 54 s with a warm build cache, 191-196 s cold; install 28 s; 566 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 4.3 s; reboot → healthy 19 s; T14: 58 variables; T8 installer 18 s, `/api/health` away 3.1 s; T10 rollback 16 s, 3.1 s away; T9 `scripts/upgrade.sh` 4 s, 3.1 s away, 819 files, same tree). **Then `run.sh upgrade`, a blank machine each time, default 6 GB**: from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, 409 s) T8 (17 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (3 s, 3.1 s away) all PASS; from **3.6.0 as published** (`E2E_OLD=3.6.0+fee1818`, the tarball of `sokkan.ch/dist`, 301 s) T8 (16 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (7 s, 4.1 s away) all PASS, `/api/version.version` asserted 3.6.0 before the upgrade and after the rollback, 3.6.1 after the upgrade; from **3.4.6** replayed alone (442 s) T8 (19 s, 4.2 s away), T10 (18 s, 3.1 s), T9 (4 s, 3.2 s away) all PASS. 819 files and the same tree by both entries on the three paths; machine peak 821-1 083 MiB. The 3.6.0 instance of the bench is a community install (the published installer, a build on the machine): the upgrade of an **appliance-profile** install of 3.6.0 (pinned, prebuilt signed images) was **not** played. **The check of T10 changed after `ea3603c`** (bench only): « `scripts/verify-release.sh` is gone after the rollback » cannot hold from 3.6.0, which carries that file; the two tarballs are now compared (`tests/e2e_appliance/results/README.md`). It measured that after a rollback from 3.6.1 to 3.4.6 or 3.5.1 one top-level file new in 3.6, `docker-compose.doc-ingest.yml`, stays in the tree (§ 5); nothing stays after a rollback to 3.6.0. **Memory**: with the default cap (6 GB + 1 GB of swap) `run.sh all` was stopped twice by the host watchdog, both times after T12, during T14, the machine at its cap (6 039 and 6 043 MiB) and the host pressure at 11 then 12 for a threshold of 10; T0-T7 and T12 had passed. The host's swap was found full right after each stop; the cause was not established. The run kept was played with 7 GB and no swap, the threshold unchanged: machine peak **6 829 MiB**, host pressure peak 0.32 — the appliance phase, with its 16 sessions left open, needs more than 6 GB of memory when it cannot swap. Results: `tests/e2e_appliance/results/3.6.1_ea3603c*.json`. **On `3.6.0+11182ac`**, `run.sh all` in one run (461 s, a blank machine): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (build and sign 49 s with a warm build cache, 208-216 s cold; install 18 s; 570 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.7 s; reboot → healthy 19 s; T14: 58 variables; T8 installer 18 s, `/api/health` away 4.1 s; T10 rollback 17 s, 3.1 s away; T9 `scripts/upgrade.sh` 4 s, 4.1 s away, 826 files, same tree). **Then `run.sh upgrade` from 3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, another blank machine, 453 s): T0, T8 (18 s, 4.4 s away), T10 (17 s, 3.1 s), T9 (4 s, 3.0 s away, 826 files) all PASS. **The version number now tells old from new**: `/api/version.version` is asserted 3.4.6 / 3.5.1 before the upgrade and after the rollback, 3.6.0 (`dist` `3.6.0+11182ac`) after the upgrade. Machine peak of the full run: 6 026 MiB — **the 6 GB cap is reached** at the end of the appliance phase (16 sessions left open), host pressure peak 10.10 for a watchdog threshold of 10. A first attempt of `run.sh all`, played while the test suite ran on the same host, was stopped by that watchdog after T12 (host pressure 11; T0-T7 and T12 had passed): replayed alone, it is the run above. Results: `tests/e2e_appliance/results/3.6.0_11182ac*.json`. **Earlier runs**: T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). **Upgrade phase, replayed on `3.5.1+1d5813e`** (`run.sh upgrade`, a blank machine each time): from **3.4.6** T8 PASS (installer: 17 s, `/api/health` away 3.1 s at most, 538 MB after), T10 PASS (rollback 15 s, 4.1 s away), T9 PASS (`scripts/upgrade.sh`: 3 s, 3.1 s away, 805 files, same tree as the installer's); from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, a switch added to the bench for this) T8 PASS (20 s, 4.1 s away), T10 PASS (15 s, 3.1 s), T9 PASS (4 s, 5.1 s away, same tree). Machine peak 1.2 GB. Both versions carry the number 3.5.1: on the second run old and new are told apart by `/api/version.dist`, `SOKKAN_COMMIT`, `.sokkan-previous` and the files of the newer release, not by the version. The data checked across an upgrade: the access token, one board card, the length of the journal — an instance with months of sessions and a memory was not played. The appliance phase (T1-T7, T11-T14) was **not** replayed on `1d5813e` |
+| Appliance bench, Docker-in-Docker, mock model and gateway | **On `3.6.2+05cf279`, `run.sh all` in one run (584 s, a blank machine, `E2E_MEM=7g E2E_SWAP=7g`, watchdog threshold unchanged): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (cold build and sign 195 s; install 22 s; 582 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.6 s; reboot → healthy 18 s; T14: 59 variables; T8 installer 17 s, `/api/health` away 4.1 s; T10 rollback 15 s, 3.3 s away; T9 `scripts/upgrade.sh` 3 s, 3.1 s away, 827 files, same tree; machine peak 6 868 MiB, host pressure peak 0.18). **« Export our work » on the appliance profile** (T14): the feature is on and named by `SOKKAN_FEATURE_WORK_EXPORT`, `GET /api/admin/work-export` answers 200 to the instance's admin with a zip that holds `README.md` and `manifest.json` (5 files: nothing had been built on that instance), 403 to a person who is not an admin. **Then `run.sh upgrade`, a blank machine each time, default 6 GB**: from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, 412 s) T8 (17 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (3 s, 3.1 s away); from **3.6.0 as published** (`E2E_OLD=3.6.0+fee1818`, 354 s) T8 (16 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (7 s, 3.2 s away); from **3.6.1 as published** (`E2E_OLD=3.6.1+f78ae68`, the tarball of `sokkan.ch/dist`, SHA-256 equal to the published one, 358 s) T8 (18 s, 3.1 s away), T10 (15 s, 4.2 s), T9 (7 s, 4.1 s away) — all PASS, 827 files and the same tree by both entries on the four paths, machine peak 848-1 075 MiB. **The rollback leaves nothing** (T10 now fails on any file of the newer release, at the top level too): of the files that only 3.6.2 has — 308 against 3.4.6, 279 against 3.5.1, 10 against 3.6.0, 4 against 3.6.1 — none remains after `scripts/rollback.sh`; `docker-compose.doc-ingest.yml` is gone after the rollback to 3.4.6 and to 3.5.1, where 3.6.1 left it. The instances of the upgrade phase are community installs: the upgrade of an **appliance-profile** install (pinned, prebuilt signed images) was **not** played, nor a rollback with `COMPOSE_FILE` naming the doc-ingest file other than in `tests/test_packaging_scripts.py` (stub Docker). A first `run.sh all` failed T14 on `SOKKAN_HEARTBEAT_URL`: it reached T14 55 s after the install, and the first heartbeat leaves 60 s after the api starts (it arrived seconds later — the check of the heartbeat's bearer, read a moment after, passed). A defect of the bench, which read the counter once; T14 now waits for the first heartbeat, and the run above is the replay, on the commit that sets the version. Results: `tests/e2e_appliance/results/3.6.2_05cf279*.json`. **On `3.6.1+ea3603c`, `run.sh all` in one run (490 s, a blank machine, `E2E_MEM=7g E2E_SWAP=7g` — see the end of this paragraph): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (build and sign 54 s with a warm build cache, 191-196 s cold; install 28 s; 566 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 4.3 s; reboot → healthy 19 s; T14: 58 variables; T8 installer 18 s, `/api/health` away 3.1 s; T10 rollback 16 s, 3.1 s away; T9 `scripts/upgrade.sh` 4 s, 3.1 s away, 819 files, same tree). **Then `run.sh upgrade`, a blank machine each time, default 6 GB**: from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, 409 s) T8 (17 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (3 s, 3.1 s away) all PASS; from **3.6.0 as published** (`E2E_OLD=3.6.0+fee1818`, the tarball of `sokkan.ch/dist`, 301 s) T8 (16 s, 3.1 s away), T10 (15 s, 3.1 s), T9 (7 s, 4.1 s away) all PASS, `/api/version.version` asserted 3.6.0 before the upgrade and after the rollback, 3.6.1 after the upgrade; from **3.4.6** replayed alone (442 s) T8 (19 s, 4.2 s away), T10 (18 s, 3.1 s), T9 (4 s, 3.2 s away) all PASS. 819 files and the same tree by both entries on the three paths; machine peak 821-1 083 MiB. The 3.6.0 instance of the bench is a community install (the published installer, a build on the machine): the upgrade of an **appliance-profile** install of 3.6.0 (pinned, prebuilt signed images) was **not** played. **The check of T10 changed after `ea3603c`** (bench only): « `scripts/verify-release.sh` is gone after the rollback » cannot hold from 3.6.0, which carries that file; the two tarballs are now compared (`tests/e2e_appliance/results/README.md`). It measured that after a rollback from 3.6.1 to 3.4.6 or 3.5.1 one top-level file new in 3.6, `docker-compose.doc-ingest.yml`, stays in the tree (§ 5); nothing stays after a rollback to 3.6.0. **Memory**: with the default cap (6 GB + 1 GB of swap) `run.sh all` was stopped twice by the host watchdog, both times after T12, during T14, the machine at its cap (6 039 and 6 043 MiB) and the host pressure at 11 then 12 for a threshold of 10; T0-T7 and T12 had passed. The host's swap was found full right after each stop; the cause was not established. The run kept was played with 7 GB and no swap, the threshold unchanged: machine peak **6 829 MiB**, host pressure peak 0.32 — the appliance phase, with its 16 sessions left open, needs more than 6 GB of memory when it cannot swap. Results: `tests/e2e_appliance/results/3.6.1_ea3603c*.json`. **On `3.6.0+11182ac`**, `run.sh all` in one run (461 s, a blank machine): T0, T1, T2, T2b, T3-T7, T11-T14 and T8, T9, T10 from 3.4.6 — 16 records, all PASS** (build and sign 49 s with a warm build cache, 208-216 s cold; install 18 s; 570 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.7 s; reboot → healthy 19 s; T14: 58 variables; T8 installer 18 s, `/api/health` away 4.1 s; T10 rollback 17 s, 3.1 s away; T9 `scripts/upgrade.sh` 4 s, 4.1 s away, 826 files, same tree). **Then `run.sh upgrade` from 3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, another blank machine, 453 s): T0, T8 (18 s, 4.4 s away), T10 (17 s, 3.1 s), T9 (4 s, 3.0 s away, 826 files) all PASS. **The version number now tells old from new**: `/api/version.version` is asserted 3.4.6 / 3.5.1 before the upgrade and after the rollback, 3.6.0 (`dist` `3.6.0+11182ac`) after the upgrade. Machine peak of the full run: 6 026 MiB — **the 6 GB cap is reached** at the end of the appliance phase (16 sessions left open), host pressure peak 10.10 for a watchdog threshold of 10. A first attempt of `run.sh all`, played while the test suite ran on the same host, was stopped by that watchdog after T12 (host pressure 11; T0-T7 and T12 had passed): replayed alone, it is the run above. Results: `tests/e2e_appliance/results/3.6.0_11182ac*.json`. **Earlier runs**: T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). **Upgrade phase, replayed on `3.5.1+1d5813e`** (`run.sh upgrade`, a blank machine each time): from **3.4.6** T8 PASS (installer: 17 s, `/api/health` away 3.1 s at most, 538 MB after), T10 PASS (rollback 15 s, 4.1 s away), T9 PASS (`scripts/upgrade.sh`: 3 s, 3.1 s away, 805 files, same tree as the installer's); from **3.5.1** (`E2E_OLD=3.5.1+6f7fee5`, a switch added to the bench for this) T8 PASS (20 s, 4.1 s away), T10 PASS (15 s, 3.1 s), T9 PASS (4 s, 5.1 s away, same tree). Machine peak 1.2 GB. Both versions carry the number 3.5.1: on the second run old and new are told apart by `/api/version.dist`, `SOKKAN_COMMIT`, `.sokkan-previous` and the files of the newer release, not by the version. The data checked across an upgrade: the access token, one board card, the length of the journal — an instance with months of sessions and a memory was not played. The appliance phase (T1-T7, T11-T14) was **not** replayed on `1d5813e` |
 | One journey of Camille on a throw-away instance, real local model (`qwen3.8-27b`, vLLM, 4× B60), study mode on | played once on the fixed code — see below |
 
 **The journey** (11.11.2026, the model otherwise idle, one stream): sign-in with a personal
@@ -173,10 +183,23 @@ Of the integration:
   refused** (repeated tool failures, prompt size, local model down): the router does not fall
   back to the local model on that refusal. The notice tells the person to send the request
   without asking for the stronger model.
-* **A rollback from 3.6 to 3.5.1 or 3.4.6 leaves `docker-compose.doc-ingest.yml` in the tree**
-  (measured on the bench, § 4): `rollback.sh` removes the release folders and the entries of the
-  target release, not a top-level file that only the newer release has. What an older release
-  does with it when `COMPOSE_FILE` names it was not played.
+* **An appliance installed before 3.6.2 does not get « Export our work » by upgrading**: the
+  appliance template is written to `.env` at the first install only, and an upgrade keeps `.env`.
+  Add `SOKKAN_FEATURE_WORK_EXPORT=1` to `.env` and run `docker compose up -d` (read in
+  `scripts/install.sh`, not played on the bench — the bench installs 3.6.2 on a blank machine).
+* **What the export leaves out** (by design, `docs/enterprise/OPERATIONS.md` § 5.2): the
+  conversations, the documents people uploaded, the accounts, the journals; a project in which
+  the admin has no role (the manifest counts them). SOKKAN has no skill editor: the `skills/`
+  folders hold what people or sessions put in the workspace. The export was played on the bench's
+  instance (5 files: nothing had been built there) and in its tests, not on an instance with
+  months of work.
+* **A tree already rolled back by the script of 3.6.0 or 3.6.1 keeps
+  `docker-compose.doc-ingest.yml`**: the fix is in the `rollback.sh` of 3.6.2, which is the script
+  that runs when one rolls back FROM 3.6.2. Delete the file by hand, and its name from
+  `COMPOSE_FILE`. The rollback of 3.6.2 was played to 3.4.6, 3.5.1, 3.6.0 and 3.6.1 (§ 4); what a
+  3.5 does with the leftover file when `COMPOSE_FILE` names it was never played.
+* **`scripts/upgrade.sh` has the mirror limit**: it purges inside the release folders, and a
+  top-level file that a later release would stop shipping stays (none so far).
 * **After a restart of the api a work reopens with an empty thread** (the deliverable and its
   validation are kept; seen on the throw-away instance, not investigated).
 * **Other inference errors in the simple profile** (402, tenant-wide 429, unreachable) still
@@ -229,31 +252,30 @@ Decisions (of the release owner):
 
 Technical:
 
-- [ ] `main` has not moved since `fee1818` (`v3.6.0`; else: merge `main` into the branch, replay
-      § 4). Checked on 11.11.2026 after the bench, against the forge: `main` is `fee1818`, an
+- [ ] `main` has not moved since `f78ae68` (`v3.6.1`; else: merge `main` into the branch, replay
+      § 4). Checked on 11.11.2026 after the bench, against the forge: `main` is `f78ae68`, an
       ancestor of the branch — to check once more at the moment of the cut.
-- [x] The suite of § 4 green on the commit that sets the version, with Postgres: 1 595 passed,
-      0 failed on `ea3603c` (`VERSION` 3.6.1), as reported by the work that prepared it (3.6.0:
-      1 595 passed, 0 failed, 67 skipped on `11182ac`). Holds for the tag as long as only
-      documentation, bench results and the bench's own T10 check (`tests/e2e_appliance/suite.py`,
-      not collected by pytest) follow `ea3603c`, and the merge is a fast-forward (§ 7).
-- [x] The suite replayed as the public CI plays it (ONE `pytest -q`, SQLite): 1 485 passed,
-      0 failed, 181 skipped on `ea3603c`, as reported by the same work. 3.6.0 was cut without this
-      replay and its public CI was red on three tests.
-- [x] The upgrade phase T8-T10 from 3.4.6, from 3.5.1 and from 3.6.0 as published: all PASS on
-      `3.6.1+ea3603c` (11.11.2026; `tests/e2e_appliance/results/3.6.1_ea3603c*.json`). On
-      3.6.0: from 3.4.6 and 3.5.1, all PASS on `3.6.0+11182ac`.
-- [x] `tests/e2e_appliance/run.sh all` (T0-T14 in one run) with `VERSION` at 3.6.1: 16 records,
-      all PASS on `3.6.1+ea3603c`, with 7 GB of memory and no swap; stopped twice by the host
-      watchdog with the default 6 GB (§ 4). On 3.6.0: 16 records, all PASS on `3.6.0+11182ac`
-      with the default cap (sessions are never closed — § 5).
-- [ ] `tsc --noEmit`, `next build`, ruff and the four guards (`gen-features-doc --check`,
+- [x] The suite of § 4 green on the commit that sets the version, with Postgres: 1 618 passed,
+      0 failed, 67 skipped on `05cf279` (`VERSION` 3.6.2). Holds for the tag as long as only
+      documentation and bench results follow `05cf279`, and the merge is a fast-forward (§ 7).
+- [x] The suite replayed as the public CI plays it (ONE `pytest -q`, SQLite): 1 507 passed,
+      0 failed, 182 skipped on `05cf279`. 3.6.0 was cut without this replay and its public CI
+      was red on three tests.
+- [x] The upgrade phase T8-T10 from 3.4.6, from 3.5.1, from 3.6.0 and from 3.6.1 as published:
+      all PASS on `3.6.2+05cf279`, nothing left after the rollback (11.11.2026;
+      `tests/e2e_appliance/results/3.6.2_05cf279*.json`). On 3.6.1: from 3.4.6, 3.5.1 and 3.6.0,
+      all PASS on `3.6.1+ea3603c`.
+- [x] `tests/e2e_appliance/run.sh all` (T0-T14 in one run) with `VERSION` at 3.6.2: 16 records,
+      all PASS on `3.6.2+05cf279`, with 7 GB of memory and no swap (the default 6 GB was not
+      tried again: it was stopped twice by the host watchdog on 3.6.1, § 4).
+- [x] « Export our work » on the appliance profile: on by its variable, 200 and a zip for the
+      instance's admin, 403 for a person who is not one (T14 of the same run).
+- [x] `tsc --noEmit`, `next build`, ruff and the four guards (`gen-features-doc --check`,
       `gen-env-doc --check`, `check-simple-tokens.py`, `check-corthexis-sync.sh`): green on
-      `11182ac` (3.6.0), **not** replayed on `ea3603c` for this page (no frontend file changed
-      since `v3.6.0`; one comment changed in `backend/features.py`; ruff clean on
-      `tests/e2e_appliance/` after the T10 change).
-- [ ] The upgrade of an appliance-profile install of 3.6.0 to 3.6.1 (pinned, signed images): not
-      played — the bench upgrades community installs.
+      `05cf279`.
+- [ ] The upgrade of an appliance-profile install of 3.6.0 or 3.6.1 to 3.6.2 (pinned, signed
+      images): not played — the bench upgrades community installs. On such an install the switch
+      `SOKKAN_FEATURE_WORK_EXPORT=1` is to add to `.env` by hand (§ 5).
 - [x] The instance knows the gateway's 429 `user_limit_reached` and the new text of the 412
       (`study-quotas` f260ada), in the session and in the simple profile, French and English
       (§ 1, h). To redo if `study-quotas` moves again before it is merged: with the checkout at
@@ -272,7 +294,7 @@ Technical:
 
 ## 7. Cutting the release
 
-Version: **3.6.1 « Icebreaker »** — a patch of 3.6.0, same name (chosen on 11.11.2026 — the ship
+Version: **3.6.2 « Icebreaker »** — a patch of 3.6, same name (chosen on 11.11.2026 — the ship
 that opens the way for the others). Series so far: « Captains » (3.2), « Helm » (3.3),
 « Bridge » (3.4), « Lookout » (3.5), « Icebreaker » (3.6).
 
@@ -281,23 +303,27 @@ that already exists in the `nokker-beta` Public Cloud project, in a dedicated Ha
 Exoscale has no native registry (only a third-party Marketplace listing, billed on top of the ISV credit).
 
 ```sh
-# 1. in the release checkout (on main), once the check-list is done. FAST-FORWARD: main (fee1818,
-#    v3.6.0) is an ancestor of the branch, so main lands on the very commits that were verified
+# 1. in the release checkout (on main), once the check-list is done. FAST-FORWARD: main (f78ae68,
+#    v3.6.1) is an ancestor of the branch, so main lands on the very commits that were verified
 #    (a --no-ff merge would tag a commit nobody tested). If it refuses, main has moved: merge
 #    main into the branch, replay § 4.
-git fetch origin && git merge --ff-only origin/pilot-integration
-# 2. nothing to do: VERSION, the dated CHANGELOG section and the Chart appVersion are on the branch
-#    since ea3603c. If the cut is not made on 2026-11-11, fix the date of the section first
-#    (cut-release.sh commits VERSION and CHANGELOG.md if they differ, then tags).
+git fetch origin && git merge --ff-only origin/release-3.6.2
+# 2. nothing to do: VERSION, the CHANGELOG section dated 2026-11-12 and the Chart appVersion are
+#    on the branch since 05cf279. If the cut is not made on 2026-11-12, fix the date of the
+#    section first (cut-release.sh commits VERSION and CHANGELOG.md if they differ, then tags).
 # 3. from the operations repository — a patch needs no banner: the site already announces 3.6
-infra/sokkan/cut-release.sh 3.6.1 --dry-run
-infra/sokkan/cut-release.sh 3.6.1
-# 4. the appliance artefacts (signed tarball + images), with the signing key
-scripts/release-artifacts.sh <dist>/sokkan-3.6.1+<commit>.tar.gz --images <registry>
+infra/sokkan/cut-release.sh 3.6.2 --dry-run
+infra/sokkan/cut-release.sh 3.6.2
+# 4. the signature of the published tarball (and, the day a registry is chosen, the images:
+#    scripts/release-artifacts.sh <dist>/sokkan-3.6.2+<commit>.tar.gz --images <registry>)
+infra/sokkan/sign-release.sh 3.6.2+<commit>
 ```
+
+The dist is named after the commit that is tagged — the head of the branch, not `05cf279`: what
+follows `05cf279` on the branch is documentation and bench results only.
 
 `cut-release.sh` pushes `main` and the tag, publishes the GitHub release, the dist, and **rolls
 the managed fleet out** (the public demo included) — `make-release.sh <src> --no-rollout`
-publishes a dist without touching the fleet. From 3.6.0 the patch changes no default and no
-variable; an instance still on 3.5 or older gets the changed defaults of 3.6.0 (`missions_link`
+publishes a dist without touching the fleet. From 3.6.0 or 3.6.1 the patch changes no default; it
+adds one optional switch, `SOKKAN_FEATURE_WORK_EXPORT` (off unless set). An instance still on 3.5 or older gets the changed defaults of 3.6.0 (`missions_link`
 off; tmux and Preview off without their binary): read the upgrade notes of the CHANGELOG first.

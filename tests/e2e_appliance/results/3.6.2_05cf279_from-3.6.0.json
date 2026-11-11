@@ -1,0 +1,59 @@
+[
+ {
+  "id": "T0",
+  "name": "publisher side: release signed, images built from the tarball, pushed and signed",
+  "pass": true,
+  "measures": {
+   "build_sign_s": 191,
+   "images": [
+    "api=localhost:5000/sokkan/sokkan-api@sha256:3b3a158ee37b0849a6a4fc0342e4de089ffef25493712875b5eb6b012b62de15",
+    "web=localhost:5000/sokkan/sokkan-web@sha256:b7824cda5ebe67134f8f3720c76e68077e556a77ecf9e0211af9217710302ee9"
+   ]
+  },
+  "detail": "",
+  "ts": 1794418797
+ },
+ {
+  "id": "T8",
+  "name": "in-place upgrade 3.6.0+fee1818 → 3.6.2+05cf279 by the installer (entry A)",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 16,
+   "interruption_s": 3.1,
+   "ram_after_upgrade_mb": 542,
+   "source_install_s": 84,
+   "test_s": 104.1
+  },
+  "detail": "",
+  "ts": 1794418903
+ },
+ {
+  "id": "T10",
+  "name": "rollback 3.6.2+05cf279 → 3.6.0+fee1818, then forward again: one command each way",
+  "pass": true,
+  "measures": {
+   "rollback_s": 15,
+   "interruption_s": 3.1,
+   "newer_only_files_checked": 10,
+   "left_at_top_level": [],
+   "test_s": 18.8
+  },
+  "detail": "",
+  "ts": 1794418922
+ },
+ {
+  "id": "T9",
+  "name": "in-place upgrade 3.6.0+fee1818 → 3.6.2+05cf279 by scripts/upgrade.sh (entry B) — same result as entry A",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 7,
+   "interruption_s": 3.2,
+   "files": 827,
+   "dist": "3.6.2+05cf279",
+   "note": "a 3.6.0 tree runs ITS upgrade.sh (no verification, no health gate); from 3.6 on both entries are the same script",
+   "test_s": 7.3
+  },
+  "detail": "",
+  "ts": 1794418929
+ }
+]
