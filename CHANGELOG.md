@@ -56,6 +56,13 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
 
 ### Upgrade notes
 - `SOKKAN_FEATURE_MISSIONS_LINK` unset → the header link disappears; set `=1` to keep it.
+- Preview needs a browser the api process can find: `chromium` in its `PATH`, or
+  `SOKKAN_CHROMIUM=/path/to/chromium` (a snap install is usually NOT in a service's `PATH`).
+  Without one the Preview tab is now hidden instead of failing at the first screenshot; same for
+  Terminal sessions without `tmux`. Setup › Organization › Features says why.
+- `.env` is set to mode 0600 by the installer and by every upgrade.
+- The session cookie of an instance whose `SOKKAN_PUBLIC_URL` is `https://…` is `Secure`: with the
+  appliance profile, scripts that talk to the plain port on the loopback must use HTTPS too.
 - From ≤ 3.5.1, upgrade with the installer (`curl -fsSL https://sokkan.ch/install.sh | sh`) to get
   the new path; `./scripts/upgrade.sh` of an older tree still works but without verification.
 
