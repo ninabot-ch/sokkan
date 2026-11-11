@@ -181,8 +181,10 @@ systemd units, a real Tailscale tunnel and the GPU memory profile were not playe
 Decisions (Nick):
 
 - [ ] Name of the release (§ 7).
-- [ ] Who holds the release signing key, and where (`SOKKAN_REQUIRE_SIGNATURE=1` refuses an
-      unsigned release: no key = no appliance install).
+- [x] Release signing key: generated 11.11.2026 (cosign v2.4.1). Private key and passphrase in Vaultwarden,
+      entry `sokkan/release-signing-key`; public key in `deploy/appliance/cosign.pub` (to install as
+      `/etc/sokkan/cosign.pub` on each box). Round trip checked: the key read back from the vault signs,
+      the public key verifies.
 - [ ] Registry of the prebuilt images the client's box can reach.
 - [ ] `sokkan-cloud` branch `study-quotas` reviewed, merged and deployed on the gateway
       (`infer/pilote-etude.md` § 8), then the study tenant created — a write on production.
