@@ -1,6 +1,6 @@
 # Pilot candidate — release notes (branch `pilot-integration`)
 
-For whoever decides to cut the release of the HEG-Genève × eSkills pilot, and for whoever
+For whoever decides to cut the release of the pilot (run with a research partner), and for whoever
 installs it. **Nothing is released**: this branch is a candidate — no tag, not merged in `main`,
 not on GitHub, deployed nowhere. The version is set on the branch: **3.6.0 « Icebreaker »**
 (a minor: new variables, changed defaults), commit `11182ac` (`VERSION`, dated CHANGELOG, Chart
@@ -130,7 +130,7 @@ work folder opens; not played with a real Crew agent on a real model.
 14 documents → 23 notes, 2 flagged, 5 documents without a note, 2 unreadable, in 63 s; 8
 documents → 7 notes, 3 flagged, 1 duplicate, in 41 s. One flagged note refused with a reason,
 one batch refused, one batch approved (4 notes in the memory, 2 flagged left): each decision
-is a line of the journal under the reviewer's name. Captures: `docs/ui/pilot-integration/`.
+is a line of the journal under the reviewer's name. Seen on screen: `docs/ui/pilot-integration/README.md` (the captures of this review were withdrawn before publication, see there).
 
 ## 5. Known limits
 
