@@ -68,7 +68,8 @@ IFS="$OLDIFS"
 IMAGES=0
 case ":$KEEP:" in *:docker/compose.images.yml:*) IMAGES=1 ;; esac
 DC="docker"; docker info >/dev/null 2>&1 || DC="sudo docker"
-if [ "$IMAGES" = 1 ] && ! $DC image inspect "sokkan-api:$VER" >/dev/null 2>&1; then
+ITAG="$(printf '%s' "$VER" | tr '+' '-')"          # a docker tag cannot hold `+`
+if [ "$IMAGES" = 1 ] && ! $DC image inspect "sokkan-api:$ITAG" >/dev/null 2>&1; then
   # the images of that version are no longer on this machine: build it from its sources
   KEEP="$(printf '%s' "$KEEP" | sed 's|:docker/compose.images.yml||; s|docker/compose.images.yml:||')"
   IMAGES=0
@@ -78,7 +79,7 @@ grep -v -e '^SOKKAN_VERSION=' -e '^COMPOSE_FILE=' -e '^SOKKAN_COMMIT=' -e '^SOKK
 printf 'SOKKAN_VERSION=%s\n' "$VER" >> .env.tmp
 case "$VER" in *+*) printf 'SOKKAN_COMMIT=%s\n' "${VER#*+}" >> .env.tmp ;; esac
 [ -n "$KEEP" ] && [ "$KEEP" != "docker-compose.yml" ] && printf 'COMPOSE_FILE=%s\n' "$KEEP" >> .env.tmp
-[ "$IMAGES" = 1 ] && printf 'SOKKAN_IMAGE_TAG=%s\n' "$VER" >> .env.tmp
+[ "$IMAGES" = 1 ] && printf 'SOKKAN_IMAGE_TAG=%s\n' "$ITAG" >> .env.tmp
 cat .env.tmp > .env && rm -f .env.tmp
 [ -n "$CUR" ] && [ "$CUR" != "$VER" ] && printf '%s\n' "$CUR" > .sokkan-previous
 if [ "$IMAGES" = 1 ]; then $DC compose up -d --no-build --remove-orphans

@@ -300,7 +300,7 @@ set_env SOKKAN_HEARTBEAT_TOKEN "${SOKKAN_HEARTBEAT_TOKEN:-}"
 # images: prebuilt and signed when the release publishes them, else built here from the
 # verified tarball (said out loud — never a silent fallback)
 if [ -f "$TB.images" ]; then
-  set_env SOKKAN_IMAGE_TAG "$VER"
+  set_env SOKKAN_IMAGE_TAG "$(printf '%s' "$VER" | tr '+' '-')"      # a docker tag cannot hold `+`
 else
   say "  ! release $VER publishes no prebuilt images: they will be BUILT on this machine (≈ 5-10 min)"
   set_env SOKKAN_IMAGES 0

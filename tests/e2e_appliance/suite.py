@@ -271,7 +271,18 @@ ANSWERS = {"SOKKAN_ORG_NAME": "Pilot E2E", "SOKKAN_OWNER_EMAIL": "admin@pilot.ex
            "SOKKAN_BOX_NAME": HOSTNAME, "SOKKAN_BOX_IP": "127.0.0.1", "SOKKAN_SHIP_URL": "http://host.docker.internal:8004",
            "SOKKAN_SHIP_MODEL": "qwen3.8-27b", "SOKKAN_DEEP_URL": DEEP_EXT, "SOKKAN_DEEP_TOKEN": "sik_e2e_instance",
            "SOKKAN_INSTANCE_ID": "pilot-e2e", "SOKKAN_HEARTBEAT_URL": DEEP_EXT + "/hb", "SOKKAN_HEARTBEAT_TOKEN": "hb-e2e",
-           "SOKKAN_ACCEPT_GEMMA_TERMS": "0", "SOKKAN_ACCOUNTS": ",".join(f"{e}:{n}:{p}" for e, n, p in PEOPLE)}
+           "SOKKAN_ACCEPT_GEMMA_TERMS": "0", "SOKKAN_ACCOUNTS": ",".join(f"{e}:{n}:{p}" for e, n, p in PEOPLE),
+           # the bench never touches a GPU: a privileged container sees the host's cards and the
+           # installer would pick the gpu profile — the CPU profile is forced, and checked
+           "SOKKAN_MEMORY_PROFILE": "leger"}
+
+
+def no_gpu(d: Path) -> None:
+    e = env_of(d)
+    assert "sycl" not in e.get("COMPOSE_FILE", "") and "cuda" not in e.get("COMPOSE_FILE", ""), \
+        f"a GPU override is configured in {d}: {e.get('COMPOSE_FILE')}"
+    assert e.get("SOKKAN_EMBED_ACCEL", "cpu") == "cpu", e.get("SOKKAN_EMBED_ACCEL")
+    assert not Path("/dev/dri").exists(), "the test machine exposes /dev/dri"
 STATE = WORK / "state.json"
 
 
@@ -316,6 +327,7 @@ def t1():
     # 1b. the real install
     r, dur = install_appliance()
     assert r.returncode == 0, f"installer rc={r.returncode}: {(r.stderr or r.stdout)[-600:]}"
+    no_gpu(BOX)
     v = http(BASE + "/api/version")[1] or {}
     assert v.get("dist") == NEW, f"/api/version says {v} — expected dist {NEW}"
     assert v.get("commit") == NEW.split("+")[1], v
@@ -687,7 +699,7 @@ def t14():
         "SOKKAN_VERSION": ver["dist"] == e["SOKKAN_VERSION"],
         "SOKKAN_COMMIT": ver["commit"] == e["SOKKAN_COMMIT"],
         "SOKKAN_IMAGES": "sokkan-api" in images and "sokkan-web" in images,
-        "SOKKAN_IMAGE_TAG": e["SOKKAN_IMAGE_TAG"] in images,
+        "SOKKAN_IMAGE_TAG": e["SOKKAN_IMAGE_TAG"] in images and e["SOKKAN_IMAGE_TAG"] == NEW.replace("+", "-"),
         "SOKKAN_REQUIRE_SIGNATURE": True,        # proven by T1 (unsigned release refused) — re-read below
         "COMPOSE_FILE": "docker/compose.images.yml" in e["COMPOSE_FILE"] and "sokkan-web" in images,
         "COMPOSE_PATH_SEPARATOR": sh("docker compose config -q", cwd=BOX).returncode == 0,
@@ -892,6 +904,9 @@ def old_install(d: Path, ver: str) -> str:
     assert r.returncode == 0, f"old installer: {(r.stderr or r.stdout)[-400:]}"
     tok = env_of(d)["SOKKAN_LOCAL_TOKEN"]
     set_env("ANTHROPIC_API_KEY", "sk-ant-e2e-not-a-real-key", d)
+    # never a GPU on the bench (see ANSWERS): back to the CPU profile BEFORE anything starts
+    sh("sh scripts/memory-setup.sh --non-interactive --decline --profile leger", cwd=d, check=True)
+    no_gpu(d)
     r = sh("docker compose up -d --build", cwd=d, timeout=5400)
     assert r.returncode == 0, f"build of {ver}: {r.stderr[-600:]}"
     wait_health(900)

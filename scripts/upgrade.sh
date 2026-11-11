@@ -104,6 +104,7 @@ main() {
   if [ "${IMAGES:-0}" = 1 ]; then
     [ -f "$SRC.images" ] || { echo "✗ upgrade: --images asked but the release has no image list ($(basename "$SRC").images) — nothing was changed." >&2; exit 1; }
     IMAGES_FILE="$DL/images.list"; cp "$SRC.images" "$IMAGES_FILE"
+    ITAG="$(printf '%s' "$VER" | tr '+' '-')"          # a docker tag cannot hold `+`
     DCK="docker"; docker info >/dev/null 2>&1 || DCK="sudo docker"
     # pull and verify EVERY image before the code is touched: a missing signature stops here
     while IFS='=' read -r name ref; do
@@ -115,7 +116,7 @@ main() {
       else
         sh "$NEW/scripts/verify-release.sh" --image "$ref" || exit 3
       fi
-      $DCK tag "$ref" "sokkan-$name:$VER"
+      $DCK tag "$ref" "sokkan-$name:$ITAG"
     done < "$IMAGES_FILE"
   fi
   # the manifest: every file of the release, relative paths
@@ -180,7 +181,7 @@ main() {
   fi
   if [ "${IMAGES:-0}" = 1 ]; then
     set_env SOKKAN_IMAGES 1
-    set_env SOKKAN_IMAGE_TAG "$VER"
+    set_env SOKKAN_IMAGE_TAG "$ITAG"
     CF="$(sed -n 's/^COMPOSE_FILE=//p' .env | tail -n 1)"
     case ":$CF:" in
       *:docker/compose.images.yml:*) ;;

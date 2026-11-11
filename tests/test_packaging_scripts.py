@@ -300,10 +300,12 @@ def test_images_mode_pulls_and_verifies_before_touching_the_code(world):
     r = _sh(d / "scripts" / "upgrade.sh", v2, "--images", cwd=d, env=dict(env, SOKKAN_REQUIRE_SIGNATURE="1"))
     assert r.returncode == 0, r.stderr + r.stdout
     e = _env(d)
-    assert e["SOKKAN_IMAGES"] == "1" and e["SOKKAN_IMAGE_TAG"] == v2
+    tag = v2.replace("+", "-")                       # a docker tag cannot hold `+` (found by the e2e)
+    assert e["SOKKAN_IMAGES"] == "1" and e["SOKKAN_IMAGE_TAG"] == tag
     assert e["COMPOSE_FILE"] == "docker-compose.yml:docker/compose.images.yml"
     log = (tmp / "docker.log").read_text()
-    assert f"tag reg.example/sokkan-api@{dg} sokkan-api:{v2}" in log
+    assert f"tag reg.example/sokkan-api@{dg} sokkan-api:{tag}" in log
+    assert "+" not in "".join(x for x in log.splitlines() if x.startswith("tag ")).split(" sokkan-api:")[-1]
     assert "compose up -d --no-build --remove-orphans" in log and "--build --remove" not in log.replace("--no-build", "")
 
 

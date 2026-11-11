@@ -76,6 +76,11 @@ docker run -d --name "$NAME" --privileged --network bridge --memory "$MEM" --mem
   docker:27-dind --default-address-pool base=10.241.0.0/16,size=24 --bip 10.240.0.1/24 >/dev/null
 n=0; until docker exec "$NAME" docker info >/dev/null 2>&1; do
   n=$((n + 1)); [ "$n" -gt 60 ] && { docker logs --tail 30 "$NAME"; exit 1; }; sleep 2; done
+# the bench never touches a GPU: a privileged container sees the host's render nodes — remove
+# them from ITS /dev (a private tmpfs; the host's are untouched). suite.py also forces the CPU
+# memory profile and checks that no GPU override is configured.
+no_gpu() { docker exec "$NAME" sh -c 'rm -rf /dev/dri; [ ! -e /dev/dri ]'; }
+no_gpu
 # nothing of the machine listens on the host
 PUBLISHED="$(docker port "$NAME" 2>/dev/null || true)"
 [ -z "$PUBLISHED" ] || { echo "the test machine publishes ports on the host: $PUBLISHED" >&2; exit 1; }
@@ -115,11 +120,13 @@ grep -q '"id": "T0".*"pass": true' "$W/work/results.jsonl" 2>/dev/null \
 case "$WHAT" in all|appliance)
   phase appliance
   # T13: the machine is « rebooted » — its engine stops and starts, nobody types anything inside
-  if docker inspect "$NAME" >/dev/null 2>&1; then
+  if ! grep -q '"id": "T1".*"pass": true' "$W/work/results.jsonl" 2>/dev/null; then
+    echo "T1 did not pass: T13 (reboot) not played"
+  elif docker inspect "$NAME" >/dev/null 2>&1; then
     say "reboot of the test machine"
     T0="$(date +%s)"
     docker restart -t 30 "$NAME" >/dev/null
-    n=0; until docker exec "$NAME" docker info >/dev/null 2>&1; do n=$((n + 1)); [ "$n" -gt 90 ] && break; sleep 2; done
+    n=0; until docker exec "$NAME" sh -c 'rm -rf /dev/dri; docker info' >/dev/null 2>&1; do n=$((n + 1)); [ "$n" -gt 90 ] && break; sleep 2; done
     phase after-reboot "E2E_REBOOT_T0=$T0"
   fi ;;
 esac
