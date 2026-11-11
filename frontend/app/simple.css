@@ -530,3 +530,11 @@ html[data-sk-theme] body {
 .sk-md ol { list-style: decimal; }
 .sk .sk-btn { font-weight: 600; font-size: var(--sk-fs-md); }
 .sk .sk-btn-quiet { font-weight: 500; }
+
+/* correcting a draft before allowing its save; study-mode hook points */
+.sk .sk-draft-edit { width: 100%; min-height: 60dvh; resize: vertical; border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm);
+  background: var(--sk-surface); color: var(--sk-text-strong); padding: var(--sk-s3); font: var(--sk-fs-sm) / 1.6 var(--sk-mono); }
+.sk .sk-draft-edit:focus { outline: 2px solid var(--sk-sea); outline-offset: 0; border-color: var(--sk-sea); }
+.sk-study-row { flex: none; display: flex; align-items: center; gap: var(--sk-s3); padding: var(--sk-s2) var(--sk-s5); border-bottom: 1px solid var(--sk-line); }
+.sk .sk-select { width: auto; }
+.sk .sk-input-short { width: 12ch; }

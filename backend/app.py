@@ -1813,9 +1813,14 @@ async def agent_ws(websocket: WebSocket, sid: str):
             if t == "user" and msg.get("text", "").strip():
                 _bg(session.handle_user(msg["text"]))
             elif t == "permission":
+                updated = msg.get("updated_input")
+                if view is not None:
+                    # 3.6 : la vue simple ne connaît ni chemin ni entrée brute — elle renvoie au plus
+                    # le TEXTE du brouillon corrigé par la personne ; l'entrée est reconstruite ici
+                    updated = simple_api.edited_input(session, msg.get("id", ""), msg.get("draft_text"))
                 session.resolve_permission(msg.get("id", ""), {
                     "decision": msg.get("decision", "deny"),
-                    "updated_input": msg.get("updated_input"),
+                    "updated_input": updated,
                     "message": msg.get("message"),
                 })
             elif t == "answer":

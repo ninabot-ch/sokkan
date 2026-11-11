@@ -14,6 +14,7 @@ import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
+import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
 interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail"; detail: TechDetail }
 type Approval = Extract<PlainEvent, { type: "approval" }>;
@@ -93,13 +94,14 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items, working]);
 
-  const decide = (ev: Approval, decision: "allow" | "deny") => {
-    sock.current?.decide(ev.id, decision);
+  const decide = (ev: Approval, decision: "allow" | "deny", draftText?: string) => {
+    sock.current?.decide(ev.id, decision, draftText);
     setItems((cur) => cur.map((it) => (it.k === "approval" && it.ev.id === ev.id ? { ...it, decided: decision } : it)));
     setSide((s) => (s?.kind === "draft" && s.ev.id === ev.id ? null : s));
   };
 
   const canDrive = !!work?.can_drive;
+  const study = useStudy(sid);
   const waiting = items.some((it) => it.k === "approval" && !it.decided);
   const lastDeliverable = work?.deliverables[0];
   const liveAct = useMemo(() => {
@@ -143,6 +145,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
         )}
       </header>
 
+      {study && canDrive && <StudyTag sid={sid} study={study} />}
       <div className="sk-thread-body">
         <div className="sk-thread-col">
           <div className="sk-scroll" ref={scroller} tabIndex={0} aria-label={work?.title || ""}
@@ -194,6 +197,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                 return <Question key={i} id={it.id} questions={it.questions} disabled={!canDrive}
                   onAnswer={(a) => { sock.current?.answer(it.id, a); setItems((cur) => cur.filter((x) => !(x.k === "question" && x.id === it.id))); }} />;
               })}
+              {study?.tag?.tagged && canDrive && lastDeliverable?.validated && <StudyFeedback sid={sid} />}
               {working && !liveAct && !waiting && (
                 <div className="sk-working" role="status"><span className="sk-spin" aria-hidden />{t("th.working")}</div>
               )}
@@ -221,22 +225,8 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
         </div>
 
         {side?.kind === "draft" && (
-          <aside className="sk-panel" aria-label={t("ap.draft.title")}>
-            <div className="sk-panel-head">
-              <div className="sk-grow"><div className="sk-xs sk-muted">{t("ap.draft.title")}</div><div className="sk-h3">{versioned(t, side.ev)}</div></div>
-              <button className="sk-btn sk-btn-quiet sk-btn-icon" onClick={() => setSide(null)} aria-label={t("close")}><Icon name="close" /></button>
-            </div>
-            <div className="sk-panel-body" tabIndex={0}>
-              {side.ev.draft?.partial && <p className="sk-small sk-muted">{t("ap.partial")}</p>}
-              <Markdown text={side.ev.draft?.text || ""} />
-            </div>
-            {canDrive && items.some((it) => it.k === "approval" && it.ev.id === side.ev.id && !it.decided) && (
-              <div className="sk-panel-foot">
-                <button className="sk-btn sk-btn-primary" onClick={() => decide(side.ev, "allow")}><Icon name="check" />{t("ap.allow")}</button>
-                <button className="sk-btn" onClick={() => decide(side.ev, "deny")}>{t("ap.deny")}</button>
-              </div>
-            )}
-          </aside>
+          <DraftPanel ev={side.ev} onClose={() => setSide(null)} onDecide={(d, text) => decide(side.ev, d, text)}
+            pending={canDrive && items.some((it) => it.k === "approval" && it.ev.id === side.ev.id && !it.decided)} />
         )}
         {side?.kind === "deliverable" && (
           <DeliverablePanel sid={sid} name={side.name} canDrive={canDrive} onClose={() => setSide(null)}
@@ -258,6 +248,45 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
         )}
       </div>
     </>
+  );
+}
+
+/** The draft before it is saved: read it, and — when it is a whole document — correct it; the
+ *  save then carries the corrected text (the agent's path and everything else untouched). */
+function DraftPanel({ ev, pending, onClose, onDecide }: {
+  ev: Approval; pending: boolean; onClose: () => void; onDecide: (d: "allow" | "deny", text?: string) => void;
+}) {
+  const t = useT();
+  const original = ev.draft?.text || "";
+  const editable = pending && !!ev.draft && !ev.draft.partial && !ev.draft.truncated && ev.kind === "write_draft";
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(original);
+  const changed = text !== original && text.trim().length > 0;
+  return (
+    <aside className="sk-panel" aria-label={t("ap.draft.title")}>
+      <div className="sk-panel-head">
+        <div className="sk-grow"><div className="sk-xs sk-muted">{t("ap.draft.title")}</div><div className="sk-h3">{versioned(t, ev)}</div></div>
+        <button className="sk-btn sk-btn-quiet sk-btn-icon" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
+      </div>
+      <div className="sk-panel-body" tabIndex={0}>
+        {ev.draft?.partial && <p className="sk-small sk-muted">{t("ap.partial")}</p>}
+        {editing ? (
+          <>
+            <label className="sk-visually-hidden" htmlFor={`sk-draft-${ev.id}`}>{t("ap.edit.label")}</label>
+            <textarea id={`sk-draft-${ev.id}`} className="sk-draft-edit" value={text} onChange={(e) => setText(e.target.value)} />
+          </>
+        ) : <Markdown text={text} />}
+      </div>
+      {pending && (
+        <div className="sk-panel-foot">
+          <button className="sk-btn sk-btn-primary" onClick={() => onDecide("allow", changed ? text : undefined)}>
+            <Icon name="check" />{changed ? t("ap.allow.edited") : t("ap.allow")}
+          </button>
+          {editable && <button className="sk-btn" onClick={() => setEditing(!editing)}><Icon name={editing ? "eye" : "pen"} />{editing ? t("ap.edit.done") : t("ap.edit")}</button>}
+          <button className="sk-btn" onClick={() => onDecide("deny")}>{t("ap.deny")}</button>
+        </div>
+      )}
+    </aside>
   );
 }
 

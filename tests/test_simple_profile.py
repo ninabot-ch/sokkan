@@ -309,3 +309,30 @@ def test_nina_speaks_to_the_simple_profile_in_its_own_words(world):
     guide = assistant._simple_profile_directive("bob@x")
     assert "PROFIL SIMPLE" in guide and "Joindre des documents" in guide and "DevOps" in guide.split("pas une")[1][:40]
     assert assistant._simple_profile_directive("dave@x") == ""        # technical profile: Nina unchanged
+
+
+def test_a_corrected_draft_is_what_gets_saved_and_only_its_text(world):
+    import agentchat
+    import asyncio
+    c = world["as"]("bob@x")
+    s = agentchat.get_or_create(DEFAULT_SID, user="bob@x")
+    target = str(world["workspace"] / "deliverables" / DEFAULT_SID / "Plan.md")
+    loop = asyncio.new_event_loop()
+    futs = {}
+    for pid, tool, inp in (("p1", "Write", {"file_path": target, "content": "# Plan\n2 jours\n"}),
+                           ("p2", "Bash", {"command": "ls"})):
+        futs[pid] = s._perms[pid] = loop.create_future()
+        s._emit({"type": "permission", "id": pid, "tool": tool, "title": "x", "input": inp})
+    with c.websocket_connect(f"/api/agent/ws/{DEFAULT_SID}?view=simple") as ws:
+        ws.receive_json(), ws.receive_json()
+        # an attempt to redirect the save, or to rewrite a command, is ignored: only the text counts
+        ws.send_json({"type": "permission", "id": "p1", "decision": "allow", "draft_text": "# Plan\n3 jours\n",
+                      "updated_input": {"file_path": "/etc/passwd", "content": "x"}})
+        assert ws.receive_json() == {"type": "approval_resolved", "id": "p1"}
+        ws.send_json({"type": "permission", "id": "p2", "decision": "allow", "draft_text": "rm -rf /",
+                      "updated_input": {"command": "rm -rf /"}})
+        assert ws.receive_json() == {"type": "approval_resolved", "id": "p2"}
+    assert futs["p1"].result()["updated_input"] == {"file_path": target, "content": "# Plan\n3 jours\n"}
+    assert futs["p2"].result()["updated_input"] is None
+    s._perms.clear()
+    loop.close()

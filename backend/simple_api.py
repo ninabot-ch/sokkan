@@ -65,6 +65,23 @@ def make_view(sid: str) -> plain.View:
                       attached=len(documents.of_session(sid)))
 
 
+def edited_input(session, permission_id: str, draft_text) -> dict | None:
+    """The person corrected the draft before allowing its save: the pending Write's own input
+    with its content replaced. Anything else (another tool, an unknown request, no text, a
+    text too large) → None = the input the agent asked for, unchanged. The path is never the
+    browser's to choose; a confined session re-checks the result as any edited input."""
+    if not isinstance(draft_text, str) or not draft_text.strip() \
+            or len(draft_text.encode("utf-8")) > simple.MAX_DELIVERABLE:
+        return None
+    for ev in reversed(session.events):
+        if ev.get("type") == "permission" and ev.get("id") == permission_id:
+            inp = ev.get("input")
+            if ev.get("tool") == "Write" and isinstance(inp, dict) and isinstance(inp.get("content"), str):
+                return {**inp, "content": draft_text}
+            return None
+    return None
+
+
 class PrefsIn(BaseModel):
     profile: str | None = None
     lang: str | None = None

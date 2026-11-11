@@ -114,7 +114,10 @@ export class PlainSocket {
     ws.onerror = () => ws.close();
   }
   private send(o: unknown) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }
-  decide(id: string, decision: "allow" | "deny", message?: string) { this.send({ type: "permission", id, decision, message }); }
+  /** `draftText`: the draft as the person corrected it — the server rebuilds the save from it */
+  decide(id: string, decision: "allow" | "deny", draftText?: string) {
+    this.send({ type: "permission", id, decision, ...(draftText ? { draft_text: draftText } : {}) });
+  }
   answer(id: string, answers: Record<string, string | string[]>) { this.send({ type: "answer", id, answers }); }
   interrupt() { this.send({ type: "interrupt" }); }
   close() { this.closed = true; this.ws?.close(); }
