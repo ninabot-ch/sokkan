@@ -869,7 +869,7 @@ def _contract() -> dict:
 
 
 def _cloud() -> Path | None:
-    for p in (os.environ.get("SOKKAN_CLOUD_SRC"), "/root/sokkan-cloud-wt-noretry"):
+    for p in (os.environ.get("SOKKAN_CLOUD_SRC"), "/root/sokkan-cloud"):
         if p and (Path(p) / "infer" / "pilote-etude.md").exists():
             return Path(p)
     return None

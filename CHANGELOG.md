@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6 « Icebreaker » (pilot candidate, branch `pilot-integration`)
+## 3.6.0 — 2026-11-11 — "Icebreaker"
 
 SOKKAN installed on a box at a site with no engineer: reproducible images, one verified
 upgrade path, named people, a local model, HTTPS, an encrypted backup, a support tunnel the

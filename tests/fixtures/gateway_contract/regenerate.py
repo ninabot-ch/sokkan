@@ -138,7 +138,7 @@ def main() -> None:
                     "since study-no-retry the four study refusals carry `x-should-retry: false`, the tenant-wide "
                     "429 carries none of the three. Regenerate with the script, never by hand; "
                     "tests/test_pilot_integration.py compares this file with the checkout when one is at hand "
-                    "(SOKKAN_CLOUD_SRC, else /root/sokkan-cloud-wt-noretry)."),
+                    "(SOKKAN_CLOUD_SRC, else /root/sokkan-cloud)."),
         "usage": usage,
         "headers_sent": ["x-sokkan-user", "x-sokkan-study"],
         "error_header": "x-sokkan-error",
