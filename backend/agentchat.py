@@ -542,8 +542,9 @@ class AgentSession:
                 return PermissionResultDeny(message=(
                     f"{tool_name} is not in this agent's allowed tools. Do without it, or say "
                     "in your deliverable that the agent needs it."))
-            if tool_name in _EDIT_TOOLS and _in_memory_dirs(
-                    str(input_data.get("file_path") or input_data.get("notebook_path") or "")):
+            if tool_name in _EDIT_TOOLS and _closed_to_agent_run(
+                    str(input_data.get("file_path") or input_data.get("notebook_path") or ""),
+                    session_project(self.sid)):
                 self._journal_auto(tool_name, input_data, False, "policy:memory_write")
                 return PermissionResultDeny(message=(
                     "An agent run does not write memory files directly: use "
@@ -962,7 +963,8 @@ def _is_memory_path(path: str) -> bool:
 
 
 def _in_memory_dirs(path: str) -> bool:
-    """Le chemin vise-t-il le dossier mémoire ou la quarantaine ? (runs d'agent)"""
+    """Le chemin vise-t-il le dossier mémoire, la quarantaine, ou l'arbre des projets
+    (`<data>/projects`, en entier) ? Trop large pour décider seul : voir `_closed_to_agent_run`."""
     if not path:
         return False
     try:
@@ -978,6 +980,29 @@ def _in_memory_dirs(path: str) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return False
+
+
+def _closed_to_agent_run(path: str, project: str) -> bool:
+    """May an agent run NOT write this file with a file tool? The memory directories and
+    the quarantine, always (`memory_write` quarantines instead). The rest of
+    `<data>/projects` too — EXCEPT the work folder of the run's own project,
+    `<data>/projects/<project>/work`: that is its working directory (`project_cwd`), where a
+    Crew agent of a project other than `default` writes its files. Since 3.2 the rule matched
+    the whole tree (`_in_memory_dirs`), and such an agent could not write anything at home.
+    Nothing else opens: another project's space stays closed, as before."""
+    if _is_memory_path(path):
+        return True
+    if not _in_memory_dirs(path):
+        return False
+    if not project or project == "default":
+        return True
+    try:
+        p = Path(path).expanduser().resolve()
+        work = (Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser(
+            "~/.local/share/sokkan"))) / "projects" / project / "work").expanduser().resolve()
+        return work not in p.parents
+    except Exception:  # noqa: BLE001 — unknown = closed
+        return True
 
 
 # ---- registry (1 AgentSession par sid, en mémoire) --------------------------
