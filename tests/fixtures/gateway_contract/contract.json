@@ -1,0 +1,90 @@
+{
+  "_source": "sokkan-cloud branch study-quotas (664a47f): infer/pilote-etude.md § 4 (the `GET /usage` example, verbatim), infer/gateway.py `_refuse` (the three study refusals: the message is the source's f-string with the values of the documented example). Regenerate from a checkout, never by hand; tests/test_pilot_integration.py compares this file with the checkout when SOKKAN_CLOUD_SRC is set.",
+  "usage": {
+    "study": {
+      "active": true,
+      "study_id": "heg-eskills-2027",
+      "expires_at": "2027-04-30T23:59:59Z",
+      "audit_required": true,
+      "expired": false,
+      "days_left": 170,
+      "notice": false
+    },
+    "free": true,
+    "limits": {
+      "tokens_day": 6000000,
+      "tokens_month": 120000000,
+      "deep_per_user_day": 20,
+      "user_tokens_day": 0
+    },
+    "used": {
+      "tokens_day": 4960,
+      "tokens_month": 4960,
+      "user_tokens_day": 4960,
+      "deep_user_day": 2
+    }
+  },
+  "headers_sent": [
+    "x-sokkan-user",
+    "x-sokkan-study"
+  ],
+  "error_header": "x-sokkan-error",
+  "refusals": [
+    {
+      "status": 410,
+      "type": "permission_error",
+      "code": "study_expired",
+      "message": "The free inference period for this environment ended on 2027-04-30. Nothing was sent to a model. Contact your SOKKAN administrator to extend it or to switch to a paid plan (same token).",
+      "words_in_source": [
+        "The free inference period for this environment ended on ",
+        ". Nothing was sent to a model. Contact your SOKKAN ",
+        "administrator to extend it or to switch to a paid plan (same token)."
+      ],
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "permission_error",
+          "message": "The free inference period for this environment ended on 2027-04-30. Nothing was sent to a model. Contact your SOKKAN administrator to extend it or to switch to a paid plan (same token).",
+          "code": "study_expired"
+        }
+      }
+    },
+    {
+      "status": 412,
+      "type": "permission_error",
+      "code": "study_mode_required",
+      "message": "Free inference for this environment is part of study 'heg-eskills-2027' and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings — it then sends the header 'x-sokkan-study: heg-eskills-2027'. Nothing was sent to a model.",
+      "words_in_source": [
+        "Free inference for this environment is part of study '",
+        "only served while the instance runs in study mode (audited). Turn study mode ",
+        "on in the instance settings — it then sends the header "
+      ],
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "permission_error",
+          "message": "Free inference for this environment is part of study 'heg-eskills-2027' and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings — it then sends the header 'x-sokkan-study: heg-eskills-2027'. Nothing was sent to a model.",
+          "code": "study_mode_required"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "type": "rate_limit_error",
+      "code": "user_daily_cap",
+      "message": "personal daily inference cap reached for this user in this environment — resets at midnight UTC (other users are not affected)",
+      "words_in_source": [
+        "personal daily inference cap reached for this user in this environment — ",
+        "resets at midnight UTC (other users are not affected)"
+      ],
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "rate_limit_error",
+          "message": "personal daily inference cap reached for this user in this environment — resets at midnight UTC (other users are not affected)",
+          "code": "user_daily_cap"
+        }
+      }
+    }
+  ]
+}
