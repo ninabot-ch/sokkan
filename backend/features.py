@@ -554,7 +554,7 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_STUDY_ID", "SOKKAN_STUDY_EXPIRES_AT", "SOKKAN_STUDY_AUDIT_REQUIRED",
                     "SOKKAN_STUDY_DB"),
             check=_study_check, doc="docs/enterprise/STUDY-MODE.md"),
-    # -- simple profile (pilot HEG × eSkills, 3.6): the cockpit for people who are not developers
+    # -- simple profile (the pilot, 3.6): the cockpit for people who are not developers
     Feature("documents", "Document drop",
             "People attach documents (PDF, docx, pptx, xlsx, txt, md) to a project or a session: "
             "size and types bounded (extension AND content checked), names sanitised, stored in "

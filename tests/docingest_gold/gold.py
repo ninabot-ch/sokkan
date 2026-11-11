@@ -254,7 +254,7 @@ doc("formation/Comites/decisions-seminaire-strategique-2026.pptx", "2026-08-28",
           "retenues pour 2027."),
 ], decisions=[
     D("hybride-40", "40", ["hybride"], ["2028"]),
-    D("partenariat-heg", ["chablais", "haute ecole"], ["partenariat", "cas"]),
+    D("partenariat-ecole", ["chablais", "haute ecole"], ["partenariat", "cas"]),
     D("plus-imprimes", ["imprim", "papier"], ["2027"], ["pdf", "supports"]),
 ], not_decisions=["samedi"])
 
