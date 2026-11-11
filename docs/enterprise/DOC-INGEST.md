@@ -209,7 +209,17 @@ default export formats), then read like Office files.
 
 Install: `pip install -r backend/requirements-docingest.txt`, or build the image with
 `--build-arg SOKKAN_DOC_INGEST=1`. Docling: `pip install "docling>=2.60,<3"` then
-`docling-tools models download` once (`SOKKAN_DOC_INGEST_DOCLING=auto|off|always`).
+`docling-tools models download` once (`SOKKAN_DOC_INGEST_DOCLING=auto|off|always`), and
+give the api `DOCLING_ARTIFACTS_PATH=<the downloaded models directory>`: the extraction
+child runs with `HF_HUB_OFFLINE=1`, so without that path Docling refuses to start rather
+than call out (checked: `LocalEntryNotFoundError … outgoing traffic has been disabled`).
+
+Measured on the reference machine (CPU only, Docling 2.150 + RapidOCR, PyTorch CPU), on the
+gold set's scanned page: 20.6 s for the first page (models loading), 3.4 s for the next,
+1.3 GB resident in the child, ~3.3 GB on disk (venv 1.9 GB + models 1.4 GB). The default
+OCR model reads French accents badly (« fermé » → « fermø », « décembre » → « døcembre »):
+dates and figures survive, accented words do not — choose the OCR language model before
+relying on scans (§ 13).
 
 What is extracted: the text as markdown (headings, tables, slide and sheet titles), the
 list of headings, and metadata — title, author, creation / modification dates from the
@@ -382,6 +392,10 @@ There is no screen yet: the API is complete, the cockpit page is not written (§
   accumulated — by the next tick (`SOKKAN_DOC_INGEST_AUTO_RESUME=0` to resume by hand
   only). A pass a person stopped waits for a person. A batch being written cannot be
   reviewed.
+* **Model down** — a connection error or a 502/503/504 is retried with a backoff (5 s to
+  150 s, about six minutes in all: the time a local model takes to reload). If the model is
+  still unreachable the pass ends `interrupted` with the document left untouched
+  (`deferred` in the journal — not an error of the document), and the next tick resumes it.
 * **Budget** — `max_tokens_per_pass` (prompt + completion), `max_docs_per_pass`,
   `max_minutes_per_pass`. Reaching one ends the pass with status `budget`; its batch is
   offered for review and the rest is read by the next pass. There is no price: the model is
@@ -506,8 +520,9 @@ it — in docx, pptx, xlsx, pdf, md and txt, with the expected outcome of each (
 * **Deleted and moved files**: a deleted file is marked `gone`, its notes stay. A file
   moved to another path is read as a new document (same text → `duplicate`, so no second
   note, but the note keeps the old path).
-* **Images, audio, video, e-mails, archives** are not read. Tables in scanned PDFs depend
-  on Docling.
+* **Images, audio, video, e-mails, archives** are not read. Scans depend on Docling, whose
+  default OCR mangles French accents (§ 5): the OCR language model is to be configured and
+  re-measured before scans count.
 * **One process**: passes run in threads of the api process; a restart interrupts them
   (they resume). No distributed workers.
 * **Languages**: prompt and injection patterns cover French, English, German; the note
