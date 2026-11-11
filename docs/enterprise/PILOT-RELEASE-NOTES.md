@@ -1,0 +1,213 @@
+# Pilot candidate — release notes (branch `pilot-integration`)
+
+For whoever decides to cut the release of the HEG-Genève × eSkills pilot, and for whoever
+installs it. **Nothing is released**: this branch is a candidate — no tag, no version bump, not
+merged in `main`, not on GitHub, deployed nowhere. Proposed version: **3.6.0** (a minor: new
+variables, changed defaults); the name is to be chosen (§ 7).
+
+State of this page: 11.11.2026. Every figure below was measured on this branch; where a thing
+was not played, the page says so.
+
+## 1. What the candidate holds
+
+`main` (v3.5.1, `6f7fee5`) plus four lots, merged in this order, plus what holds between them.
+
+| Lot (branch) | What it brings | Its own page |
+|---|---|---|
+| `onprem-appliance` | SOKKAN on a box at a site with no engineer: pinned and signed release, one upgrade path, **named accounts in local sign-in** (a personal code per person, a project per person), the local Ship → Deep router, HTTPS on the LAN, encrypted off-site backup, support tunnel, heartbeat, the guard « every variable read is declared » | `docs/appliance/README.md` |
+| `study-mode` | the **journal of human validations** (always on: table `hitl` of `audit.db`), study mode (pseudonyms, consent, tags, two end-of-task questions, researcher's package) | `docs/enterprise/STUDY-MODE.md` |
+| `doc-ingest` | a memory agent reads the organisation's documents with a **local** model and proposes notes, quarantined **by batch** | `docs/enterprise/DOC-INGEST.md` |
+| `simple-profile` | document drop, the simple profile (home, plain-language thread, approval card, deliverable), French / English | `docs/enterprise/SIMPLE-PROFILE.md` |
+
+**Between the lots** (this branch — each with a test in `tests/test_pilot_integration.py`):
+
+| | What was missing | Now |
+|---|---|---|
+| a | A click on the simple profile's approval card left no trace | Allow / Refuse / Correct-then-allow each write one row of the journal (asked at, decided at, delay, who, edit marked); the shell request a simple work refuses by itself is journaled as automatic |
+| b | The study hooks of the simple profile had never met `study_mode`; the band's slot was empty; a person had no way to consent from the simple profile | Band, « What is recorded » and the consent in the simple profile; no work is created before the consent; scenario and the two questions follow the tag without a reload; silent without the feature |
+| c | Study mode warned « one identity » for any local sign-in | Named accounts are distinct participants: three people = P1, P2, P3, three actors in the journal and the audit, one project each; no address, name or project in the researcher's package |
+| d | Nothing kept a dropped document out of the memory, nor the ingestion out of the instance's own files | A session that was handed documents has its memory writes quarantined (and its file tools refused on the memory directories); an ingestion source cannot be the data directory, the workspace, the memory or the quarantine |
+| e | The review of the batches was an API with no screen | « Notes to review » (simple profile) and Setup › Ingestion (technical cockpit): one screen, French / English, every decision journaled |
+| f | The appliance profile knew none of the three other lots; five variables were read and never declared; the local engine failed with a 400 on the CLI's default reasoning effort | The profile turns the four features on with their needs, `SOKKAN_PROFILE_DEFAULT=simple`, `CLAUDE_CODE_EFFORT_LEVEL=medium`; the guard passes; the release images carry the document extractors |
+| g | **On an appliance the study was never read and never announced**: sessions go through the local router, which sent neither `x-sokkan-study` nor the pseudonym, and `GET /usage` was only asked in « included » mode — the gateway would have answered 412 to every Deep request of a study tenant | The api reads `GET /usage` on the Deep gateway; sessions send the study and the pseudonym; the router forwards both (never an address) and hands the refusals 410 / 412 / 429-per-person back as the gateway worded them, with `x-should-retry: false` |
+
+## 2. Features and what each needs
+
+| Feature | Status | Default | Requires | Switch |
+|---|---|---|---|---|
+| `documents` | beta | off | — | `SOKKAN_FEATURE_DOCUMENTS` |
+| `simple_profile` | beta | off | `documents` | `SOKKAN_FEATURE_SIMPLE_PROFILE` (+ `SOKKAN_PROFILE_DEFAULT`, `SOKKAN_PROFILE_LOCKED`) |
+| `study_mode` | beta | off | — ; the journal of validations it exports is always on | `SOKKAN_FEATURE_STUDY_MODE` |
+| `doc_ingest` | experimental | off | `agents`, `memory_quarantine` (an invariant), a **local** model endpoint, the extractors in the image | `SOKKAN_FEATURE_DOC_INGEST` |
+| named local accounts | — (not a feature: local sign-in) | — | `SOKKAN_AUTH_MODE=local`; one project per person needs `multi_project` and `SOKKAN_DEFAULT_ROLE=none` | `scripts/appliance/accounts.sh` |
+| local router Ship → Deep | — (compose profile `appliance`) | — | `SOKKAN_SHIP_URL`; Deep needs `SOKKAN_DEEP_URL` + `SOKKAN_DEEP_TOKEN` | `COMPOSE_PROFILES=appliance` |
+
+A switch asked for without its dependency is reported in Setup › Organization › Features
+(`problem`), never half on. The generated reference: `docs/enterprise/FEATURES.md`,
+`docs/ENVIRONMENT.md`.
+
+## 3. Settings of the pilot
+
+The appliance profile (`scripts/install.sh --profile appliance --version <version+commit>`)
+writes them; the template is `deploy/appliance/env.appliance.example`.
+
+```sh
+# who
+SOKKAN_AUTH_MODE=local            # + one personal code per person (accounts.sh), a project each
+SOKKAN_DEFAULT_ROLE=none
+SOKKAN_FEATURE_MULTI_PROJECT=1
+# the cockpit of the people who work there
+SOKKAN_FEATURE_DOCUMENTS=1
+SOKKAN_FEATURE_SIMPLE_PROFILE=1
+SOKKAN_PROFILE_DEFAULT=simple
+SOKKAN_FEATURE_STUDY_MODE=1       # inert until a study is active
+SOKKAN_FEATURE_DOC_INGEST=1       # reads nothing until a source is declared on the host
+SOKKAN_DOC_INGEST_LLM_URL=http://host.docker.internal:8004/v1
+SOKKAN_DOC_INGEST_LLM_MODEL=qwen3.8-27b
+SOKKAN_DOC_INGEST_CONCURRENCY=4   # 5/6 contradictions found at 4 streams, fewer at 8 (gold set)
+# inference
+SOKKAN_SHIP_URL=http://host.docker.internal:8004     # the model of the box
+SOKKAN_DEEP_URL=https://infer.sokkan.ch              # + SOKKAN_DEEP_TOKEN: the study tenant's token
+CLAUDE_CODE_EFFORT_LEVEL=medium
+```
+
+**The study** is set on the gateway, not on the box (`sokkan-cloud`, `infer/pilote-etude.md`):
+tenant in study, `audit_required`, end date 30.04.2027, 6 M tokens a day, 120 M a month, 20 Deep
+escalations per person and per day (starting values). The box reads it (`GET /usage`) and shows
+it. `SOKKAN_STUDY_ID` on the box declares a study only when no gateway does.
+
+**People**: three accounts, `accounts.sh add <e-mail> --name … --project …`. The first consent
+allocates P1, the next P2… (order of consent, never reused). The correspondence table stays in
+`study.db` on the box; Setup › Study shows it to the instance's admins only.
+
+**Ingestion**: sources in `/data/doc-ingest/sources.json` on the host (never in the cockpit);
+mount the documents read-only (`docker-compose.doc-ingest.yml`); review in « Notes to review ».
+
+## 4. What was verified, and how
+
+| | Result |
+|---|---|
+| Test suite, one file per process, Postgres pgvector (throw-away) | **1 542 passed, 0 failed, 68 skipped** (116 files) — `main` on the same host and environment: 1 152 passed, 0 failed, 66 skipped (95 files). No failure on `main` to carry over. Skipped, as on `main`: Helm chart (26, no `helm` binary), OpenBao (18, no test server), embedding service (7), sandbox / bubblewrap (5), CLI end-to-end (4), runners (3), 3 single ones; new: rclone (2). The Postgres files ran |
+| ruff · tsc · `next build` | ruff clean on `backend tests memory scripts` (one F401 in `deploy/helm/sokkan/ci/runner-smoke-driver.py`, already on `main`, outside that scope) · `tsc --noEmit` clean · `next build` OK (first load of `/`: 323 kB; the review screen is a lazy chunk) |
+| `gen-features-doc --check` · `gen-env-doc --check` · `check-simple-tokens.py` · `check-corthexis-sync.sh` | all four pass (`memory/core` matches CortHeXis v2.1.2; 30 tokens × 2 themes, 329 sentences × 2 languages) |
+| Mutations of the integration tests (one guard removed at a time) | 22 of 22 killed: each of the guards a-g removed in turn makes `tests/test_pilot_integration.py` fail |
+| Appliance bench, Docker-in-Docker, mock model and gateway | T0, T1, T2, T2b, T3, T4-T7, T11, T12, T13, T14 **all PASS** on `3.5.1+8257d42` (build and sign 189 s; install 37 s — 18 s before the extractors were in the image; 585 MB after install, 2.2 GB with 3 simultaneous sessions; first answer 2.9 s; reboot → healthy 19 s; T14: 58 variables of the profile checked, the 9 new ones included). Machine peak 5.85 GB of the 6 GB cap (during the image build). The upgrade phase (T8-T10) was **not** replayed |
+| One journey of Camille on a throw-away instance, real local model (`qwen3.8-27b`, vLLM, 4× B60), study mode on | played once on the fixed code — see below |
+
+**The journey** (11.11.2026, the model otherwise idle, one stream): sign-in with a personal
+code → the first « Lancer » is refused and opens « What is recorded » → consent → 3 documents
+(docx, pptx, pdf) + the template « Plan de formation » → **first draft 46 s after « Lancer »**
+(approval card, the 3 sources named with their age; a draft of 7 290 characters) → the draft
+corrected, « Autoriser avec mes corrections » → deliverable ready at 61 s → validated → the two
+questions answered. One turn of 55 s, 104 509 tokens in, 3 599 out. Afterwards, in the
+databases: one row of the journal (`Write`, decision `edit`, edited, actor Camille, origin
+`owner`, her project, asked 03:41:40, decided 03:41:42); `study.db`: P1, consent without content,
+tag S1, one turn (`qwen3.8-27b`), feedback 4 / 6 min; the researcher's package read with an
+export token: P1, scenario, durations, the validation with its delay — no address, no name, no
+project name, title and request as `{chars, hmac}`, `content: []`.
+
+**What the first attempt found.** The journey was first played on the code as merged: at 145 s
+the first card was not a draft but « the agent wants to keep … in the project's memory ». The
+new rule « a session with documents does not write memory files » matched the whole
+`<data>/projects` tree, so in a project other than `default` the save of the deliverable
+itself was refused, and the model fell back on the memory. Fixed (the rule matches the memory
+directories and the quarantine only), with a test that fails on the old code; the figures
+above are the replay. The same over-broad match exists **for agent runs** since 3.2
+(`agentchat._in_memory_dirs`): a Crew agent cannot write a file in the work folder of a project
+other than `default`. Not changed here — to decide.
+
+**A batch review, for real** (same instance, the memory agent on the same model, 2 streams):
+14 documents → 23 notes, 2 flagged, 5 documents without a note, 2 unreadable, in 63 s; 8
+documents → 7 notes, 3 flagged, 1 duplicate, in 41 s. One flagged note refused with a reason,
+one batch refused, one batch approved (4 notes in the memory, 2 flagged left): each decision
+is a line of the journal under the reviewer's name. Captures: `docs/ui/pilot-integration/`.
+
+## 5. Known limits
+
+Of the integration:
+
+* **Never played against the production gateway.** The contract (`GET /usage`, headers, 410 /
+  412 / 429) is tested against the gateway's own documentation and source text
+  (`tests/fixtures/gateway_contract/`, compared with a `sokkan-cloud` checkout when one is at
+  hand) and against a fake gateway on a real socket. The branch `study-quotas` of `sokkan-cloud`
+  is itself not deployed.
+* **The tier and the reason of an escalation are not in the box's journal** (the CLI does not
+  expose them): join with the gateway's export on the pseudonym and the time.
+* **The journal's own export** (`/api/hitl/journal`, instance admins) names people: it is the
+  instance's audit, not the researcher's package. Only the package is pseudonymous.
+* **Memory writes of a session with documents are quarantined per session, not per document**:
+  one document attached quarantines every later `memory_write` of that session, including what
+  has nothing to do with it. A shell command (technical profile) could still write a file in
+  the memory directory after the person approved it — the simple profile has no shell.
+* **The review screen is minimal**: no search in a batch, no side-by-side with the source, one
+  note at a time for flagged notes. Reviewing is the bottleneck of a large archive
+  (≈ 26 000 notes for 20 000 documents).
+* **The local router has no sentinel and no judge** (they are in the hosted gateway only).
+* **`study_mode` on with no study** is silent, but the sub-tab Setup › Study is there for everyone.
+* Setup gained a sub-tab « Ingestion » and the simple drawer an entry « Notes to review »: the
+  navigation validated on 08.10.2026 did not have them — to be confirmed.
+* The sign-in screen is the cockpit's (English).
+* **A project's memory needs the Postgres store** (as since 3.4.2): on an instance with the
+  SQLite index, approving a note of a project other than `default` is refused — the review
+  screen says so on the note. The appliance profile installs the Postgres store.
+* **The model may ask to « keep » something in the memory** in the middle of a work with
+  documents: the card says so, and what is allowed waits in the unit quarantine (CortHeXis),
+  which has no screen in the simple profile.
+
+Inherited from the lots (unchanged, see their pages): the approvals the CLI grants by itself are
+not journaled; no screen to edit an input before allowing in the technical profile;
+`sources.csv` of the researcher's package needs the Postgres store; rclone sources not validated
+on a real Microsoft 365 / Google tenant; rights per document are not propagated (one source per
+confidentiality zone); OCR of scanned PDFs; sessions are never closed (≈ 0.3-0.4 GB each);
+systemd units, a real Tailscale tunnel and the GPU memory profile were not played in a container.
+
+## 6. Before cutting — check-list
+
+Decisions (Nick):
+
+- [ ] Name of the release (§ 7).
+- [ ] Who holds the release signing key, and where (`SOKKAN_REQUIRE_SIGNATURE=1` refuses an
+      unsigned release: no key = no appliance install).
+- [ ] Registry of the prebuilt images the client's box can reach.
+- [ ] `sokkan-cloud` branch `study-quotas` reviewed, merged and deployed on the gateway
+      (`infer/pilote-etude.md` § 8), then the study tenant created — a write on production.
+- [ ] The two navigation additions (Setup › Ingestion, « Notes to review »).
+- [ ] Retention of `study.db` and of the journal after the study (the protocol must say it).
+
+Technical:
+
+- [ ] `main` has not moved since `6f7fee5` (else: merge `main` into the branch, replay § 4).
+- [ ] The suite of § 4 green on the commit that will be tagged, with Postgres.
+- [ ] `tests/e2e_appliance/run.sh all` (T0-T14, with the upgrade phase T8-T10 from 3.4.6 and
+      3.5.1 — the upgrade phase was **not** replayed on this branch).
+- [ ] One journey on the delivered box, with the real gateway and a test tenant: a Deep
+      escalation answered, then the three refusals seen in words.
+- [ ] `restore.sh` of the instances already running (internal, demo): they still have the
+      script that breaks on a started machine — fixed in this release, to roll out.
+- [ ] `sokkan-cloud/site/site/install.sh` replaced by `scripts/install.sh` of this release.
+- [ ] `SOKKAN_FEATURE_MISSIONS_LINK` is now off unless asked: set it on the public demo if the
+      link must stay.
+
+## 7. Cutting the release
+
+Proposed: **3.6.0**. Names in the series so far: « Captains » (3.2), « Helm » (3.3), « Bridge »
+(3.4), « Lookout » (3.5). Suggestions for this one, to choose from: « Landfall » (the product
+arrives at a client's site), « Anchor » (the box it runs on — but it is also the hardware's
+name), « Pilot » (the study, and the person who brings a ship into port).
+
+```sh
+# 1. in /root/sokkan, once the check-list is done
+git merge --no-ff pilot-integration
+# 2. VERSION → 3.6.0 ; CHANGELOG: « ## Unreleased — 3.6 (…) » → « ## 3.6.0 — <date> — "<name>" »
+#    (one section: the areas stay as sub-headings) ; deploy/helm Chart appVersion → 3.6.0
+# 3. from ninabot-pro — a minor needs the two banners
+infra/sokkan/cut-release.sh 3.6.0 --dry-run
+infra/sokkan/cut-release.sh 3.6.0 --pastille-fr "3.6 « <nom> » — …" --pastille-en "3.6 “<name>” — …"
+# 4. the appliance artefacts (signed tarball + images), with the signing key
+scripts/release-artifacts.sh <dist>/sokkan-3.6.0+<commit>.tar.gz --images <registry>
+```
+
+`cut-release.sh` pushes the tag, publishes the GitHub release, the dist, and **rolls the managed
+fleet out** (the public demo included): the release changes defaults (`missions_link` off; tmux
+and Preview off without their binary) — read the upgrade notes of the CHANGELOG first
+(`make-release.sh <src> --no-rollout` publishes a dist without touching the fleet).
