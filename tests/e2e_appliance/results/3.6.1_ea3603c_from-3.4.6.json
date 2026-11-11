@@ -1,0 +1,61 @@
+[
+ {
+  "id": "T0",
+  "name": "publisher side: release signed, images built from the tarball, pushed and signed",
+  "pass": true,
+  "measures": {
+   "build_sign_s": 196,
+   "images": [
+    "api=localhost:5000/sokkan/sokkan-api@sha256:cc65b2d4f1775333cfd13230dfea7799fd1d7b98d7d9c89df86ca27124d202ea",
+    "web=localhost:5000/sokkan/sokkan-web@sha256:2f284108a4921cc7b56452a73bf1b1da28f539f62227cf5eb7d703c07a96d973"
+   ]
+  },
+  "detail": "",
+  "ts": 1794413872
+ },
+ {
+  "id": "T8",
+  "name": "in-place upgrade 3.4.6+3ea74f5 → 3.6.1+ea3603c by the installer (entry A)",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 19,
+   "interruption_s": 4.2,
+   "ram_after_upgrade_mb": 544,
+   "source_install_s": 162,
+   "test_s": 184.1
+  },
+  "detail": "",
+  "ts": 1794414058
+ },
+ {
+  "id": "T10",
+  "name": "rollback 3.6.1+ea3603c → 3.4.6+3ea74f5, then forward again: one command each way",
+  "pass": true,
+  "measures": {
+   "rollback_s": 18,
+   "interruption_s": 3.1,
+   "newer_only_files_checked": 300,
+   "left_at_top_level": [
+    "docker-compose.doc-ingest.yml"
+   ],
+   "test_s": 21.6
+  },
+  "detail": "",
+  "ts": 1794414079
+ },
+ {
+  "id": "T9",
+  "name": "in-place upgrade 3.4.6+3ea74f5 → 3.6.1+ea3603c by scripts/upgrade.sh (entry B) — same result as entry A",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 4,
+   "interruption_s": 3.2,
+   "files": 819,
+   "dist": "3.6.1+ea3603c",
+   "note": "a 3.4.6 tree runs ITS upgrade.sh (no verification, no health gate); from 3.6 on both entries are the same script",
+   "test_s": 6.3
+  },
+  "detail": "",
+  "ts": 1794414086
+ }
+]
