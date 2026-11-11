@@ -386,6 +386,20 @@ def of_session(session_id: str) -> list[dict]:
     return rows
 
 
+def session_has_documents(session_id: str) -> bool:
+    """A document was attached to this session — removed since or not: its text may already
+    be in the transcript. Decides that the session's memory writes are quarantined (the same
+    question is asked by the sokkan-memory MCP server, which reads this table itself)."""
+    if not session_id or not DB.exists():
+        return False
+    con = _con()
+    try:
+        return con.execute("SELECT 1 FROM session_documents WHERE session_id=? LIMIT 1",
+                           (session_id,)).fetchone() is not None
+    finally:
+        con.close()
+
+
 def session_counts(project: str) -> dict[str, int]:
     """doc id → number of sessions it is attached to (the library says « used in 2 »)."""
     con = _con()

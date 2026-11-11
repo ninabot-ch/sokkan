@@ -168,6 +168,45 @@ def is_readonly_mount(path: Path) -> bool:
         return False
 
 
+def instance_dirs() -> list[Path]:
+    """SOKKAN's own space: data directory (documents.db, projects, doc-ingest, quarantine),
+    the workspace sessions work in (dropped documents and deliverables of the default
+    project), the memory and its quarantine."""
+    out = [cfgmod.data_dir()]
+    cwd = (os.environ.get("SOKKAN_AGENT_CWD") or "").strip()
+    try:
+        import sys as _sys
+        ac = _sys.modules.get("agentchat")
+        if ac is not None and getattr(ac, "CWD", None):
+            cwd = str(ac.CWD)
+    except Exception:  # noqa: BLE001
+        pass
+    if cwd:
+        out.append(Path(cwd))
+    for var in ("SOKKAN_MEMORY_DIR", "SOKKAN_MEMORY_QUARANTINE_DIR"):
+        v = (os.environ.get(var) or "").strip()
+        if v:
+            out.append(Path(v))
+    return out
+
+
+def overlaps_instance(root: str) -> str:
+    """'' when `root` is outside SOKKAN's own space, else the directory it overlaps
+    (inside it, or containing it)."""
+    try:
+        r = Path(os.path.realpath(root))
+    except OSError:
+        return ""
+    for d in instance_dirs():
+        try:
+            d = Path(os.path.realpath(d))
+        except OSError:
+            continue
+        if r == d or d in r.parents or r in d.parents:
+            return str(d)
+    return ""
+
+
 class FolderSource(_TreeSource):
     def __init__(self, cfg: SourceConfig):
         self.cfg = cfg
@@ -178,6 +217,14 @@ class FolderSource(_TreeSource):
             raise ConfigError(f"{cfg.id}: `root` must be an absolute directory")
         if os.path.realpath(cfg.root) == "/":
             raise ConfigError(f"{cfg.id}: `root` cannot be /")
+        clash = overlaps_instance(cfg.root)
+        if clash:
+            # 3.6: the documents people drop (feature `documents`), the deliverables, the
+            # memory and its quarantine are SOKKAN's own space, with their own levels and
+            # their own review — an ingestion source never reads them
+            raise ConfigError(
+                f"{cfg.id}: `root` {cfg.root} overlaps SOKKAN's own space ({clash}): a source "
+                "is a folder of the organisation, never the instance's data, workspace or memory")
 
     def tree_root(self) -> Path:
         return Path(self.cfg.root)

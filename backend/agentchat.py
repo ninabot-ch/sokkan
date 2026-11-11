@@ -550,11 +550,27 @@ class AgentSession:
                     "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
                     "approves it)."))
 
+        # 3.6 pilot: a session that was handed documents (feature `documents`) does not write
+        # memory files directly — what it learnt from a dropped document reaches the memory
+        # only through mcp__sokkan-memory__memory_write, which quarantines it for that session
+        # (memory/memory_search_server.py). Same rule as an agent run, for the same reason: a
+        # document is outside content.
+        if not self.policy and tool_name in _EDIT_TOOLS and _in_memory_dirs(
+                str(input_data.get("file_path") or input_data.get("notebook_path") or "")) \
+                and self._has_documents():
+            self._journal_auto(tool_name, input_data, False, "policy:documents_memory_write")
+            return PermissionResultDeny(message=(
+                "This conversation was handed documents: it does not write memory files "
+                "directly. Use mcp__sokkan-memory__memory_write — the note waits in quarantine "
+                "until a person approves it."))
+
         # 3.6 simple profile: a work opened from it belongs to someone who is not a developer —
         # they are never asked to approve a shell command (seen on a timed journey: « the agent
         # wants to carry out a technical operation » for a `mkdir`). Refused here, with what to
         # do instead; file tools keep their approval card.
         if tool_name == "Bash" and not self.policy and self._is_simple_work():
+            # nobody clicked: told apart from a person's refusal in the journal of validations
+            self._journal_auto(tool_name, input_data, False, "policy:simple_profile_no_shell")
             return PermissionResultDeny(message=(
                 "No shell in this conversation: the person is not a developer. The folder for "
                 "the document already exists — save the document with the Write tool (and "
@@ -637,6 +653,15 @@ class AgentSession:
                 v = False
             self._simple_work = v
         return v
+
+    def _has_documents(self) -> bool:
+        """Was a document attached to this session (feature `documents`)? Asked at each
+        memory write: a document can be attached after the session started."""
+        try:
+            import documents
+            return documents.session_has_documents(self.sid)
+        except Exception:  # noqa: BLE001 — no store = no document
+            return False
 
     def _arm_hitl_notify(self, pid: str, title: str) -> None:
         """Programme un ping HITL_DELAY_S plus tard : si la permission est

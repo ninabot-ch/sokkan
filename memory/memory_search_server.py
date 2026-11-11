@@ -363,6 +363,16 @@ def memory_write(name: str, description: str, body: str,
             "run": os.environ.get("SOKKAN_AGENT_RUN_ID", ""),
             "session": os.environ.get("SOKKAN_SESSION_ID", ""), "via": "memory_write"},
             project=project or "default", level=level)
+    if _session_has_documents():
+        # 3.6 : une session à qui l'on a déposé des documents a lu du contenu EXTÉRIEUR — ce
+        # qu'elle en tire attend en quarantaine, comme la note d'un run d'agent, jamais rappelé
+        # tant qu'une personne ne l'a pas relu (l'ingestion `doc_ingest` reste la voie des lots)
+        import quarantine
+        return quarantine.write(name, description, body, {
+            "agent": "", "run": "", "session": os.environ.get("SOKKAN_SESSION_ID", ""),
+            "user": os.environ.get("SOKKAN_SESSION_USER", ""),
+            "via": "memory_write", "reason": "session_documents"},
+            project=project or "default", level=level)
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
                                       "2-64 chars, no path separator (e.g. 'decision-delete-404')"}
@@ -418,6 +428,30 @@ def memory_write(name: str, description: str, body: str,
 def _lv():
     from core import levels
     return levels
+
+
+def _session_has_documents() -> bool:
+    """Was a document dropped into THIS session (feature `documents`, backend/documents.py)?
+    Read from its table directly: this server is a process of its own and imports nothing of
+    the backend. No session, no store, unreadable store = no (the API side refuses on its own)."""
+    sid = (os.environ.get("SOKKAN_SESSION_ID") or "").strip()
+    if not sid:
+        return False
+    db = os.environ.get("SOKKAN_DOCUMENTS_DB") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "documents.db")
+    if not os.path.exists(db):
+        return False
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
+        try:
+            return con.execute("SELECT 1 FROM session_documents WHERE session_id=? LIMIT 1",
+                               (sid,)).fetchone() is not None
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _write_level(requested: str) -> tuple[int, int | None]:
