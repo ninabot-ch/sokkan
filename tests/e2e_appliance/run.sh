@@ -63,11 +63,14 @@ say "release under test: $NEW · memory $MEM (swap total $SWAP) · work $W"
 
 # ---- the machine ------------------------------------------------------------------------
 cleanup() {
-  [ -n "${WATCH:-}" ] && kill "$WATCH" 2>/dev/null || true
   [ -n "${SAMPLER:-}" ] && kill "$SAMPLER" 2>/dev/null || true
   if [ "${E2E_KEEP:-0}" != 1 ]; then
+    [ -n "${WATCH:-}" ] && kill "$WATCH" 2>/dev/null || true
     docker rm -f -v "$NAME" >/dev/null 2>&1 || true
     docker volume rm "$NAME-docker" >/dev/null 2>&1 || true
+  else
+    # the machine is kept for debugging: the host watchdog keeps guarding it until it is removed
+    echo "E2E_KEEP=1: machine $NAME kept (watchdog pid ${WATCH:-?} still on). Remove: docker rm -f -v $NAME; docker volume rm $NAME-docker"
   fi
 }
 trap cleanup EXIT INT TERM
@@ -86,7 +89,9 @@ PUBLISHED="$(docker port "$NAME" 2>/dev/null || true)"
 [ -z "$PUBLISHED" ] || { echo "the test machine publishes ports on the host: $PUBLISHED" >&2; exit 1; }
 
 # host watchdog: this host serves other things — stop when ITS memory pressure rises
-( while sleep 5; do
+( trap '' HUP
+  while sleep 5; do
+    docker inspect "$NAME" >/dev/null 2>&1 || exit 0          # the machine is gone: nothing to guard
     p="$(sed -n 's/^some avg10=\([0-9]*\).*/\1/p' /proc/pressure/memory 2>/dev/null)"
     if [ "${p:-0}" -gt "$PSI_MAX" ]; then
       echo "WATCHDOG: host memory pressure some avg10=$p > $PSI_MAX — stopping the test machine" | tee -a "$W/work/watchdog.log"

@@ -38,6 +38,7 @@ def _release(ver: str, extra: dict | None = None) -> dict:
         files["deploy/appliance/env.appliance.example"] = \
             (ROOT / "deploy/appliance/env.appliance.example").read_text()
         files["docker/compose.images.yml"] = (ROOT / "docker/compose.images.yml").read_text()
+        files["scripts/appliance/accounts.sh"] = (S / "appliance" / "accounts.sh").read_text()
     else:   # what 3.4.6 shipped: an upgrade.sh without verification nor health check
         files["scripts/upgrade.sh"] = "#!/bin/sh\necho OLD-UPGRADE-SH; exit 9\n"
     files.update(extra or {})
@@ -362,6 +363,19 @@ def test_appliance_profile_writes_a_complete_env_with_no_placeholder(world):
     assert len(got["SOKKAN_LOCAL_TOKEN"]) == 48 and got["SOKKAN_LOCAL_TOKEN"] in r.stdout
     assert got["SOKKAN_IMAGES"] == "0" and "BUILT on this machine" in r.stdout
     assert "compose up -d --build --remove-orphans" in (tmp / "docker.log").read_text()
+
+
+def test_appliance_install_creates_the_people_and_prints_each_code_once(world):
+    """Found by the e2e: with IFS changed for the list, `--project <slug>` reached the tool as
+    ONE word and no account was created — silently."""
+    tmp, e, tb = _appliance(world, SOKKAN_ACCOUNTS="ana@pilot.example:Ana Example:projet-ana,ben@pilot.example:Ben:")
+    r0 = _sh(S / "install.sh", "--profile", "appliance", "--version", V_NEW, "--dir", str(tmp / "box"), cwd=tmp, env=e)
+    assert r0.returncode == 0, r0.stderr + r0.stdout
+    log = (tmp / "docker.log").read_text()
+    assert "localaccounts add ana@pilot.example --name Ana Example --project projet-ana" in log, log[-600:]
+    assert "localaccounts add ben@pilot.example --name Ben --role dev" in log
+    # the stub docker prints no code: the installer must SAY the accounts were not created
+    assert r0.stdout.count("was not created") == 2
 
 
 def test_appliance_install_refuses_an_unsigned_release(world):

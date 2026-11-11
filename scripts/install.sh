@@ -332,16 +332,20 @@ else
 fi
 
 # the people: SOKKAN_ACCOUNTS="ana@x.ch:Ana:projet-ana,ben@x.ch:Ben:projet-ben"
-CODES=""
+CODES="$WORK/codes.txt"; : > "$CODES"
 if [ -n "${SOKKAN_ACCOUNTS:-}" ]; then
-  OLDIFS="$IFS"; IFS=","
-  for acc in $SOKKAN_ACCOUNTS; do
-    IFS=":"; set -- $acc; IFS=","
-    line="$(sh scripts/appliance/accounts.sh add "$1" --name "${2:-$1}" ${3:+--project "$3"} 2>/dev/null | tail -n 1)" || line=""
-    [ -n "$line" ] && CODES="$CODES
-       $line" || say "  ! account $1 was not created — scripts/appliance/accounts.sh add $1 --project …"
+  printf '%s\n' "$SOKKAN_ACCOUNTS" | tr ',' '\n' | while IFS=: read -r a_mail a_name a_proj; do
+    [ -n "$a_mail" ] || continue
+    if [ -n "$a_proj" ]; then
+      line="$(sh scripts/appliance/accounts.sh add "$a_mail" --name "${a_name:-$a_mail}" --project "$a_proj" < /dev/null 2>"$WORK/acc.err" | tail -n 1)" || line=""
+    else
+      line="$(sh scripts/appliance/accounts.sh add "$a_mail" --name "${a_name:-$a_mail}" --role dev < /dev/null 2>"$WORK/acc.err" | tail -n 1)" || line=""
+    fi
+    case "$line" in
+      *sk-local-*) printf '       %s\n' "$line" >> "$CODES" ;;
+      *) say "  ! account $a_mail was not created ($(tail -n 1 "$WORK/acc.err" 2>/dev/null)) — scripts/appliance/accounts.sh add $a_mail --project …" ;;
+    esac
   done
-  IFS="$OLDIFS"
 fi
 
 say ""
@@ -351,8 +355,9 @@ say "  Address      https://$SOKKAN_BOX_NAME   (also https://$SOKKAN_BOX_IP)"
 say "  Certificate  sh $DIR/scripts/appliance/export-ca.sh  → install sokkan-local-ca.crt once per workstation"
 say "  Administrator ($SOKKAN_OWNER_EMAIL) access code — shown once, also in $DIR/.env (0600):"
 say "       $OWNER_CODE"
-if [ -n "$CODES" ]; then
-  say "  Personal access codes — shown ONCE, hand each to its owner:$CODES"
+if [ -s "$CODES" ]; then
+  say "  Personal access codes — shown ONCE, hand each to its owner:"
+  cat "$CODES"
 else
   say "  Add a person:  sh $DIR/scripts/appliance/accounts.sh add <e-mail> --name <name> --project <slug>"
 fi

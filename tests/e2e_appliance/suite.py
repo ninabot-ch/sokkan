@@ -1045,7 +1045,17 @@ def report() -> None:
     (WORK / "results.json").write_text(json.dumps(list(last.values()), indent=1, ensure_ascii=False))
 
 
+def only() -> None:
+    """suite.py only T3,T4 — replay chosen tests on the machine as it is (debugging)."""
+    serve_dist()
+    start_mocks()
+    table = {"T1": t1, "T2": t2, "T2b": t_support, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7,
+             "T11": t11, "T12": t12, "T13": t13, "T14": t14}
+    for tid in (sys.argv[2] if len(sys.argv) > 2 else "").split(","):
+        table[tid.strip()]()
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     {"prepare": prepare, "appliance": appliance, "after-reboot": after_reboot, "upgrade": upgrade,
-     "report": report}.get(cmd, lambda: (print(__doc__), sys.exit(2)))()
+     "report": report, "only": only}.get(cmd, lambda: (print(__doc__), sys.exit(2)))()
