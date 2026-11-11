@@ -79,7 +79,7 @@ def _email_session(request: Request) -> str:
 
 def local_login_required() -> bool:
     """Local mode asks for a sign-in when there is an owner token OR at least one named
-    account (3.5.2, localaccounts.py): creating the first personal code closes the open
+    account (3.6, localaccounts.py): creating the first personal code closes the open
     single-user access — otherwise everyone would still come in as the owner."""
     if LOCAL_TOKEN:
         return True

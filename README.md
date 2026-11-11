@@ -244,7 +244,7 @@ cloud-metadata addresses are refused unless `SOKKAN_PREVIEW_ALLOW_PRIVATE=1`.
   list of outbound traffic, all of it optional: your prompts to Anthropic, as
   with any Claude Code use; one GET a day to `sokkan.ch/dist/VERSION` so the UI
   can tell you a release is out (`SOKKAN_UPDATE_CHECK=0` to stop it); and, only
-  if you switch it on (`SOKKAN_FEATURE_MISSIONS_LINK=1`, off by default since 3.5.2), one GET
+  if you switch it on (`SOKKAN_FEATURE_MISSIONS_LINK=1`, off by default since 3.6), one GET
   every six hours for the open-missions counter in the header, made by the
   instance and never by your browser.
   Building the images pulls from Docker Hub, npm and PyPI, as any build does.

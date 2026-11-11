@@ -191,7 +191,7 @@ Nina, the cockpit's help agent. Needs an LLM (SOKKAN_ASSISTANT_LLM_*) and its kn
 
 **SOKKAN Missions link** — stable, toggle.
 
-Header link to the public SOKKAN Missions marketplace, with a counter this instance fetches (6 h cache). Off unless asked for (3.5.2): no call to a public service that the operator did not switch on.
+Header link to the public SOKKAN Missions marketplace, with a counter this instance fetches (6 h cache). Off unless asked for (3.6): no call to a public service that the operator did not switch on.
 
 - Defaults: community **off**, enterprise **off**
 - Switch: `SOKKAN_FEATURE_MISSIONS_LINK`

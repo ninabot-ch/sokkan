@@ -177,7 +177,8 @@ def test_rollback_replaces_the_code_and_keeps_env_workspace_and_user_files(tmp_p
     (bin_ / "docker").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/docker.log\n')
     (bin_ / "docker").chmod(0o755)
     r = subprocess.run(["sh", "scripts/rollback.sh", str(tgz)], cwd=d, capture_output=True,
-                       text=True, env={**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"})
+                       text=True, env={**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}",
+                                           "SOKKAN_ROLLBACK_NO_WAIT": "1"})
     assert r.returncode == 0, r.stderr + r.stdout
     assert not (d / "frontend" / "components").exists()        # the 3.0 leftovers are gone
     assert not (d / "memory" / "core").exists()

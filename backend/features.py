@@ -104,7 +104,7 @@ class Feature:
     check: Callable[[], str | None] | None = None   # informational readiness note (never gates)
     # what the feature cannot run without ON THIS HOST (a binary): returns the reason when it
     # is missing. The feature is then OFF whatever was asked — the cockpit never shows a
-    # screen that cannot work (3.5.2: tmux and Preview were announced on in the compose
+    # screen that cannot work (3.6: tmux and Preview were announced on in the compose
     # image, which ships neither tmux nor a browser).
     available: Callable[[], str | None] | None = None
 
@@ -243,7 +243,7 @@ REGISTRY: tuple[Feature, ...] = (
             check=_assistant_check),
     Feature("missions_link", "SOKKAN Missions link",
             "Header link to the public SOKKAN Missions marketplace, with a counter this instance "
-            "fetches (6 h cache). Off unless asked for (3.5.2): no call to a public service "
+            "fetches (6 h cache). Off unless asked for (3.6): no call to a public service "
             "that the operator did not switch on.",
             defaults=_both(False), config=("SOKKAN_MISSIONS_STATS_URL",),
             vars=_t("missions_link", Var("SOKKAN_FEATURE_MISSIONS_LINK", parse_zero_off, True, "0 = off, anything else = on"))),

@@ -743,7 +743,7 @@ class AgentSession:
                 "cost_usd": turn_cost,
                 "session_cost_usd": round(self.cost_usd, 4),
             })
-            # 3.5.2: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
+            # 3.6: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
             # words a person can act on, instead of the CLI's raw `API Error: …` line alone
             if getattr(msg, "is_error", False) or "API Error" in (getattr(msg, "result", "") or ""):
                 import llmerrors

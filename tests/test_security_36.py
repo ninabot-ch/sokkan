@@ -1,4 +1,4 @@
-"""3.5.2 — two security debts of the on-prem audit, and the commit of a compose install.
+"""3.6 — two security debts of the on-prem audit, and the commit of a compose install.
 
 * backend/previewenv.py passed the api's WHOLE environment to the dev-server it starts;
 * `POST /api/llm` wrote the model key in clear in llm.json;

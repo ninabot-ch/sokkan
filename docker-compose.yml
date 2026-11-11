@@ -279,7 +279,7 @@ services:
       SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
       SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}
       SOKKAN_RUNNER_RELAY_ADDR: ${SOKKAN_RUNNER_RELAY_ADDR:-}
-      # ---- 3.5.2 : every variable the backend reads reaches the container ------------------
+      # ---- 3.6 : every variable the backend reads reaches the container ------------------
       # (tests/test_compose_env.py fails when one is read but neither declared here nor
       # classified there; reference with defaults: docs/ENVIRONMENT.md). Empty = the default
       # of the code.
@@ -564,13 +564,38 @@ services:
       retries: 3
       start_period: 20s
 
+  # HTTPS on the local network (COMPOSE_PROFILES=appliance, or `tls` alone): Caddy with its
+  # own local certificate authority — no public DNS, no Let's Encrypt, works offline. Serves
+  # the names of SOKKAN_TLS_SITES → web. The root certificate to install once on each
+  # workstation: scripts/appliance/export-ca.sh. (`edge` above is something else: public
+  # custom domains with Let's Encrypt, for managed fleets.)
+  tls:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    profiles: ["appliance", "tls"]
+    environment:
+      SOKKAN_TLS_SITES: ${SOKKAN_TLS_SITES:-https://sokkan.lan, https://localhost}
+    ports:
+      - "${SOKKAN_TLS_BIND:-0.0.0.0}:${SOKKAN_TLS_PORT:-443}:443"
+    volumes:
+      - ./deploy/appliance/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    security_opt:
+      - no-new-privileges:true
+
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
     environment:
       SOKKAN_API: http://api:8097
     ports:
-      - "${SOKKAN_PORT:-3009}:3000"
+      # SOKKAN_BIND=127.0.0.1 keeps the plain-HTTP port off the network (then reach the
+      # cockpit through the `tls` service below, or your own reverse proxy). Default: every
+      # interface, as before — on a network you do not fully trust, set it.
+      - "${SOKKAN_BIND:-0.0.0.0}:${SOKKAN_PORT:-3009}:3000"
     depends_on:
       - api
     security_opt:

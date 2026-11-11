@@ -14,6 +14,11 @@
 set -eu
 umask 022
 
+# a person typing the command (not systemd) gets the same settings as the units
+if [ -z "${SOKKAN_APPLIANCE_DIR:-}" ] && [ -r /etc/sokkan/appliance.env ]; then
+    set -a; . /etc/sokkan/appliance.env; set +a
+fi
+
 DIR="${SOKKAN_APPLIANCE_DIR:-/var/lib/docker/volumes/sokkan_sokkan-data/_data/appliance}"
 STATE="$DIR/support-state.json"
 EVENTS="$DIR/support-events.jsonl"

@@ -1,0 +1,67 @@
+# SOKKAN appliance — « Ship », the model served ON the box: Qwen3.8-27B (INT4) on 4× Intel Arc
+# Pro B60 with vLLM, tensor parallel over the 4 cards. Recipe of our reference machine
+# (measured 10-11.11.2026: 59 tok/s per stream, 93 with MTP; 314-330 tok/s at 8 streams; 131k
+# context; first token 0.13-0.18 s warm). OpenAI API on :8004/v1 AND the Anthropic Messages
+# API on :8004/v1/messages (what SOKKAN sessions use, through the `router` service).
+#
+# Started at boot by deploy/appliance/systemd/sokkan-ship.service (NOT by `restart:` — a model
+# that crash-loops on a GPU fault must not fight the rest of the box; systemd restarts it with
+# a delay and a limit). Settings: /etc/sokkan/ship.env (see ship.env.example).
+# Every value below was validated together; change one at a time and measure.
+services:
+  ship:
+    image: ${SHIP_IMAGE:-sokkan-ship:0.32.0}
+    container_name: sokkan-ship
+    restart: "no"
+    # under memory pressure the model goes first, never Postgres or the cockpit
+    oom_score_adj: 900
+    devices:
+      - /dev/dri:/dev/dri
+    shm_size: 16g
+    cap_add:
+      - SYS_PTRACE            # oneCCL pidfd exchange between the tensor-parallel workers
+    security_opt:
+      - seccomp:unconfined    # same reason (pidfd_getfd)
+    mem_limit: ${SHIP_MEM:-26g}
+    memswap_limit: ${SHIP_MEM:-26g}
+    cpus: ${SHIP_CPUS:-12}
+    volumes:
+      - ${SHIP_MODELS_DIR:-/srv/models/hf}:/models:ro
+      - /dev/dri/by-path:/dev/dri/by-path
+    ports:
+      # the model listens on the host loopback and on the docker bridge only — never the LAN.
+      # SOKKAN reaches it as http://host.docker.internal:8004
+      - "127.0.0.1:${SHIP_PORT:-8004}:8000"
+      - "${SHIP_BRIDGE_IP:-172.17.0.1}:${SHIP_PORT:-8004}:8000"
+    environment:
+      ZE_AFFINITY_MASK: "${SHIP_CARDS:-0,1,2,3}"
+      CCL_ZE_IPC_EXCHANGE: pidfd
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+      CCL_TOPO_P2P_ACCESS: "0"
+      VLLM_XPU_ONE_DEVICE_PER_WORKER: "1"
+      # no call home: no usage stats, no model download at start (weights are on disk)
+      VLLM_NO_USAGE_STATS: "1"
+      DO_NOT_TRACK: "1"
+      HF_HUB_OFFLINE: "1"
+    command: >
+      /models/${SHIP_MODEL_DIR:-qwen3.8-27b-int4}
+      --served-model-name ${SHIP_MODEL_NAME:-qwen3.8-27b}
+      --tensor-parallel-size ${SHIP_TP:-4}
+      --host 0.0.0.0 --port 8000
+      --max-model-len ${SHIP_CTX:-131072}
+      --max-num-seqs ${SHIP_SEQS:-32}
+      --gpu-memory-utilization ${SHIP_UTIL:-0.80}
+      --device-ids ${SHIP_CARDS:-0,1,2,3}
+      --kv-cache-dtype fp8
+      --speculative-config.method mtp
+      --speculative-config.num_speculative_tokens 2
+      ${SHIP_EXTRA-}
+      --enable-auto-tool-choice
+      --tool-call-parser qwen3_coder
+      --reasoning-parser qwen3
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s

@@ -27,7 +27,7 @@ def test_backend_imports_with_every_compose_var_empty(monkeypatch, tmp_path):
         monkeypatch.setenv(name, "")
     monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
     for mod in ("features", "notify", "assistant", "agents_runtime",
-                # 3.5.2: the variables declared since then (JSON, paths, URLs with a default)
+                # 3.6: the variables declared since then (JSON, paths, URLs with a default)
                 "preview", "previewenv", "infra", "observability", "updatecheck", "missions",
                 "hostnames", "instance", "session", "heartbeat", "appliance"):
         # re-import fresh, then put the original module back (monkeypatch restores sys.modules):

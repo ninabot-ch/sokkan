@@ -65,7 +65,7 @@ def _fernet():
 
 
 def _seal(cfg: dict) -> dict:
-    """What goes to disk: every key/token field replaced by `<field>_enc` (3.5.2 — the old
+    """What goes to disk: every key/token field replaced by `<field>_enc` (3.6 — the old
     `POST /api/llm` wrote the Anthropic key in clear in llm.json; a copy of the data volume,
     a backup or a support look at the file gave the key away)."""
     out = dict(cfg)
@@ -96,7 +96,7 @@ def _unseal(c: dict) -> dict:
 
 
 def _read_file() -> dict:
-    """llm.json decrypted. A file written before 3.5.2 (key in clear) is re-written sealed
+    """llm.json decrypted. A file written before 3.6 (key in clear) is re-written sealed
     the first time it is read — best effort, the plain value keeps working if that fails."""
     c = json.loads(CONFIG.read_text(encoding="utf-8"))
     if not isinstance(c, dict) or not c:
@@ -131,7 +131,7 @@ def load() -> dict:
 
 
 def appliance_config() -> dict:
-    """On-prem appliance (3.5.2): a model served ON the machine is the instance's engine as
+    """On-prem appliance (3.6): a model served ON the machine is the instance's engine as
     soon as `SOKKAN_SHIP_URL` is set — nobody has to connect anything in the cockpit. Sessions
     go through the local router (backend/shiprouter.py, `router` service) which keeps ordinary
     requests on the box and sends the hard ones to the Deep gateway. A model chosen in the

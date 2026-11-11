@@ -57,7 +57,7 @@ def list_envs() -> list[dict]:
     return out
 
 
-# What a dev-server inherits from the api process. NOT the whole environment (3.5.2): the api
+# What a dev-server inherits from the api process. NOT the whole environment (3.6): the api
 # holds the model keys, the session secret, the database password, OIDC / SMTP / gateway
 # secrets — a `next dev` (or anything a preview-envs.json command runs) had them all, and so
 # did every dependency it loads. A dev-server gets a plain shell environment; what it needs

@@ -69,7 +69,7 @@ def test_community_defaults_are_the_previous_behaviour(clean_env, monkeypatch):
     st = F.resolve()
     on = {k for k, s in st.items() if s.enabled}
     # 3.5: alerting is new and on by default — it does nothing until someone writes a rule
-    # 3.5.2: missions_link is off unless asked for (no outbound call by default)
+    # 3.6: missions_link is off unless asked for (no outbound call by default)
     assert on == {"tmux", "preview", "magnitude", "update_check",
                   "named_secrets", "memory_quarantine", "agents", "alerting"}
     assert F.edition() == "community"
@@ -243,7 +243,7 @@ def test_routes_follow_the_registry(client, clean_env):
     assert client.post("/api/admin/projects", json={"slug": "radio", "name": "Radio"}).status_code == 200
 
 
-# ---- 3.5.2: a feature that needs a binary is off when the host has none ----------------
+# ---- 3.6: a feature that needs a binary is off when the host has none ----------------
 @pytest.mark.parametrize("fid,var", [("tmux", "SOKKAN_FEATURE_TMUX"), ("preview", "SOKKAN_FEATURE_PREVIEW")])
 def test_tmux_and_preview_are_off_without_their_binary(clean_env, monkeypatch, fid, var):
     """The compose image ships neither tmux nor a browser, and compose passes the switch as

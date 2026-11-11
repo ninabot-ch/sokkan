@@ -91,7 +91,7 @@ import helm_api
 import provision
 import transcript as T
 import updatecheck
-import localaccounts  # 3.5.2: personal access codes of the local auth mode
+import localaccounts  # 3.6: personal access codes of the local auth mode
 import appliance  # on-prem appliance: support tunnel requests, backup status
 import heartbeat  # supervision heartbeat (off unless SOKKAN_HEARTBEAT_URL is set)
 import usage as usage_mod
@@ -1685,7 +1685,7 @@ def auth_local(body: LocalLogin, request: Request):
           or (request.client.host if request.client else "?"))
     if _login_throttled(ip):
         raise HTTPException(429, "too many failed attempts — retry in a minute")
-    # 3.5.2: the owner token, or a person's own access code (localaccounts) — the code says
+    # 3.6: the owner token, or a person's own access code (localaccounts) — the code says
     # WHO signs in, so three people on one box are three names in the journal
     email, name = "", ""
     if auth.LOCAL_TOKEN and secrets.compare_digest(body.token.strip().encode(), auth.LOCAL_TOKEN.encode()):
@@ -2043,7 +2043,7 @@ def _build_version() -> dict:
     if commit == "unknown":      # the image's build-arg default: nobody passed the commit
         commit = ""
     if not commit:
-        # 3.5.2 — a compose install builds without the build-arg, but the installer writes the
+        # 3.6 — a compose install builds without the build-arg, but the installer writes the
         # release it put in place as SOKKAN_VERSION=<version>+<commit> (dist/VERSION): read it
         # there, so that /api/version names the commit and a rollout check can compare.
         m = re.match(r"^v?\d+(?:\.\d+)*\+([0-9a-f]{7,40})$", (os.environ.get("SOKKAN_VERSION") or "").strip())
@@ -2487,12 +2487,12 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
         iam.delete_user(email)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    localaccounts.revoke(email)      # 3.5.2: a deleted account keeps no access code
+    localaccounts.revoke(email)      # 3.6: a deleted account keeps no access code
     audit.log(u["email"], "iam.delete", email)
     return {"ok": True}
 
 
-# 3.5.2 — named accounts in local auth mode: a personal access code per person (localaccounts.py)
+# 3.6 — named accounts in local auth mode: a personal access code per person (localaccounts.py)
 @app.get("/api/iam/access-codes")
 def iam_access_codes(_u: dict = Depends(require("admin"))) -> list[dict]:
     """Who can sign in with a personal code, since when, last sign-in — never a code."""
