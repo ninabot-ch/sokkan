@@ -161,6 +161,40 @@ class Person:
                 "rc": r.returncode}
 
 
+def thread_of(p: Person, sid: str) -> tuple[list, list]:
+    """What that person reads when they open the work `sid` in the simple profile: (their own
+    messages, the agent's sentences) of the replayed thread."""
+    r = sh(f"docker compose exec -T -u 1000 api python3 /tmp/ws_session.py {sid} '{p.cookie()}' "
+           "--replay --view simple --timeout 60", cwd=BOX, timeout=90)
+    evs = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    return ([e.get("text") or "" for e in evs if e.get("type") == "user"],
+            [e.get("text") or "" for e in evs if e.get("type") == "text"])
+
+
+THREAD_ASK = "Prépare la relance du devis de mars."
+
+
+def seed_thread() -> None:
+    """Before the reboot: one person starts a work in the simple profile, in their own project,
+    and reads its thread. T13 opens the same work again after the reboot."""
+    s = state()
+    e, _, proj = PEOPLE[0]
+    try:
+        u = Person(s["codes"][e], proj)
+        assert u.login() == 200, "sign-in"
+        st, w = u.call("/api/simple/start", {"ask": THREAD_ASK, "lang": "fr"}, timeout=120)
+        assert st == 200, f"start → {st} {w}"
+        t0 = time.time()
+        mine, agent = thread_of(u, w["session_id"])
+        while not any("[ship] ok" in x for x in agent) and time.time() - t0 < 150:
+            time.sleep(3)
+            mine, agent = thread_of(u, w["session_id"])
+        assert THREAD_ASK in mine and any("[ship] ok" in x for x in agent), f"thread before reboot: {mine} {agent}"
+        state(thread={"email": e, "project": proj, "sid": w["session_id"]})
+    except Exception as ex:  # noqa: BLE001 — said by T13, which cannot check the thread then
+        state(thread={"error": repr(ex)[:300]})
+
+
 def work_export_of(p: Person) -> tuple[int, list]:
     """GET /api/admin/work-export as that person: (status, the names inside the zip)."""
     try:
@@ -920,6 +954,7 @@ def appliance() -> None:
     t12()
     t14()
     t11()
+    seed_thread()
     state(phase="appliance-done")
 
 
@@ -943,9 +978,19 @@ def t13():
     sh("docker compose cp /harness/e2e_appliance/ws_session.py api:/tmp/ws_session.py", cwd=BOX)
     t = owner.turn("Après le redémarrage, tout va bien ?")
     assert "[ship] ok" in t["text"], t["text"][:200]
+    # the conversation of a work started before the reboot is still there for its author (3.6.3:
+    # it opened empty — the deliverables were kept, the thread was not read back)
+    th = s.get("thread") or {}
+    assert th.get("sid"), f"no work was started before the reboot: {th.get('error')}"
+    author = Person(s["codes"][th["email"]], th["project"])
+    assert author.login() == 200
+    mine, agent = thread_of(author, th["sid"])
+    assert THREAD_ASK in mine and any("[ship] ok" in x for x in agent), \
+        f"the thread of a work is not readable after the reboot: {mine} {agent}"
     st2, r2 = owner.call("/api/memory/search?k=3&q=" + urllib.request.quote("qui livre la farine ?"), timeout=90)
     assert st2 == 200 and r2 and "fournisseur-farine" in [x.get("note_name") for x in r2[:3]], "memory after reboot"
     return {"healthy_after_engine_start_s": round(up), "reboot_to_healthy_s": round(total),
+            "thread_after_reboot": {"own_messages": len(mine), "agent_sentences": len(agent)},
             "note": "engine restart of the test machine; the systemd units (model, tunnel closed at boot, "
                     "backup timer) need a real machine — not played here"}
 

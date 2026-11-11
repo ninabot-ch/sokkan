@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import time
 import uuid
@@ -1014,14 +1015,25 @@ def _closed_to_agent_run(path: str, project: str) -> bool:
 _registry: dict[str, AgentSession] = {}
 
 
-def _transcript_path(csid: str) -> Path:
+def _transcript_path(csid: str, cwd: str | None = None) -> Path:
     """Chemin du transcript persisté par Claude Code (même résolution que
-    PROJECT_DIR côté app.py — dupliquée ici pour éviter le cycle d'import)."""
+    PROJECT_DIR côté app.py — dupliquée ici pour éviter le cycle d'import).
+
+    3.6.3: the CLI files a transcript under the session's OWN working directory, every
+    non-alphanumeric character of it replaced by « - ». A session of another project than
+    `default` works in its project's folder (project_cwd), so its transcript is not in the
+    instance's folder: pass ``cwd``. Only that folder is searched — never another project's."""
     claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
     cwd_slug = (os.environ.get("SOKKAN_AGENT_CWD")
                 or ("/workspace" if os.path.isdir("/workspace") else os.getcwd())).replace("/", "-")
     base = os.environ.get("SOKKAN_PROJECT_DIR", os.path.join(claude_dir, "projects", cwd_slug))
-    return Path(base) / f"{csid}.jsonl"
+    path = Path(base) / f"{csid}.jsonl"
+    if cwd and not path.exists() and re.fullmatch(r"[A-Za-z0-9-]{8,64}", csid or ""):
+        for d in dict.fromkeys((cwd, os.path.realpath(cwd))):
+            own = Path(claude_dir) / "projects" / re.sub(r"[^a-zA-Z0-9]", "-", d) / path.name
+            if own.exists():
+                return own
+    return path
 
 
 def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
@@ -1029,7 +1041,7 @@ def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
     session existante s'affichait vide alors que tout l'historique est dans le
     transcript JSONL. On re-peuple le ring depuis le transcript pour que le
     replay WS montre la conversation complète."""
-    path = _transcript_path(csid)
+    path = _transcript_path(csid, s.cwd)
     if s.events or not path.exists():
         return
     import transcript

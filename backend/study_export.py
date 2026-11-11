@@ -271,7 +271,9 @@ def _content(tag: dict, people: dict[str, str]) -> dict | None:
         import board
         import transcript
         csid = board.get_claude_session_id(tag["session_id"])
-        path = agentchat._transcript_path(csid) if csid else None
+        # a session of a project works in that project's folder: its transcript is there
+        path = agentchat._transcript_path(
+            csid, agentchat.project_cwd(tag["session_id"])) if csid else None
         if not path or not path.exists():
             return {"session": _sid(tag["session_id"]), "messages": [],
                     "note": "no transcript on this instance"}
