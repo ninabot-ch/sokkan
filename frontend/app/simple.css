@@ -499,3 +499,13 @@ html[data-sk-theme] body {
 .sk a.sk-btn { color: var(--sk-text-strong); text-decoration: none; }
 .sk a.sk-btn-primary { color: var(--sk-on-brass); }
 .sk a.sk-btn-quiet { color: var(--sk-text-soft); }
+
+/* cards that are buttons, inputs in a row: the element resets above must not win */
+.sk .sk-card-btn { background: var(--sk-surface); border: 1px solid var(--sk-line); border-radius: var(--sk-r-md);
+  padding: var(--sk-s4); display: flex; flex-direction: column; gap: var(--sk-s2); }
+.sk .sk-input.sk-grow { width: auto; flex: 1 1 0; }
+.sk form.sk-panel-foot { flex-wrap: nowrap; }
+@media (max-width: 520px) {
+  .sk-seg { display: flex; align-self: stretch; flex-wrap: nowrap; }
+  .sk .sk-seg button { flex: 1 1 auto; padding: 0 var(--sk-s2); }
+}

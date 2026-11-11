@@ -212,7 +212,7 @@ export const fr = {
   // settings
   "set.title": "Réglages",
   "set.lang": "Langue",
-  "set.lang.auto": "Celle du navigateur",
+  "set.lang.auto": "Automatique",
   "set.theme": "Apparence",
   "set.theme.light": "Claire",
   "set.theme.dark": "Nuit",
@@ -440,7 +440,7 @@ export const en: Record<Key, string> = {
   "nina.send": "Send to Nina",
   "set.title": "Settings",
   "set.lang": "Language",
-  "set.lang.auto": "The browser's",
+  "set.lang.auto": "Automatic",
   "set.theme": "Appearance",
   "set.theme.light": "Light",
   "set.theme.dark": "Night",
