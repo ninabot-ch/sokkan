@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.6.2 — 2026-11-12 — "Icebreaker"
+## 3.6.2 — 2026-11-11 — "Icebreaker"
 
 An organisation takes its work with it, and a rollback leaves the tree of the release it goes
 back to. No changed default, no new required variable.

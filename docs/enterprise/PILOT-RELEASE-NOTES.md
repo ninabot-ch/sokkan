@@ -308,8 +308,8 @@ Exoscale has no native registry (only a third-party Marketplace listing, billed 
 #    (a --no-ff merge would tag a commit nobody tested). If it refuses, main has moved: merge
 #    main into the branch, replay § 4.
 git fetch origin && git merge --ff-only origin/release-3.6.2
-# 2. nothing to do: VERSION, the CHANGELOG section dated 2026-11-12 and the Chart appVersion are
-#    on the branch since 05cf279. If the cut is not made on 2026-11-12, fix the date of the
+# 2. nothing to do: VERSION, the CHANGELOG section dated 2026-11-11 and the Chart appVersion are
+#    on the branch since 05cf279. If the cut is not made on 2026-11-11, fix the date of the
 #    section first (cut-release.sh commits VERSION and CHANGELOG.md if they differ, then tags).
 # 3. from the operations repository — a patch needs no banner: the site already announces 3.6
 infra/sokkan/cut-release.sh 3.6.2 --dry-run
