@@ -35,6 +35,8 @@ branch; where a thing was not played, the page says so.
 | h | The instance knew the gateway of `study-quotas` 664a47f; its head f260ada changed the text of the 412 and added a 429 `user_limit_reached` (too many distinct people today, `max_users_day`) that the local router turned into « wait a minute and send again ». In the simple profile every refusal read « a technical problem, you can send your request again » | The four study refusals are handed back once, never retried; the session says one sentence with the gateway's code (no variable name in it, no generic 429 sentence on top); the simple profile has a notice per refusal, French and English. Tests: `tests/test_gateway_refusals.py`, written from what the gateway **answered** (its app played on a throw-away database), not from the instance's code |
 | i | Since 3.2 an agent run (Crew) could not write a file in the work folder of a project other than `default` (`agentchat._in_memory_dirs` matched the whole `<data>/projects` tree) | It writes in `<data>/projects/<its project>/work`; the memory directories, the quarantine and the other projects stay closed (`tests/test_agent_run_project_work.py`) |
 | j | In the simple profile a later message that begins with « / » (« /deep Propose-moi… », the escalation keyword first) was a slash command for the CLI: the person read « Unknown command: /deep » and nothing went to a model (found on the journey against the real gateway) | The brief comes first for such a message; the person's words stay whole and the router finds the keyword (`tests/test_simple_profile.py`) |
+| k | The CLI's session-title call carries the person's first message: with the escalation keyword in it (« … /deep ») the local router sent it to Deep too, and ONE question counted TWO Deep escalations of the person's day on the gateway (`deep_user_day` 2, found on the journey against the real gateway) | A call of the CLI that declares no tool (title of the session, summaries) is a side call: it stays on the local model whatever it carries or asks for, and is not sent to Deep when the local model is down (`backend/shiprouter.side_call`; `tests/test_shiprouter.py`, input = the call the bundled CLI really sent, `tests/fixtures/cli_calls/`). Replayed with the real CLI through the router: 2 Deep calls before, 1 after |
+| l | On an appliance the notice of a person's ceiling (429 `user_daily_cap`) said « tomorrow », although only the stronger model is closed and the model of the box remains | Its own sentence on an appliance, French and English (`no.user_daily_cap_local`; `study.local_model_remains`): carry on right away with the usual model, the stronger one opens again tomorrow (`tests/test_gateway_refusals.py`) |
 
 ## 2. Features and what each needs
 
@@ -139,22 +141,31 @@ Of the integration:
   `docs/ui/pilot-integration/passerelle-reelle/README.md`. 410 `study_expired` was not played.
   Before that journey: the contract (`GET /usage`, headers, 410 /
   412 / the two 429) is tested against the gateway's own documentation, its source text and
-  the bodies its app answered when played in-process on a throw-away database, head f260ada
+  the answers of its app played in-process on a throw-away database, head `study-no-retry` 293573d
   (`tests/fixtures/gateway_contract/`, compared with a `sokkan-cloud` checkout when one is at
   hand — the comparison is **skipped** where there is none) and against a fake gateway on a
   real socket. The branch `study-quotas` of `sokkan-cloud` is itself not deployed.
-* **No retry guard without the local router.** The gateway sends no `x-should-retry` on its
-  refusals; the router of the appliance adds it. An instance whose sessions call the gateway
-  directly lets the CLI retry the two 429 before the sentence appears — not the pilot's
-  setting; played once on the real gateway: 177 s of spinner before the notice. The fix is the
-  gateway's (send the header on its study refusals).
+* **No retry guard without the local router — fixed on the gateway's side, NOT deployed.** The
+  gateway in production (`sokkan-cloud` bd8a8bc) sends no `x-should-retry` on its refusals; the
+  router of the appliance adds it. An instance whose sessions call the gateway directly lets the
+  CLI retry the two 429 before the sentence appears — not the pilot's setting; played once on
+  the real gateway: 177 s of spinner before the notice. `sokkan-cloud` branch `study-no-retry`
+  (293573d) sends `x-should-retry: false` on the four study refusals and on them only; the
+  frozen contract here was regenerated from it (`tests/fixtures/gateway_contract/regenerate.py`).
+  Until that branch is deployed, the guard is the local router alone.
 * **Three of the four refusal notices of the simple profile were looked at in a browser**, on
   the real gateway (see above); the fourth (`study_expired`) has tests only.
 * **A person's token ceiling must be sized on a whole work**: one request of a session is
   ≈ 29 000 tokens and a short work 200 000; with `user_tokens_day` 20 000 the gateway serves one
   request per person and per day.
-* **The session-title call of the CLI is escalated with the first message**: « /deep » in the
-  first message of a work counts two Deep escalations of the person's day.
+* **Side calls of the CLI are recognised by their shape** (sent by the CLI, no tool declared).
+  Only the session-title call was captured and replayed; a side call that would declare tools
+  (none seen) would still follow the ordinary rules. On a box WITHOUT local model (not the
+  appliance profile) a side call still goes to Deep: there is nowhere else to send it.
+* **After `user_daily_cap` on an appliance an escalation the router decides by itself is still
+  refused** (repeated tool failures, prompt size, local model down): the router does not fall
+  back to the local model on that refusal. The notice tells the person to send the request
+  without asking for the stronger model.
 * **After a restart of the api a work reopens with an empty thread** (the deliverable and its
   validation are kept; seen on the throw-away instance, not investigated).
 * **Other inference errors in the simple profile** (402, tenant-wide 429, unreachable) still

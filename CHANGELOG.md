@@ -158,6 +158,19 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
   `no.study_mode_required`, `no.user_daily_cap`, `no.user_limit_reached`) instead of « a technical
   problem, you can send your request again ». The frozen contract was regenerated from what the
   gateway answered (`tests/test_gateway_refusals.py`).
+- **One question is one Deep escalation.** On an appliance the CLI's session-title call (it carries the
+  person's first message) was escalated with it when the message held the escalation keyword: one
+  question counted two escalations of the person's day on the gateway. Calls the CLI makes for itself
+  (no tool declared) now stay on the local model, whatever they carry or ask for, and are not sent to
+  Deep when the local model is down (`backend/shiprouter.side_call`, reason `side_call` in `/stats`).
+- **On an appliance the personal-ceiling notice no longer says « tomorrow » only.** A 429
+  `user_daily_cap` closes the stronger model, not the model of the box: the sentence (session and
+  simple profile, `no.user_daily_cap_local`, French and English) says to carry on right away with the
+  usual model. Elsewhere the sentence is unchanged.
+- **The gateway contract carries the headers.** `tests/fixtures/gateway_contract/contract.json` is now
+  written by `regenerate.py` (the gateway's app played on a throw-away database) and holds, for each
+  refusal, `x-sokkan-error` and `x-should-retry` as sent: `false` on the four study refusals since
+  `sokkan-cloud` `study-no-retry`, absent on the tenant-wide 429.
 - **An agent run writes in the work folder of its own project.** Since 3.2 the rule « an agent run
   does not write memory files » matched the whole `<data>/projects` tree: a Crew agent of a project
   other than `default` could not write a file in its own working directory. The memory directories,

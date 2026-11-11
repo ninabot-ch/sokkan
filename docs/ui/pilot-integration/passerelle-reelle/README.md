@@ -1,5 +1,8 @@
 # Pilot candidate against the REAL gateway — journey and refusals seen on screen (11.11.2026)
 
+> The journey below was played on `b2ce8bd` and is left as it was seen. Defects 2, 3 and 5 were
+> worked on afterwards (same day): their state is under « Defects found ».
+
 One journey played in a real browser (Chrome, 1919 × 992) on a throw-away instance of
 `pilot-integration` (`b2ce8bd`, then `b2ce8bd` + the fix below), plugged on the production
 gateway `https://infer.sokkan.ch` with the token of the test tenant `pilote-essai-20261111`
@@ -72,17 +75,27 @@ at the end: 111 810 of the tenant's 300 000 tokens of the day.
    brief comes first). Now the brief comes first for any later message that begins with « / »
    (`backend/simple.py`, test in `tests/test_simple_profile.py`, red on the old code). Replayed
    on the instance: the same message reaches the gateway (`15-…`).
-2. **Not fixed (gateway)** — without the local router a 429 of the study is retried by the CLI:
-   177 s of spinner before the notice (`14-…`). Not the pilot's setting. The fix belongs to the
-   gateway: `x-should-retry: false` on its study refusals, as the local router already adds.
-3. **Not fixed** — the CLI's session-title call carries the person's words: with « /deep » in
-   the first message it is escalated too. One question of Marc counted **2** Deep escalations
-   (his whole day, `deep_per_user_day` 2) and 39 113 tokens.
+2. **Fixed on a branch of the gateway, not deployed** — without the local router a 429 of the
+   study is retried by the CLI: 177 s of spinner before the notice (`14-…`). Not the pilot's
+   setting. `sokkan-cloud` `study-no-retry` (293573d): `x-should-retry: false` on the four study
+   refusals, the other 429 unchanged. Real CLI against the gateway's app on a throw-away
+   database: 189 s and 22 requests before (11 tries of each of the two calls), 1.4 s and the
+   two calls, no retry, after. Not replayed on
+   `infer.sokkan.ch` (production still runs bd8a8bc).
+3. **Fixed** — the CLI's session-title call carries the person's words: with « /deep » in
+   the first message it was escalated too. One question of Marc counted **2** Deep escalations
+   (his whole day, `deep_per_user_day` 2) and 39 113 tokens. The local router now keeps the
+   CLI's side calls (no tool declared) on the local model (`backend/shiprouter.side_call`,
+   `tests/test_shiprouter.py` on the call the CLI really sent). Real CLI through the router,
+   two recording upstreams: 2 calls to Deep before, 1 after. Not replayed on the real gateway.
 4. **Not fixed** — after a restart of the api, a work reopens with an empty thread (the
    deliverable and its validation are kept; a page reload alone keeps the thread and its notice).
-5. **Not fixed, wording** — on an appliance `user_daily_cap` only closes Deep: the person can go
-   on with the box's model at once, the notice says « tomorrow ». The header of the work stays
-   « Livrable prêt » after a refusal, and the entry under « Récents » kept « Unknown command: /deep ».
+5. **Wording fixed, the rest not** — on an appliance `user_daily_cap` only closes Deep: the
+   person can go on with the box's model at once, the notice said « tomorrow ». On an appliance
+   the notice is now `no.user_daily_cap_local` (« … vous pouvez continuer tout de suite avec le
+   modèle habituel … » / « … you can carry on right away with the usual model … »); tests only,
+   not looked at in a browser. Still there: the header of the work stays « Livrable prêt » after
+   a refusal, and the entry under « Récents » kept « Unknown command: /deep ».
 6. **Not fixed, study data** — a turn that ends on a refusal is recorded with the model
    `<synthetic>` in `study.db`, even when Deep answered first (turn 3 of Camille); the
    « Unknown command » exchange is a turn too.

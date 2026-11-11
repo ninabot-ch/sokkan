@@ -86,18 +86,24 @@ again »:
 |---|---|
 | 410 `study_expired` | the free period of the study has ended; ask the administrator to extend it or switch to a paid plan |
 | 412 `study_mode_required` | free use is tied to a study and this workspace is not in study mode; only the administrator can turn it back on, sending again will not help |
-| 429 `user_daily_cap` | your personal ceiling for today is reached; it resets at midnight UTC, colleagues are not affected |
+| 429 `user_daily_cap` | your personal ceiling for today is reached; it resets at midnight UTC, colleagues are not affected. **On an appliance** (sessions on the model of the box, the gateway asked for Deep only) the ceiling closes the stronger model alone: the sentence says to carry on right away with the usual model, without asking for the stronger one, which opens again tomorrow (`no.user_daily_cap_local` in the simple profile) |
 | 429 `user_limit_reached` | the number of people who can use the assistant today is reached (`max_users_day` on the gateway) and you are not one of them yet; people already seen today are not affected; ask the administrator to raise the limit, sending again today will not help |
 
 A 429 of the tenant itself (day or month ceiling, no code) keeps the generic message of a
-429. The gateway sends no `x-should-retry` on its refusals: on an appliance the local router
-adds `x-should-retry: false`, so the CLI asks once. **An instance whose sessions call the
-gateway directly (no local router) has no such guard** for the two 429: the CLI is expected to
-retry them by itself before the sentence appears (150 s without a word were measured on the
-appliance bench for a 429 before the router sent the header; the direct path itself was not
-played). The pilot's box goes through the router. The contract these sentences are tested against:
-`tests/fixtures/gateway_contract/contract.json` (what the gateway of `study-quotas` f260ada
-answered), `tests/test_gateway_refusals.py`.
+429. On an appliance the local router adds `x-should-retry: false` to the four study refusals,
+so the CLI asks once. The gateway sends that header itself from `sokkan-cloud` `study-no-retry`
+(293573d) on; the one in production before it (bd8a8bc) does not, and **an instance whose
+sessions call such a gateway directly (no local router) has no guard** for the two 429: the
+CLI retries them by itself before the sentence appears (177 s of spinner on the real gateway,
+11.11.2026; 1.4 s and no retry with the header, real CLI against the gateway's app). The
+pilot's box goes through the router. The contract these sentences are tested against:
+`tests/fixtures/gateway_contract/contract.json` (what the gateway of `study-no-retry` answered,
+written by `regenerate.py` next to it), `tests/test_gateway_refusals.py`.
+
+The CLI's own side calls (the title of a session, summaries — sent by the CLI, no tool
+declared) never leave for Deep on an appliance: the title call carries the person's first
+message, and with « /deep » in it one question used to count two escalations of the person's
+day (`deep_per_user_day`).
 
 An instance that is not on the gateway can declare a study itself:
 
