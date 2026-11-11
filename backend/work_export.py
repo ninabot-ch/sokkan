@@ -527,6 +527,7 @@ def build(user: dict) -> dict:
     import iam
     import projectgate
     import projects
+    from core import levels
 
     user = {**user, "role": user.get("instance_role") or user.get("role")}
     for k in ("project", "project_role", "clearance", "instance_role"):
@@ -545,7 +546,6 @@ def build(user: dict) -> dict:
         _export_workspace(arc, slug)
         _export_channels(arc, slug, instance_admin)
         _export_deliverables(arc, pu, slug)
-        from core import levels
         exported.append({"slug": slug, "name": (projects.get(slug) or {}).get("name") or slug,
                          "role": pu.get("project_role"), "files": len(arc.files) - before,
                          "read_up_to": levels.ident(pu["clearance"]) if pu.get("clearance")
@@ -633,7 +633,11 @@ Projects in this archive: {prj}
 
 ## What is not in this archive
 
-- No secret: the vault, the model keys and every credential stay on the instance.
+- No secret: the vault, the model keys and every credential stay on the instance. A vault
+  value found inside a note, a deliverable or a tool file is replaced by `[secret:NAME]`,
+  a credential-looking string in a workspace tool file by `[masked]`; `manifest.json` marks
+  those files `"masked": true`. A note, deliverable, instruction, skill, command or
+  sub-agent file that is not marked is byte for byte what was saved.
 - Only what the person who made the export may read: projects they have a role in, notes
   up to their clearance.
 - Not the conversations, the documents people uploaded, the accounts or the journals. The
@@ -691,6 +695,11 @@ Projets dans cette archive : {prj}
 ## Ce que l'archive ne contient pas
 
 - Aucun secret : le coffre, les clés de modèles et tout identifiant restent sur l'instance.
+  Une valeur du coffre trouvée dans une note, un livrable ou un fichier d'outil est
+  remplacée par `[secret:NOM]`, une chaîne qui ressemble à un identifiant dans un fichier
+  d'outil de l'espace de travail par `[masked]` ; `manifest.json` marque ces fichiers
+  `"masked": true`. Un fichier de note, de livrable, d'instructions, de skill, de commande
+  ou de sous-agent qui n'est pas marqué est, à l'octet près, ce qui a été enregistré.
 - Seulement ce que la personne qui a fait l'export a le droit de lire : les projets où
   elle a un rôle, les notes jusqu'à son niveau d'habilitation.
 - Ni les conversations, ni les documents déposés, ni les comptes, ni les journaux. La

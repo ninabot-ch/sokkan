@@ -194,6 +194,11 @@ def test_no_secret_anywhere_in_the_archive(org):
     by_path = {m["path"]: m for m in json.loads(f["manifest.json"])["files"]}
     assert by_path["memory/default/client_brief_template.md"]["masked"] is True
     assert by_path["memory/default/training_plan_method.md"]["masked"] is False
+    # … and a file that is not marked is byte for byte what was saved
+    assert f["memory/default/training_plan_method.md"] == (
+        org["tmp"] / "memory" / "training_plan_method.md").read_bytes()
+    assert f["tools/default/skills/quote-follow-up/SKILL.md"] == (
+        org["workspace"] / ".claude" / "skills" / "quote-follow-up" / "SKILL.md").read_bytes()
     # the vault file and its key are not in it under any name
     assert not [n for n in f if "vault" in n.lower() or n.endswith(".key")]
 
