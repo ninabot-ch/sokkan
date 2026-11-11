@@ -1,8 +1,12 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { fetchMe } from "./api";
 import type { Me } from "./types";
 import Wordmark from "@/components/Wordmark";
+
+// 3.6.3 — the sign-in screen of the simple profile is its own bundle, like the profile itself
+const PlainLogin = dynamic(() => import("@/components/simple/Login"), { ssr: false });
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 export const rank = (r: string) => ROLES.indexOf(r);
@@ -22,14 +26,14 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
   return <Ctx.Provider value={me}>{children}</Ctx.Provider>;
 }
 
-interface AuthInfo { mode: string; login_required: boolean }
+interface AuthInfo { mode: string; login_required: boolean; plain?: boolean }
 
 function LoginScreen() {
   const [info, setInfo] = useState<AuthInfo | null>(null);
   const [token, setToken] = useState("");
   const [err, setErr] = useState("");
   useEffect(() => {
-    fetch("/api/auth/info").then((r) => r.json()).then(setInfo).catch(() => {});
+    fetch("/api/auth/info").then((r) => r.json()).then(setInfo).catch(() => setInfo({ mode: "", login_required: true }));
   }, []);
 
   const loginLocal = async () => {
@@ -43,6 +47,12 @@ function LoginScreen() {
     else setErr("invalid token");
   };
 
+  // named accounts with an access code, or the simple profile by default: the person's
+  // language, the light theme, no jargon (components/simple/Login.tsx)
+  if (info === null)   // not known yet which screen: no flash of the other one
+    return <div className="flex h-screen items-center justify-center text-[13px] text-mut">…</div>;
+  if (info.plain) return <PlainLogin mode={info.mode} />;
+
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-9 bg-ink px-6">
       <div className="flex flex-col items-center gap-4">
@@ -52,8 +62,8 @@ function LoginScreen() {
         </div>
       </div>
 
-      {info?.mode === "local" ? (
-        <div className="flex w-72 flex-col gap-2.5">
+      {info.mode === "local" ? (
+        <div className="flex w-80 max-w-full flex-col gap-2.5">
           <input
             type="password"
             value={token}

@@ -463,6 +463,16 @@ html[data-sk-theme] body {
   background: var(--sk-surface); color: var(--sk-text-strong); padding: 0 var(--sk-s3); }
 .sk .sk-input:focus { outline: 2px solid var(--sk-sea); outline-offset: 0; border-color: var(--sk-sea); }
 
+/* sign-in (components/simple/Login.tsx) */
+.sk-login { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: var(--sk-s5); }
+.sk-login-card { width: min(400px, 100%); display: flex; flex-direction: column; gap: var(--sk-s5); background: var(--sk-surface);
+  border: 1px solid var(--sk-line); border-radius: var(--sk-r-md); box-shadow: var(--sk-shadow-lift); padding: var(--sk-s6); }
+.sk-login-brand { font-size: var(--sk-fs-3xl); align-self: center; }
+.sk-login-title { font-family: var(--sk-display); font-weight: 700; font-size: var(--sk-fs-xl); line-height: 1.2; color: var(--sk-text-strong); text-align: center; }
+.sk-login-form { display: flex; flex-direction: column; gap: var(--sk-s3); }
+.sk .sk-login-submit { width: 100%; justify-content: center; margin-top: var(--sk-s2); }
+.sk-login-error { color: var(--sk-danger); font-weight: 600; }
+
 /* ================================== narrow screens ========================================= */
 @media (max-width: 1100px) {
   .sk-tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); }

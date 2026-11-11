@@ -139,9 +139,29 @@ def current_user(request: Request) -> dict:
     return instance_user(request)
 
 
+def _plain_login() -> bool:
+    """The sign-in screen speaks to people who are not engineers (their language, the light
+    theme, « access code ») when the instance has named accounts with a personal code, or
+    opens on the simple profile by default. A community install with the owner token alone
+    keeps the technical screen."""
+    try:
+        import localaccounts
+        if MODE == "local" and localaccounts.any_account():
+            return True
+    except Exception:  # noqa: BLE001 — unreadable store: the technical screen
+        pass
+    try:
+        import features
+        import uiprefs
+        return features.enabled("simple_profile") and uiprefs.default_profile() == "simple"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def auth_info() -> dict:
     """Info pour le frontend : faut-il afficher /login, et lequel ?"""
     return {
         "mode": MODE,
         "login_required": MODE in ("oidc", "ldaps") or (MODE == "local" and local_login_required()),
+        "plain": _plain_login(),
     }

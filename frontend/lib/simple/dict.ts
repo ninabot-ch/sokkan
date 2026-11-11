@@ -358,6 +358,15 @@ export const fr = {
   "sc.failed": "Votre réponse n'a pas pu être enregistrée. Réessayez.",
   "sc.withdraw.sure": "Confirmer le retrait",
   "home.need.consent": "L'étude en cours demande votre accord avant le premier travail.",
+  // sign-in (components/simple/Login.tsx)
+  "login.title": "Connexion",
+  "login.code": "Code d'accès",
+  "login.hint": "Le code personnel qui vous a été remis.",
+  "login.submit": "Se connecter",
+  "login.busy": "Connexion…",
+  "login.invalid": "Ce code n'est pas reconnu. Vérifiez-le et réessayez.",
+  "login.throttled": "Trop d'essais. Réessayez dans une minute.",
+  "login.failed": "La connexion n'a pas abouti. Réessayez dans un instant.",
 };
 
 export type Key = keyof typeof fr;
@@ -701,4 +710,12 @@ export const en: Record<Key, string> = {
   "sc.failed": "Your answer could not be saved. Try again.",
   "sc.withdraw.sure": "Confirm the withdrawal",
   "home.need.consent": "The study in progress asks for your consent before the first work.",
+  "login.title": "Sign in",
+  "login.code": "Access code",
+  "login.hint": "The personal code you were given.",
+  "login.submit": "Sign in",
+  "login.busy": "Signing in…",
+  "login.invalid": "This code is not recognised. Check it and try again.",
+  "login.throttled": "Too many attempts. Try again in a minute.",
+  "login.failed": "Sign-in did not go through. Try again in a moment.",
 };

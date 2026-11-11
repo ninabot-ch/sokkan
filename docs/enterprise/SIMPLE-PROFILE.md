@@ -105,4 +105,6 @@ falls under 4.5:1 in either theme, or when the two dictionaries differ.
   share it (measured 11.11.2026).
 * Local auth with the owner's token alone is one identity: several people need a personal access code
   each (`scripts/appliance/accounts.sh`, docs/appliance/README.md § 3) or an identity provider.
-* The sign-in screen is the cockpit's (English).
+* The sign-in screen follows the browser's language and the light theme, with one field « Code
+  d'accès / Access code », when the instance has named accounts with a personal code or opens on the
+  simple profile by default (3.6.3). Otherwise it is the cockpit's (English, dark).

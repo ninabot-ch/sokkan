@@ -151,3 +151,25 @@ def test_cli_prints_the_code_once(box, capsys):
     assert email == "ana@pilot.example" and la.match(code) == email
     assert la._main(["list"]) == 0
     assert code not in capsys.readouterr().out
+
+
+def test_sign_in_screen_is_plain_with_named_accounts_or_the_simple_profile(box, monkeypatch):
+    """3.6.3: GET /api/auth/info tells the sign-in screen whom it speaks to. A community
+    install with the owner token alone keeps the technical screen; named accounts with a
+    personal code, or the simple profile by default, get the plain one (the person's
+    language, « access code », no variable name). Readable without a session."""
+    a, la, _, _ = box
+    monkeypatch.delenv("SOKKAN_PROFILE_DEFAULT", raising=False)
+    c = TestClient(a.app)
+    info = c.get("/api/auth/info").json()
+    assert info == {"mode": "local", "login_required": True, "plain": False}
+    monkeypatch.setenv("SOKKAN_PROFILE_DEFAULT", "simple")
+    monkeypatch.setenv("SOKKAN_FEATURE_DOCUMENTS", "1")            # the profile needs the document drop
+    monkeypatch.setenv("SOKKAN_FEATURE_SIMPLE_PROFILE", "1")
+    assert c.get("/api/auth/info").json()["plain"] is True
+    monkeypatch.setenv("SOKKAN_FEATURE_SIMPLE_PROFILE", "0")       # the profile is off: technical
+    assert c.get("/api/auth/info").json()["plain"] is False
+    monkeypatch.delenv("SOKKAN_PROFILE_DEFAULT")
+    monkeypatch.delenv("SOKKAN_FEATURE_SIMPLE_PROFILE")
+    la.add("ana@pilot.example", "Ana", "dev")
+    assert c.get("/api/auth/info").json()["plain"] is True
