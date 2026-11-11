@@ -276,6 +276,8 @@ def reencrypt(ctx: str, prov: sp.SecretsProvider) -> dict:
             done["vault.json"] = prov.reencrypt_vault()
         import modelkeys
         done["modelkeys.json"] = modelkeys.reencrypt()
+        import llm
+        done["llm.json"] = llm.reencrypt()
     elif ctx == "forge":
         from forge import links
         done["forge_links"] = links.reencrypt()

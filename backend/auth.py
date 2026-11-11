@@ -77,10 +77,30 @@ def _email_session(request: Request) -> str:
     return email
 
 
+def local_login_required() -> bool:
+    """Local mode asks for a sign-in when there is an owner token OR at least one named
+    account (3.6, localaccounts.py): creating the first personal code closes the open
+    single-user access — otherwise everyone would still come in as the owner."""
+    if LOCAL_TOKEN:
+        return True
+    import localaccounts
+    try:
+        return localaccounts.any_account()
+    except Exception:  # noqa: BLE001 — unreadable store: closed rather than open
+        return True
+
+
 def _email_local(request: Request) -> str:
-    if not LOCAL_TOKEN:
+    if not local_login_required():
         return OWNER_EMAIL  # pas de token configuré → single-user ouvert
-    return _email_session(request)  # cookie posé par POST /api/auth/local
+    email = _email_session(request)  # cookie posé par POST /api/auth/local
+    if email != OWNER_EMAIL.lower().strip():
+        # a personal code that was revoked (or replaced by nothing) ends the person's open
+        # cockpit at once, not at the end of the cookie's life
+        import localaccounts
+        if not localaccounts.has(email):
+            raise HTTPException(401, "login required")
+    return email
 
 
 def resolve_email(request: Request) -> str:
@@ -123,5 +143,5 @@ def auth_info() -> dict:
     """Info pour le frontend : faut-il afficher /login, et lequel ?"""
     return {
         "mode": MODE,
-        "login_required": MODE in ("oidc", "ldaps") or (MODE == "local" and bool(LOCAL_TOKEN)),
+        "login_required": MODE in ("oidc", "ldaps") or (MODE == "local" and local_login_required()),
     }

@@ -279,6 +279,125 @@ services:
       SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
       SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}
       SOKKAN_RUNNER_RELAY_ADDR: ${SOKKAN_RUNNER_RELAY_ADDR:-}
+      # ---- 3.6 : every variable the backend reads reaches the container ------------------
+      # (tests/test_compose_env.py fails when one is read but neither declared here nor
+      # classified there; reference with defaults: docs/ENVIRONMENT.md). Empty = the default
+      # of the code.
+      # identity of the instance, cockpit session cookie key (empty = generated in the volume)
+      SOKKAN_ORG_NAME: ${SOKKAN_ORG_NAME:-}
+      SOKKAN_SESSION_SECRET: ${SOKKAN_SESSION_SECRET:-}
+      # where the update check and the Missions counter read (mirror / air gap)
+      SOKKAN_DIST_BASE: ${SOKKAN_DIST_BASE:-}
+      SOKKAN_MISSIONS_STATS_URL: ${SOKKAN_MISSIONS_STATS_URL:-}
+      # Operate: bearer of POST /api/observability/alert, Grafana account, public Grafana URL,
+      # nodes of the Infra tab (JSON), hosts file, reverse-DNS timeout
+      SOKKAN_OBS_ALERT_TOKEN: ${SOKKAN_OBS_ALERT_TOKEN:-}
+      SOKKAN_GRAFANA_USER: ${SOKKAN_GRAFANA_USER:-}
+      SOKKAN_GRAFANA_PASSWORD: ${SOKKAN_GRAFANA_PASSWORD:-}
+      SOKKAN_GRAFANA_PUBLIC_URL: ${SOKKAN_GRAFANA_PUBLIC_URL:-}
+      SOKKAN_INFRA_NODES: ${SOKKAN_INFRA_NODES:-}
+      SOKKAN_HOSTS_FILE: ${SOKKAN_HOSTS_FILE:-}
+      SOKKAN_RDNS_TIMEOUT_S: ${SOKKAN_RDNS_TIMEOUT_S:-}
+      SOKKAN_NOTIFY_HITL_DELAY_S: ${SOKKAN_NOTIFY_HITL_DELAY_S:-}
+      # Preview: browser binary (none in this image — the feature is off unless one is found),
+      # screenshot folder, repositories offered to the diff (JSON)
+      SOKKAN_CHROMIUM: ${SOKKAN_CHROMIUM:-}
+      SOKKAN_SHOT_DIR: ${SOKKAN_SHOT_DIR:-}
+      SOKKAN_REPOS: ${SOKKAN_REPOS:-}
+      # memory: host of the `db` service, reindex period, 2.x priority boost, migration retry
+      SOKKAN_DB_HOST: ${SOKKAN_DB_HOST:-}
+      SOKKAN_REINDEX_S: ${SOKKAN_REINDEX_S:-}
+      SOKKAN_PRIORITY_BOOST: ${SOKKAN_PRIORITY_BOOST:-}
+      SOKKAN_MIGRATION_RETRY_S: ${SOKKAN_MIGRATION_RETRY_S:-}
+      # OpenBao fine settings, Teams service hosts, managed provisioning, session runners
+      SOKKAN_OPENBAO_ALLOW_HTTP: ${SOKKAN_OPENBAO_ALLOW_HTTP:-}
+      SOKKAN_OPENBAO_APPROLE_MOUNT: ${SOKKAN_OPENBAO_APPROLE_MOUNT:-}
+      SOKKAN_OPENBAO_PREFIX: ${SOKKAN_OPENBAO_PREFIX:-}
+      SOKKAN_OPENBAO_TIMEOUT_S: ${SOKKAN_OPENBAO_TIMEOUT_S:-}
+      SOKKAN_TEAMS_SERVICE_HOSTS: ${SOKKAN_TEAMS_SERVICE_HOSTS:-}
+      SOKKAN_PROVISIONER_URL: ${SOKKAN_PROVISIONER_URL:-}
+      SOKKAN_PROVISIONER_TOKEN: ${SOKKAN_PROVISIONER_TOKEN:-}
+      SOKKAN_RUNNER_SECRET: ${SOKKAN_RUNNER_SECRET:-}
+      SOKKAN_RUNNER_INSTANCE: ${SOKKAN_RUNNER_INSTANCE:-}
+      SOKKAN_RUNNER_RELAY_BIND: ${SOKKAN_RUNNER_RELAY_BIND:-}
+      SOKKAN_SESSION_CLI: ${SOKKAN_SESSION_CLI:-}
+      SOKKAN_SESSION_NO_PROXY: ${SOKKAN_SESSION_NO_PROXY:-}
+      # CortHeXis engine tunables (memory/core: indexer, search, recall, review, bench).
+      # Empty = the engine's default; meaning of each: docs/ENVIRONMENT.md
+      CORTHEXIS_ACCEPT_GEMMA_TERMS: ${CORTHEXIS_ACCEPT_GEMMA_TERMS:-}
+      CORTHEXIS_AUTO_ACTIVATE: ${CORTHEXIS_AUTO_ACTIVATE:-}
+      CORTHEXIS_CHUNK_TARGET: ${CORTHEXIS_CHUNK_TARGET:-}
+      CORTHEXIS_DB_POOL: ${CORTHEXIS_DB_POOL:-}
+      CORTHEXIS_DEAD_PATH_PREFIXES: ${CORTHEXIS_DEAD_PATH_PREFIXES:-}
+      CORTHEXIS_DEAD_PATH_ROOTS: ${CORTHEXIS_DEAD_PATH_ROOTS:-}
+      CORTHEXIS_EMBED_FALLBACK: ${CORTHEXIS_EMBED_FALLBACK:-}
+      CORTHEXIS_EVAL_GENERATE: ${CORTHEXIS_EVAL_GENERATE:-}
+      CORTHEXIS_EVAL_GENERATED_WEIGHT: ${CORTHEXIS_EVAL_GENERATED_WEIGHT:-}
+      CORTHEXIS_EVAL_MAX_DROP: ${CORTHEXIS_EVAL_MAX_DROP:-}
+      CORTHEXIS_EVAL_MIN_QUESTIONS: ${CORTHEXIS_EVAL_MIN_QUESTIONS:-}
+      CORTHEXIS_EVAL_NIGHTLY: ${CORTHEXIS_EVAL_NIGHTLY:-}
+      CORTHEXIS_INDEX_FILENAME: ${CORTHEXIS_INDEX_FILENAME:-}
+      CORTHEXIS_INDEX_MAX_BYTES: ${CORTHEXIS_INDEX_MAX_BYTES:-}
+      CORTHEXIS_INDEX_MAX_LINES: ${CORTHEXIS_INDEX_MAX_LINES:-}
+      CORTHEXIS_MEMORY_PROJECT: ${CORTHEXIS_MEMORY_PROJECT:-}
+      CORTHEXIS_MIGRATE_MTIME: ${CORTHEXIS_MIGRATE_MTIME:-}
+      CORTHEXIS_MODEL_BASE_URL: ${CORTHEXIS_MODEL_BASE_URL:-}
+      CORTHEXIS_NORMALIZE: ${CORTHEXIS_NORMALIZE:-}
+      CORTHEXIS_NORMALIZE_GRACE: ${CORTHEXIS_NORMALIZE_GRACE:-}
+      CORTHEXIS_OWNER: ${CORTHEXIS_OWNER:-}
+      CORTHEXIS_RECALL_DEDUP: ${CORTHEXIS_RECALL_DEDUP:-}
+      CORTHEXIS_RECALL_MIN_WORDS: ${CORTHEXIS_RECALL_MIN_WORDS:-}
+      CORTHEXIS_RECALL_PROJECTS: ${CORTHEXIS_RECALL_PROJECTS:-}
+      CORTHEXIS_RECALL_REQUIRE_SCOPE: ${CORTHEXIS_RECALL_REQUIRE_SCOPE:-}
+      CORTHEXIS_RECALL_RERANK_TOP: ${CORTHEXIS_RECALL_RERANK_TOP:-}
+      CORTHEXIS_RECALL_SNIPPETS: ${CORTHEXIS_RECALL_SNIPPETS:-}
+      CORTHEXIS_RECALL_SUBAGENT_SNIPPETS: ${CORTHEXIS_RECALL_SUBAGENT_SNIPPETS:-}
+      CORTHEXIS_RECALL_SUBAGENT_TOPK: ${CORTHEXIS_RECALL_SUBAGENT_TOPK:-}
+      CORTHEXIS_RECALL_THRESHOLD: ${CORTHEXIS_RECALL_THRESHOLD:-}
+      CORTHEXIS_RECALL_TOPK: ${CORTHEXIS_RECALL_TOPK:-}
+      CORTHEXIS_RECENT_DAYS: ${CORTHEXIS_RECENT_DAYS:-}
+      CORTHEXIS_REINDEX_S: ${CORTHEXIS_REINDEX_S:-}
+      CORTHEXIS_RERANK: ${CORTHEXIS_RERANK:-}
+      CORTHEXIS_RERANK_MODEL: ${CORTHEXIS_RERANK_MODEL:-}
+      CORTHEXIS_RERANK_TOP: ${CORTHEXIS_RERANK_TOP:-}
+      CORTHEXIS_REVIEW_ACCEPT_KEBAB_FILES: ${CORTHEXIS_REVIEW_ACCEPT_KEBAB_FILES:-}
+      CORTHEXIS_REVIEW_CRIT_COOLDOWN_H: ${CORTHEXIS_REVIEW_CRIT_COOLDOWN_H:-}
+      CORTHEXIS_REVIEW_DIGEST_AT: ${CORTHEXIS_REVIEW_DIGEST_AT:-}
+      CORTHEXIS_REVIEW_DUP_K: ${CORTHEXIS_REVIEW_DUP_K:-}
+      CORTHEXIS_REVIEW_EXPECT_HOOK: ${CORTHEXIS_REVIEW_EXPECT_HOOK:-}
+      CORTHEXIS_REVIEW_GIANT_WORDS: ${CORTHEXIS_REVIEW_GIANT_WORDS:-}
+      CORTHEXIS_REVIEW_HOOK_PATTERN: ${CORTHEXIS_REVIEW_HOOK_PATTERN:-}
+      CORTHEXIS_REVIEW_HOOK_SETTINGS: ${CORTHEXIS_REVIEW_HOOK_SETTINGS:-}
+      CORTHEXIS_REVIEW_INDEX_LAG_MIN: ${CORTHEXIS_REVIEW_INDEX_LAG_MIN:-}
+      CORTHEXIS_REVIEW_MCP_CONFIGS: ${CORTHEXIS_REVIEW_MCP_CONFIGS:-}
+      CORTHEXIS_REVIEW_MCP_SERVER: ${CORTHEXIS_REVIEW_MCP_SERVER:-}
+      CORTHEXIS_REVIEW_STALE_DAYS: ${CORTHEXIS_REVIEW_STALE_DAYS:-}
+      CORTHEXIS_REVIEW_TZ: ${CORTHEXIS_REVIEW_TZ:-}
+      CORTHEXIS_REVIEW_UNDATED_TOLERATED: ${CORTHEXIS_REVIEW_UNDATED_TOLERATED:-}
+      CORTHEXIS_RRF_K: ${CORTHEXIS_RRF_K:-}
+      CORTHEXIS_SEARCH_DENSE_CANDIDATES: ${CORTHEXIS_SEARCH_DENSE_CANDIDATES:-}
+      CORTHEXIS_SEARCH_EXACT_MAX_CHUNKS: ${CORTHEXIS_SEARCH_EXACT_MAX_CHUNKS:-}
+      CORTHEXIS_SEARCH_FUSION: ${CORTHEXIS_SEARCH_FUSION:-}
+      CORTHEXIS_SEARCH_LEXICAL_CANDIDATES: ${CORTHEXIS_SEARCH_LEXICAL_CANDIDATES:-}
+      CORTHEXIS_WATCH_S: ${CORTHEXIS_WATCH_S:-}
+      CORTHEXIS_WRITE_INDEX: ${CORTHEXIS_WRITE_INDEX:-}
+      CORTHEXIS_HEAD_SHARE: ${CORTHEXIS_HEAD_SHARE:-}
+      CORTHEXIS_RECALL_BUDGET_S: ${CORTHEXIS_RECALL_BUDGET_S:-}
+      CORTHEXIS_REVIEW_DUP_COSINE: ${CORTHEXIS_REVIEW_DUP_COSINE:-}
+      # on-prem appliance (deploy/appliance, docs/appliance): supervision heartbeat — nothing is
+      # sent unless a URL is set — and the longest support-tunnel opening a person may ask for
+      SOKKAN_HEARTBEAT_URL: ${SOKKAN_HEARTBEAT_URL:-}
+      SOKKAN_HEARTBEAT_TOKEN: ${SOKKAN_HEARTBEAT_TOKEN:-}
+      SOKKAN_HEARTBEAT_INTERVAL_S: ${SOKKAN_HEARTBEAT_INTERVAL_S:-}
+      SOKKAN_HEARTBEAT: ${SOKKAN_HEARTBEAT:-}
+      SOKKAN_SUPPORT_MAX_HOURS: ${SOKKAN_SUPPORT_MAX_HOURS:-}
+      # local model of an on-prem box: set SOKKAN_SHIP_URL and sessions use it through the
+      # `router` service below (profile `appliance`), no click in the cockpit. Language of the
+      # « model does not answer » messages: en | fr
+      SOKKAN_SHIP_URL: ${SOKKAN_SHIP_URL:-}
+      SOKKAN_SHIP_ROUTER_URL: ${SOKKAN_SHIP_ROUTER_URL:-}
+      SOKKAN_SHIP_ALIAS: ${SOKKAN_SHIP_ALIAS:-}
+      SOKKAN_ERROR_LANG: ${SOKKAN_ERROR_LANG:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
@@ -402,13 +521,81 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # On-prem appliance (COMPOSE_PROFILES=appliance, docs/appliance/README.md): the local
+  # Ship → Deep router. Sessions talk to it; ordinary requests go to the model served on this
+  # machine (SOKKAN_SHIP_URL — vLLM / llama.cpp, Anthropic Messages API), the hard ones to the
+  # operator gateway (SOKKAN_DEEP_URL + the instance token). Same image as the api, another
+  # entrypoint; no volume, no secret but the gateway token, never published on the host.
+  router:
+    build: { context: ., dockerfile: docker/api.Dockerfile, args: { SOKKAN_COMMIT: "${SOKKAN_COMMIT:-unknown}" } }
+    restart: unless-stopped
+    profiles: ["appliance"]
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    entrypoint: ["uvicorn", "shiprouter:app", "--host", "0.0.0.0", "--port", "8096", "--app-dir", "/app/backend"]
+    environment:
+      SOKKAN_SHIP_URL: ${SOKKAN_SHIP_URL:-}
+      SOKKAN_SHIP_MODEL: ${SOKKAN_SHIP_MODEL:-}
+      SOKKAN_SHIP_TOKEN: ${SOKKAN_SHIP_TOKEN:-}
+      SOKKAN_SHIP_TIMEOUT_S: ${SOKKAN_SHIP_TIMEOUT_S:-}
+      SOKKAN_SHIP_CONNECT_TIMEOUT_S: ${SOKKAN_SHIP_CONNECT_TIMEOUT_S:-}
+      SOKKAN_SHIP_FALLBACK_DEEP: ${SOKKAN_SHIP_FALLBACK_DEEP:-}
+      SOKKAN_DEEP_URL: ${SOKKAN_DEEP_URL:-}
+      SOKKAN_DEEP_TOKEN: ${SOKKAN_DEEP_TOKEN:-}
+      SOKKAN_DEEP_MODEL: ${SOKKAN_DEEP_MODEL:-}
+      SOKKAN_DEEP_FORWARD_USER: ${SOKKAN_DEEP_FORWARD_USER:-}
+      SOKKAN_ESCALATION: ${SOKKAN_ESCALATION:-}
+      SOKKAN_ESCALATION_KEYWORDS: ${SOKKAN_ESCALATION_KEYWORDS:-}
+      SOKKAN_ESCALATION_MAX_FAILS: ${SOKKAN_ESCALATION_MAX_FAILS:-}
+      SOKKAN_ESCALATION_REPEAT_FAILS: ${SOKKAN_ESCALATION_REPEAT_FAILS:-}
+      SOKKAN_ESCALATION_MIN_PROMPT_TOKENS: ${SOKKAN_ESCALATION_MIN_PROMPT_TOKENS:-}
+      SOKKAN_ERROR_LANG: ${SOKKAN_ERROR_LANG:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8096/health', timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # HTTPS on the local network (COMPOSE_PROFILES=appliance, or `tls` alone): Caddy with its
+  # own local certificate authority — no public DNS, no Let's Encrypt, works offline. Serves
+  # the names of SOKKAN_TLS_SITES → web. The root certificate to install once on each
+  # workstation: scripts/appliance/export-ca.sh. (`edge` above is something else: public
+  # custom domains with Let's Encrypt, for managed fleets.)
+  tls:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    profiles: ["appliance", "tls"]
+    environment:
+      SOKKAN_TLS_SITES: ${SOKKAN_TLS_SITES:-https://sokkan.lan, https://localhost}
+    ports:
+      - "${SOKKAN_TLS_BIND:-0.0.0.0}:${SOKKAN_TLS_PORT:-443}:443"
+    volumes:
+      - ./deploy/appliance/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    security_opt:
+      - no-new-privileges:true
+
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
     environment:
       SOKKAN_API: http://api:8097
     ports:
-      - "${SOKKAN_PORT:-3009}:3000"
+      # SOKKAN_BIND=127.0.0.1 keeps the plain-HTTP port off the network (then reach the
+      # cockpit through the `tls` service below, or your own reverse proxy). Default: every
+      # interface, as before — on a network you do not fully trust, set it.
+      - "${SOKKAN_BIND:-0.0.0.0}:${SOKKAN_PORT:-3009}:3000"
     depends_on:
       - api
     security_opt:

@@ -743,6 +743,14 @@ class AgentSession:
                 "cost_usd": turn_cost,
                 "session_cost_usd": round(self.cost_usd, 4),
             })
+            # 3.6: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
+            # words a person can act on, instead of the CLI's raw `API Error: …` line alone
+            if getattr(msg, "is_error", False) or "API Error" in (getattr(msg, "result", "") or ""):
+                import llmerrors
+                h = llmerrors.from_text(getattr(msg, "result", "") or "")
+                if h:
+                    self._emit({"type": "error", "code": h["code"], "title": h["title"],
+                                "message": f"{h['title']} — {h['message']}"})
             budget = instance.budgets().get("budget_session_usd", 0.0)
             if budget and not self._budget_warned and self.cost_usd >= 0.8 * budget:
                 self._budget_warned = True

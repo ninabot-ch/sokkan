@@ -18,7 +18,7 @@ ENABLED = bool(PROM)
 
 # mapping ip → {name, role}, fourni par l'env (JSON) — ex.
 # SOKKAN_INFRA_NODES='{"10.0.0.1": {"name": "prod-1", "role": "app"}}'
-NODES = json.loads(os.environ.get("SOKKAN_INFRA_NODES", "{}"))
+NODES = json.loads(os.environ.get("SOKKAN_INFRA_NODES") or "{}")
 
 
 def _q(expr: str) -> list:

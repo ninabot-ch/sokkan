@@ -141,7 +141,7 @@ def nightly_once(transcripts: Callable[[], list[Path]]) -> dict:
     from core import eval as ev
 
     st = _store()
-    limit = int(os.environ.get("CORTHEXIS_EVAL_GENERATE", "20") or 0)
+    limit = int(os.environ.get("CORTHEXIS_EVAL_GENERATE") or 20)
     rep = ev.nightly(st, embedder(), transcripts=transcripts(),
                      paraphrase=paraphraser() if limit else None, generate_limit=limit,
                      profile=_profile(),

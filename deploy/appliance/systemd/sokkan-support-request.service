@@ -1,0 +1,10 @@
+[Unit]
+Description=SOKKAN support tunnel: apply the request written by the api
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sokkan/appliance.env
+ExecStart=/opt/sokkan/scripts/appliance/support-tunnel.sh apply
+# NoNewPrivileges is not possible: the script calls systemctl / tailscale as root.
+PrivateTmp=true
+ProtectHome=true

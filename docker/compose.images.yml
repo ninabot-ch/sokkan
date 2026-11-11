@@ -1,0 +1,15 @@
+# Prebuilt, signed images instead of a local build (scripts/upgrade.sh --images, the on-prem
+# appliance profile). upgrade.sh pulls each image BY DIGEST, verifies its cosign signature
+# (scripts/verify-release.sh --image) and tags it sokkan-<name>:<version>-<commit>; this file only
+# names those local tags. `pull_policy: never`: compose never fetches anything the upgrade
+# did not verify, and never builds.
+services:
+  api:
+    image: sokkan-api:${SOKKAN_IMAGE_TAG:?set by scripts/upgrade.sh --images}
+    pull_policy: never
+  router:
+    image: sokkan-api:${SOKKAN_IMAGE_TAG:?set by scripts/upgrade.sh --images}
+    pull_policy: never
+  web:
+    image: sokkan-web:${SOKKAN_IMAGE_TAG:?set by scripts/upgrade.sh --images}
+    pull_policy: never

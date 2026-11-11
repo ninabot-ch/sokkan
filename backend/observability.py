@@ -35,7 +35,7 @@ PROM = (os.environ.get("SOKKAN_PROM") or "").rstrip("/")
 LOKI = (os.environ.get("SOKKAN_LOKI") or "").rstrip("/")
 GRAFANA = (os.environ.get("SOKKAN_GRAFANA_URL") or "").rstrip("/")
 GRAFANA_PUBLIC = (os.environ.get("SOKKAN_GRAFANA_PUBLIC_URL") or "").rstrip("/")
-GRAFANA_USER = os.environ.get("SOKKAN_GRAFANA_USER", "admin")
+GRAFANA_USER = os.environ.get("SOKKAN_GRAFANA_USER") or "admin"
 GRAFANA_PASSWORD = os.environ.get("SOKKAN_GRAFANA_PASSWORD", "")
 
 ENABLED = bool(PROM or GRAFANA)

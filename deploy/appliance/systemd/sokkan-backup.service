@@ -1,0 +1,15 @@
+[Unit]
+Description=SOKKAN appliance — encrypted off-site backup
+Documentation=file:/opt/sokkan/docs/appliance/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sokkan/appliance.env
+ExecStart=/opt/sokkan/scripts/appliance/backup-offsite.sh run
+# a backup never competes with the people working: lowest CPU and disk priority
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=6h

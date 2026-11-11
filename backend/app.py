@@ -91,6 +91,9 @@ import helm_api
 import provision
 import transcript as T
 import updatecheck
+import localaccounts  # 3.6: personal access codes of the local auth mode
+import appliance  # on-prem appliance: support tunnel requests, backup status
+import heartbeat  # supervision heartbeat (off unless SOKKAN_HEARTBEAT_URL is set)
 import usage as usage_mod
 
 _claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
@@ -234,6 +237,9 @@ async def _lifespan(_app: FastAPI):
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
+    appliance.start()   # journals support-tunnel openings/closings written by the host agent
+    heartbeat.inference_probe = _inference_probe
+    heartbeat.start()   # no-op without SOKKAN_HEARTBEAT_URL
     threading.Thread(target=_usage_refresher, daemon=True, name="sokkan-usage").start()
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
@@ -1668,7 +1674,7 @@ def _login_throttled(ip: str) -> bool:
 @app.post("/api/auth/local")
 def auth_local(body: LocalLogin, request: Request):
     """Login single-user (mode local avec SOKKAN_LOCAL_TOKEN) → cookie de session."""
-    if auth.MODE != "local" or not auth.LOCAL_TOKEN:
+    if auth.MODE != "local" or not auth.local_login_required():
         raise HTTPException(400, "local login not applicable on this instance")
     # vraie IP client derrière le proxy (cloudflared/caddy/Next) : sans ça tous
     # les clients partagent le bucket de l'IP du proxy → 5 échecs verrouillent
@@ -1679,12 +1685,23 @@ def auth_local(body: LocalLogin, request: Request):
           or (request.client.host if request.client else "?"))
     if _login_throttled(ip):
         raise HTTPException(429, "too many failed attempts — retry in a minute")
-    if not secrets.compare_digest(body.token.strip(), auth.LOCAL_TOKEN):
+    # 3.6: the owner token, or a person's own access code (localaccounts) — the code says
+    # WHO signs in, so three people on one box are three names in the journal
+    email, name = "", ""
+    if auth.LOCAL_TOKEN and secrets.compare_digest(body.token.strip().encode(), auth.LOCAL_TOKEN.encode()):
+        email, name = auth.OWNER_EMAIL, auth.OWNER_NAME
+    else:
+        who = localaccounts.match(body.token)
+        if who and not revocation.is_disabled(who):
+            email, name = who, localaccounts.display_name(who) or who
+    if not email:
         _login_fails.setdefault(ip, []).append(time.time())
+        audit.log("", "auth.login.refused", "local", project="")
         raise HTTPException(401, "invalid token")
     _login_fails.pop(ip, None)
+    audit.log(email, "auth.login", "local", project="")
     resp = JSONResponse({"ok": True})
-    resp.set_cookie(sess.COOKIE, sess.make(auth.OWNER_EMAIL, auth.OWNER_NAME),
+    resp.set_cookie(sess.COOKIE, sess.make(email, name),
                     max_age=sess.TTL, httponly=True,
                     secure=PUBLIC_URL.startswith("https"), samesite="lax")
     return resp
@@ -1961,6 +1978,42 @@ def _transcripts() -> list[Path]:
 
 # 3.2 lot 6 : SCIM 2.0 (Users, Groups) + « Revoke now » (admin)
 app.include_router(revocation.router(require))
+def _inference_probe() -> bool | None:
+    """Heartbeat `health.inference`: can the local model be reached? None = this instance has
+    no local model (BYOK / gateway: nothing to probe without spending tokens)."""
+    cfg = llm.appliance_config()
+    if not cfg:
+        return None
+    try:
+        import httpx
+        r = httpx.get(cfg["base_url"] + "/health", timeout=4)
+        return bool(r.status_code == 200 and r.json().get("ship"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@app.get("/api/appliance/inference")
+def appliance_inference(_u: dict = Depends(require("viewer"))) -> dict:
+    """Is the model of this machine answering, is the Deep gateway reachable (router /health),
+    and how many requests stayed here / left (router /stats: counters, never content)."""
+    cfg = llm.appliance_config()
+    if not cfg:
+        return {"appliance": False}
+    out: dict = {"appliance": True, "ship": None, "deep": None, "counts": {}}
+    try:
+        import httpx
+        h = httpx.get(cfg["base_url"] + "/health", timeout=4).json()
+        s = httpx.get(cfg["base_url"] + "/stats", timeout=4).json()
+        out.update(ship=h.get("ship"), deep=h.get("deep"), counts=s.get("counts") or {},
+                   escalation=s.get("escalation"), deep_configured=s.get("deep_configured"))
+    except Exception:  # noqa: BLE001
+        out["router"] = False
+    return out
+
+
+# on-prem appliance: support tunnel (client-controlled, journaled) and supervision heartbeat
+app.include_router(appliance.router(require))
+app.include_router(heartbeat.router(require))
 # 3.4 : OIDC back-channel / front-channel logout (/api/auth/* : no cookie, own checks)
 app.include_router(oidc_logout.router())
 
@@ -1987,6 +2040,14 @@ def _build_version() -> dict:
         except OSError:
             continue
     commit = (os.environ.get("SOKKAN_COMMIT") or "").strip()
+    if commit == "unknown":      # the image's build-arg default: nobody passed the commit
+        commit = ""
+    if not commit:
+        # 3.6 — a compose install builds without the build-arg, but the installer writes the
+        # release it put in place as SOKKAN_VERSION=<version>+<commit> (dist/VERSION): read it
+        # there, so that /api/version names the commit and a rollout check can compare.
+        m = re.match(r"^v?\d+(?:\.\d+)*\+([0-9a-f]{7,40})$", (os.environ.get("SOKKAN_VERSION") or "").strip())
+        commit = m.group(1) if m else ""
     if not commit:
         try:
             commit = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
@@ -2426,8 +2487,41 @@ def iam_delete(email: str, u: dict = Depends(require("admin"))) -> dict:
         iam.delete_user(email)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    localaccounts.revoke(email)      # 3.6: a deleted account keeps no access code
     audit.log(u["email"], "iam.delete", email)
     return {"ok": True}
+
+
+# 3.6 — named accounts in local auth mode: a personal access code per person (localaccounts.py)
+@app.get("/api/iam/access-codes")
+def iam_access_codes(_u: dict = Depends(require("admin"))) -> list[dict]:
+    """Who can sign in with a personal code, since when, last sign-in — never a code."""
+    return localaccounts.accounts()
+
+
+@app.post("/api/iam/users/{email}/access-code")
+def iam_access_code(email: str, u: dict = Depends(require("admin"))) -> dict:
+    """A new personal access code for that account, returned ONCE (it replaces the previous
+    one). Local auth mode only: with an identity provider, the provider signs people in."""
+    if auth.MODE != "local":
+        raise HTTPException(400, "access codes exist in local auth mode only (this instance uses SSO)")
+    target = iam.get_user(email)
+    if target.get("known") and iam.rank(target["role"]) > iam.rank(u["role"]):
+        raise HTTPException(403, "cannot issue a code for a higher role than yours")
+    try:
+        code = localaccounts.issue(email, u["email"])
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    audit.log(u["email"], "iam.access_code.create", email.lower().strip())
+    return {"email": email.lower().strip(), "code": code,
+            "note": "shown once — hand it to that person; a new code replaces this one"}
+
+
+@app.delete("/api/iam/users/{email}/access-code")
+def iam_access_code_revoke(email: str, u: dict = Depends(require("admin"))) -> dict:
+    ok = localaccounts.revoke(email)
+    audit.log(u["email"], "iam.access_code.revoke", email.lower().strip())
+    return {"ok": ok}
 
 
 @app.get("/api/audit")

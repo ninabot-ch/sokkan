@@ -102,6 +102,11 @@ class Feature:
     auto: Callable[[], bool] | None = None        # value of an `auto` default / an integration
     forced: Callable[[], str | None] | None = None  # reason when forced on
     check: Callable[[], str | None] | None = None   # informational readiness note (never gates)
+    # what the feature cannot run without ON THIS HOST (a binary): returns the reason when it
+    # is missing. The feature is then OFF whatever was asked — the cockpit never shows a
+    # screen that cannot work (3.6: tmux and Preview were announced on in the compose
+    # image, which ships neither tmux nor a browser).
+    available: Callable[[], str | None] | None = None
 
     @property
     def canonical_var(self) -> str:
@@ -168,6 +173,22 @@ def _assistant_check() -> str | None:
         return f"readiness unknown: {e!r}"
 
 
+def _which(binary: str) -> str | None:
+    import shutil
+    return shutil.which(binary)
+
+
+def _tmux_missing() -> str | None:
+    return None if _which("tmux") else "no `tmux` binary on this host (the compose image has none)"
+
+
+def _browser_missing() -> str | None:
+    b = (os.environ.get("SOKKAN_CHROMIUM") or "chromium").strip()
+    return None if _which(b) else (
+        f"no headless browser on this host (`{b}` not found; set SOKKAN_CHROMIUM to a "
+        "Chromium binary — the compose image has none)")
+
+
 def _both(v) -> dict:
     return {"community": v, "enterprise": v}
 
@@ -196,10 +217,11 @@ REGISTRY: tuple[Feature, ...] = (
     # -- core cockpit
     Feature("tmux", "Terminal sessions",
             "Raw tmux/ttyd terminal sessions in the cockpit (spawn, live view, send keys).",
-            defaults=_both(True), vars=_t("tmux", Var("SOKKAN_FEATURE_TMUX", parse_zero_off, True, "0 = off, anything else = on"))),
+            defaults=_both(True), available=_tmux_missing,
+            vars=_t("tmux", Var("SOKKAN_FEATURE_TMUX", parse_zero_off, True, "0 = off, anything else = on"))),
     Feature("preview", "Preview",
             "Headless-browser previews of the apps built in a session (screenshots, envs).",
-            defaults=_both(True),
+            defaults=_both(True), available=_browser_missing, config=("SOKKAN_CHROMIUM", "SOKKAN_SHOT_DIR"),
             vars=_t("preview", Var("SOKKAN_FEATURE_PREVIEW", parse_zero_off, True, "0 = off, anything else = on"))),
     Feature("preview_private_targets", "Preview of private addresses",
             "Lets Preview open private / loopback targets (an app on the LAN). Off: SSRF guard.",
@@ -221,8 +243,9 @@ REGISTRY: tuple[Feature, ...] = (
             check=_assistant_check),
     Feature("missions_link", "SOKKAN Missions link",
             "Header link to the public SOKKAN Missions marketplace, with a counter this instance "
-            "fetches (6 h cache). Off in the enterprise edition: no call to a public service.",
-            defaults=_ed(True, False),
+            "fetches (6 h cache). Off unless asked for (3.6): no call to a public service "
+            "that the operator did not switch on.",
+            defaults=_both(False), config=("SOKKAN_MISSIONS_STATS_URL",),
             vars=_t("missions_link", Var("SOKKAN_FEATURE_MISSIONS_LINK", parse_zero_off, True, "0 = off, anything else = on"))),
     Feature("update_check", "Update check",
             "One GET a day of dist/VERSION to tell the admin a new release exists.",
@@ -550,6 +573,17 @@ def _resolve_one(fid: str, env, memo: dict[str, State], stack: tuple[str, ...]) 
             source, explicit = ("auto" if f.defaults.get(ed) == "auto" else "default"), False
     st = State(fid, want, source, reason, var=var.name if (var and source.startswith("env")) else "",
                legacy=bool(var and var.legacy and source.startswith("env")), note=note)
+    if want and f.available:
+        try:
+            lack = f.available()
+        except Exception as e:  # noqa: BLE001
+            lack = f"availability probe failed: {e!r}"
+        if lack:
+            st.enabled = False
+            st.reason = f"{lack} — {reason}"
+            st.problem = explicit
+            memo[fid] = st
+            return st
     if want:
         for dep in f.requires:
             ds = _resolve_one(dep, env, memo, stack + (fid,))

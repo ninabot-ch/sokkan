@@ -14,6 +14,9 @@ BASE=http://127.0.0.1:8088
 MEMDIR=/data/claude/projects/-workspace/memory
 Q="who delivers our flour and when?"
 mkdir -p "$W" "$U" /srv/dist
+# 3.x sources (3.4.6, 3.5.x — added in 3.6): the memory is already in the Postgres store, there
+# is no 2.x index to wait for and no migration to follow; everything else is the same bench.
+SRC_MAJOR="${SRC%%.*}"
 phase() { echo "$(date +%s.%N) $1" >> "$W/phases.log"; printf '\n== [%s] %s\n' "$(date +%T)" "$1"; }
 fail() { echo "FATAL: $*" | tee -a "$W/fatal.txt"; phase fatal; exit 1; }
 dc() { (cd "$U/sokkan" && docker compose "$@"); }
@@ -63,9 +66,15 @@ docker cp "$H/e2e_upgrade/seed.py" "$(api):/tmp/seed.py"
 docker exec -u "$PUSER" "$(api)" python /tmp/seed.py > "$W/seed.json" || fail "seed"
 dc restart api >/dev/null 2>&1          # index at boot (every version)
 healthy 300 || fail "restart after seed"
+if [ "$SRC_MAJOR" -ge 3 ]; then
+  wait_for 900 "the store answers the bench question" \
+    "python3 $H/e2e_upgrade/client.py snapshot $(token) $W/snap-wait.json | grep -q '\"top\": \[\"'" \
+    || fail "the source version did not index the notes"
+else
 wait_for 600 "2.x index has the 52 notes" \
   "docker exec -u $PUSER $(api) python -c \"import sqlite3; c=sqlite3.connect('file:/data/memory.db?mode=ro', uri=True); assert c.execute('select count(*) from notes').fetchone()[0] >= 52\"" \
   || fail "the source version did not index the notes"
+fi
 probe notes > "$W/notes-before.json"
 probe bench < "$W/questions.json" > "$W/bench-before.json"
 python3 "$H/e2e_upgrade/client.py" snapshot "$(token)" "$W/snap-before.json" > /dev/null
@@ -76,7 +85,8 @@ cat "$W/bench-before.json"
 phase "upgrade ($MODE)"
 python3 "$H/e2e_upgrade/client.py" watch "$(token)" 3000 "$Q" > "$W/watch-http.jsonl" 2>/dev/null &
 WATCH_HTTP=$!
-set_dist 3
+NEWV="$(cat /dists/TREE_VERSION 2>/dev/null || echo 3)"
+set_dist "$NEWV"
 T0=$(date +%s)
 if [ "$MODE" = installer ]; then
   cd "$U" && SOKKAN_BASE="$BASE" SOKKAN_ACCEPT_GEMMA_TERMS="${ACCEPT:-}" sh /dists/install-3.sh \
@@ -97,9 +107,14 @@ c="$(api)"; docker cp "$H/e2e_migration/probe.py" "$c:/tmp/probe.py"
 docker exec -u sokkan "$c" python /tmp/probe.py watch 1500 "$Q" > "$W/watch.jsonl" 2>/dev/null &
 WATCH=$!
 probe recall "$Q" > "$W/recall-during.json"
+if [ "$SRC_MAJOR" -lt 3 ]; then
 wait_for 1500 "migration finished" \
   "docker exec $c grep -Eq '\"status\": \"(done|blocked|failed)\"' /data/memory-migration/state.json" \
   || true
+fi
+# 3.6: the upgrade is done when the instance answers AS the new version (not just « healthy »)
+curl -s -m 5 http://127.0.0.1:3009/api/version > "$W/version-after.json" 2>/dev/null || true
+cat "$W/version-after.json"; echo
 sleep 5
 kill "$WATCH" 2>/dev/null
 phase "checks after"

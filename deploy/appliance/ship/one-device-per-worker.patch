@@ -1,0 +1,33 @@
+--- a/vllm/v1/executor/multiproc_executor.py
++++ b/vllm/v1/executor/multiproc_executor.py
+@@ -749,10 +749,26 @@
+         )
+ 
+         # Apply NUMA binding if configured
+-        with numa_utils.configure_subprocess(
+-            vllm_config, local_rank, process_kind="worker"
+-        ):
+-            proc.start()
++        # NINABOT 10.11.2026 : une seule carte visible par worker XPU. Un processus qui voit plusieurs cartes
++        # fait passer ses allocations par le chemin DMA-buf/TTM du pilote xe, qui double chaque Go de VRAM en RAM hote.
++        _nb_prev_mask = os.environ.get("ZE_AFFINITY_MASK")
++        _nb_one = os.environ.get("VLLM_XPU_ONE_DEVICE_PER_WORKER") == "1"
++        if _nb_one:
++            _nb_ids = vllm_config.parallel_config.assigned_physical_gpu_ids
++            _nb_phys = _nb_ids[local_rank] if _nb_ids else local_rank
++            os.environ["ZE_AFFINITY_MASK"] = str(_nb_phys)
++            logger.info("NINABOT: worker local_rank=%s lance avec ZE_AFFINITY_MASK=%s", local_rank, _nb_phys)
++        try:
++            with numa_utils.configure_subprocess(
++                vllm_config, local_rank, process_kind="worker"
++            ):
++                proc.start()
++        finally:
++            if _nb_one:
++                if _nb_prev_mask is None:
++                    os.environ.pop("ZE_AFFINITY_MASK", None)
++                else:
++                    os.environ["ZE_AFFINITY_MASK"] = _nb_prev_mask
+ 
+         # Close child ends of pipes here in the parent
+         ready_writer.close()

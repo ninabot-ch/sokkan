@@ -22,10 +22,13 @@ Re-run the installer from the directory that contains your `sokkan/` folder:
 curl -fsSL https://sokkan.ch/install.sh | sh
 ```
 
-It detects the existing install, pulls the current release over it, keeps your
-`.env` and data volumes, and rebuilds (short interruption while the containers
-restart). Equivalent, run inside the `sokkan/` folder (3.4.3+ — the release ships
-its own updater):
+It detects the existing install, keeps your `.env` and data volumes, and rebuilds (short
+interruption while the containers restart). To install a precise release instead of the
+current one: `… | sh -s -- --version 3.6.0+1a2b3c4`.
+
+**One upgrade path (3.6).** The installer no longer has its own way of replacing the code: it
+downloads the release, verifies it, and runs **that release's `scripts/upgrade.sh`** in your
+folder. Running `./scripts/upgrade.sh` yourself is therefore the same thing:
 
 ```bash
 ./scripts/upgrade.sh                 # the current release; --no-build to stop before compose
@@ -54,6 +57,34 @@ curl -fsSL https://sokkan.ch/dist/sokkan-latest.tar.gz -o /tmp/sokkan.tar.gz
 tar xzf /tmp/sokkan.tar.gz --strip-components=1 sokkan/scripts/upgrade.sh
 ./scripts/upgrade.sh /tmp/sokkan.tar.gz
 ```
+
+What every upgrade does since 3.6, in this order:
+
+1. **Verify before touching anything** (`scripts/verify-release.sh`): the tarball's sha256
+   against the published `.sha256` (a mismatch always stops), and its cosign signature
+   (`.sig`) against the public key already on your machine (`/etc/sokkan/cosign.pub`,
+   `SOKKAN_COSIGN_PUB`). With `SOKKAN_REQUIRE_SIGNATURE=1` in `.env` a release with no valid
+   signature is refused; without it, an unsigned release is accepted with a warning — a
+   wrong signature never is.
+2. Record the version that was running in `.sokkan-previous`.
+3. Put the release in place (the manifest logic above), write `SOKKAN_VERSION=<version>+<commit>`
+   and `SOKKAN_COMMIT` in `.env`.
+4. `docker compose up -d --build` — or, with `--images` / `SOKKAN_IMAGES=1`, pull the release's
+   prebuilt images **by digest**, verify each signature, and start without building.
+5. **Wait until `/api/version` answers the new version** (`SOKKAN_UPGRADE_WAIT_S`, default
+   900 s). If it does not: exit 1, and the command to go back is printed.
+
+`./scripts/upgrade.sh` of a tree **older than 3.6** still works, but it is that older script:
+no verification, no wait. Use the installer once to get on the new path.
+
+### Roll back to the previous version
+
+```bash
+./scripts/rollback.sh          # the version recorded by the last upgrade (.sokkan-previous)
+```
+
+Same verification, same wait. It records the version it left, so going forward again is the
+same command.
 
 ### Roll back to a specific version
 

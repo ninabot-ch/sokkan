@@ -23,10 +23,13 @@ def test_env_num_treats_empty_as_default(monkeypatch):
 def test_backend_imports_with_every_compose_var_empty(monkeypatch, tmp_path):
     """Set every SOKKAN_* variable declared in docker-compose.yml to "" and import the modules that read numbers."""
     compose = (ROOT / "docker-compose.yml").read_text()
-    for name in sorted(set(re.findall(r"^\s+(SOKKAN_[A-Z0-9_]+):", compose, re.M))):
+    for name in sorted(set(re.findall(r"^\s+((?:SOKKAN|CORTHEXIS)_[A-Z0-9_]+):", compose, re.M))):
         monkeypatch.setenv(name, "")
     monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
-    for mod in ("features", "notify", "assistant", "agents_runtime"):
+    for mod in ("features", "notify", "assistant", "agents_runtime",
+                # 3.6: the variables declared since then (JSON, paths, URLs with a default)
+                "preview", "previewenv", "infra", "observability", "updatecheck", "missions",
+                "hostnames", "instance", "session", "heartbeat", "appliance"):
         # re-import fresh, then put the original module back (monkeypatch restores sys.modules):
         # a test that runs later must not see a twin module that `app` does not use
         if mod in sys.modules:

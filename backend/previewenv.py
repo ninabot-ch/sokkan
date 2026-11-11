@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 CFG = Path(os.environ.get("SOKKAN_PREVIEW_ENVS", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview-envs.json")))
-LOG_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR", os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview")))
+LOG_DIR = Path(os.environ.get("SOKKAN_SHOT_DIR") or os.path.join(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")), "preview"))
 
 # Pas de seed par défaut : chaque install déclare ses dev-servers dans
 # preview-envs.json ({name: {cwd, cmd, port, label, host?}}).
@@ -57,6 +57,27 @@ def list_envs() -> list[dict]:
     return out
 
 
+# What a dev-server inherits from the api process. NOT the whole environment (3.6): the api
+# holds the model keys, the session secret, the database password, OIDC / SMTP / gateway
+# secrets — a `next dev` (or anything a preview-envs.json command runs) had them all, and so
+# did every dependency it loads. A dev-server gets a plain shell environment; what it needs
+# beyond that is declared per env in preview-envs.json: {"env": {"API_URL": "…"}}.
+_ENV_PASS = ("PATH", "HOME", "LANG", "LANGUAGE", "TZ", "TERM", "USER", "LOGNAME", "SHELL", "TMPDIR",
+             "NODE_ENV", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+             "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy")
+_ENV_PASS_PREFIX = ("LC_",)
+
+
+def dev_server_env(e: dict, port: int) -> dict:
+    env = {k: v for k, v in os.environ.items()
+           if k in _ENV_PASS or k.startswith(_ENV_PASS_PREFIX)}
+    env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
+    extra = e.get("env") if isinstance(e.get("env"), dict) else {}
+    env.update({str(k): str(v) for k, v in extra.items()})
+    env["PORT"] = str(port)
+    return env
+
+
 def start(name: str) -> dict:
     envs = _load()
     if name not in envs:
@@ -67,7 +88,7 @@ def start(name: str) -> dict:
         return {"running": True, "url": f"http://localhost:{port}"}
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = open(LOG_DIR / f"{name}.dev.log", "ab")  # noqa: SIM115
-    env = {**os.environ, "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PORT": str(port)}
+    env = dev_server_env(e, port)
     subprocess.Popen(  # noqa: S602 — cmd vient d'une config locale de confiance
         e["cmd"].replace("{port}", str(port)),
         shell=True, cwd=e["cwd"], stdout=log, stderr=log,

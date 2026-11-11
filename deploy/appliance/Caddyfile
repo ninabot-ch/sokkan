@@ -1,0 +1,28 @@
+# SOKKAN appliance — HTTPS on the local network with Caddy's own certificate authority
+# (`tls internal`): no public DNS, no Let's Encrypt, nothing leaves the machine.
+# SOKKAN_TLS_SITES (.env, written by the installer) lists every name people type to reach the
+# box, comma separated: "https://sokkan.lan, https://192.168.1.50". A name that is not listed
+# gets no certificate (the browser shows an error instead of a wrong site).
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+}
+
+{$SOKKAN_TLS_SITES:https://sokkan.lan, https://localhost} {
+	tls internal
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	reverse_proxy web:3000 {
+		# sessions stream for minutes: no response buffering, long read timeout
+		flush_interval -1
+		transport http {
+			read_timeout 3600s
+		}
+	}
+}

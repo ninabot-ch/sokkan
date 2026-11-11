@@ -14,7 +14,8 @@
 #     --import-secrets puts secrets.openbao.json back in KV (missing names; with
 #     --overwrite-secrets, every name). Then:
 #   compose: `docker compose stop api web`, /data emptied and replaced by data.tgz,
-#            vault.key written (0600), pg_restore --clean --if-exists in `db`, `up -d`
+#            vault.key written (0600), pg.dump restored in a side database then swapped
+#            in (a failed pg_restore changes nothing), `up -d`
 #   local:   SOKKAN_DATA_DIR emptied and replaced, vault.key, pg_restore to
 #            SOKKAN_BACKUP_PG_DSN (or CORTHEXIS_DATABASE_URL / SOKKAN_DATABASE_URL);
 #            stop the API yourself first
@@ -193,6 +194,26 @@ if [ "$SECRETS" = file ]; then
 fi
 if [ "$MODE" = compose ]; then
   dc stop api web
+  PGU="${POSTGRES_USER:-sokkan}"; PGD="${POSTGRES_DB:-sokkan}"
+  if [ "$HAS_PG" = 1 ]; then
+    # 3.6 — the dump goes into a SIDE database first; the live one is swapped only once the
+    # whole dump is in. Before: `pg_restore --clean` straight into the live database, which
+    # fails on the partitioned tables of the 3.x memory store (« cannot drop inherited
+    # constraint ») as soon as the target had been started once — i.e. on every new machine —
+    # and left the instance stopped with new files and an old, half-cleaned database.
+    dc up -d db
+    i=0; until dc exec -T db pg_isready -U "$PGU" >/dev/null 2>&1; do
+      i=$((i + 1)); [ "$i" -lt 60 ] || die "db not ready (nothing was changed)"; sleep 1; done
+    dc exec -T db dropdb -U "$PGU" --if-exists "${PGD}_restore" >/dev/null
+    dc exec -T db createdb -U "$PGU" "${PGD}_restore" || die "cannot create the side database (nothing was changed)"
+    dc exec -T db pg_restore -U "$PGU" -d "${PGD}_restore" --no-owner --exit-on-error < "$SETDIR/pg.dump" || {
+      dc exec -T db dropdb -U "$PGU" --if-exists "${PGD}_restore" >/dev/null 2>&1 || true
+      dc up -d >/dev/null 2>&1 || true
+      die "pg_restore failed — the instance was restarted as it was, nothing was changed"
+    }
+    log "memory store restored in a side database (${PGD}_restore)"
+    dc stop api web 2>/dev/null || true
+  fi
   # shellcheck disable=SC2016  # expanded by the container's sh
   dc run --rm -T --no-deps --entrypoint sh api -c '
     set -e
@@ -207,11 +228,15 @@ if [ "$MODE" = compose ]; then
       "cat > /data/$k && chmod 600 /data/$k && chown 1000:1000 /data/$k" < "$WORK/keys/$k"
   done
   if [ "$HAS_PG" = 1 ]; then
-    dc up -d db
-    i=0; until dc exec -T db pg_isready -U "${POSTGRES_USER:-sokkan}" >/dev/null 2>&1; do
-      i=$((i + 1)); [ "$i" -lt 60 ] || die "db not ready"; sleep 1; done
-    dc exec -T db pg_restore -U "${POSTGRES_USER:-sokkan}" -d "${POSTGRES_DB:-sokkan}" \
-      --clean --if-exists --no-owner < "$SETDIR/pg.dump" || die "pg_restore failed"
+    # swap: nobody is connected (api stopped); the previous database goes only after the rename
+    dc exec -T db psql -U "$PGU" -d postgres -q -v ON_ERROR_STOP=1 \
+      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$PGD', '${PGD}_restore') AND pid <> pg_backend_pid();" \
+      -c "DROP DATABASE IF EXISTS \"${PGD}_before_restore\";" \
+      -c "ALTER DATABASE \"$PGD\" RENAME TO \"${PGD}_before_restore\";" \
+      -c "ALTER DATABASE \"${PGD}_restore\" RENAME TO \"$PGD\";" >/dev/null \
+      || die "could not put the restored database in place (the previous one is intact: ${PGD} or ${PGD}_before_restore)"
+    dc exec -T db dropdb -U "$PGU" --if-exists "${PGD}_before_restore" >/dev/null 2>&1 \
+      || log "WARNING: the previous database ${PGD}_before_restore was left in place (drop it by hand)"
   fi
   dc up -d
   if [ "$SECRETS" = openbao ] && [ "$IMPORT_SECRETS" = 1 ]; then
@@ -228,7 +253,14 @@ else
   for k in $KEYS_OK; do cp "$WORK/keys/$k" "$D/$k"; done
   for k in $KEYFILES; do [ -f "$D/$k" ] && chmod 600 "$D/$k"; done
   if [ "$HAS_PG" = 1 ]; then
-    pg_restore --clean --if-exists --no-owner -d "$DSN" "$SETDIR/pg.dump" || die "pg_restore failed"
+    # 3.6: an EMPTY schema first — `--clean` cannot drop the partitioned tables of the 3.x
+    # store (« cannot drop inherited constraint »). Needs psql; without it, the old way.
+    if command -v psql >/dev/null 2>&1 && psql "$DSN" -q -v ON_ERROR_STOP=1 \
+         -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >/dev/null 2>&1; then
+      pg_restore --no-owner --exit-on-error -d "$DSN" "$SETDIR/pg.dump" || die "pg_restore failed"
+    else
+      pg_restore --clean --if-exists --no-owner -d "$DSN" "$SETDIR/pg.dump" || die "pg_restore failed"
+    fi
   fi
   if [ "$SECRETS" = openbao ] && [ "$IMPORT_SECRETS" = 1 ]; then
     if [ "$OVERWRITE_SECRETS" = 1 ]; then

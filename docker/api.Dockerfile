@@ -1,17 +1,27 @@
 # SOKKAN API — FastAPI + le binaire `claude` (Claude Code CLI) piloté par le SDK.
 FROM python:3.12-slim
 
+# Pinned: the image of a release is the same whenever it is built. An unpinned CLI made two
+# builds of one tag differ (and a CLI release can change the stream-json the SDK drives).
+# Bump BOTH together with backend/requirements.txt (claude-agent-sdk) and
+# docker/session.Dockerfile — tests/test_packaging_pins.py checks they agree.
+ARG CLAUDE_CODE_VERSION=2.1.322
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates git ripgrep procps openssh-client bubblewrap \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
- && npm install -g @anthropic-ai/claude-code \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && claude --version | grep -F "${CLAUDE_CODE_VERSION}" \
  && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY backend/requirements.txt /tmp/req-backend.txt
 COPY memory/requirements.txt /tmp/req-memory.txt
-RUN pip install --no-cache-dir -r /tmp/req-backend.txt -r /tmp/req-memory.txt
+# docker/constraints.txt = the exact versions of every Python package of the released image
+# (direct and transitive), written by `scripts/freeze-constraints.sh` from a built image
+COPY docker/constraints.txt /tmp/constraints.txt
+RUN pip install --no-cache-dir -c /tmp/constraints.txt -r /tmp/req-backend.txt -r /tmp/req-memory.txt
 
 COPY VERSION VERSION
 COPY backend backend
@@ -50,9 +60,11 @@ ENV FASTEMBED_CACHE_PATH=/opt/sokkan/models \
     SOKKAN_AGENT_CWD=/workspace \
     SOKKAN_MEMORY_DIR=/data/claude/projects/-workspace/memory \
     SOKKAN_PROJECT_WD=/workspace \
-    SOKKAN_FEATURE_PREVIEW=1 \
-    SOKKAN_FEATURE_TMUX=0 \
     HOME=/data
+# No SOKKAN_FEATURE_* here: docker-compose.yml passes every switch (empty when unset), which
+# overrode the `TMUX=0` this image used to carry — tmux was announced on with no tmux
+# installed. A feature that needs a binary (tmux, a browser for Preview) now checks for it
+# (backend/features.py `available`).
 
 # démarre root : l'entrypoint rend /etc/hosts writable par le groupe (mode
 # managé : le backend y maintient la nomenclature `<name>.fleet`) puis DROP

@@ -1,0 +1,30 @@
+# The local model of the appliance comes back alone after a reboot or a power cut (it used to
+# need a hand: `restart: "no"` in its compose file, on purpose — see that file).
+# systemd starts it once Docker is up, restarts it with a delay when it stops, and gives up
+# after 5 failures in 30 min (a GPU that no longer answers needs a person, not a loop):
+# `systemctl status sokkan-ship` then says so, and the cockpit says « the model cannot be reached ».
+[Unit]
+Description=SOKKAN appliance — local model (Ship)
+Documentation=file:/opt/sokkan/docs/appliance/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=1800
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sokkan/ship.env
+WorkingDirectory=/opt/sokkan/deploy/appliance/ship
+# the render nodes of the cards must exist before the server enumerates them
+ExecStartPre=/bin/sh -c 'n=0; while [ "$(ls /dev/dri/renderD* 2>/dev/null | wc -l)" -lt "${SHIP_TP:-4}" ] && [ $n -lt 60 ]; do sleep 2; n=$((n+1)); done; [ "$(ls /dev/dri/renderD* 2>/dev/null | wc -l)" -ge "${SHIP_TP:-4}" ]'
+ExecStartPre=-/usr/bin/docker compose --env-file /etc/sokkan/ship.env down --remove-orphans
+ExecStart=/usr/bin/docker compose --env-file /etc/sokkan/ship.env up --no-color --abort-on-container-exit
+ExecStop=/usr/bin/docker compose --env-file /etc/sokkan/ship.env down
+Restart=on-failure
+RestartSec=45
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
