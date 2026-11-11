@@ -3,6 +3,62 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.6.3 — 2026-11-12 — "Icebreaker"
+
+What a person who is not an engineer met on a first real journey through an appliance. No
+changed default, no new required variable, no new feature switch.
+
+### Fixed
+- **The conversation of a work is still there after a restart.** After the instance restarted,
+  a work of the simple profile opened on an empty conversation (its deliverables and validations
+  were kept). The thread is rebuilt from the transcript the Claude Code CLI keeps on disk, and a
+  work of any project other than `default` runs in its project's folder: its transcript was
+  looked for in the instance's folder. It is now read from the session's own folder — and only
+  that one. The study export, which reads the same transcripts, had the same gap (« no
+  transcript on this instance ») and is fixed with it. The appliance bench (T13) opens, after
+  the reboot, a work started before it and reads its thread.
+- **The memory of a project created from the command line is indexed without a restart.** The
+  appliance creates a person's project with `accounts.sh add --project` (the installer's
+  `SOKKAN_ACCOUNTS`): no route of the running api is called, and that project had no memory
+  indexer until the api restarted — notes written there were listed nowhere and recalled by
+  nobody. The api now looks for new projects every minute.
+- **A work that started is no longer announced as failed, nor started twice.** When the answer
+  of « Start » was lost on the way (network change, proxy timeout) the simple profile said
+  « The work could not start » although it was running, and a second click opened a twin. The
+  browser sends one id per request (`request_id` of `POST /api/simple/start`), the server opens
+  one work per person, project and id, and the browser asks again with the same id before it
+  shows a failure.
+- **« Export our work » says what happened.** The button now shows « Preparing the archive… »,
+  then the name of the downloaded file and the number of projects in it, or that the export did
+  not go through. When projects are left out because the admin has no role in them, their number
+  is shown with the way to include them (it was only a number in the manifest). Setup ›
+  Organization and the simple profile's Settings.
+- **The card of a memory note is titled as the note is**, accents included (« Procédure de
+  devis », not the note's name « Procedure de devis »), when the note opens with a heading.
+- **The appliance installer no longer announces `https://<box IP>`**: that address does not
+  answer (a browser sends no server name with a bare address, the TLS handshake fails). Its last
+  message gives the name and says it must resolve to the box on each workstation.
+
+### Added
+- **A sign-in screen for people who are not engineers.** With named accounts that sign in with a
+  personal access code (the appliance profile), or the simple profile as the instance's default,
+  the sign-in screen follows the browser's language (French or English) and the light theme, and
+  asks for a « Code d'accès / Access code » — no variable name. `GET /api/auth/info` says which
+  screen applies (`plain`). A community install with the owner token alone keeps the technical
+  screen; its field is wider, so the placeholder is no longer cut.
+- **« Mémoire / Memory » in the simple profile**: the notes the person may see — the project's
+  and the shared ones, up to their clearance — with their title, description and date, and a note
+  to read. Read only; it uses the two routes of the cockpit's Memory tab, with the same rights
+  and the same journal of what was read.
+  [SIMPLE-PROFILE.md](docs/enterprise/SIMPLE-PROFILE.md).
+
+### Documentation
+- **Appliance install** ([docs/appliance/README.md](docs/appliance/README.md) § 2, § 5): how the
+  machine gets the verification tool (cosign, the build pinned in `deploy/appliance/versions.env`)
+  and the public key of the releases (`https://sokkan.ch/cosign.pub`) before the installer runs;
+  every answer the installer takes, with `SOKKAN_SHIP_URL` and `SOKKAN_SHIP_MODEL`; what happens
+  when a release publishes no prebuilt images; people reach the box by its name.
+
 ## 3.6.2 — 2026-11-11 — "Icebreaker"
 
 An organisation takes its work with it, and a rollback leaves the tree of the release it goes
