@@ -13,6 +13,15 @@ COPY backend/requirements.txt /tmp/req-backend.txt
 COPY memory/requirements.txt /tmp/req-memory.txt
 RUN pip install --no-cache-dir -r /tmp/req-backend.txt -r /tmp/req-memory.txt
 
+# feature `doc_ingest` (off by default): document extractors + rclone, only when asked for
+# (docker compose build --build-arg SOKKAN_DOC_INGEST=1 api) — docs/enterprise/DOC-INGEST.md
+ARG SOKKAN_DOC_INGEST=0
+COPY backend/requirements-docingest.txt /tmp/req-docingest.txt
+RUN if [ "$SOKKAN_DOC_INGEST" = "1" ]; then \
+      pip install --no-cache-dir -r /tmp/req-docingest.txt \
+   && apt-get update && apt-get install -y --no-install-recommends rclone \
+   && rm -rf /var/lib/apt/lists/* ; fi
+
 COPY VERSION VERSION
 COPY backend backend
 COPY memory memory

@@ -54,6 +54,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`helm`](#helm) Helm | stable | toggle | off | on | `multi_project`, `assistant` | — | `SOKKAN_FEATURE_HELM` |
 | [`classification`](#classification) Classification and clearances | stable | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
+| [`doc_ingest`](#doc_ingest) Document ingestion (memory agent) | experimental | toggle | off | off | `agents`, `memory_quarantine` | — | `SOKKAN_FEATURE_DOC_INGEST` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 
 ## Dependency graph
@@ -100,6 +101,7 @@ graph LR
   helm["Helm"]
   classification["Classification and clearances"]
   teams["Microsoft Teams"]
+  doc_ingest["Document ingestion (memory agent)"]
   connect_ai["Connect your AI"]
   preview_private_targets --> preview
   agents_cli_login --> agents
@@ -129,6 +131,8 @@ graph LR
   teams --> assistant
   teams --> classification
   teams --> sso
+  doc_ingest --> agents
+  doc_ingest --> memory_quarantine
   four_eyes -.-x admin_approval
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
@@ -224,6 +228,7 @@ A human session only receives the vault secrets picked for it (or by its playboo
 A note written by an agent run waits in quarantine until a human approves it. A security invariant: it cannot be turned off.
 
 - Defaults: community **always**, enterprise **always**
+- Required by: `doc_ingest`
 - Configuration: `SOKKAN_MEMORY_QUARANTINE_DIR`
 - Doc: [docs/AGENTS.md](../../docs/AGENTS.md)
 
@@ -234,7 +239,7 @@ A note written by an agent run waits in quarantine until a human approves it. A 
 Scheduled and alert-triggered agents, their runs, deliverables and approvals.
 
 - Defaults: community **on**, enterprise **on**
-- Required by: `agents_cli_login`, `four_eyes`, `admin_approval`, `agent_incidents`, `crew_viewer_readonly`, `demo_crew`
+- Required by: `agents_cli_login`, `four_eyes`, `admin_approval`, `agent_incidents`, `crew_viewer_readonly`, `demo_crew`, `doc_ingest`
 - Switch: `SOKKAN_FEATURE_AGENTS`
 - Doc: [docs/AGENTS.md](../../docs/AGENTS.md)
 
@@ -538,6 +543,17 @@ Notes, decisions, cards and agent deliverables carry a level (public < team < pr
 - Requires: `assistant`, `classification`, `sso`
 - Switch: `SOKKAN_FEATURE_TEAMS`
 - Doc: [docs/enterprise/TEAMS.md](../../docs/enterprise/TEAMS.md)
+
+### doc_ingest
+
+**Document ingestion (memory agent)** — experimental, toggle.
+
+A memory agent reads the organisation's documents — shared folders mounted read-only, SharePoint / OneDrive / Google Drive mirrored one way by rclone — from an allow-list declared on the host, and turns what is worth keeping into typed CortHeXis notes (sourced reference notes, decisions, tags, links, a classification never below the source folder's). The documents are read by a LOCAL model only; the notes wait in quarantine by batch (sample, statistics, approve / reject, trust per source) and every decision is journaled. Nightly incremental pass by the agents scheduler; resumable, with a token ceiling per pass.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `agents`, `memory_quarantine`
+- Switch: `SOKKAN_FEATURE_DOC_INGEST`
+- Doc: [docs/enterprise/DOC-INGEST.md](../../docs/enterprise/DOC-INGEST.md)
 
 ### connect_ai
 

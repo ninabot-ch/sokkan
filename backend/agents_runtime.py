@@ -239,6 +239,18 @@ def _run_level(sid: str) -> int:
     return max(classification.session_level(sid) or 0, 2)
 
 
+def _doc_ingest_tick(now: float) -> None:
+    """Feature `doc_ingest`: its nightly passes are scheduled by this loop (one scheduler on
+    the instance). A failure there never touches the agents."""
+    try:
+        import features
+        if features.enabled("doc_ingest"):
+            from docingest import scheduler as _ds
+            _ds.tick(now)
+    except Exception as e:  # noqa: BLE001
+        print(f"[doc-ingest] tick failed: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 class Runtime:
     def __init__(self, recall: Callable[[str, str], str] | None = None):
         self.runner_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
@@ -338,6 +350,7 @@ class Runtime:
     # ---- one tick -------------------------------------------------------------
     async def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        _doc_ingest_tick(now)             # local model: independent of the Claude credentials
         if not credentials_ok():          # 3.2 guard: nothing starts, nothing piles up
             self.hold(now)
             await self.watchdog(time.time())

@@ -1,0 +1,9 @@
+# Feature `doc_ingest` (off by default) — document extractors. Installed in the api image
+# with the build arg SOKKAN_DOC_INGEST=1 (docker/api.Dockerfile), or by hand:
+#   pip install -r backend/requirements-docingest.txt
+# MarkItDown (Microsoft, MIT): Office, PDF with a text layer, HTML, CSV → markdown.
+markitdown[docx,pptx,xlsx,pdf]>=0.1.9,<0.2
+# Optional fallback for scanned / complex PDFs — Docling (IBM / LF AI & Data, MIT). Heavy
+# (PyTorch, ~2 GB with its models): install it only where such PDFs exist.
+#   pip install "docling>=2.60,<3" && docling-tools models download
+# rclone (MIT) is a system binary, not a Python package: apt install rclone / rclone.org.
