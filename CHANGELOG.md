@@ -3,6 +3,39 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 4.0 "Seven seas"
+
+### Changed
+- **The session layer is a contract, and today's engine is its first adapter.** Nothing
+  changes for a user: same pane, same approval cards, same costs. Underneath, the cockpit no
+  longer knows the SDK of the engine it drives. `backend/harness/` holds the contract
+  (`contract.py`: the events of a run, `Gate`, `Decision`, `Capabilities`, `RunSpec`), the
+  interface every engine implements (`base.py`: `Harness` — start, send, decide, interrupt,
+  stop, capabilities), the registry of declared engines (`registry.py`, selected with
+  `SOKKAN_ENGINE_RUNTIME`; one engine is declared) and the adapter of the Claude Code CLI
+  driven through the Claude Agent SDK (`legacy.py`) — the only file of the backend that
+  imports that SDK (its permission callback, its hooks, its transport over the session
+  runner moved there). `agentchat.py` consumes the contract's events and translates them into
+  the WebSocket flow the front already reads; the memory recall of a turn and the approval
+  gate reach it as `context.injected`, `gate.requested` and `gate.resolved`. Moving the front
+  onto the contract's events, and any other engine, come later.
+  [backend/harness/README.md](backend/harness/README.md).
+
+### Added
+- **Conformance scenarios C1–C8 for an engine** (`backend/harness/conformance/`): a denied
+  shell command has not run, the recall is announced and seen by the model, a write outside
+  the run's space is refused and the run goes on, a stopped run resumes with its history,
+  every turn reports its usage, a decision is held, attributed and applied once, a declared
+  capability is honest, the engine injects nothing the cockpit withheld. Played against the
+  CLI adapter for real (the bundled CLI in front of a scripted model) and against a small
+  reference engine whose approval gates are born on the engine's side — where the cockpit can
+  only restrict what the engine would do.
+- **A second source for Costs, not used yet: `usage_events`.** Each model call an engine
+  reports through the contract is recorded in its own ledger (`usage_events.db`, in the data
+  directory). Operate › Costs and the budgets still read the transcripts, unchanged;
+  `usage.session_totals(sid, source=…)` gives a session by either source and tests prove both
+  agree on a same run.
+
 ## 3.6.7 — 2026-11-15 — "Icebreaker"
 
 Finishes of the simple interface, from a filmed run of a real work. Three new variables

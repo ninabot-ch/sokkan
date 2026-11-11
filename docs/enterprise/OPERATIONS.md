@@ -348,7 +348,7 @@ What holds state:
 
 | Where | Content | Criticality |
 |---|---|---|
-| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately. With the **openbao** provider (3.3) the volume holds no key (`*.key.wrapped` only) and the project secrets are in OpenBao: [SECRETS.md](SECRETS.md) |
+| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `usage_events.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately. With the **openbao** provider (3.3) the volume holds no key (`*.key.wrapped` only) and the project secrets are in OpenBao: [SECRETS.md](SECRETS.md) |
 | volume `sokkan-pg` | CortHeXis (Postgres + pgvector: notes, links, versions, recall log) | critical |
 | `SOKKAN_WORKSPACE` | the code sessions work on (also in your forge) | per your forge policy |
 | `.env` | configuration and secrets (0600) | critical, store in your secrets manager |
