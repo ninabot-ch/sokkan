@@ -167,13 +167,21 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         lines += ["", recall.strip(),
                   "(Notes recalled from this project's memory: use them when relevant.)"]
     lines.append("</sokkan-brief>")
-    return "\n".join(lines) + "\n\n" + ask.strip()
+    # said again AFTER the request: an open model drifts to English mid-task when the
+    # language rule is only at the top of a long brief (seen on the first timed journey)
+    name = LANG_NAME.get(lang, "English")
+    tail = (f"<sokkan-brief>Every sentence you write to the person, at every step and in the "
+            f"document itself, is in {name}.</sokkan-brief>")
+    return "\n".join(lines) + "\n\n" + ask.strip() + "\n\n" + tail
 
 
-def follow_up(text: str, new_docs: list[dict]) -> str:
+def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     """A later message; documents attached with it are announced inside a brief block."""
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
+        if lang in LANG_NAME:
+            return (text.strip() + f"\n\n<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday "
+                    "words; update the saved document when a change is asked.</sokkan-brief>")
         return text.strip()
     return ("<sokkan-brief>\nThe person just attached more documents. Read them before "
             "answering:\n" + "\n".join("  " + ln for ln in doc_lines)

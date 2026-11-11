@@ -538,3 +538,6 @@ html[data-sk-theme] body {
 .sk-study-row { flex: none; display: flex; align-items: center; gap: var(--sk-s3); padding: var(--sk-s2) var(--sk-s5); border-bottom: 1px solid var(--sk-line); }
 .sk .sk-select { width: auto; }
 .sk .sk-input-short { width: 12ch; }
+.sk-act { align-items: flex-start; }
+.sk-act > .sk-act-ico, .sk-act > .sk-spin { margin-top: 3px; }
+.sk-deliv-card > .sk-grow { flex: 1 1 220px; }

@@ -170,7 +170,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                 );
                 if (it.k === "acts") return <Activities key={i} acts={it.acts} />;
                 if (it.k === "approval") return it.decided
-                  ? <p key={i} className="sk-small sk-muted sk-row"><Icon name={it.decided === "allow" ? "check" : "close"} small />{t(it.decided === "allow" ? "ap.allow" : "ap.deny")} — {headline(t, it.ev)}</p>
+                  ? <div key={i} className="sk-act is-done"><span className="sk-act-ico"><Icon name={it.decided === "allow" ? "check" : "close"} small /></span><span>{t(it.decided === "allow" ? "ap.allowed" : "ap.denied", { what: headline(t, it.ev) })}</span></div>
                   : <ApprovalCard key={i} ev={it.ev} canDrive={canDrive} onDecide={(d) => decide(it.ev, d)}
                       onDraft={() => setSide({ kind: "draft", ev: it.ev })} />;
                 if (it.k === "deliverable") return (
@@ -199,7 +199,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
               })}
               {study?.tag?.tagged && canDrive && lastDeliverable?.validated && <StudyFeedback sid={sid} />}
               {working && !liveAct && !waiting && (
-                <div className="sk-working" role="status"><span className="sk-spin" aria-hidden />{t("th.working")}</div>
+                <Working />
               )}
             </div>
           </div>
@@ -288,6 +288,14 @@ function DraftPanel({ ev, pending, onClose, onDecide }: {
       )}
     </aside>
   );
+}
+
+/** « The agent is working… », then — a full document takes minutes — what to expect. */
+function Working() {
+  const t = useT();
+  const [long, setLong] = useState(false);
+  useEffect(() => { const id = window.setTimeout(() => setLong(true), 15000); return () => window.clearTimeout(id); }, []);
+  return <div className="sk-working" role="status"><span className="sk-spin" aria-hidden />{t(long ? "th.working.long" : "th.working")}</div>;
 }
 
 function SourceRow({ d }: { d: Doc }) {

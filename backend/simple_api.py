@@ -327,7 +327,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             raise HTTPException(409, {"code": "busy", "message": "the agent is still working"})
         session._emit({"type": "user_echo", "text": text,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
-        bg(session.handle_user(simple.follow_up(text, docs)))
+        lang = (simple.get_work(sid) or {}).get("lang") or ""
+        bg(session.handle_user(simple.follow_up(text, docs, lang)))
         audit.log(email, "session.send", sid, f"{len(text)} chars · {len(docs)} document(s)",
                   project=project)
         return {"ok": True}

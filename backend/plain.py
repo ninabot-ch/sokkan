@@ -47,7 +47,7 @@ def human_title(name: str) -> str:
     """« plan-de-formation_excel.md » → « Plan de formation excel »."""
     stem = Path(name or "").name
     stem = re.sub(r"\.(md|markdown|txt|docx|html?)$", "", stem, flags=re.I)
-    stem = re.sub(r"[_\-]+", " ", stem).strip()
+    stem = re.sub(r"\s+", " ", re.sub(r"[_\-]+", " ", stem)).strip()
     stem = re.sub(r"\s+v(?:ersion)?\s*\d+$", "", stem, flags=re.I).strip() or stem
     return (stem[:1].upper() + stem[1:]) if stem else "Document"
 

@@ -112,7 +112,7 @@ def test_start_a_work_with_documents_and_a_template(world):
     # what the agent got: the brief, the mission, the files to read, the save folder — then the ask
     (turn_sid, seed), = world["turns"]
     assert turn_sid == sid and seed.startswith("<sokkan-brief>")
-    assert seed.rstrip().endswith("Formation Excel intermédiaire, 2 jours")
+    assert seed.rstrip().endswith("is in French.</sokkan-brief>")
     assert "Write to them in French" in seed and "Write a training plan" in seed
     assert f"documents/{d1['id']}/Brief client.docx.txt" in seed and f"documents/{d2['id']}/Notes.txt" in seed
     assert f"deliverables/{sid}" in seed
@@ -336,3 +336,19 @@ def test_a_corrected_draft_is_what_gets_saved_and_only_its_text(world):
     assert futs["p2"].result()["updated_input"] is None
     s._perms.clear()
     loop.close()
+
+
+def test_a_simple_work_never_asks_to_approve_a_shell_command(world):
+    import agentchat
+    import asyncio
+    import simple
+    c = world["as"]("bob@x")
+    sid = c.post("/api/simple/start", json={"ask": "Un plan de formation", "lang": "fr"}).json()["session_id"]
+    s = agentchat.peek(sid)
+    before = len(s.events)
+    r = asyncio.run(s._can_use_tool("Bash", {"command": "mkdir -p x"}, None))
+    assert type(r).__name__ == "PermissionResultDeny" and "Write tool" in r.message
+    assert len(s.events) == before and not s._perms            # no card, nobody was asked
+    # a technical session of the same person still gets the ordinary request
+    t = agentchat.get_or_create(DEFAULT_SID, user="bob@x")
+    assert simple.get_work(DEFAULT_SID) is None and t._is_simple_work() is False

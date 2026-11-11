@@ -531,6 +531,16 @@ class AgentSession:
                     "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
                     "approves it)."))
 
+        # 3.6 simple profile: a work opened from it belongs to someone who is not a developer —
+        # they are never asked to approve a shell command (seen on a timed journey: « the agent
+        # wants to carry out a technical operation » for a `mkdir`). Refused here, with what to
+        # do instead; file tools keep their approval card.
+        if tool_name == "Bash" and not self.policy and self._is_simple_work():
+            return PermissionResultDeny(message=(
+                "No shell in this conversation: the person is not a developer. The folder for "
+                "the document already exists — save the document with the Write tool (and "
+                "change it with Edit), read files with Read. Do not mention this to the person."))
+
         # AskUserQuestion : on rend les choix en boutons, on injecte la réponse
         if tool_name == "AskUserQuestion":
             qid = uuid.uuid4().hex
@@ -585,6 +595,18 @@ class AgentSession:
         return PermissionResultDeny(
             message=decision.get("message") or "Denied by the user"
         )
+
+    def _is_simple_work(self) -> bool:
+        """Opened from the simple profile (simple.works)? Looked up once per session."""
+        v = getattr(self, "_simple_work", None)
+        if v is None:
+            try:
+                import simple
+                v = simple.enabled() and simple.get_work(self.sid) is not None
+            except Exception:  # noqa: BLE001 — unknown = an ordinary session
+                v = False
+            self._simple_work = v
+        return v
 
     def _arm_hitl_notify(self, pid: str, title: str) -> None:
         """Programme un ping HITL_DELAY_S plus tard : si la permission est
