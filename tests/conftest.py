@@ -27,6 +27,23 @@ def _isolated_projects_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _schema_follows_the_database(monkeypatch):
+    """`iam` and `board` create their tables once per PROCESS (`_initialized`) — right for an
+    instance, whose database never moves. A test that points `DB` at its own file and calls
+    `init(force=True)` leaves the flag up when its `DB` is put back: the next test that uses the
+    default database, in the same process, finds no table (« no such table: users / sessions »).
+    Seen on the public CI, which runs the whole suite in ONE process (3.6.0: 2 tests red there,
+    green file by file). Each test starts with both flags down: the first access creates what is
+    missing (`CREATE TABLE IF NOT EXISTS`) in whichever database the test uses."""
+    import board
+    import iam
+
+    monkeypatch.setattr(iam, "_initialized", False)
+    monkeypatch.setattr(board, "_initialized", False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _host_binaries_present(monkeypatch):
     """3.6: tmux and Preview are OFF on a host without their binary (features._which). The
     suite must not depend on what the machine that runs it has installed — found when the

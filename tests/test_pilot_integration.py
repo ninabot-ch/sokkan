@@ -878,25 +878,32 @@ def _contract() -> dict:
     return json.loads((CONTRACT / "contract.json").read_text(encoding="utf-8"))
 
 
-def _cloud() -> Path | None:
+def _cloud() -> tuple[str, str] | None:
+    """(the gateway's page, its source) of the first checkout that can be READ, else None. A path
+    that exists but cannot be read — /root on a CI runner, where even `exists()` raises
+    PermissionError — is no checkout: the test skips, it does not fail."""
     for p in (os.environ.get("SOKKAN_CLOUD_SRC"), "/root/sokkan-cloud"):
-        if p and (Path(p) / "infer" / "pilote-etude.md").exists():
-            return Path(p)
+        if not p:
+            continue
+        try:
+            return ((Path(p) / "infer" / "pilote-etude.md").read_text(encoding="utf-8"),
+                    (Path(p) / "infer" / "gateway.py").read_text(encoding="utf-8"))
+        except OSError:
+            continue
     return None
 
 
 def test_the_frozen_contract_is_the_gateways_own_text():
     cloud = _cloud()
     if cloud is None:
-        pytest.skip("no sokkan-cloud checkout (SOKKAN_CLOUD_SRC): the frozen copy is used as is")
-    doc = (cloud / "infer" / "pilote-etude.md").read_text(encoding="utf-8")
+        pytest.skip("no readable sokkan-cloud checkout (SOKKAN_CLOUD_SRC): the frozen copy is used as is")
+    doc, gw = cloud
     block = re.search(r"### `GET /usage`.*?```json\n(.*?)```", doc, re.S).group(1)
     neutral = _neutral()
     assert _contract()["usage"]["study"]["study_id"] == neutral.STUDY_ID       # the frozen copy is neutral
     assert neutral.usage(json.loads(block)) == neutral.usage(_contract()["usage"]) == _contract()["usage"]
     for h in _contract()["headers_sent"]:
         assert f"`{h}: <" in doc, h
-    gw = (cloud / "infer" / "gateway.py").read_text(encoding="utf-8")
     for r in _contract()["refusals"]:
         assert f'_refuse({r["status"]}, "{r["type"]}", "{r["code"]}"' in gw, r["code"]
         for words in r["words_in_source"]:
