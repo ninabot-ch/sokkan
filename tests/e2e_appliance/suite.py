@@ -371,17 +371,22 @@ def t1():
             "listeners": [x for x in ls if x.split(":")[-1] in ("3009", "443")]}
 
 
+def export_ca() -> None:
+    """The box's certificate authority, as the technician hands it to the workstations."""
+    for _ in range(30):
+        sh(f"curl -sk -m 5 -o /dev/null --resolve {HOSTNAME}:443:127.0.0.1 https://{HOSTNAME}/api/health")  # first certificate
+        r = sh("sh scripts/appliance/export-ca.sh /work/ca.crt", cwd=BOX)
+        if r.returncode == 0:
+            return
+        time.sleep(3)
+    raise AssertionError(f"CA export failed: {r.stderr}")
+
+
 @test("T2", "first launch: HTTPS, 3 named people, local engine ready, no dead screen")
 def t2():
     s = state()
     # HTTPS with the box's own CA; the plain port is not reachable from the network address
-    r = sh("sh scripts/appliance/export-ca.sh /work/ca.crt", cwd=BOX)
-    for _ in range(20):
-        if r.returncode == 0:
-            break
-        time.sleep(3)
-        r = sh("sh scripts/appliance/export-ca.sh /work/ca.crt", cwd=BOX)
-    assert r.returncode == 0, f"CA export failed: {r.stderr}"
+    export_ca()
     c = sh(f"curl -s -o /dev/null -w '%{{http_code}}' --cacert /work/ca.crt --resolve {HOSTNAME}:443:127.0.0.1 "
            f"https://{HOSTNAME}/api/health")
     assert c.stdout.strip() == "200", f"https with the exported CA → {c.stdout} {c.stderr}"
@@ -647,10 +652,11 @@ def t11():
     r, idur = install_appliance()
     assert r.returncode == 0, f"reinstall failed: {(r.stderr or r.stdout)[-400:]}"
     host_side()
+    export_ca()          # a new machine has a new certificate authority (it is not in the backup)
     new_owner = re.search(r"access code — shown once.*\n\s+([0-9a-f]{48})", r.stdout).group(1)
-    fresh = Person(new_owner)
-    fresh.login()
-    assert Person(s["codes"][PEOPLE[0][0]]).login() == 401, "the new machine already knows the old accounts?"
+    assert Person(new_owner).login() == 200, "the owner cannot sign in on the new machine"
+    old = Person(s["codes"][PEOPLE[0][0]]).login()
+    assert old == 401, f"the new machine already knows the old accounts? (login → {old})"
     Path("/etc/sokkan/backup.key").write_text(client_key)
     os.chmod("/etc/sokkan/backup.key", 0o600)
     t0 = time.time()
@@ -699,8 +705,15 @@ def t14():
               "openssl x509 -noout -ext subjectAltName 2>/dev/null").stdout
     cookie = sh(f"curl -s -D - -o /dev/null --cacert /work/ca.crt --resolve {HOSTNAME}:443:127.0.0.1 "
                 f"-H 'content-type: application/json' -d '{{\"token\":\"{s['owner']}\"}}' https://{HOSTNAME}/api/auth/local").stdout
-    pg_ok = sh(f"docker compose exec -T -e PGPASSWORD='{e['SOKKAN_DB_PASSWORD']}' db psql -h 127.0.0.1 -U sokkan -d sokkan -tAc 'select 1'", cwd=BOX)
-    pg_bad = sh("docker compose exec -T -e PGPASSWORD=wrong db psql -h 127.0.0.1 -U sokkan -d sokkan -tAc 'select 1'", cwd=BOX)
+    # from ANOTHER container, over the compose network (inside its own container Postgres trusts
+    # the loopback, whatever the password)
+    def pg(password: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["docker", "compose", "exec", "-T", "-e", f"PGPW={password}", "api", "python3", "-c",
+             "import os, psycopg; c = psycopg.connect(host='db', user='sokkan', dbname='sokkan', "
+             "password=os.environ['PGPW'], connect_timeout=5); print(c.execute('select 1').fetchone()[0])"],
+            cwd=BOX, capture_output=True, text=True, timeout=60)
+    pg_ok, pg_bad = pg(e["SOKKAN_DB_PASSWORD"]), pg("not-the-password")
     sup = owner.call("/api/appliance/support", {"action": "open", "hours": 99})
     images = sh("docker compose images", cwd=BOX).stdout
 
@@ -759,7 +772,7 @@ def t14():
     if e.get("SOKKAN_EMBED_ACCEL"):
         checks["SOKKAN_EMBED_ACCEL"] = (e["SOKKAN_EMBED_ACCEL"] == "cpu") == ("compose.sycl" not in e.get("COMPOSE_FILE", "")
                                                                              and "compose.cuda" not in e.get("COMPOSE_FILE", ""))
-    assert pg_bad.returncode != 0, "Postgres accepts a wrong password over TCP"
+    assert pg_bad.returncode != 0, "Postgres accepts a wrong password from another container"
     # heartbeat body = the documented fields, and nothing about the people
     body = seen(DEEP).get("hb_body") or {}
     assert set(body) == set(hb["state"]["fields"]), f"heartbeat sent {sorted(body)}"
