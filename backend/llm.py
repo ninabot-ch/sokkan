@@ -119,12 +119,30 @@ def load() -> dict:
             return resolve_refs(c)
     except (FileNotFoundError, ValueError):
         pass
+    local = appliance_config()
+    if local:
+        return local
     base = os.environ.get("SOKKAN_INFER_BASE_URL", "")
     tok = os.environ.get("SOKKAN_INFER_TOKEN", "")
     if base and tok:  # instance provisionnée en « inférence incluse »
         return {"mode": "included", "base_url": base, "auth_token": tok,
                 "model": os.environ.get("SOKKAN_INFER_MODEL", "")}
     return {}
+
+
+def appliance_config() -> dict:
+    """On-prem appliance (3.5.2): a model served ON the machine is the instance's engine as
+    soon as `SOKKAN_SHIP_URL` is set — nobody has to connect anything in the cockpit. Sessions
+    go through the local router (backend/shiprouter.py, `router` service) which keeps ordinary
+    requests on the box and sends the hard ones to the Deep gateway. A model chosen in the
+    cockpit (llm.json) still wins. {} when the instance has no local model."""
+    if not (os.environ.get("SOKKAN_SHIP_URL") or "").strip():
+        return {}
+    return {"mode": "custom", "engine": "appliance",
+            "base_url": (os.environ.get("SOKKAN_SHIP_ROUTER_URL") or "http://router:8096").rstrip("/"),
+            # the router ignores the caller's token (it holds the real ones); the CLI needs a value
+            "auth_token": "local",
+            "model": os.environ.get("SOKKAN_SHIP_ALIAS") or "sokkan-ship", "small_model": ""}
 
 
 def save(cfg: dict) -> None:

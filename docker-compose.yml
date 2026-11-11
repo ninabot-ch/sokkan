@@ -391,6 +391,13 @@ services:
       SOKKAN_HEARTBEAT_INTERVAL_S: ${SOKKAN_HEARTBEAT_INTERVAL_S:-}
       SOKKAN_HEARTBEAT: ${SOKKAN_HEARTBEAT:-}
       SOKKAN_SUPPORT_MAX_HOURS: ${SOKKAN_SUPPORT_MAX_HOURS:-}
+      # local model of an on-prem box: set SOKKAN_SHIP_URL and sessions use it through the
+      # `router` service below (profile `appliance`), no click in the cockpit. Language of the
+      # « model does not answer » messages: en | fr
+      SOKKAN_SHIP_URL: ${SOKKAN_SHIP_URL:-}
+      SOKKAN_SHIP_ROUTER_URL: ${SOKKAN_SHIP_ROUTER_URL:-}
+      SOKKAN_SHIP_ALIAS: ${SOKKAN_SHIP_ALIAS:-}
+      SOKKAN_ERROR_LANG: ${SOKKAN_ERROR_LANG:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
@@ -513,6 +520,49 @@ services:
       - api
     security_opt:
       - no-new-privileges:true
+
+  # On-prem appliance (COMPOSE_PROFILES=appliance, docs/appliance/README.md): the local
+  # Ship → Deep router. Sessions talk to it; ordinary requests go to the model served on this
+  # machine (SOKKAN_SHIP_URL — vLLM / llama.cpp, Anthropic Messages API), the hard ones to the
+  # operator gateway (SOKKAN_DEEP_URL + the instance token). Same image as the api, another
+  # entrypoint; no volume, no secret but the gateway token, never published on the host.
+  router:
+    build: { context: ., dockerfile: docker/api.Dockerfile, args: { SOKKAN_COMMIT: "${SOKKAN_COMMIT:-unknown}" } }
+    restart: unless-stopped
+    profiles: ["appliance"]
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    entrypoint: ["uvicorn", "shiprouter:app", "--host", "0.0.0.0", "--port", "8096", "--app-dir", "/app/backend"]
+    environment:
+      SOKKAN_SHIP_URL: ${SOKKAN_SHIP_URL:-}
+      SOKKAN_SHIP_MODEL: ${SOKKAN_SHIP_MODEL:-}
+      SOKKAN_SHIP_TOKEN: ${SOKKAN_SHIP_TOKEN:-}
+      SOKKAN_SHIP_TIMEOUT_S: ${SOKKAN_SHIP_TIMEOUT_S:-}
+      SOKKAN_SHIP_CONNECT_TIMEOUT_S: ${SOKKAN_SHIP_CONNECT_TIMEOUT_S:-}
+      SOKKAN_SHIP_FALLBACK_DEEP: ${SOKKAN_SHIP_FALLBACK_DEEP:-}
+      SOKKAN_DEEP_URL: ${SOKKAN_DEEP_URL:-}
+      SOKKAN_DEEP_TOKEN: ${SOKKAN_DEEP_TOKEN:-}
+      SOKKAN_DEEP_MODEL: ${SOKKAN_DEEP_MODEL:-}
+      SOKKAN_DEEP_FORWARD_USER: ${SOKKAN_DEEP_FORWARD_USER:-}
+      SOKKAN_ESCALATION: ${SOKKAN_ESCALATION:-}
+      SOKKAN_ESCALATION_KEYWORDS: ${SOKKAN_ESCALATION_KEYWORDS:-}
+      SOKKAN_ESCALATION_MAX_FAILS: ${SOKKAN_ESCALATION_MAX_FAILS:-}
+      SOKKAN_ESCALATION_REPEAT_FAILS: ${SOKKAN_ESCALATION_REPEAT_FAILS:-}
+      SOKKAN_ESCALATION_MIN_PROMPT_TOKENS: ${SOKKAN_ESCALATION_MIN_PROMPT_TOKENS:-}
+      SOKKAN_ERROR_LANG: ${SOKKAN_ERROR_LANG:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8096/health', timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }

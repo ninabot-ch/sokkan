@@ -238,6 +238,7 @@ async def _lifespan(_app: FastAPI):
     fleet.start_sync()  # managé : maintient `<name>.fleet` dans /etc/hosts (no-op sinon)
     updatecheck.start()  # 1 GET/jour sur dist/VERSION — opt-out SOKKAN_UPDATE_CHECK=0
     appliance.start()   # journals support-tunnel openings/closings written by the host agent
+    heartbeat.inference_probe = _inference_probe
     heartbeat.start()   # no-op without SOKKAN_HEARTBEAT_URL
     threading.Thread(target=_usage_refresher, daemon=True, name="sokkan-usage").start()
     corthexis.start()  # revue de la mémoire (onglet CortHeXis) — CORTHEXIS_REVIEW_EVERY_S=0 coupe
@@ -1977,6 +1978,39 @@ def _transcripts() -> list[Path]:
 
 # 3.2 lot 6 : SCIM 2.0 (Users, Groups) + « Revoke now » (admin)
 app.include_router(revocation.router(require))
+def _inference_probe() -> bool | None:
+    """Heartbeat `health.inference`: can the local model be reached? None = this instance has
+    no local model (BYOK / gateway: nothing to probe without spending tokens)."""
+    cfg = llm.appliance_config()
+    if not cfg:
+        return None
+    try:
+        import httpx
+        r = httpx.get(cfg["base_url"] + "/health", timeout=4)
+        return bool(r.status_code == 200 and r.json().get("ship"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@app.get("/api/appliance/inference")
+def appliance_inference(_u: dict = Depends(require("viewer"))) -> dict:
+    """Is the model of this machine answering, is the Deep gateway reachable (router /health),
+    and how many requests stayed here / left (router /stats: counters, never content)."""
+    cfg = llm.appliance_config()
+    if not cfg:
+        return {"appliance": False}
+    out: dict = {"appliance": True, "ship": None, "deep": None, "counts": {}}
+    try:
+        import httpx
+        h = httpx.get(cfg["base_url"] + "/health", timeout=4).json()
+        s = httpx.get(cfg["base_url"] + "/stats", timeout=4).json()
+        out.update(ship=h.get("ship"), deep=h.get("deep"), counts=s.get("counts") or {},
+                   escalation=s.get("escalation"), deep_configured=s.get("deep_configured"))
+    except Exception:  # noqa: BLE001
+        out["router"] = False
+    return out
+
+
 # on-prem appliance: support tunnel (client-controlled, journaled) and supervision heartbeat
 app.include_router(appliance.router(require))
 app.include_router(heartbeat.router(require))

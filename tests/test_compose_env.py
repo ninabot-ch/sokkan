@@ -15,6 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CODE_DIRS = ("backend", "memory")
 OVERRIDES = ("docker/runner/compose.docker-runner.yml",)
+# code that runs in ANOTHER service of the compose file (its own guard is at the end of this file)
+OTHER_SERVICE = {"backend/shiprouter.py"}
 
 # ---- variables that are deliberately NOT in services.api.environment ------------------
 IMAGE = {  # set by docker/api.Dockerfile (ENV) — checked against the Dockerfile below
@@ -50,7 +52,7 @@ OTHER_RUNTIME = {  # not the compose install: Kubernetes chart, systemd / dev ch
     "SOKKAN_CF_AUD", "SOKKAN_CF_TEAM", "SOKKAN_DEV_USER",   # cf-access mode: our own systemd instance
     "SOKKAN_PROJECT_DIR", "SOKKAN_PYTHON", "SOKKAN_API_PORT", "SOKKAN_RECALL_API_URL",  # fixed in the image
     "SOKKAN_SPAWN_TMUX", "SOKKAN_TTYD", "TMUX_PANE",        # tmux sessions: host installs only
-    "PATH", "DOCKER_HOST",
+    "DOCKER_HOST",
     "CORTHEXIS_ML_SERVICE_URL", "CORTHEXIS_LEGACY_MODEL",   # standalone CortHeXis names of ML_SERVICE_URL / SOKKAN_EMBED_MODEL
     "CORTHEXIS_MEMORY_BACKEND", "CORTHEXIS_EMBED_URL", "CORTHEXIS_EMBED_MODEL_ID",
     "CORTHEXIS_EMBED_MAX_TOKENS", "CORTHEXIS_RERANK_POLICY", "CORTHEXIS_SEARCH_RERANK",
@@ -75,7 +77,7 @@ def env_reads() -> dict[str, set[str]]:
     for d in CODE_DIRS:
         for f in sorted((ROOT / d).rglob("*.py")):
             rel = f.relative_to(ROOT)
-            if "tests" in rel.parts or "__pycache__" in rel.parts:
+            if "tests" in rel.parts or "__pycache__" in rel.parts or rel.as_posix() in OTHER_SERVICE:
                 continue
             src = f.read_text()
             names = set(_READ.findall(src)) | set(_IN.findall(src))
@@ -179,3 +181,18 @@ def test_environment_reference_is_up_to_date():
     doc = (ROOT / "docs" / "ENVIRONMENT.md").read_text()
     missing = sorted(n for n in api_env() if f"`{n}`" not in doc)
     assert not missing, missing
+
+
+def test_router_service_receives_every_variable_shiprouter_reads():
+    """Same guard for the appliance's `router` service (backend/shiprouter.py + llmerrors.py)."""
+    svc = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["router"]
+    env = set(svc["environment"])
+    read = set()
+    for f in ("shiprouter.py", "llmerrors.py"):
+        src = (ROOT / "backend" / f).read_text()
+        read |= set(_READ.findall(src)) | set(re.findall(r"""\be\(\s*["']([A-Z][A-Z0-9_]{2,})["']""", src))
+    assert len(read) >= 15, read
+    assert not sorted(read - env), f"declare in services.router.environment: {sorted(read - env)}"
+    assert not sorted(env - read), f"declared for the router but read nowhere: {sorted(env - read)}"
+    assert svc["profiles"] == ["appliance"] and "ports" not in svc and "volumes" not in svc
+    assert svc["user"] == "1000:1000" and svc["read_only"] is True
