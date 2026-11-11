@@ -199,9 +199,14 @@ def _body(tier: str, payload: dict, c: dict) -> bytes:
 
 def _error(code: str, tier: str, reason: str, detail: str = "") -> Response:
     _stats[f"error:{code}"] += 1
+    # `x-should-retry: false` — the CLI (Anthropic SDK) retries 429 and 5xx by itself, up to ten
+    # times with a growing pause: the person watched a spinner for minutes and never read the
+    # message (seen on the test bench: 150 s without a word on a 429). The router has already
+    # done what can be done (fallback to Deep); what is left is for a person to read and decide.
     return Response(llmerrors.dumps(code, detail=detail), status_code=llmerrors.HTTP_STATUS[code],
                     media_type="application/json",
-                    headers={"x-sokkan-tier": tier, "x-sokkan-reason": reason, "x-sokkan-error": code})
+                    headers={"x-sokkan-tier": tier, "x-sokkan-reason": reason, "x-sokkan-error": code,
+                             "x-should-retry": "false"})
 
 
 def _client(c: dict) -> httpx.AsyncClient:

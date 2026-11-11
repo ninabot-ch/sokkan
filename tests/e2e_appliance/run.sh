@@ -102,7 +102,9 @@ PUBLISHED="$(docker port "$NAME" 2>/dev/null || true)"
 WATCH=$!
 ( cg="/sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' "$NAME").scope"
   while [ -d "$cg" ]; do
-    printf '%s %s %s\n' "$(date +%s)" "$(cat "$cg/memory.current" 2>/dev/null)" "$(sed -n 's/^some avg10=\([0-9.]*\).*/\1/p' /proc/pressure/memory)"
+    # time · memory.current (with page cache) · host pressure · anon + shmem (what processes hold)
+    printf '%s %s %s %s\n' "$(date +%s)" "$(cat "$cg/memory.current" 2>/dev/null)" "$(sed -n 's/^some avg10=\([0-9.]*\).*/\1/p' /proc/pressure/memory)" \
+      "$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' "$cg/memory.stat" 2>/dev/null)"
     sleep 2
   done > "$W/work/mem.tsv" ) &
 SAMPLER=$!
@@ -137,8 +139,8 @@ case "$WHAT" in all|appliance)
 esac
 case "$WHAT" in all|upgrade) phase upgrade ;; esac
 docker inspect "$NAME" >/dev/null 2>&1 && docker exec "$NAME" python3 /harness/e2e_appliance/suite.py report | tee "$W/work/report.txt"
-PEAK="$(awk 'BEGIN{m=0} {if ($2>m) m=$2} END{printf "%d", m/1048576}' "$W/work/mem.tsv" 2>/dev/null || echo '?')"
+PEAK="$(awk 'BEGIN{m=0} {if ($4>m) m=$4} END{printf "%d", m/1048576}' "$W/work/mem.tsv" 2>/dev/null || echo '?')"
 PSI="$(awk 'BEGIN{m=0} {if ($3>m) m=$3} END{print m}' "$W/work/mem.tsv" 2>/dev/null || echo '?')"
-say "machine memory peak: ${PEAK} MiB (cap $MEM) · host pressure peak (some avg10): $PSI"
+say "machine memory peak (processes, without page cache): ${PEAK} MiB (cap $MEM) · host pressure peak (some avg10): $PSI"
 [ -f "$W/work/results.json" ] && cp "$W/work/results.json" "$HERE/results/$(echo "$NEW" | tr '+' '_').json" 2>/dev/null || true
 echo "raw results and logs: $W/work"

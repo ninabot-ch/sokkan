@@ -17,11 +17,12 @@ PASS criteria are the assertions below, written out in README.md.
 """
 from __future__ import annotations
 
-import http.cookiejar
+import http.cookiejar as cookiejar
 import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import threading
@@ -40,6 +41,7 @@ SHIP, DEEP = "http://127.0.0.1:8004", "http://127.0.0.1:8791"
 DEEP_EXT = "http://203.0.113.10:8791"        # the gateway's « public » address (TEST-NET-3 on lo)
 REG = "localhost:5000/sokkan"
 HOSTNAME = "sokkan.e2e.lan"
+HTTPS_BASE = f"https://{HOSTNAME}"
 NEW = (DISTS / "NEW_VERSION").read_text().strip() if (DISTS / "NEW_VERSION").exists() else ""
 OLD = "3.4.6+3ea74f5"
 RESULTS = WORK / "results.jsonl"
@@ -105,10 +107,16 @@ def http(url: str, data: dict | None = None, method: str | None = None, timeout:
 class Person:
     """A browser: cookie jar, optional selected project."""
 
-    def __init__(self, code: str, project: str = "", base: str = BASE):
-        self.code, self.project, self.base = code, project, base
-        self.jar = http.cookiejar.CookieJar()
-        self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+    def __init__(self, code: str, project: str = "", base: str = ""):
+        # the appliance's session cookie is `Secure` (SOKKAN_PUBLIC_URL is https): a browser — and
+        # this client — only sends it over HTTPS, with the box's CA. Plain HTTP is for phase B
+        # (a community install of 3.4.6).
+        self.code, self.project, self.base = code, project, base or HTTPS_BASE
+        self.jar = cookiejar.CookieJar()
+        handlers = [urllib.request.HTTPCookieProcessor(self.jar)]
+        if self.base.startswith("https"):
+            handlers.append(urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(WORK / "ca.crt"))))
+        self.op = urllib.request.build_opener(*handlers)
 
     def call(self, path: str, data: dict | None = None, method: str | None = None, timeout: float = 30):
         h = {"content-type": "application/json"}
@@ -191,9 +199,12 @@ def mem_peak_mb() -> int:
 
 
 def mem_now_mb() -> int:
+    """Memory the machine's processes hold NOW (anonymous + shared memory, MiB) — without the
+    page cache, which fills whatever the cap allows after an image build and says nothing."""
     try:
-        return int(Path("/sys/fs/cgroup/memory.current").read_text()) // (1 << 20)
-    except (OSError, ValueError):
+        st = dict(x.split() for x in Path("/sys/fs/cgroup/memory.stat").read_text().splitlines())
+        return (int(st["anon"]) + int(st.get("shmem", 0))) // (1 << 20)
+    except (OSError, ValueError, KeyError):
         return -1
 
 
@@ -204,6 +215,7 @@ def listeners() -> list[str]:
 
 def start_mocks() -> None:
     sh("ip addr add 203.0.113.10/32 dev lo 2>/dev/null; true")
+    sh(f"grep -q ' {HOSTNAME}$' /etc/hosts || echo '127.0.0.1 {HOSTNAME}' >> /etc/hosts")
     for name, port in (("ship", 8004), ("deep", 8791)):
         if http(f"http://127.0.0.1:{port}/health", timeout=2)[0] != 200:
             subprocess.Popen(["python3", str(HARNESS / "mock_llm.py"), name, str(port)],
@@ -355,7 +367,7 @@ def t1():
     assert owner, "owner code not printed"
     state(owner=owner.group(1), codes=codes, install_s=round(dur))
     host_side()
-    return {"install_s": round(dur), "ram_after_install_mb": mem_now_mb(), "ram_peak_mb": mem_peak_mb(),
+    return {"install_s": round(dur), "ram_after_install_mb": mem_now_mb(),
             "listeners": [x for x in ls if x.split(":")[-1] in ("3009", "443")]}
 
 
@@ -381,7 +393,7 @@ def t2():
     owner = Person(s["owner"])
     assert owner.login() == 200
     me = owner.call("/api/me")[1]
-    assert me["email"] == "admin@pilot.example" and me["role"] == "owner", me
+    assert me["email"] == "admin@pilot.example" and me["instance_role"] == "owner", me
     assert owner.call("/api/instance")[1]["org_name"] == "Pilot E2E"
     llm = owner.call("/api/llm")[1]
     assert llm["configured"] and llm.get("engine") == "appliance" and llm["model"] == "sokkan-ship", llm
@@ -837,9 +849,7 @@ def appliance() -> None:
     t12()
     t14()
     t11()
-    state(phase="appliance-done", peak_mb=mem_peak_mb())
-    record("RAM", "peak memory of the whole machine during T1-T14 (appliance phase)", None if mem_peak_mb() < 0 else True,
-           {"ram_peak_mb": mem_peak_mb()})
+    state(phase="appliance-done")
 
 
 @test("T13", "reboot: everything comes back alone, nobody types a command")
@@ -916,7 +926,7 @@ def old_install(d: Path, ver: str) -> str:
 
 
 def seed_old(tok: str) -> dict:
-    u = Person(tok)
+    u = Person(tok, base=BASE)
     assert u.login() == 200
     assert u.call("/api/board/card", {"title": "Carte posée en 3.4.6", "description": "x"})[0] == 200
     return {"cards": json.dumps(u.call("/api/board")[1], ensure_ascii=False).count("Carte posée en 3.4.6"),
@@ -924,7 +934,7 @@ def seed_old(tok: str) -> dict:
 
 
 def check_kept(tok: str, before: dict) -> None:
-    u = Person(tok)
+    u = Person(tok, base=BASE)
     assert u.login() == 200, "the access token no longer works after the upgrade"
     assert "Carte posée en 3.4.6" in json.dumps(u.call("/api/board")[1], ensure_ascii=False), "board card lost"
     assert len(u.call("/api/audit?limit=1000")[1] or []) >= before["audit"], "journal shorter after the upgrade"
@@ -973,8 +983,8 @@ def upgrade() -> None:
         assert (d / ".sokkan-previous").read_text().strip() == OLD
         assert env_of(d)["SOKKAN_COMMIT"] == NEW.split("+")[1]
         ctx["tree_A"] = tree_of(d)
-        return {"upgrade_s": round(dur), "interruption_s": longest_outage(samples), "ram_peak_mb": mem_peak_mb(),
-                "source_install_s": ctx["old_install_s"]}
+        return {"upgrade_s": round(dur), "interruption_s": longest_outage(samples),
+                "ram_after_upgrade_mb": mem_now_mb(), "source_install_s": ctx["old_install_s"]}
 
     @test("T10", f"rollback {NEW} → {OLD}, then forward again: one command each way")
     def t10():

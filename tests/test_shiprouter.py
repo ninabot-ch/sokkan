@@ -199,6 +199,7 @@ def test_local_model_down_without_fallback_is_a_readable_503(box, lang, needle):
     mp.setenv("SOKKAN_ERROR_LANG", lang)
     r = c.post("/v1/messages", json=msg())
     assert r.status_code == 503 and r.headers["x-sokkan-error"] == "unreachable"
+    assert r.headers["x-should-retry"] == "false"
     e = r.json()
     assert e["type"] == "error" and e["error"]["type"] == "api_error"
     assert needle in e["error"]["message"] and "[sokkan:unreachable]" in e["error"]["message"]
@@ -228,6 +229,8 @@ def test_gateway_refusals_come_back_as_text_a_person_can_read(box, status, code,
     deep.body = b'{"detail":"wallet empty tenant=ten_a769 token=sik_SECRET"}'
     r = c.post("/v1/messages", json=msg(model="sokkan-deep"))
     assert r.status_code == status and r.headers["x-sokkan-error"] == code
+    # the CLI must not retry for minutes behind the person's back (it does on 429 / 5xx)
+    assert r.headers["x-should-retry"] == "false"
     e = r.json()["error"]
     assert e["type"] == etype and fr in e["message"].lower()
     assert "Rien n'est perdu" in e["message"] or code == "auth"
