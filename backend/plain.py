@@ -84,6 +84,13 @@ def title_from_markdown(text: str) -> str:
     return ""
 
 
+def _note_title(body: str) -> str:
+    """The level-1 heading a memory note opens with, « » when it has none."""
+    first = next((ln for ln in (body or "").splitlines() if ln.strip()), "")
+    m = re.match(r"\s{0,3}#\s+(.+?)\s*#*\s*$", first)
+    return re.sub(r"[*_`]", "", m.group(1)).strip()[:90] if m else ""
+
+
 def _short(v, n: int = _DETAIL_MAX):
     if isinstance(v, str):
         return v if len(v) <= n else v[:n] + "…"
@@ -187,7 +194,10 @@ class View:
         if tool in ("mcp__sokkan-memory__memory_get", "mcp__sokkan-memory__memory_links"):
             return {"kind": "read_memory"}
         if tool == "mcp__sokkan-memory__memory_write":
-            return {"kind": "save_memory", "subject": human_title(str(inp.get("name") or ""))}
+            # the note's own title when its text opens with one (« # Procédure de devis »): the
+            # name is a slug, without accents (« Procedure de devis »)
+            return {"kind": "save_memory", "subject": _note_title(str(inp.get("body") or ""))
+                    or human_title(str(inp.get("name") or ""))}
         if tool == "WebSearch":
             return {"kind": "web_search", "subject": str(inp.get("query") or "")[:120]}
         if tool == "WebFetch":

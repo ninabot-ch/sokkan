@@ -174,6 +174,22 @@ def test_human_titles():
     assert plain.title_from_markdown("pas de titre") == ""
 
 
+def test_a_memory_note_is_named_by_its_own_title(tmp_path):
+    """3.6.3: the name of a note is a slug (« procedure-de-devis ») and lost the accents on the
+    card; the note's own first heading says it as the person would."""
+    v = plain.View()
+    tool = "mcp__sokkan-memory__memory_write"
+    c = v.classify(tool, {"name": "procedure-de-devis", "body": "# Procédure de devis\n\nTrois étapes."})
+    assert c == {"kind": "save_memory", "subject": "Procédure de devis"}
+    ap, = v.feed({"type": "permission", "id": "p1", "tool": tool,
+                  "input": {"name": "procedure-de-devis", "body": "\n# Procédure de devis\n\n## Étapes\n"}})
+    assert ap["kind"] == "save_memory" and ap["title"] == "Procédure de devis"
+    # no opening title: the name, as before — a later sub-heading is not the title
+    c = v.classify(tool, {"name": "procedure-de-devis", "body": "Trois étapes.\n\n## Étapes\n"})
+    assert c["subject"] == "Procedure de devis"
+    assert v.classify(tool, {"name": "fournisseur-farine"})["subject"] == "Fournisseur farine"
+
+
 def test_doctext_reads_office_files(tmp_path):
     import doctext
     p = tmp_path / "b.docx"
