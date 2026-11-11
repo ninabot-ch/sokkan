@@ -32,6 +32,7 @@ from pathlib import Path
 
 BRIEF_RX = re.compile(r"<sokkan-brief>.*?</sokkan-brief>\s*", re.S)
 _REMINDER_RX = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.S)
+_ENGINE_ERROR = re.compile(r"\s*(API Error\b|Credit balance is too low|Invalid API key)", re.I)
 _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _DETAIL_MAX = 4000
 DRAFT_MAX = 120_000
@@ -168,6 +169,8 @@ class View:
             return {"kind": "web_search", "subject": str(inp.get("query") or "")[:120]}
         if tool == "WebFetch":
             return {"kind": "web_read", "subject": _host(str(inp.get("url") or ""))}
+        if tool == "ToolSearch":
+            return {"kind": "other"}
         if tool == "Bash":
             return {"kind": "run_command"}
         if tool in ("Task", "Agent"):
@@ -206,7 +209,11 @@ class View:
         if t in ("status", "question", "question_resolved"):
             return [ev]
         if t == "text":
-            return [{"type": "text", "text": ev.get("text") or ""}]
+            text = ev.get("text") or ""
+            if _ENGINE_ERROR.match(text):
+                # the CLI reports an unreachable / failing engine as an assistant sentence
+                return [{"type": "notice", "code": "engine", "detail": _short(text, 1000)}]
+            return [{"type": "text", "text": text}]
         if t == "user_echo":
             return [{"type": "user", "text": ev.get("text") or "",
                      "documents": ev.get("documents") or []}]
@@ -273,7 +280,8 @@ class View:
 def last_line(events: list[dict], limit: int = 140) -> str:
     """The last sentence the agent wrote — the preview under a recent work."""
     for ev in reversed(events or []):
-        if ev.get("type") == "text" and (ev.get("text") or "").strip():
+        if ev.get("type") == "text" and (ev.get("text") or "").strip() \
+                and not _ENGINE_ERROR.match(ev["text"]):
             text = re.sub(r"```.*?```", " ", ev["text"], flags=re.S)
             text = re.sub(r"[#*_`>|]+", " ", text)
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]

@@ -151,6 +151,13 @@ def test_errors_become_coded_notices(tmp_path):
         assert out == [{"type": "notice", "code": code, "detail": msg}]
 
 
+def test_an_engine_failure_is_a_notice_not_a_sentence_of_the_agent(tmp_path):
+    v, _d, _l = _view(tmp_path)
+    msg = "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)"
+    assert v.feed({"type": "text", "text": msg}) == [{"type": "notice", "code": "engine", "detail": msg}]
+    assert plain.last_line([{"type": "text", "text": "Le plan est prêt."}, {"type": "text", "text": msg}]) == "Le plan est prêt."
+
+
 def test_last_line_is_the_last_sentence_without_markup():
     evs = [{"type": "text", "text": "Je lis vos documents."},
            {"type": "tool_use", "tool": "Read"},

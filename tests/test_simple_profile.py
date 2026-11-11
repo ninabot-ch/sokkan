@@ -301,3 +301,11 @@ def test_keep_an_answer_as_a_deliverable(world):
     assert c.post(base, json={"title": "x", "text": "  "}).status_code == 400
     assert world["as"]("dave@x").post(base, json={"title": "x", "text": "y"}).status_code == 403
     assert world["audit"]("deliverable.save")
+
+
+def test_nina_speaks_to_the_simple_profile_in_its_own_words(world):
+    import assistant
+    _simple(world["as"]("bob@x"))
+    guide = assistant._simple_profile_directive("bob@x")
+    assert "PROFIL SIMPLE" in guide and "Joindre des documents" in guide and "DevOps" in guide.split("pas une")[1][:40]
+    assert assistant._simple_profile_directive("dave@x") == ""        # technical profile: Nina unchanged
