@@ -1,5 +1,5 @@
 "use client";
-// Simple profile — the shell: a short drawer (Home / My work / Documents / My agent crew +
+// Simple profile — the shell: a short drawer (Home / My work / Documents / Memory / My agent crew +
 // recent works with the last sentence + today's usage), the current view, Nina and Settings.
 // Structure borrowed from Nokker (drawer + thread + ONE composer); the brand is SOKKAN's.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { useMe } from "@/lib/me";
 import { currentProject } from "@/lib/project";
 import BannerSlot from "./BannerSlot";
 import IngestReview from "./IngestReview";
+import Memory from "./Memory";
 import { openStudyConsent } from "./StudyConsent";
 import { ingestStatus } from "@/lib/simple/ingest";
 import Composer from "./Composer";
@@ -19,7 +20,7 @@ import { Documents, Team, Works } from "./Pages";
 import Settings from "./Settings";
 import Thread from "./Thread";
 
-type View = { name: "home" | "works" | "documents" | "team" | "review" } | { name: "work"; sid: string };
+type View = { name: "home" | "works" | "documents" | "memory" | "team" | "review" } | { name: "work"; sid: string };
 
 function readView(): View {
   if (typeof window === "undefined") return { name: "home" };
@@ -27,7 +28,7 @@ function readView(): View {
   const w = q.get("w");
   if (w && /^[0-9a-f]{8,64}$/.test(w)) return { name: "work", sid: w };
   const v = q.get("v");
-  return v === "works" || v === "documents" || v === "team" || v === "review" ? { name: v } : { name: "home" };
+  return v === "works" || v === "documents" || v === "memory" || v === "team" || v === "review" ? { name: v } : { name: "home" };
 }
 
 function hrefOf(v: View): string {
@@ -84,7 +85,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   useEffect(() => {
-    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", team: "nav.team", review: "nav.review" } as const;
+    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", memory: "nav.memory", team: "nav.team", review: "nav.review" } as const;
     const work = view.name === "work" ? home?.recents.find((r) => r.sid === view.sid)?.title : "";
     if (view.name === "work" && !work) return;   // named once the work is known, never « My work » meanwhile
     document.title = `${view.name === "work" ? work : t(titles[view.name])} — SOKKAN`;
@@ -96,9 +97,9 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  const nav: { id: "home" | "works" | "documents" | "team" | "review"; icon: IconName; count?: number }[] = [
+  const nav: { id: "home" | "works" | "documents" | "memory" | "team" | "review"; icon: IconName; count?: number }[] = [
     { id: "home", icon: "home" }, { id: "works", icon: "works", count: home?.works_total || undefined },
-    { id: "documents", icon: "page" }, { id: "team", icon: "crew" },
+    { id: "documents", icon: "page" }, { id: "memory", icon: "memory" }, { id: "team", icon: "crew" },
     ...(review !== null ? [{ id: "review" as const, icon: "seal" as const, count: review || undefined }] : []),
   ];
   const pct = home?.usage.pct;
@@ -167,6 +168,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           onStarted={(sid) => { loadHome(); go({ name: "work", sid }); }} />}
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
+        {view.name === "memory" && <Memory />}
         {view.name === "team" && <Team enabled={!!feats.agents} />}
         {view.name === "review" && <IngestReview onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}

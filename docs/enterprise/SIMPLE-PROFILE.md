@@ -44,10 +44,16 @@ waits for the person.
    the SHA-256 of exactly what was validated go to the journal; a later change shows « modified since
    your validation ».
 
-Drawer: Accueil, Mes travaux, Documents, Mon équipe d'agents, the recent works with the agent's last
+Drawer: Accueil, Mes travaux, Documents, Mémoire, Mon équipe d'agents, the recent works with the agent's last
 sentence, today's usage gauge (shown when a daily ceiling exists: gateway quota, project budget or
 instance budget), Nina (« your guide to SOKKAN » — when the `assistant` feature is on), Réglages
 (language, light / night / as the device, profile).
+
+**Mémoire** (3.6.3) — what SOKKAN retains for the project, to read: the notes the person may see (the
+project's and the shared ones, up to their clearance), each with its own title, its description and
+the date it was last updated; a note opens as text. Nothing is written from this page. It reads the two
+routes of the cockpit's Memory tab (`GET /api/memory/notes`, `GET /api/memory/note/{name}`): the same
+rights, and a note whose text is shown is journaled as read, as it is from the cockpit.
 
 French and English: two dictionaries (`frontend/lib/simple/dict.ts`), the browser's language unless the
 person chose; `<html lang>` follows. The technical profile stays in English.

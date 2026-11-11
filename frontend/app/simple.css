@@ -463,6 +463,13 @@ html[data-sk-theme] body {
   background: var(--sk-surface); color: var(--sk-text-strong); padding: 0 var(--sk-s3); }
 .sk .sk-input:focus { outline: 2px solid var(--sk-sea); outline-offset: 0; border-color: var(--sk-sea); }
 
+/* memory (components/simple/Memory.tsx) */
+.sk-plain-list { list-style: none; margin: 0; padding: 0; }
+.sk-mem-tools { gap: var(--sk-s4); }
+.sk-mem-search { max-width: 420px; }
+.sk-mem-excerpt { color: var(--sk-text-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sk-mem-note { display: flex; flex-direction: column; gap: var(--sk-s3); padding: var(--sk-s5); }
+
 /* sign-in (components/simple/Login.tsx) */
 .sk-login { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: var(--sk-s5); }
 .sk-login-card { width: min(400px, 100%); display: flex; flex-direction: column; gap: var(--sk-s5); background: var(--sk-surface);
