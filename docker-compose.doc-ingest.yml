@@ -1,0 +1,14 @@
+# Feature `doc_ingest` — override for the api service (docs/enterprise/DOC-INGEST.md):
+#   docker compose -f docker-compose.yml -f docker-compose.doc-ingest.yml up -d --build
+# * builds the api image WITH the extractors and rclone;
+# * mounts the documents READ-ONLY (`:ro` here AND `ro` in the host's mount options);
+# * the allow-list lives in /data/doc-ingest/sources.json (volume sokkan-data).
+services:
+  api:
+    build:
+      args:
+        SOKKAN_DOC_INGEST: "1"
+    environment:
+      SOKKAN_FEATURE_DOC_INGEST: "1"
+    volumes:
+      - ${SOKKAN_DOC_INGEST_MOUNT:?set SOKKAN_DOC_INGEST_MOUNT to the host directory of the documents}:/sources/documents:ro

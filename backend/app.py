@@ -269,6 +269,7 @@ async def _lifespan(_app: FastAPI):
                   if features.enabled("teams") else None)
     yield
     alerting_scheduler.stop()
+    docingest_scheduler.stop_all()   # running passes end their document, stay resumable
     helm_stop.set()
     for t in (helm_task, teams_task):
         if t:
@@ -3235,6 +3236,11 @@ app.include_router(uiroutes.router)
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402
 
 app.include_router(alerting_api.router)
+
+# --- doc_ingest : the memory agent that reads documents (backend/docingest/, /api/doc-ingest/*)
+from docingest import api as docingest_api, scheduler as docingest_scheduler  # noqa: E402
+
+app.include_router(docingest_api.router)
 
 
 def _alert_diag_session(rule: dict, alert: dict) -> str:

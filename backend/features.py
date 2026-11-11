@@ -145,6 +145,19 @@ def _study_check() -> str | None:
     return None
 
 
+def _doc_ingest_check() -> str | None:
+    from docingest import llmclient
+    why = llmclient.ready()
+    if why:
+        return f"no pass can run: {why}"
+    from docingest import config as _c
+    try:
+        n = len(_c.load())
+    except _c.ConfigError as e:
+        return f"sources not loaded: {e}"
+    return None if n else f"no source declared yet ({_c.config_path()})"
+
+
 def _gitlab_check() -> str | None:
     if not (os.environ.get("SOKKAN_GITLAB_CLIENT_ID") or "").strip():
         return "no GitLab OAuth application (SOKKAN_GITLAB_CLIENT_ID): nobody can link an account"
@@ -482,6 +495,29 @@ REGISTRY: tuple[Feature, ...] = (
                     "SOKKAN_TEAMS_APP_PASSWORD_FILE", "SOKKAN_TEAMS_TENANT_ID",
                     "SOKKAN_TEAMS_PROACTIVE_S", "SOKKAN_TEAMS_SERVICE_URL"),
             doc="docs/enterprise/TEAMS.md"),
+    Feature("doc_ingest", "Document ingestion (memory agent)",
+            "A memory agent reads the organisation's documents — shared folders mounted "
+            "read-only, SharePoint / OneDrive / Google Drive mirrored one way by rclone — from "
+            "an allow-list declared on the host, and turns what is worth keeping into typed "
+            "CortHeXis notes (sourced reference notes, decisions, tags, links, a classification "
+            "never below the source folder's). The documents are read by a LOCAL model only; "
+            "the notes wait in quarantine by batch (sample, statistics, approve / reject, trust "
+            "per source) and every decision is journaled. Nightly incremental pass by the "
+            "agents scheduler; resumable, with a token ceiling per pass.",
+            status="experimental", defaults=_both(False), requires=("agents", "memory_quarantine"),
+            vars=_t("doc_ingest"),
+            config=("SOKKAN_DOC_INGEST_LLM_URL", "SOKKAN_DOC_INGEST_LLM_MODEL",
+                    "SOKKAN_DOC_INGEST_LLM_KEY", "SOKKAN_DOC_INGEST_ALLOW_REMOTE_LLM",
+                    "SOKKAN_DOC_INGEST_DIR", "SOKKAN_DOC_INGEST_CONFIG",
+                    "SOKKAN_DOC_INGEST_RCLONE", "SOKKAN_DOC_INGEST_RCLONE_CONFIG",
+                    "SOKKAN_DOC_INGEST_DOCLING", "SOKKAN_DOC_INGEST_PYTHON",
+                    "SOKKAN_DOC_INGEST_CONCURRENCY", "SOKKAN_DOC_INGEST_MAX_FILE_MB",
+                    "SOKKAN_DOC_INGEST_MAX_DOC_CHARS", "SOKKAN_DOC_INGEST_EXTRACT_TIMEOUT_S",
+                    "SOKKAN_DOC_INGEST_EXTRACT_MEM_MB", "SOKKAN_DOC_INGEST_MAX_TOKENS_PER_PASS",
+                    "SOKKAN_DOC_INGEST_MAX_DOCS_PER_PASS",
+                    "SOKKAN_DOC_INGEST_MAX_MINUTES_PER_PASS",
+                    "SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE", "SOKKAN_DOC_INGEST_AUTO_RESUME"),
+            check=_doc_ingest_check, doc="docs/enterprise/DOC-INGEST.md"),
     Feature("connect_ai", "Connect your AI",
             "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
             "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "
