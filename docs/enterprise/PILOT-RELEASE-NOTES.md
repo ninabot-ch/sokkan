@@ -190,19 +190,21 @@ Technical:
 
 ## 7. Cutting the release
 
-Proposed: **3.6.0**. Names in the series so far: « Captains » (3.2), « Helm » (3.3), « Bridge »
-(3.4), « Lookout » (3.5). Suggestions for this one, to choose from: « Landfall » (the product
-arrives at a client's site), « Anchor » (the box it runs on — but it is also the hardware's
-name), « Pilot » (the study, and the person who brings a ship into port).
+Version: **3.6.0 « Icebreaker »** (name chosen by Nick, 11.11.2026 — the ship that opens the way for
+the others). Series so far: « Captains » (3.2), « Helm » (3.3), « Bridge » (3.4), « Lookout » (3.5).
+
+Image registry for `release-artifacts.sh --images`: the OVH managed registry (Harbor, plan SMALL, 200 GB)
+that already exists in the `nokker-beta` Public Cloud project, in a dedicated Harbor project `sokkan`.
+Exoscale has no native registry (only a third-party Marketplace listing, billed on top of the ISV credit).
 
 ```sh
 # 1. in /root/sokkan, once the check-list is done
 git merge --no-ff pilot-integration
-# 2. VERSION → 3.6.0 ; CHANGELOG: « ## Unreleased — 3.6 (…) » → « ## 3.6.0 — <date> — "<name>" »
+# 2. VERSION → 3.6.0 ; CHANGELOG: « ## Unreleased — 3.6 (…) » → « ## 3.6.0 — <date> — "Icebreaker" »
 #    (one section: the areas stay as sub-headings) ; deploy/helm Chart appVersion → 3.6.0
 # 3. from ninabot-pro — a minor needs the two banners
 infra/sokkan/cut-release.sh 3.6.0 --dry-run
-infra/sokkan/cut-release.sh 3.6.0 --pastille-fr "3.6 « <nom> » — …" --pastille-en "3.6 “<name>” — …"
+infra/sokkan/cut-release.sh 3.6.0 --pastille-fr "3.6 « Icebreaker » — …" --pastille-en "3.6 “Icebreaker” — …"
 # 4. the appliance artefacts (signed tarball + images), with the signing key
 scripts/release-artifacts.sh <dist>/sokkan-3.6.0+<commit>.tar.gz --images <registry>
 ```
