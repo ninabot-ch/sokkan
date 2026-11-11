@@ -9,7 +9,7 @@ Un accès distant temporaire que Ninabot Sàrl peut utiliser pour dépanner votr
 - **Fermé par défaut.** Le service Tailscale est arrêté tant que vous ne l'ouvrez pas.
 - **Vous seul l'ouvrez**, pour une durée bornée, depuis le cockpit (Setup) ou en ligne de commande sur le boîtier :
   `sudo /opt/sokkan/scripts/appliance/support-tunnel.sh open 2` (2 heures).
-- **Durée maximale : 8 heures par ouverture** (valeur par défaut, réductible via `SOKKAN_SUPPORT_MAX_HOURS`, jamais augmentée par nous à distance). Une ouverture est toujours bornée par une échéance.
+- **Durée maximale : 8 heures par ouverture** (valeur par défaut du logiciel ; le profil appliance livré la fixe à 4 heures ; réductible via `SOKKAN_SUPPORT_MAX_HOURS`, jamais augmentée par nous à distance). Une ouverture est toujours bornée par une échéance.
 - **Fermeture automatique** à l'échéance (contrôle chaque minute), et à chaque redémarrage du boîtier. Si le tunnel est trouvé actif alors qu'il devrait être fermé, il est coupé et l'événement est enregistré.
 
 ## Journal

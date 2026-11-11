@@ -139,6 +139,15 @@ def test_memory_setup_keeps_a_compose_file_of_the_user(tmp_path):
     assert _env(d)["COMPOSE_FILE"] == "docker-compose.yml:my-override.yml"
 
 
+def test_memory_setup_keeps_env_private(tmp_path):
+    """3.6, found by the appliance e2e: `mv .env.tmp .env` made a 0600 .env world-readable."""
+    d, env = _setup_dir(tmp_path, "gpu", "sycl", "SOKKAN_LOCAL_TOKEN=secret\n")
+    (d / ".env").chmod(0o600)
+    _run(d, env)
+    _run(d, env, "--profile", "leger")
+    assert oct((d / ".env").stat().st_mode & 0o777) == "0o600"
+
+
 def test_memory_setup_cpu_writes_no_compose_file(tmp_path):
     d, env = _setup_dir(tmp_path, "leger", "cpu", "")
     _run(d, env)

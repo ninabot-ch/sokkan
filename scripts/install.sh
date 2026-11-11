@@ -219,6 +219,7 @@ if [ "$PROFILE" = community ]; then
   fi
   grep -q 'SOKKAN_DB_PASSWORD' .env.example 2>/dev/null && set_env SOKKAN_DB_PASSWORD "$(rand_hex 18)"
   memory_setup
+  chmod 600 .env
   COMPOSE_CMD="docker compose"; [ "$DC" = "sudo docker" ] && COMPOSE_CMD="sudo docker compose"
   say ""
   say "✔ SOKKAN $VER installed in $DIR"
@@ -310,6 +311,7 @@ fi
 # licence answer from the client. The template's values are the target; the machine decides.
 grep -v -e '^SOKKAN_MEMORY_PROFILE=' -e '^SOKKAN_EMBED_ACCEL=' -e '^SOKKAN_ACCEPT_GEMMA_TERMS=' .env > .env.tmp; cat .env.tmp > .env; rm -f .env.tmp
 memory_setup
+chmod 600 .env
 
 # start through the release's own upgrade path: pull + verify the images, start, wait until
 # the instance answers as $VER

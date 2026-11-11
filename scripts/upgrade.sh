@@ -170,6 +170,7 @@ main() {
   rm -rf "$NEW"
   echo "→ code of ${VER:-the release} in place (.env, workspace, override, data volumes kept)"
 
+  chmod 600 .env 2>/dev/null || true      # it holds secrets (tokens, database password)
   set_env() {   # set_env KEY VALUE — replace or append, keep everything else of .env
     grep -v "^$1=" .env > .env.tmp || true
     printf '%s=%s\n' "$1" "$2" >> .env.tmp && cat .env.tmp > .env && rm -f .env.tmp

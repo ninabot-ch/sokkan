@@ -18,6 +18,9 @@
 # COMPOSE_FILE=docker-compose.yml:docker/embed/compose.<accel>.yml (the override a plain
 # `docker compose` then reads). Everything else is kept.
 set -eu
+# .env holds secrets: the copies this script writes (then moves over it) are never readable
+# by others — a `mv .env.tmp .env` used to turn a 0600 file into a 0644 one
+umask 077
 
 cd "$(dirname "$0")/.." || exit 1
 [ -f .env ] || { echo "memory-setup: .env missing — cp .env.example .env first" >&2; exit 1; }
