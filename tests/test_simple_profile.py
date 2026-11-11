@@ -179,6 +179,28 @@ def test_follow_up_message_announces_new_documents_inside_the_brief(world):
     assert world["as"]("bob@x").post(f"/api/simple/sessions/{DEFAULT_SID}/message", json={"text": " "}).status_code == 400
 
 
+@pytest.mark.parametrize("lang", ["fr", ""])
+def test_a_follow_up_that_begins_with_a_slash_is_not_a_cli_command(lang):
+    """Seen on the journey against the real gateway (11.11.2026): « /deep Propose-moi… » typed as a
+    later message reached the CLI as-is, which answered « Unknown command: /deep » to a person who
+    is not a developer, and nothing went to a model. What the CLI receives must not begin with
+    « / »; the person's words stay whole (the router looks for the keyword in them) and the
+    plain thread shows them without the brief."""
+    import plain
+    import shiprouter
+    import simple
+    sent = simple.follow_up("  /deep Propose-moi une version plus courte.", [], lang)
+    assert not sent.lstrip().startswith("/")
+    assert sent.startswith("<sokkan-brief>") and sent.endswith("/deep Propose-moi une version plus courte.")
+    assert plain.strip_brief(sent) == "/deep Propose-moi une version plus courte."
+    payload = {"messages": [{"role": "user", "content": sent}]}
+    cfg = {**shiprouter.cfg(), "deep_url": "https://gateway.example", "deep_token": "t", "escalation": True}
+    assert shiprouter.decide(payload, {}, cfg) == ("deep", "keyword")
+    # any other message is sent as before: the person's words first
+    assert simple.follow_up("Plus court. /deep", [], lang).startswith("Plus court. /deep")
+    assert simple.follow_up("Plus court.", [], "") == "Plus court."
+
+
 # ---- the approval mode -----------------------------------------------------------------------
 def test_approval_mode_cannot_be_changed_from_the_simple_profile(world):
     import agentchat

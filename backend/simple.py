@@ -179,10 +179,15 @@ def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     """A later message; documents attached with it are announced inside a brief block."""
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
-        if lang in LANG_NAME:
-            return (text.strip() + f"\n\n<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday "
-                    "words; update the saved document when a change is asked.</sokkan-brief>")
-        return text.strip()
+        note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday words; update the saved "
+                "document when a change is asked.</sokkan-brief>") if lang in LANG_NAME else ""
+        if text.lstrip().startswith("/"):
+            # a message that BEGINS with « / » is a slash command for the CLI: the person read
+            # « Unknown command: /deep » (in English, nothing sent to a model) when they put the
+            # escalation keyword first — seen on the real gateway journey, 11.11.2026. With the
+            # brief first it is a plain message; the router still finds the keyword in it.
+            return (note or "<sokkan-brief>The person wrote:</sokkan-brief>") + "\n\n" + text.strip()
+        return text.strip() + ("\n\n" + note if note else "")
     return ("<sokkan-brief>\nThe person just attached more documents. Read them before "
             "answering:\n" + "\n".join("  " + ln for ln in doc_lines)
             + "\n</sokkan-brief>\n\n" + text.strip())
