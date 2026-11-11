@@ -244,7 +244,7 @@ Every variable `docker-compose.yml` passes to the `api` container (318). Set the
 | `SOKKAN_RUNNER_SECRET` | — | backend/runner/common.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
 | `SOKKAN_RUNNER_INSTANCE` | — | backend/runner/common.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
 | `SOKKAN_RUNNER_RELAY_BIND` | — | backend/runner/relay.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
-| `SOKKAN_SESSION_CLI` | — | backend/runner/__init__.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
+| `SOKKAN_SESSION_CLI` | — | backend/harness/legacy.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
 | `SOKKAN_SESSION_NO_PROXY` | — | backend/runner/common.py | OpenBao fine settings, Teams service hosts, managed provisioning, session runners |
 | `CORTHEXIS_ACCEPT_GEMMA_TERMS` | — | memory/core/models.py | CortHeXis engine tunables (memory/core: indexer, search, recall, review, bench). Empty = the engine's default; meaning of each: docs/ENVIRONMENT.md |
 | `CORTHEXIS_AUTO_ACTIVATE` | — | memory/core/indexer.py | CortHeXis engine tunables (memory/core: indexer, search, recall, review, bench). Empty = the engine's default; meaning of each: docs/ENVIRONMENT.md |

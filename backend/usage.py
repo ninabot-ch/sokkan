@@ -34,6 +34,15 @@ a Claude subscription). What changed, and why:
   billed per token there).
 
 Cache sqlite per file (mtime + size): the transcripts are re-parsed only when they change.
+
+4.0 lot 0 — a second SOURCE, next to the transcripts: `events`. An engine that writes no
+transcript says what it consumed through the session contract (the `usage` event of
+`harness.contract`); the session records each one in the table `usage_events`
+(`record_event`), deduplicated by message like a transcript is. Today's engine writes
+transcripts AND emits the events: Operate › Costs, the budgets and every figure above
+still read the TRANSCRIPTS, unchanged; the events are recorded beside them and
+`session_totals(sid, source=…)` gives the same session by either source (tests prove the
+two agree on a same run). Costs switches to the events, engine by engine, in a later lot.
 """
 from __future__ import annotations
 
@@ -58,6 +67,7 @@ DB = Path(os.environ.get("SOKKAN_USAGE_DB", os.path.join(os.environ.get("SOKKAN_
 TZ = ZoneInfo(os.environ.get("SOKKAN_TZ") or "Europe/Zurich")
 
 SCHEMA = 3   # 3.2.3: per (file, day, model) rows, deduplicated messages, cost split by kind
+SOURCES = ("transcripts", "events")
 BASES = ("api", "subscription", "gateway", "local", "custom")
 BASIS_LABEL = {
     "api": "Claude API (API key)",
@@ -310,6 +320,138 @@ def _refresh() -> None:
         con.execute("DELETE FROM rows WHERE path=?", (gone,))
     con.commit()
     con.close()
+
+
+# --------------------------------------------------------------------------- events source
+
+_EVENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,              -- the SOKKAN session
+    message_id TEXT NOT NULL DEFAULT '',   -- one model call; '' = the engine gave none
+    turn_id TEXT NOT NULL DEFAULT '',
+    harness TEXT NOT NULL DEFAULT '',      -- the engine that reported it
+    engine_session TEXT NOT NULL DEFAULT '',
+    project TEXT NOT NULL DEFAULT 'default',
+    model TEXT NOT NULL DEFAULT '',
+    basis TEXT NOT NULL DEFAULT '',        -- billing basis when the ENGINE knows it
+    ts REAL NOT NULL,
+    in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cw_5m INTEGER NOT NULL DEFAULT 0, cw_1h INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usage_events_msg
+    ON usage_events(session_id, message_id) WHERE message_id != '';
+CREATE INDEX IF NOT EXISTS ix_usage_events_session ON usage_events(session_id);
+"""
+
+
+def events_db() -> Path:
+    """The ledger of `usage` events. A file of its own, next to usage.db: usage.db is a
+    cache (dropped and re-parsed from the transcripts when its schema changes, locked while
+    it refreshes); what an engine reported exists nowhere else."""
+    return DB.with_name("usage_events.db")
+
+
+def _events_con() -> sqlite3.Connection:
+    path = events_db()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path, timeout=2)
+    con.row_factory = sqlite3.Row
+    con.executescript(_EVENTS_SCHEMA)
+    return con
+
+
+def record_event(*, session_id: str, message_id: str | None, model: str | None,
+                 in_tokens: int = 0, out_tokens: int = 0, cache_read: int = 0,
+                 cache_write: int = 0, cache_write_long: int = 0, turn_id: str | None = None,
+                 harness: str = "", engine_session: str | None = None,
+                 project: str | None = None, basis: str | None = None,
+                 ts: float | None = None) -> None:
+    """One `usage` event of a session (scope `message`). An event that repeats a
+    `message_id` SUPERSEDES the earlier one — the largest of each field is kept, as for the
+    lines of a transcript; an event without id is counted as it comes. The placeholder an
+    engine emits for a failed call (`<synthetic>`) is not a billed call: skipped."""
+    if model == "<synthetic>":
+        return
+    c1h = max(0, int(cache_write_long or 0))
+    c5m = max(0, int(cache_write or 0) - c1h)
+    row = (session_id, message_id or "", turn_id or "", harness or "", engine_session or "",
+           project or "default", model or "", basis or "",
+           ts if ts is not None else datetime.now().timestamp(),
+           int(in_tokens or 0), int(out_tokens or 0), int(cache_read or 0), c5m, c1h)
+    con = _events_con()
+    try:
+        prev = con.execute("SELECT * FROM usage_events WHERE session_id=? AND message_id=?"
+                           " AND message_id != ''", (session_id, message_id or "")).fetchone()
+        if prev is None:
+            con.execute(
+                "INSERT INTO usage_events(session_id, message_id, turn_id, harness,"
+                " engine_session, project, model, basis, ts, in_tokens, out_tokens,"
+                " cache_read, cw_5m, cw_1h) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+        else:
+            con.execute(
+                "UPDATE usage_events SET in_tokens=?, out_tokens=?, cache_read=?, cw_5m=?,"
+                " cw_1h=?, ts=?, model=? WHERE id=?",
+                (max(prev["in_tokens"], row[9]), max(prev["out_tokens"], row[10]),
+                 max(prev["cache_read"], row[11]), max(prev["cw_5m"], row[12]),
+                 max(prev["cw_1h"], row[13]), min(prev["ts"], row[8]),
+                 prev["model"] or row[6], prev["id"]))
+        con.commit()
+    finally:
+        con.close()
+
+
+def event_messages(session_id: str) -> list[dict]:
+    """The recorded events of a session, in the shape `parse_transcript` gives its
+    messages ({model, ts, usage}) — so both sources are priced by the same code."""
+    con = _events_con()
+    try:
+        rows = con.execute("SELECT * FROM usage_events WHERE session_id=? ORDER BY id",
+                           (session_id,)).fetchall()
+    finally:
+        con.close()
+    return [{"model": r["model"], "ts": r["ts"], "usage": {
+        "input_tokens": r["in_tokens"], "output_tokens": r["out_tokens"],
+        "cache_read_input_tokens": r["cache_read"],
+        "cache_creation_input_tokens": r["cw_5m"] + r["cw_1h"],
+        "cache_creation": {"ephemeral_5m_input_tokens": r["cw_5m"],
+                           "ephemeral_1h_input_tokens": r["cw_1h"]}}} for r in rows]
+
+
+def session_totals(session_id: str, source: str = "transcripts") -> dict:
+    """Tokens and API-equivalent cost of ONE SOKKAN session, by one source:
+    `transcripts` (its transcript and those of its sub-agents) or `events` (what its engine
+    reported). Same aggregation, same price table."""
+    if source not in SOURCES:
+        raise ValueError(f"unknown usage source {source!r}")
+    if source == "events":
+        tot, _rows = _aggregate({"messages": event_messages(session_id)})
+    else:
+        import board
+        keys = {session_id}
+        try:
+            csid = board.get_claude_session_id(session_id)
+        except Exception:  # noqa: BLE001
+            csid = ""
+        if csid:
+            keys.add(csid)
+        tot = {"turns": 0, "in": 0, "out": 0, "cr": 0, "cw": 0, "cost": 0.0, "unpriced": 0,
+               "models": set()}
+        for d, _proj in transcript_dirs():
+            for k in keys:
+                files = [d / f"{k}.jsonl", *sorted((d / k / "subagents").glob("*.jsonl"))]
+                for p in files:
+                    if not p.is_file():
+                        continue
+                    t, _rows = _aggregate(parse_transcript(p))
+                    for f in ("turns", "in", "out", "cr", "cw", "cost", "unpriced"):
+                        tot[f] += t[f]
+                    tot["models"] |= t["models"]
+    return {"source": source, "turns": tot["turns"], "in_tokens": tot["in"],
+            "out_tokens": tot["out"], "cache_read": tot["cr"], "cache_write": tot["cw"],
+            "cost": _r(tot["cost"]), "unpriced_turns": tot["unpriced"],
+            "models": sorted(tot["models"])}
 
 
 # --------------------------------------------------------------------------- billing basis

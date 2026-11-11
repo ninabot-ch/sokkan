@@ -195,7 +195,8 @@ def test_sokkan_bridge_and_hooks(indexed, monkeypatch, tmp_path):
                                 session_id="sokkan-1")
     assert "packaging-supplier" in out["hookSpecificOutput"]["additionalContext"]
     assert store.recalled_notes("sokkan-1")                   # keyed on the SOKKAN id
-    hooks = memrecall.sdk_hooks("sokkan-1")
+    from harness import legacy
+    hooks = legacy.recall_hooks(memrecall.provider("sokkan-1"))
     assert set(hooks) == {"UserPromptSubmit", "PreToolUse"}
     assert hooks["PreToolUse"][0].matcher == "Task|Agent"
 

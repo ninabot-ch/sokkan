@@ -5,10 +5,9 @@ directly on AgentSession (futures + resolve_permission), the SDK client untouche
 """
 import asyncio
 
-from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
-
 import agentchat
 import board
+from harness_helpers import ask
 
 
 # ---- spawn pre-seeds the memory ritual --------------------------------------
@@ -42,7 +41,7 @@ def _run(coro):
 
 
 async def _ask_and_resolve(sess, decision: dict, tool="Bash", inp=None):
-    task = asyncio.ensure_future(sess._can_use_tool(tool, inp or {"command": "rm -rf x"}, None))
+    task = asyncio.ensure_future(ask(sess, tool, inp or {"command": "rm -rf x"}))
     for _ in range(100):  # wait for the permission future to be armed
         await asyncio.sleep(0)
         if sess._perms:
@@ -58,15 +57,15 @@ async def _ask_and_resolve(sess, decision: dict, tool="Bash", inp=None):
 def test_mutating_tool_waits_for_allow():
     sess = _session()
     res = _run(_ask_and_resolve(sess, {"decision": "allow"}))
-    assert isinstance(res, PermissionResultAllow)
-    assert res.updated_input == {"command": "rm -rf x"}
+    assert res.allowed
+    assert res.input == {"command": "rm -rf x"}
     assert not sess._perms  # future cleaned up
 
 
 def test_mutating_tool_deny_carries_message():
     sess = _session()
     res = _run(_ask_and_resolve(sess, {"decision": "deny", "message": "not on prod"}))
-    assert isinstance(res, PermissionResultDeny)
+    assert res.denied
     assert res.message == "not on prod"
 
 
@@ -75,12 +74,12 @@ def test_accept_edits_auto_allows_edits_but_not_bash():
 
     async def flow():
         sess.mode = "acceptEdits"
-        allowed = await sess._can_use_tool("Edit", {"file_path": "/x"}, None)
-        assert isinstance(allowed, PermissionResultAllow)
+        allowed = await ask(sess, "Edit", {"file_path": "/x"})
+        assert allowed.allowed
         # Bash still goes through the human gate
         return await _ask_and_resolve(sess, {"decision": "allow"})
 
-    assert isinstance(_run(flow()), PermissionResultAllow)
+    assert _run(flow()).allowed
 
 
 def test_bypass_mode_auto_allows():
@@ -88,9 +87,9 @@ def test_bypass_mode_auto_allows():
 
     async def flow():
         sess.mode = "bypassPermissions"
-        return await sess._can_use_tool("Bash", {"command": "ls"}, None)
+        return await ask(sess, "Bash", {"command": "ls"})
 
-    assert isinstance(_run(flow()), PermissionResultAllow)
+    assert _run(flow()).allowed
 
 
 def test_resolving_unknown_permission_is_noop():

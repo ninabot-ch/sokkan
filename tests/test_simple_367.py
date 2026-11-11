@@ -9,6 +9,7 @@ import plain
 import pytest
 import simple
 import uiprefs
+from harness_helpers import ask, feed
 
 
 def _view(tmp_path):
@@ -112,6 +113,7 @@ def _session(monkeypatch, tmp_path):
     s = agentchat.AgentSession.__new__(agentchat.AgentSession)
     s.sid, s.user, s.mode, s.policy, s.sandboxed, s.cwd = "e" * 32, "a@x", "default", None, None, str(tmp_path)
     s._perms, s._questions, s.redact_values, s._turn_model = {}, {}, [], ""
+    s._decided_by = {}              # 4.0: who decided, echoed by the engine (agentchat.gate)
     s._simple_work = True
     s._emit = lambda ev: s.events.append(ev)
     s.events = []
@@ -134,15 +136,15 @@ def test_a_document_approved_in_this_turn_is_not_saved_again_on_the_agent_s_own(
             while not s._perms:
                 await asyncio.sleep(0)
             s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
-        first = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# Quiz"}, None))
+        first = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# Quiz"}))
         await approve_first()
         r1 = await first
-        r2 = await s._can_use_tool("Write", {"file_path": path, "content": "# Quiz v2"}, None)
+        r2 = await ask(s, "Write", {"file_path": path, "content": "# Quiz v2"})
         return r1, r2
 
     r1, r2 = asyncio.run(turn())
-    assert type(r1).__name__ == "PermissionResultAllow"
-    assert type(r2).__name__ == "PermissionResultDeny" and "already approved this document" in r2.message
+    assert r1.allowed
+    assert r2.denied and "already approved this document" in r2.message
     # a single card was asked; the second save never reached the person
     assert [e["type"] for e in s.events].count("permission") == 1
     # the event of the decision says who decided what (a replayed thread keeps « Authorised »)
@@ -156,12 +158,12 @@ def test_a_refused_save_does_not_close_the_document(monkeypatch, tmp_path):
     path = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
 
     async def turn():
-        fut = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# A"}, None))
+        fut = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# A"}))
         while not s._perms:
             await asyncio.sleep(0)
         s.resolve_permission(next(iter(s._perms)), {"decision": "deny"})
         await fut
-        fut2 = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# B"}, None))
+        fut2 = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# B"}))
         while not s._perms:
             await asyncio.sleep(0)
         return fut2
@@ -170,7 +172,7 @@ def test_a_refused_save_does_not_close_the_document(monkeypatch, tmp_path):
         fut2 = await turn()
         s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
         return await fut2
-    assert type(asyncio.run(main())).__name__ == "PermissionResultAllow"
+    assert asyncio.run(main()).allowed
 
 
 # ---- 8. the project a person last worked in --------------------------------------------------
@@ -195,9 +197,9 @@ def test_a_loaded_skill_s_page_is_not_the_agent_speaking(tmp_path, monkeypatch):
     import agentchat
     from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, UserMessage
     s = agentchat.AgentSession("f" * 32)
-    s._translate(UserMessage(content=[TextBlock(text="Base directory for this skill: /tmp/x\n# Data"),
+    feed(s, UserMessage(content=[TextBlock(text="Base directory for this skill: /tmp/x\n# Data"),
                                       ToolResultBlock(tool_use_id="t1", content="ok", is_error=False)]))
-    s._translate(AssistantMessage(content=[TextBlock(text="Voici le plan.")], model="m"))
+    feed(s, AssistantMessage(content=[TextBlock(text="Voici le plan.")], model="m"))
     texts = [e["text"] for e in s.events if e["type"] == "text"]
     assert texts == ["Voici le plan."]
     assert any(e["type"] == "tool_result" for e in s.events)

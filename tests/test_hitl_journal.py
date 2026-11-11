@@ -2,7 +2,7 @@
 decision is durable — who, what (secrets masked), when asked, when decided, how long, from
 where — and an automatic approval never looks like a person's.
 
-The decisions go through the real paths: `AgentSession._can_use_tool` + `resolve_permission`,
+The decisions go through the real paths: `AgentSession.gate` + `resolve_permission`,
 the cockpit's WebSocket, a delegated share (`/api/shares/{id}/decide`), Microsoft Teams
 (`teams.bot._decide_tool`). No model, no SDK process: the tool callback is called directly.
 Nothing here is real data (people are `…@x`, secrets are made up).
@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+from harness_helpers import ask
 
 SID = "a" * 32
 RADIO_SID = "b" * 32
@@ -98,7 +98,7 @@ def _run(coro):
 
 async def _ask(sess, tool="Bash", inp=None):
     """Start a tool call and wait until the session is waiting for a person."""
-    task = asyncio.ensure_future(sess._can_use_tool(tool, inp or {"command": "rm -rf build"}, None))
+    task = asyncio.ensure_future(ask(sess, tool, inp or {"command": "rm -rf build"}))
     for _ in range(200):
         await asyncio.sleep(0)
         if sess._perms or sess._questions or task.done():
@@ -123,7 +123,7 @@ def test_an_owner_allow_is_written_with_who_what_when_and_how_long(world):
     sess = _session()
     t0 = time.time()
     pid, res = _run(_ask_and_decide(sess, {"decision": "allow"}, wait=0.05))
-    assert isinstance(res, PermissionResultAllow)
+    assert res.allowed
     (r,) = _rows(session_id=SID)
     assert r["request_id"] == pid and r["kind"] == "permission" and r["decision"] == "allow"
     assert (r["project"], r["owner"], r["actor"], r["origin"]) == ("default", "bob@x", "bob@x",
@@ -153,7 +153,7 @@ def test_a_pending_request_is_already_on_disk_before_anyone_decides(world):
 def test_a_deny_keeps_the_reason(world):
     sess = _session()
     _pid, res = _run(_ask_and_decide(sess, {"decision": "deny", "message": "not on a Friday"}))
-    assert isinstance(res, PermissionResultDeny)
+    assert res.denied
     (r,) = _rows(session_id=SID)
     assert r["decision"] == "deny" and r["message"] == "not on a Friday" and r["actor"] == "bob@x"
 
@@ -162,7 +162,7 @@ def test_an_allow_with_a_modified_input_is_an_edit_and_keeps_what_ran(world):
     sess = _session()
     _pid, res = _run(_ask_and_decide(
         sess, {"decision": "allow", "updated_input": {"command": "rm -rf build/tmp"}}))
-    assert res.updated_input == {"command": "rm -rf build/tmp"}
+    assert res.input == {"command": "rm -rf build/tmp"}
     (r,) = _rows(session_id=SID)
     assert r["decision"] == "edit" and r["edited"] == 1
     assert json.loads(r["input_summary"]) == {"command": "rm -rf build"}        # what was asked
@@ -187,7 +187,7 @@ def test_the_answer_to_a_question_is_journaled(world):
         sess.resolve_question(qid, {"Which env?": "stg"})
         return await task
     res = _run(go())
-    assert res.updated_input["answers"] == {"Which env?": "stg"}
+    assert res.kind == "answer" and res.value == {"Which env?": "stg"}
     (r,) = _rows(session_id=SID)
     assert (r["kind"], r["decision"], r["tool"], r["actor"]) == ("question", "answer",
                                                                  "AskUserQuestion", "bob@x")
@@ -207,9 +207,9 @@ def test_a_change_of_approval_mode_is_journaled(world):
 def test_auto_approvals_are_told_apart_from_a_validation(world):
     sess = _session()
     _run(sess.set_mode("acceptEdits", actor="bob@x"))
-    res = _run(sess._can_use_tool("Edit", {"file_path": "/tmp/x.py", "old_string": "a",
-                                           "new_string": "b"}, None))
-    assert isinstance(res, PermissionResultAllow)
+    res = _run(ask(sess, "Edit", {"file_path": "/tmp/x.py", "old_string": "a",
+                                           "new_string": "b"}))
+    assert res.allowed
     _run(_ask_and_decide(sess, {"decision": "allow"}))            # Bash still asks in acceptEdits
     rows = {r["tool"]: r for r in _rows(session_id=SID) if r["kind"] == "permission"}
     auto, human = rows["Edit"], rows["Bash"]
@@ -219,7 +219,7 @@ def test_auto_approvals_are_told_apart_from_a_validation(world):
         "allow", 0, "bob@x", "owner")
     sess2 = _session()
     _run(sess2.set_mode("bypassPermissions", actor="bob@x"))
-    _run(sess2._can_use_tool("Bash", {"command": "make deploy"}, None))
+    _run(ask(sess2, "Bash", {"command": "make deploy"}))
     last = _rows(session_id=SID)[-1]
     assert (last["decision"], last["auto_reason"], last["delay_ms"]) == (
         "auto_allow", "mode:bypassPermissions", 0)
@@ -227,10 +227,10 @@ def test_auto_approvals_are_told_apart_from_a_validation(world):
 
 def test_what_an_agent_policy_refuses_is_an_automatic_deny(world):
     sess = _session(policy={"agent": "nightly", "tools": ["Read"], "mcp": [], "secrets": []})
-    res = _run(sess._can_use_tool("Bash", {"command": "curl example.org"}, None))
-    assert isinstance(res, PermissionResultDeny)
-    res = _run(sess._can_use_tool("AskUserQuestion", {"questions": []}, None))
-    assert isinstance(res, PermissionResultDeny)
+    res = _run(ask(sess, "Bash", {"command": "curl example.org"}))
+    assert res.denied
+    res = _run(ask(sess, "AskUserQuestion", {"questions": []}))
+    assert res.denied
     a, b = _rows(session_id=SID)
     assert (a["decision"], a["auto"], a["auto_reason"], a["agent_run"]) == (
         "auto_deny", 1, "policy:tool_not_allowed", "nightly")
@@ -245,7 +245,7 @@ def test_a_cancelled_request_is_closed_not_left_pending(world):
         task = await _ask(sess)
         await sess.close()                    # the session is dropped while it waits
         return await task
-    assert isinstance(_run(go()), PermissionResultDeny)
+    assert _run(go()).denied
     (r,) = _rows(session_id=SID)
     assert r["decision"] == "cancelled" and r["actor"] == "" and r["origin"] == "system"
 
@@ -322,7 +322,7 @@ def test_a_decision_is_written_once(world):
 
 # ---- the paths a decision comes from ------------------------------------------------------
 def _waiting(world, sid=SID, user="bob@x", pid="p-ws-1", tool="Bash", inp=None):
-    """A live session registered in the API, waiting for one approval (as _can_use_tool
+    """A live session registered in the API, waiting for one approval (as `AgentSession.gate`
     leaves it), without a running event loop of its own."""
     import agentchat
     import hitl_journal

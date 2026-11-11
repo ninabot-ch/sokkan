@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 import agentchat
+from harness import legacy
 
 
 class FakeCLI:
@@ -33,7 +34,8 @@ class FakeCLI:
 @pytest.fixture()
 def sess(monkeypatch):
     FakeCLI.started = []
-    monkeypatch.setattr(agentchat, "ClaudeSDKClient", FakeCLI)
+    # 4.0: the SDK client lives in the legacy adapter (the only importer of the SDK)
+    monkeypatch.setattr(legacy, "ClaudeSDKClient", FakeCLI)
     monkeypatch.setattr(agentchat.study, "gate", lambda user: None)
     monkeypatch.setattr(agentchat.study, "turn_start", lambda *a, **k: None)
     monkeypatch.setattr(agentchat.study, "turn_end", lambda *a, **k: None)
@@ -45,6 +47,11 @@ def sess(monkeypatch):
     agentchat._registry.pop("idle-sid", None)
 
 
+def cli(s):
+    """The SDK client of the session's engine (None once parked)."""
+    return getattr(s.harness, "_client", None)
+
+
 def run(coro):
     return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
 
@@ -52,17 +59,17 @@ def run(coro):
 def test_an_idle_session_is_closed_then_resumed_on_the_same_conversation(sess):
     async def go():
         await sess.handle_user("bonjour")
-        first = sess.client
+        first = cli(sess)
         sess.claude_session_id = "csid-42"          # what the CLI's init message said
         sess.events.append({"type": "text", "text": "Voici le plan."})
         n_events = len(sess.events)
         sess.last_active -= 31 * 60
         assert await agentchat.park_idle(1800) == ["idle-sid"]
-        assert first.closed and sess.client is None and sess.parked == 1
+        assert first.closed and sess.harness is None and sess.parked == 1
         assert len(sess.events) == n_events            # the thread is replayed as before
         assert agentchat.peek("idle-sid") is sess      # still known: nothing to reopen by hand
         await sess.handle_user("et la suite ?")        # the next turn: started again, resumed
-        second = sess.client
+        second = cli(sess)
         assert second is not first and not second.closed
         assert second.options.resume == "csid-42" and second.asked == "et la suite ?"
     run(go())
@@ -82,7 +89,7 @@ def test_never_while_working_or_waiting_for_a_person(sess):
             else:
                 sess._questions["q1"] = fut
             assert await agentchat.park_idle(60) == [], state
-            assert sess.client is not None and not sess.client.closed
+            assert cli(sess) is not None and not cli(sess).closed
             sess._busy = False
             sess._perms.clear()
             sess._questions.clear()
@@ -119,13 +126,14 @@ def test_a_cli_left_running_by_a_failed_close_is_reaped(sess):
     proc = subprocess.Popen(["sleep", "60"])
     try:
         async def go():
-            sess.client = Broken()
-            sess.client._transport = types.SimpleNamespace(_process=proc)
+            broken = Broken()
+            broken._transport = types.SimpleNamespace(_process=proc)
+            sess.attach(legacy.LegacyHarness(client=broken))
             sess.last_active -= 31 * 60
             assert await agentchat.park_idle(1800) == ["idle-sid"]
         run(go())
         assert proc.poll() is not None          # gone, not orphaned
-        assert sess.client is None
+        assert sess.harness is None
     finally:
         if proc.poll() is None:
             proc.kill()

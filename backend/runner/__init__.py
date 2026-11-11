@@ -7,16 +7,16 @@
 * `kubernetes`: one Pod per session / run through the Kubernetes API
   (runner/kubernetes_runner.py, Helm chart deploy/helm/sokkan).
 
-agentchat calls `client_args()` where it used to build the SDK client: for `local` it gets
-the options unchanged and no transport (the SDK spawns the CLI as before); for a container
-runner it gets the options rewritten for the container (MCP servers through the relay) and a
-`RunnerTransport`.
+The engine's adapter asks where its CLI runs (`harness.legacy.client_args`): for `local` it
+keeps its options unchanged and no transport (the SDK spawns the CLI as before); for a
+container runner it gets the options rewritten for the container (MCP servers through the
+relay) and a `RunnerTransport` — the SDK's own transport, carried over the runner's channel.
+Both live in the adapter: nothing here imports the engine's SDK.
 """
 from __future__ import annotations
 
 import os
 import sys
-from typing import Any
 
 from .base import Handle, Resources, SessionRunner, SessionSpec, session_env  # noqa: F401
 
@@ -66,25 +66,6 @@ def set_runner(r: SessionRunner | None) -> None:
     _runner, _pinned, _reconciled = r, r is not None, False
 
 
-def build_argv(options: Any, cli: str = "claude") -> list[str]:
-    """The CLI command line the SDK would run for these options (same flags, same
-    `--permission-prompt-tool stdio` when can_use_tool is set)."""
-    from dataclasses import replace
-
-    from claude_agent_sdk._internal.transport.subprocess_cli import (  # type: ignore
-        SubprocessCLITransport)
-    if getattr(options, "can_use_tool", None) and not options.permission_prompt_tool_name:
-        options = replace(options, permission_prompt_tool_name="stdio")
-
-    async def _empty():  # the SDK writes the prompt itself (streaming mode)
-        return
-        yield  # noqa: B901
-
-    t = SubprocessCLITransport(prompt=_empty(), options=options)
-    t._cli_path = cli
-    return t._build_command()
-
-
 async def _reconcile_once(r: SessionRunner) -> None:
     global _reconciled
     if _reconciled:
@@ -97,38 +78,3 @@ async def _reconcile_once(r: SessionRunner) -> None:
                   f"removed {len(res.get('removed', []))} finished", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"[sokkan] runner {r.name}: reconcile failed: {e!r}", file=sys.stderr)
-
-
-def client_args(sid: str, opts_kwargs: dict, user: str = "", project: str = "default",
-                kind: str = "session") -> tuple[Any, Any]:
-    """(ClaudeAgentOptions, transport | None) for one session — the runner extension point."""
-    from claude_agent_sdk import ClaudeAgentOptions  # type: ignore
-
-    r = get_runner()
-    if not r.remote:
-        return ClaudeAgentOptions(**opts_kwargs), None
-
-    from . import common, relay
-    from .transport import RunnerTransport
-
-    relay_token = common.token_for(sid, "relay")
-    servers = opts_kwargs.get("mcp_servers") or {}
-    relay.register(relay_token, sid, servers)
-    remote_kwargs = dict(opts_kwargs)
-    remote_kwargs["mcp_servers"] = {n: {"command": "sokkan-mcp-relay", "args": [n]}
-                                    for n in servers}
-    remote_kwargs.pop("env", None)  # goes to the container's Secret, filtered
-    options = ClaudeAgentOptions(**remote_kwargs)
-    spec = SessionSpec(
-        sid=sid, argv=build_argv(options, os.environ.get("SOKKAN_SESSION_CLI") or "claude"),
-        cwd=str(opts_kwargs.get("cwd") or "/workspace"), project=project or "default",
-        user=user, env=session_env(opts_kwargs.get("env")),
-        token=common.token_for(sid, "supervisor"), relay_token=relay_token, kind=kind)
-
-    async def _before() -> None:
-        await relay.ensure_started()
-        await _reconcile_once(r)
-
-    t = RunnerTransport(r, spec, on_close=lambda: relay.unregister(relay_token))
-    t.before_connect = _before  # type: ignore[attr-defined]
-    return options, t

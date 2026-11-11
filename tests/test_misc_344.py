@@ -5,6 +5,7 @@ import tempfile
 import threading
 
 import pytest
+from harness_helpers import feed
 
 _TMP = tempfile.mkdtemp()
 os.environ.update(
@@ -102,15 +103,15 @@ def test_session_cost_is_not_re_added_each_turn():
 
     s = agentchat.AgentSession("sid-cost-344")
     for total in (0.0069, 0.0090, 0.0111, 0.0132):
-        s._translate(ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
+        feed(s, ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
                                    is_error=False, num_turns=1, session_id="x",
                                    total_cost_usd=total, usage={"input_tokens": 10}))
     assert round(s.cost_usd, 4) == 0.0132
     res = [e for e in s.events if e["type"] == "result"]
     assert round(res[-1]["cost_usd"], 4) == 0.0021 and res[-1]["session_cost_usd"] == 0.0132
     # processus relancé (resume après redémarrage) : son compteur repart de 0
-    s._cli_cost_seen = 0.0
-    s._translate(ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
+    s.harness._cost_seen = 0.0
+    feed(s, ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
                                is_error=False, num_turns=1, session_id="x",
                                total_cost_usd=0.003, usage={}))
     assert round(s.cost_usd, 4) == 0.0162

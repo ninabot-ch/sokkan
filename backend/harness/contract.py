@@ -362,10 +362,13 @@ class RunStarted(Event):
 class RunInfo(Event):
     """What the engine learnt about the run after it started: its own session reference
     (what ``RunSpec.resume`` takes), the model that really answers (it can change within a
-    run: an escalation). Only the fields that are set have changed."""
+    run: an escalation). ``requested_model`` is what the engine says it was asked to use
+    (an alias, before any answer); ``model`` is only ever the model an answer came from.
+    Only the fields that are set have changed."""
     type: ClassVar[str] = "run.info"
     engine_session: str | None = None
     model: str | None = None
+    requested_model: str | None = None
 
 
 @_event

@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""agentchat.py — SOKKAN Chantier B : chat interactif piloté par le Claude Agent SDK.
+"""agentchat.py — SOKKAN: the interactive chat session of the cockpit.
 
-Remplace l'archi « marionnettiste tmux » : au lieu d'envoyer des touches au TUI et
-de scraper l'écran, on pilote claude par le SDK (`claude-agent-sdk`). Les éléments
-interactifs deviennent des events structurés rendus en widgets web :
+An `AgentSession` per sid is the CONSUMER of the session contract (`backend/harness`): it
+starts the run on the instance's engine (`harness.registry`), reads its event stream, and
+turns it into what the cockpit knows — the WebSocket flow of the session pane, the journal
+of validations, the costs, the budgets. The interactive elements are structured events
+rendered as web widgets:
 
-  - permissions d'outils   → callback `can_use_tool` → boutons Autoriser/Refuser
-  - questions à choix       → AskUserQuestion (built-in) passe par `can_use_tool`,
-                              input = questions[] → boutons ; réponse renvoyée en
-                              PermissionResultAllow(updated_input={..., answers})
-  - texte / outils / pensée → events AssistantMessage / ToolUseBlock / ThinkingBlock
+  - tool permissions      → `gate.requested` → Allow / Deny buttons → `Harness.decide`
+  - questions with choices → a gate of kind `question` → buttons; the answer goes back as
+                              a `Decision.answer`
+  - text / tools / thinking → `assistant.text` / `tool.called` / `assistant.think`
 
-Un `AgentSession` par sid garde un `ClaudeSDKClient` ouvert (multi-tours). Les
-events sortants sont diffusés aux WebSocket abonnés + bufferisés (replay au refresh).
+This module knows no engine: no SDK, no CLI, no HTTP API of an engine is imported here.
+The engine SOKKAN has driven so far is one adapter of the contract (`harness.legacy`).
 
-Voir CHANTIER-B.md pour le protocole WS complet.
+The flow sent to the front is unchanged by the contract: `_consume` translates each
+contract event into the events the pane already reads (`text`, `tool_use`, `permission`,
+`result`…). Outgoing events are broadcast to the subscribed WebSockets + buffered (replay
+on refresh). See CHANTIER-B.md for the WS protocol.
 """
 from __future__ import annotations
 
@@ -27,31 +31,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-# --- SDK (imports tolérants aux variations de packaging entre versions) ---------
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions  # type: ignore
-
-try:  # classes de permission
-    from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny  # type: ignore
-except ImportError:  # pragma: no cover
-    from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny  # type: ignore
-
-try:  # blocs de message
-    from claude_agent_sdk import (  # type: ignore
-        SystemMessage, ResultMessage,
-        TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock,
-    )
-except ImportError:  # pragma: no cover
-    from claude_agent_sdk.types import (  # type: ignore
-        SystemMessage, ResultMessage,
-        TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock,
-    )
-
 import board  # persistance sid ↔ claude_session_id (resume après restart)
 import budgets  # budgets par projet, jour / mois (3.2 lot 4)
 import connectai  # 3.2 Connect your AI: engine of a Crew card / a project
 import hitl_journal  # every approval asked and every decision, durable
+from harness import contract, registry  # the session contract and the declared engines
 import instance  # budgets de coût (hard stop HITL par session)
-import memrecall  # rappel mémoire à chaque tour + sous-agents (3.0)
+import memrecall  # memory recall of each turn and sub-agent: the run's context provider
 import llm  # config LLM par instance (BYOK / inférence incluse)
 import notify  # HITL push : ping si une permission traîne sans réponse
 import study  # feature study_mode: consent gate, turn metadata (pseudonymised)
@@ -212,23 +198,8 @@ def _tool_title(name: str, inp: dict) -> str:
     return name
 
 
-def _text_of(content: Any) -> str:
-    """Aplatit un content (str | list de blocs/dicts) en texte."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for b in content:
-            if isinstance(b, dict):
-                parts.append(b.get("text", "") if b.get("type") == "text" else "")
-            else:
-                parts.append(getattr(b, "text", "") or "")
-        return "\n".join(p for p in parts if p)
-    return ""
-
-
 class AgentSession:
-    """Une session de chat SDK : un ClaudeSDKClient long-vivant + diffusion d'events."""
+    """One chat session: a run on an engine (`harness.Harness`), consumed and broadcast."""
 
     def __init__(self, sid: str, cwd: str = CWD, resume: str | None = None,
                  model: str | None = MODEL, user: str = "", policy: dict | None = None,
@@ -238,7 +209,14 @@ class AgentSession:
         self.resume = resume
         self.model = model
         self.user = user  # email du spawneur → attribution per-user du metering (mode géré)
-        self.client: ClaudeSDKClient | None = None
+        # the run on the engine: None until the first turn (or `attach`)
+        self.harness: Any = None
+        self._stream: Any = None
+        self._gate_tasks: set[asyncio.Task] = set()
+        self._decided_by: dict[str, tuple[str, str]] = {}   # gate id → (who, through what)
+        self._turn_usage: contract.Usage | None = None      # the engine's own turn total
+        self.context_log: list[dict] = []     # what was injected in this session (names, size)
+        # the engine's own reference to the run (persisted: resume after a restart)
         self.claude_session_id: str | None = None
         self.events: list[dict] = []          # ring buffer (replay au reconnect)
         self.subscribers: set[asyncio.Queue] = set()
@@ -247,10 +225,7 @@ class AgentSession:
         self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
         self._start_lock = asyncio.Lock()
-        self.cost_usd = 0.0          # coût estimé cumulé (ResultMessage.total_cost_usd)
-        # total_cost_usd est CUMULÉ par processus CLI (3.4.4 : il était ré-additionné à
-        # chaque tour → 0,0402 $ affichés pour 0,0122 $) ; remis à 0 à chaque (re)lancement
-        self._cli_cost_seen = 0.0
+        self.cost_usd = 0.0          # estimated cumulated cost (what each turn.ended reports)
         self._budget_warned = False  # avertissement 80 % émis une seule fois
         self._project_budget_warned = False  # idem pour le budget du projet (lot 4)
         self._model_seen: str | None = None
@@ -318,126 +293,115 @@ class AgentSession:
         self._emit({"type": "sandbox", "mode": sandbox.HOOKS, "message": sandbox.BASH_OFF,
                     "denied": "Bash"})
 
-    # ---- cycle de vie SDK ---------------------------------------------------
+    # ---- the run on the engine ------------------------------------------------
+    def attach(self, harness, spec: contract.RunSpec | None = None) -> None:
+        """Plug a harness that is already built (a scripted engine, a test): the session
+        consumes its stream as it would the instance's engine."""
+        self.harness = harness
+        self._stream = harness.start(spec)
+
+    async def _run_spec(self) -> contract.RunSpec:
+        """What the engine needs to start this session's run: where, for whom, with which
+        tools, secrets, memory and boundary. Everything here is the cockpit's decision; how
+        it is enforced is the adapter's."""
+        pol = self.policy
+        proj = session_project(self.sid)
+        mcp = mcp_servers_for(self.sid, self.user,
+                              only=pol.get("mcp") if pol else None,
+                              agent_run=({"agent": pol.get("agent"), "run": pol.get("run")}
+                                         if pol else False))
+        # memory recall at every turn + for every sub-agent (3.0, P0-3)
+        recall = memrecall.provider(self.sid, projects=self._recall_scope())
+        # per-instance model configuration (BYOK / managed inference) + the vault (the
+        # person operates their production: $STRIPE_KEY & co in the shells, the value never
+        # read by the UI nor by the model), injected per session
+        secret_env = vault.session_env(self._secret_names(), project=proj)
+        if secret_env:  # 3.4.4: what the env holds is masked in everything emitted
+            self.redact_values = {**self.redact_values, **secret_env}
+        env_extra = {**secret_env, **llm.session_env(self.user)}
+        # 3.6.5: a work started with « Write with Claude » — tier, project and model on
+        # every call of its session (the router decides again, claudetier)
+        import claudetier
+        claude_env = claudetier.session_env(self.sid, proj, env_extra)
+        env_extra.update(claude_env)
+        # 3.2 connect_ai: a Crew card's engine (model `engine:<id>`) or the project's
+        eng_env, eng_model = connectai.session_overrides(self.sid, self.model)
+        env_extra.update(eng_env)
+        # 3.2 lot 5: a forge project's session pushes with the PERSON's token, through
+        # a credential helper — the env holds a ticket, never the token (forge.gitcred)
+        # — reached through the runner relay (session container / pod) or, for the shell
+        # inside bubblewrap, a per-session Unix socket bound into the sandbox
+        import runner
+        import sandbox
+        forge_socket = None
+        if runner.get_runner().remote:
+            transport = "relay"
+        elif sandbox.applies(proj) and sandbox.mode() == sandbox.BWRAP:
+            transport = "socket"
+        else:
+            transport = "loopback"
+        forge_env = self._forge_env(transport)
+        if forge_env and transport == "socket":
+            from forge import gitcred
+            forge_socket = await gitcred.open_socket(self.sid)
+        env_extra.update(forge_env)
+        # 3.2 lot 8: a session of another project reaches only its project's space — the
+        # engine enforces the boundary (file tools checked before any allow rule, the shell
+        # inside bubblewrap or refused); no extra directory is handed to it
+        confinement = None
+        if sandbox.applies(proj):
+            confinement = contract.Confinement(
+                project=proj, rules=tuple((pol or {}).get("auto_approve") or []),
+                env_names=tuple(sorted({*secret_env, *forge_env})), git_socket=forge_socket)
+            self.sandboxed = proj
+            if sandbox.mode() == sandbox.HOOKS and not self._sandbox_said:
+                # say it up front in the pane (banner), not only when the shell is refused —
+                # once: an engine started again after idleness (3.6.7) does not repeat it
+                self._sandbox_said = True
+                self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
+                            "message": sandbox.BASH_OFF})
+        model = eng_model if eng_model is not None else (self.model or llm.session_model())
+        legacy_opts: dict[str, Any] = {"setting_sources": setting_sources_for(proj)}
+        if claude_env.get("ANTHROPIC_MODEL"):
+            # the Claude model the person chose: the engine shapes its requests for it (the
+            # router checks it is in the instance's list before anything leaves)
+            model = claude_env["ANTHROPIC_MODEL"]
+            # the API refuses the current Claude models to an older CLI (« Claude Code
+            # 2.1.259 does not support this model; 2.1.280 or newer is required », seen on
+            # 12.11.2026): the SDK runs its OWN bundled CLI unless told otherwise — a Claude
+            # work runs the CLI pinned in the image (docker/api.Dockerfile)
+            cli = claudetier.pinned_cli()
+            if cli:
+                legacy_opts["cli_path"] = cli
+        return contract.RunSpec(
+            run_id=self.sid, cwd=self.cwd, project=proj, user=self.user,
+            kind="run" if pol else "session", model=model or None,
+            resume=self.resume or None,
+            # bypass / acceptEdits are rules of the cockpit (`gate`); only `plan` is
+            # engaged in the engine (it changes what the model does)
+            plan=self.mode == "plan",
+            env=env_extra, secret_names=tuple(sorted(secret_env)), mcp_servers=mcp,
+            auto_allow=tuple(self._allowed_tools()),
+            # defence in depth for an agent run: tools outside its list are removed
+            deny_tools=tuple(self._disallowed_tools()) if pol else None,
+            budget_usd=self._sdk_max_budget(), context=recall, confinement=confinement,
+            options={"legacy": legacy_opts})
+
     async def ensure_started(self) -> None:
         async with self._start_lock:
-            if self.client is not None:
+            if self._stream is not None:
                 return
-            pol = self.policy
-            opts_kwargs: dict[str, Any] = dict(
-                cwd=self.cwd,
-                can_use_tool=self._can_use_tool,
-                allowed_tools=self._allowed_tools(),
-                # bypass/acceptEdits sont gérés dans _can_use_tool ; seul `plan`
-                # doit être engagé au niveau du SDK (change le comportement du modèle)
-                permission_mode="plan" if self.mode == "plan" else "default",
-                setting_sources=setting_sources_for(session_project(self.sid)),
-                mcp_servers=mcp_servers_for(self.sid, self.user,
-                                            only=pol.get("mcp") if pol else None,
-                                            agent_run=({"agent": pol.get("agent"),
-                                                        "run": pol.get("run")}
-                                                       if pol else False)),
-            )
-            if pol:
-                # défense en profondeur : une règle « allow » des settings utilisateur ou
-                # projet court-circuite can_use_tool ; disallowed_tools l'emporte toujours
-                opts_kwargs["disallowed_tools"] = self._disallowed_tools()
-            sdk_budget = self._sdk_max_budget()
-            if sdk_budget and "max_budget_usd" in _OPTION_FIELDS:
-                opts_kwargs["max_budget_usd"] = sdk_budget
-            # memory recall at every turn + for every sub-agent (3.0, P0-3)
-            hooks = memrecall.sdk_hooks(self.sid, projects=self._recall_scope())
-            # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
-            # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
-            # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
-            proj = session_project(self.sid)
-            secret_env = vault.session_env(self._secret_names(), project=proj)
-            if secret_env:  # 3.4.4: what the env holds is masked in everything emitted
-                self.redact_values = {**self.redact_values, **secret_env}
-            env_extra = {**secret_env, **llm.session_env(self.user)}
-            # 3.6.5: a work started with « Write with Claude » — tier, project and model on
-            # every call of its session (the router decides again, claudetier)
-            import claudetier
-            claude_env = claudetier.session_env(self.sid, proj, env_extra)
-            env_extra.update(claude_env)
-            # 3.2 connect_ai: a Crew card's engine (model `engine:<id>`) or the project's
-            eng_env, eng_model = connectai.session_overrides(self.sid, self.model)
-            env_extra.update(eng_env)
-            # 3.2 lot 5: a forge project's session pushes with the PERSON's token, through
-            # a credential helper — the env holds a ticket, never the token (forge.gitcred)
-            # — reached through the runner relay (session container / pod) or, for Bash
-            # inside bubblewrap, a per-session Unix socket bound into the sandbox
-            import runner
-            import sandbox
-            forge_socket = None
-            if runner.get_runner().remote:
-                transport = "relay"
-            elif sandbox.applies(proj) and sandbox.mode() == sandbox.BWRAP:
-                transport = "socket"
-            else:
-                transport = "loopback"
-            forge_env = self._forge_env(transport)
-            if forge_env and transport == "socket":
-                from forge import gitcred
-                forge_socket = await gitcred.open_socket(self.sid)
-            env_extra.update(forge_env)
-            # 3.2 lot 8: a session of another project reaches only its project's space —
-            # file tools checked by a PreToolUse hook (runs before any allow rule), Bash
-            # inside bubblewrap or refused; no extra directory handed to the CLI
-            if sandbox.applies(proj):
-                sb = sandbox.sdk_hooks(sid=self.sid, user=self.user, project=proj,
-                                       cwd=self.cwd,
-                                       auto_rules=(pol or {}).get("auto_approve") or [],
-                                       env_names=sorted({*secret_env, *forge_env}),
-                                       forge_socket=forge_socket,
-                                       on_bash_off=self._sandbox_bash_off)
-                for ev, matchers in sb.items():
-                    hooks = dict(hooks or {})
-                    hooks[ev] = [*matchers, *(hooks.get(ev) or [])]
-                if "add_dirs" in _OPTION_FIELDS:
-                    opts_kwargs["add_dirs"] = []
-                self.sandboxed = proj
-                if sandbox.mode() == sandbox.HOOKS and not self._sandbox_said:
-                    # say it up front in the pane (banner), not only when Bash is refused —
-                    # once: a CLI started again after idleness (3.6.7) does not repeat it
-                    self._sandbox_said = True
-                    self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
-                                "message": sandbox.BASH_OFF})
-            if hooks:
-                opts_kwargs["hooks"] = hooks
-            if env_extra:
-                opts_kwargs["env"] = {**os.environ, **env_extra}
-            model = eng_model if eng_model is not None else (self.model or llm.session_model())
-            if claude_env.get("ANTHROPIC_MODEL"):
-                # the Claude model the person chose: the CLI shapes its requests for it (the
-                # router checks it is in the instance's list before anything leaves)
-                model = claude_env["ANTHROPIC_MODEL"]
-                # the API refuses the current Claude models to an older CLI (« Claude Code
-                # 2.1.259 does not support this model; 2.1.280 or newer is required », seen on
-                # 12.11.2026): the SDK runs its OWN bundled CLI unless told otherwise — a Claude
-                # work runs the CLI pinned in the image (docker/api.Dockerfile)
-                cli = claudetier.pinned_cli()
-                if cli and "cli_path" in _OPTION_FIELDS:
-                    opts_kwargs["cli_path"] = cli
-            if model:
-                opts_kwargs["model"] = model
-            if self.resume:
-                opts_kwargs["resume"] = self.resume
-            # runner (SOKKAN_RUNNER): local = the SDK spawns the CLI here, as always;
-            # docker / kubernetes = the CLI runs in a session container / pod (backend/runner)
-            options, transport = runner.client_args(
-                self.sid, opts_kwargs, user=self.user, project=session_project(self.sid),
-                kind="run" if pol else "session")
-            self.client = ClaudeSDKClient(options=options, transport=transport)
-            self._cli_cost_seen = 0.0  # nouveau processus CLI : son compteur repart de 0
-            # __aenter__ plutôt que `async with` : on garde le client ouvert
-            await self.client.__aenter__()
+            spec = await self._run_spec()
+            self.harness = registry.create()
+            self._stream = self.harness.start(spec)
+            # the first event reaches the engine: `run.started`, or the engine's own error
+            self._consume(await self._stream.__anext__())
 
     def parkable(self, idle_s: float, now: float | None = None) -> bool:
         """Its CLI can be closed without anyone noticing: started, no turn running, no
         approval nor question waiting for a person, nothing emitted for `idle_s` seconds."""
         now = time.monotonic() if now is None else now
-        return (self.client is not None and not self._busy and not self._perms
+        return (self._stream is not None and not self._busy and not self._perms
                 and not self._questions and now - self.last_active >= idle_s)
 
     async def park(self, idle_s: float = 0.0) -> bool:
@@ -451,12 +415,15 @@ class AgentSession:
             if not self.parkable(idle_s):
                 return False
             self.resume = self.claude_session_id or self.resume
-            client, self.client = self.client, None
-            try:
-                await client.__aexit__(None, None, None)
-            except Exception:  # noqa: BLE001 — a CLI already gone is closed too
-                pass
-            await _reap(client)
+            # 4.0: the engine closes its own process (the legacy adapter reaps a CLI its
+            # client's close left running, 3.6.7); its stream is dropped, the next turn
+            # starts the engine again with `resume`
+            harness, self.harness, self._stream = self.harness, None, None
+            if harness is not None:
+                try:
+                    await harness.stop()
+                except Exception:  # noqa: BLE001 — an engine already gone is closed too
+                    pass
             try:
                 from forge import gitcred
                 await gitcred.close_socket(self.sid)
@@ -469,12 +436,14 @@ class AgentSession:
         for fut in list(self._perms.values()) + list(self._questions.values()):
             if not fut.done():
                 fut.cancel()
-        if self.client is not None:
+        harness, self.harness, self._stream = self.harness, None, None
+        if harness is not None:
             try:
-                await self.client.__aexit__(None, None, None)
+                await harness.stop()
             except Exception:  # noqa: BLE001
                 pass
-            self.client = None
+        for t in list(self._gate_tasks):
+            t.cancel()
         try:
             from forge import gitcred
             await gitcred.close_socket(self.sid)
@@ -531,9 +500,9 @@ class AgentSession:
         return safe + [r for r in pol.get("auto_approve") or [] if r not in safe]
 
     def _sdk_max_budget(self) -> float | None:
-        """The run budget handed to the SDK — only when the SDK prices the model right
-        (Claude on Anthropic). A non-Claude model would be priced at a Claude tariff
-        by the CLI: the SOKKAN meter (agentcost) enforces the budget instead."""
+        """The run budget handed to the engine — only when the engine prices the model
+        right. A model the engine would price at another model's tariff is capped by the
+        SOKKAN meter (agentcost) instead."""
         pol = self.policy or {}
         if not pol.get("budget_usd") or (self.meter is not None and self.meter.active):
             return None
@@ -565,99 +534,107 @@ class AgentSession:
                 pass
 
     # ---- journal des validations (hitl_journal) ------------------------------
-    def _journal_auto(self, tool_name: str, input_data: dict, allowed: bool, reason: str) -> None:
+    def _journal_auto(self, gate: contract.Gate, input_data: dict, allowed: bool,
+                      reason: str) -> None:
         """An approval nobody clicked (mode, agent policy, sandbox): told apart from a
         person's decision in the journal."""
         hitl_journal.automatic(
-            "question" if tool_name == "AskUserQuestion" else "permission",
-            session_id=self.sid, tool=tool_name, title=_tool_title(tool_name, input_data),
+            "question" if gate.kind == "question" else "permission",
+            session_id=self.sid, tool=gate.tool, title=_tool_title(gate.tool, input_data),
             input_data=input_data, allowed=allowed, reason=reason, mode=self.mode,
             secrets=self.redact_values, owner=self.user,
             agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "")
 
-    # ---- callback de permission (cœur de l'interactivité) -------------------
-    async def _can_use_tool(self, tool_name: str, input_data: dict, context: Any):
+    # ---- the gate (heart of the interactivity) -------------------------------
+    async def gate(self, gate: contract.Gate) -> contract.Decision:
+        """The cockpit's answer to one `gate.requested`: the rules first (confinement,
+        agent policy, profile, approval mode), then a person. The engine only sees the
+        `Decision`; whatever it is, the rules here can only be stricter than the engine's
+        own."""
         loop = asyncio.get_event_loop()
+        tool_name, input_data = gate.tool, gate.input
+        auto = {"by": "policy", "via": "auto_rule"}
         if self.sandboxed is not None:
-            # lot 8, defence in depth: the hook already decided; never let a call reach
-            # the permission flow unconfined
+            # lot 8, defence in depth: the engine's hook already decided; never let a call
+            # reach the permission flow unconfined
             import sandbox
             checked = sandbox.recheck(tool_name, input_data, sid=self.sid, user=self.user,
                                       project=self.sandboxed, cwd=self.cwd)
             if isinstance(checked, str):
                 if tool_name == "Bash" and checked == sandbox.BASH_OFF:
                     self._sandbox_bash_off()
-                self._journal_auto(tool_name, input_data, False, "sandbox")
-                return PermissionResultDeny(message=checked)
+                self._journal_auto(gate, input_data, False, "sandbox")
+                return contract.Decision.deny(checked, **auto)
             input_data = checked
 
         if self.policy:
-            # run d'agent : personne ne regarde → une question est refusée avec une
-            # consigne, un outil hors de la liste de l'agent est refusé sans réveiller
-            # personne. Le reste suit le gate humain normal (ping HITL).
-            if tool_name == "AskUserQuestion":
-                self._journal_auto(tool_name, input_data, False, "policy:unattended_question")
-                return PermissionResultDeny(message=(
+            # agent run: nobody is watching → a question is refused with an instruction, a
+            # tool outside the agent's list is refused without waking anybody. The rest
+            # follows the normal human gate (HITL ping).
+            if gate.kind == "question":
+                self._journal_auto(gate, input_data, False, "policy:unattended_question")
+                return contract.Decision.deny(
                     "This is an unattended agent run: nobody can answer. Decide with your "
-                    "best judgement, and list the open question in your final deliverable."))
+                    "best judgement, and list the open question in your final deliverable.",
+                    **auto)
             if not self._tool_permitted(tool_name):
-                self._journal_auto(tool_name, input_data, False, "policy:tool_not_allowed")
-                return PermissionResultDeny(message=(
+                self._journal_auto(gate, input_data, False, "policy:tool_not_allowed")
+                return contract.Decision.deny(
                     f"{tool_name} is not in this agent's allowed tools. Do without it, or say "
-                    "in your deliverable that the agent needs it."))
-            if tool_name in _EDIT_TOOLS and _closed_to_agent_run(
-                    str(input_data.get("file_path") or input_data.get("notebook_path") or ""),
-                    session_project(self.sid)):
-                self._journal_auto(tool_name, input_data, False, "policy:memory_write")
-                return PermissionResultDeny(message=(
+                    "in your deliverable that the agent needs it.", **auto)
+            if gate.kind == "file_write" and _closed_to_agent_run(
+                    gate.path, session_project(self.sid)):
+                self._journal_auto(gate, input_data, False, "policy:memory_write")
+                return contract.Decision.deny(
                     "An agent run does not write memory files directly: use "
                     "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
-                    "approves it)."))
+                    "approves it).", **auto)
 
         # 3.6 pilot: a session that was handed documents (feature `documents`) does not write
         # memory files directly — what it learnt from a dropped document reaches the memory
         # only through mcp__sokkan-memory__memory_write, which quarantines it for that session
         # (memory/memory_search_server.py). Same rule as an agent run, for the same reason: a
         # document is outside content.
-        if not self.policy and tool_name in _EDIT_TOOLS and _is_memory_path(
-                str(input_data.get("file_path") or input_data.get("notebook_path") or "")) \
+        if not self.policy and gate.kind == "file_write" and _is_memory_path(gate.path) \
                 and self._has_documents():
-            self._journal_auto(tool_name, input_data, False, "policy:documents_memory_write")
-            return PermissionResultDeny(message=(
+            self._journal_auto(gate, input_data, False, "policy:documents_memory_write")
+            return contract.Decision.deny(
                 "This conversation was handed documents: it does not write memory files "
                 "directly. Use mcp__sokkan-memory__memory_write — the note waits in quarantine "
-                "until a person approves it."))
+                "until a person approves it.", **auto)
 
         # 3.6 simple profile: a work opened from it belongs to someone who is not a developer —
         # they are never asked to approve a shell command (seen on a timed journey: « the agent
         # wants to carry out a technical operation » for a `mkdir`). Refused here, with what to
         # do instead; file tools keep their approval card.
-        if tool_name == "Bash" and not self.policy and self._is_simple_work():
+        if gate.kind == "shell" and not self.policy and self._is_simple_work():
             # nobody clicked: told apart from a person's refusal in the journal of validations
-            self._journal_auto(tool_name, input_data, False, "policy:simple_profile_no_shell")
-            return PermissionResultDeny(message=(
+            self._journal_auto(gate, input_data, False, "policy:simple_profile_no_shell")
+            return contract.Decision.deny(
                 "No shell in this conversation: the person is not a developer. The folder for "
                 "the document already exists — save the document with the Write tool (and "
-                "change it with Edit), read files with Read. Do not mention this to the person."))
+                "change it with Edit), read files with Read. Do not mention this to the person.",
+                **auto)
 
         # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
         # of a document in this turn, the agent does not save it again on its own (a « v2 »
         # nobody asked for meant a second card for one deliverable). A change they ask for
         # comes with their next message, which opens a new turn.
-        if tool_name in _EDIT_TOOLS and not self.policy and self._is_simple_work():
-            path = str(input_data.get("file_path") or input_data.get("notebook_path") or "")
+        if gate.kind == "file_write" and not self.policy and self._is_simple_work():
+            path = gate.path or str(input_data.get("file_path")
+                                    or input_data.get("notebook_path") or "")
             if path and os.path.abspath(path) in getattr(self, "_approved_saves", set()):
-                self._journal_auto(tool_name, input_data, False, "policy:simple_one_approval_per_turn")
-                return PermissionResultDeny(message=(
+                self._journal_auto(gate, input_data, False, "policy:simple_one_approval_per_turn")
+                return contract.Decision.deny(
                     "The person already approved this document in this turn: it is saved. Do "
                     "not save it again and do not offer another version. Tell them in two or "
                     "three sentences what it contains and what remains to confirm (if a part is "
                     "still missing, say which one and ask whether to add it); they will ask for "
-                    "a change if they want one. Do not mention this message."))
+                    "a change if they want one. Do not mention this message.", **auto)
 
-        # AskUserQuestion : on rend les choix en boutons, on injecte la réponse
-        if tool_name == "AskUserQuestion":
-            qid = uuid.uuid4().hex
+        # a question with choices: rendered as buttons, the answer goes back to the engine
+        if gate.kind == "question":
+            qid = gate.gate_id
             fut: asyncio.Future = loop.create_future()
             self._questions[qid] = fut
             hitl_journal.requested(qid, "question", session_id=self.sid, tool=tool_name,
@@ -671,23 +648,22 @@ class AgentSession:
                 answers = await fut
             except asyncio.CancelledError:
                 hitl_journal.decided(qid, "cancelled")
-                return PermissionResultDeny(message="Question cancelled")
+                return contract.Decision.deny("Question cancelled", via="engine")
             finally:
                 self._questions.pop(qid, None)
-            return PermissionResultAllow(
-                updated_input={**input_data, "answers": answers}
-            )
+            by, via = self._decided_by.pop(qid, ("", "rail"))
+            return contract.Decision.answer(answers, by=by, via=via)
 
-        # auto-approbation selon le mode courant (automode / accept-édits) — l'équivalent
-        # web du Shift+Tab du TUI. AskUserQuestion (au-dessus) reste toujours interactif :
-        # c'est une vraie question à l'utilisateur, pas un simple gate de permission.
+        # auto-approval by the current mode (automode / accept-edits) — the web equivalent
+        # of the TUI's Shift+Tab. A question (above) always stays interactive: it is a real
+        # question to the person, not a mere permission gate.
         if self.mode == "bypassPermissions" or (
-                self.mode == "acceptEdits" and tool_name in _EDIT_TOOLS):
-            self._journal_auto(tool_name, input_data, True, f"mode:{self.mode}")
-            return PermissionResultAllow(updated_input=input_data)
+                self.mode == "acceptEdits" and gate.kind == "file_write"):
+            self._journal_auto(gate, input_data, True, f"mode:{self.mode}")
+            return _allow(gate, input_data, by=f"mode:{self.mode}", via="auto_rule")
 
-        # outil mutant (Bash/Edit/Write/…) : demande d'autorisation
-        pid = uuid.uuid4().hex
+        # a mutating tool (shell / edit / write / …): ask a person
+        pid = gate.gate_id
         fut = loop.create_future()
         self._perms[pid] = fut
         title = _tool_title(tool_name, input_data)
@@ -698,17 +674,18 @@ class AgentSession:
                                model=self._turn_model or "")
         self._emit({"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
                     "title": title, "input": input_data})
-        self._arm_hitl_notify(pid, title)  # ping si tu ne réponds pas à temps
+        self._arm_hitl_notify(pid, title)  # ping if nobody answers in time
         self._set_waiting(True)
         try:
             decision = await fut
         except asyncio.CancelledError:
             hitl_journal.decided(pid, "cancelled")
-            return PermissionResultDeny(message="Request cancelled")
+            return contract.Decision.deny("Request cancelled", via="engine")
         finally:
             self._perms.pop(pid, None)
             if not self._perms:
                 self._set_waiting(False)
+        by, via = self._decided_by.pop(pid, ("", "rail"))
         if decision.get("decision") == "allow":
             final = decision.get("updated_input") or input_data
             if self.sandboxed is not None:
@@ -717,16 +694,48 @@ class AgentSession:
                 final = sandbox.recheck(tool_name, final, sid=self.sid, user=self.user,
                                         project=self.sandboxed, cwd=self.cwd)
                 if isinstance(final, str):
-                    return PermissionResultDeny(message=final)
-            if tool_name in _EDIT_TOOLS and self._is_simple_work() and not self.policy \
-                    and _is_deliverable_path(str(final.get("file_path") or "")):
+                    return contract.Decision.deny(final, **auto)
+            saved = str(final.get("file_path") or "") or gate.path
+            if gate.kind == "file_write" and self._is_simple_work() and not self.policy \
+                    and _is_deliverable_path(saved):
                 if not hasattr(self, "_approved_saves"):
                     self._approved_saves = set()
-                self._approved_saves.add(os.path.abspath(str(final.get("file_path"))))
-            return PermissionResultAllow(updated_input=final)
-        return PermissionResultDeny(
-            message=decision.get("message") or "Denied by the user"
-        )
+                self._approved_saves.add(os.path.abspath(saved))
+            return _allow(gate, final, by=by, via=via)
+        return contract.Decision.deny(decision.get("message") or "Denied by the user",
+                                      by=by, via=via)
+
+    def _on_gate(self, gate: contract.Gate) -> None:
+        """A `gate.requested` of the stream: decided apart, so the stream keeps flowing
+        while a person thinks; the decision goes back through `Harness.decide`."""
+        harness = self.harness
+
+        async def _run() -> None:
+            decision = await self.gate(gate)
+            if decision.kind not in gate.options and not decision.denied:
+                # the cockpit never asks an engine for more than the gate offers
+                decision = contract.Decision.deny(
+                    f"This engine does not take the decision {decision.kind!r} for this "
+                    "request.", by="policy", via="auto_rule")
+            if harness is not None:
+                try:
+                    await harness.decide(gate.gate_id, decision)
+                except Exception as e:  # noqa: BLE001 — the engine is gone: nothing to tell
+                    print(f"[sokkan] gate {gate.gate_id} of {self.sid}: decision not "
+                          f"delivered ({e!r})", file=sys.stderr)
+
+        t = asyncio.create_task(_run())
+        self._gate_tasks.add(t)
+        t.add_done_callback(self._gate_tasks.discard)
+
+    def _gate_resolved(self, ev: contract.GateResolved) -> None:
+        """`gate.resolved`: what the engine applied. A gate still waiting for a person here
+        was settled on the engine's side (expired, decided elsewhere): the card closes."""
+        fut = self._perms.get(ev.gate_id) or self._questions.get(ev.gate_id)
+        if fut is not None and not fut.done():
+            kind = "question" if ev.gate_id in self._questions else "permission"
+            fut.cancel()
+            self._emit({"type": f"{kind}_resolved", "id": ev.gate_id, "ts": time.time()})
 
     def _is_simple_work(self) -> bool:
         """Opened from the simple profile (simple.works)? Looked up once per session."""
@@ -782,22 +791,31 @@ class AgentSession:
         if fut and not fut.done():
             fut.set_result(decision)
             allow = decision.get("decision") == "allow"
-            hitl_journal.decided(
+            row = hitl_journal.decided(
                 pid, "allow" if allow else "deny",
                 edited_input=decision.get("updated_input") if allow else None,
                 message=None if allow else (decision.get("message") or ""),
                 secrets=self.redact_values, fallback_owner=self.user)
+            self._note_decider(pid, row)
             # évent de réconciliation : au replay (refresh), les cartes déjà
             # résolues ne doivent pas se ré-afficher comme actionnables
             self._emit({"type": "permission_resolved", "id": pid, "ts": time.time(),
                         "decision": "allow" if allow else "deny"})
 
+    def _note_decider(self, gate_id: str, row: dict | None) -> None:
+        """Who decided and through what, as the journal attributed it — echoed by the
+        engine in `gate.resolved`."""
+        if row:
+            via = row.get("origin") if row.get("origin") in ("teams", "share") else "rail"
+            self._decided_by[gate_id] = (row.get("actor") or "", via)
+
     def resolve_question(self, qid: str, answers: dict) -> None:
         fut = self._questions.get(qid)
         if fut and not fut.done():
             fut.set_result(answers)
-            hitl_journal.decided(qid, "answer", message=answers, secrets=self.redact_values,
-                                 fallback_owner=self.user)
+            row = hitl_journal.decided(qid, "answer", message=answers,
+                                       secrets=self.redact_values, fallback_owner=self.user)
+            self._note_decider(qid, row)
             self._emit({"type": "question_resolved", "id": qid, "ts": time.time()})
 
     # ---- un tour ------------------------------------------------------------
@@ -831,7 +849,7 @@ class AgentSession:
             self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
         self.last_active = time.monotonic()
         await self.ensure_started()
-        assert self.client is not None
+        assert self.harness is not None
         self._busy = True
         self._refusal_said = None
         self._approved_saves = set()     # 3.6.7: documents the person approved in this turn
@@ -841,9 +859,14 @@ class AgentSession:
         t_in, t_out, before = self.tokens_in, self.tokens_out, self.last_result
         failed = False
         try:
-            await self.client.query(text)
-            async for msg in self.client.receive_response():
-                self._translate(msg)
+            turn_id = await self.harness.send(text)
+            async for ev in self._stream:
+                if isinstance(ev, contract.Error) and not ev.recoverable:
+                    failed = True      # the engine's call failed: said below, turn lost
+                self._consume(ev)
+                if isinstance(ev, contract.RunEnded) or (
+                        isinstance(ev, contract.TurnEnded) and ev.turn_id == turn_id):
+                    break
         except Exception as e:  # noqa: BLE001
             failed = True
             self._emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
@@ -874,173 +897,205 @@ class AgentSession:
             return self.user
 
     async def interrupt(self) -> None:
-        if self.client is not None:
+        if self.harness is not None:
             try:
-                await self.client.interrupt()
+                await self.harness.interrupt()
             except Exception as e:  # noqa: BLE001
                 self._emit({"type": "error", "message": f"interrupt: {e}"})
 
     async def set_mode(self, mode: str, actor: str = "") -> None:
-        """Change le mode de permission de la session (default / acceptEdits /
-        bypassPermissions / plan). bypass & acceptEdits sont appliqués dans
-        `_can_use_tool` (SDK laissé sur default pour garder AskUserQuestion
-        interactif) ; seul `plan` est engagé au niveau du SDK."""
+        """Change the session's approval mode (default / acceptEdits / bypassPermissions /
+        plan). bypass & acceptEdits are rules of the cockpit, applied in `gate` (the engine
+        keeps asking, so a question stays interactive); only `plan` is engaged in the
+        engine."""
         if mode not in VALID_MODES:
             return
         if mode != self.mode:
             hitl_journal.mode_changed(self.sid, self.mode, mode, actor=actor, owner=self.user)
         self.mode = mode
-        if self.client is not None:
+        if self.harness is not None:
             try:
-                await self.client.set_permission_mode(
-                    "plan" if mode == "plan" else "default")
+                await self.harness.set_mode("plan" if mode == "plan" else "default")
             except Exception as e:  # noqa: BLE001
                 self._emit({"type": "error", "message": f"set_mode: {e}"})
         self._emit({"type": "perm_mode", "mode": mode})
 
-    # ---- traduction message SDK → event WS ----------------------------------
+    # ---- contract event → what the cockpit knows (WS flow, costs, journal) ----
     def _emit_model(self, model: str | None) -> None:
-        """Émet le modèle réel de la session (une fois / quand il change) → badge cockpit.
-        Répond à « on ne sait pas sur quel modèle tourne la session »."""
+        """Emits the session's real model (once / when it changes) → cockpit badge.
+        Answers « we do not know which model the session runs on »."""
         if model and model != self._model_seen:
             self._model_seen = model
             self._emit({"type": "model", "model": model})
 
-    def _translate(self, msg: Any) -> None:
-        if isinstance(msg, SystemMessage):
-            data = getattr(msg, "data", {}) or {}
-            sid = data.get("session_id")
+    def _consume(self, ev: contract.Event) -> None:
+        """One event of the run's stream. The flow sent to the front keeps its format: this
+        is where the contract is translated into it."""
+        if isinstance(ev, contract.RunInfo):
+            sid = ev.engine_session
             if sid and sid != self.claude_session_id:
                 self.claude_session_id = sid
-                try:  # persisté → resume possible après restart de sokkan-api
+                try:  # persisted → resume possible after a restart of the api
                     board.set_claude_session_id(self.sid, sid)
                 except Exception:  # noqa: BLE001
                     pass
                 self._emit({"type": "session", "claude_session_id": sid})
-            self._emit_model(data.get("model"))  # le message init porte souvent le modèle
-            return
+            self._emit_model(ev.model or ev.requested_model)
+            if ev.model:
+                # 3.6.5: the model THE API ANSWERED WITH (the badge of each answer, of each
+                # save, of each validation) — not the alias the engine was given
+                self._turn_model = ev.model
+        elif isinstance(ev, contract.AssistantText):
+            if ev.text.strip():
+                out = {"type": "text", "text": ev.text}
+                if self._turn_model:
+                    out["model"] = self._turn_model
+                self._emit(out)
+                if ev.text.lstrip().startswith("API Error"):   # the engine's line for a refusal
+                    self._explain_refusal(ev.text)
+        elif isinstance(ev, contract.AssistantThink):
+            self._emit({"type": "thinking", "text": ev.text})
+        elif isinstance(ev, contract.ToolCalled):
+            out = {"type": "tool_use", "id": ev.call_id, "tool": ev.name,
+                   "title": _tool_title(ev.name, ev.input), "input": ev.input}
+            if self._turn_model:
+                out["model"] = self._turn_model
+            self._emit(out)
+        elif isinstance(ev, contract.ToolResult):
+            self._emit({"type": "tool_result", "tool_use_id": ev.call_id,
+                        "text": ev.output[:8000], "is_error": not ev.ok,
+                        "truncated": len(ev.output) > 8000})
+        elif isinstance(ev, contract.Usage):
+            self._on_usage(ev)
+        elif isinstance(ev, contract.TurnEnded):
+            self._on_turn_ended(ev)
+        elif isinstance(ev, contract.GateRequested):
+            self._on_gate(ev.gate)
+        elif isinstance(ev, contract.GateResolved):
+            self._gate_resolved(ev)
+        elif isinstance(ev, contract.ContextInjected):
+            self.context_log.append({"turn_id": ev.turn_id, "source": ev.source,
+                                     "channel": ev.channel, "notes": list(ev.note_names),
+                                     "chars": ev.chars})
+        elif isinstance(ev, contract.Error):
+            if ev.code == "confined":
+                # a tool refused by the project boundary: the model was told; the person is
+                # told once when it is the shell that is off (hooks-only sandbox)
+                if ev.data.get("shell_off"):
+                    self._sandbox_bash_off()
+            else:
+                self._emit({"type": "error", "message": f"{ev.code}: {ev.message}"})
+                self._explain_refusal(ev.message)
+        # run.started, turn.started, run.ended: nothing to show
 
-        if isinstance(msg, ResultMessage):
-            turn_cost = getattr(msg, "total_cost_usd", None)
-            usage = getattr(msg, "usage", None) or {}
-            if self.meter is not None and self.meter.active:
-                # the CLI's figure is at a Claude tariff: use SOKKAN's own count
-                # exact totals of the turn: the messages only announced their calls (3.6.4)
-                self.meter.settle_turn(usage if isinstance(usage, dict) else None)
-                turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
-                self.cost_usd = self.meter.cost_usd
-            elif turn_cost:
-                total = float(turn_cost)
-                # delta depuis le dernier résultat de CE processus ; un total plus petit =
-                # processus relancé sans passer par _start (filet) → le total est le delta
-                turn_cost = total - self._cli_cost_seen if total >= self._cli_cost_seen else total
-                self._cli_cost_seen = total
-                self.cost_usd += turn_cost
-            if isinstance(usage, dict):
-                self.tokens_in += int(usage.get("input_tokens") or 0) + int(
-                    usage.get("cache_read_input_tokens") or 0) + int(
-                    usage.get("cache_creation_input_tokens") or 0)
-                self.tokens_out += int(usage.get("output_tokens") or 0)
-            self.num_turns += int(getattr(msg, "num_turns", 0) or 0)
-            self.last_result = {
-                "text": getattr(msg, "result", "") or "",
-                "is_error": bool(getattr(msg, "is_error", False)),
-                "subtype": getattr(msg, "subtype", "") or "",
-            }
-            if getattr(msg, "is_error", False):
-                self._explain_refusal(getattr(msg, "result", "") or "")
-            self._emit({
-                "type": "result",
-                "text": getattr(msg, "result", "") or "",
-                "is_error": bool(getattr(msg, "is_error", False)),
-                "num_turns": getattr(msg, "num_turns", None),
-                "cost_usd": turn_cost,
-                "session_cost_usd": round(self.cost_usd, 4),
-            })
-            # 3.6: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
-            # words a person can act on, instead of the CLI's raw `API Error: …` line alone
-            # — unless the study already said why: a 429 of the study is not « wait a minute
-            # and send again » (the generic sentence of a 429), it would contradict it
-            if (getattr(msg, "is_error", False) or "API Error" in (getattr(msg, "result", "") or "")) \
-                    and not study.refusal_code(getattr(msg, "result", "") or ""):
-                import llmerrors
-                h = llmerrors.from_text(getattr(msg, "result", "") or "")
-                if h:
-                    self._emit({"type": "error", "code": h["code"], "title": h["title"],
-                                "message": f"{h['title']} — {h['message']}"})
-            budget = instance.budgets().get("budget_session_usd", 0.0)
-            if budget and not self._budget_warned and self.cost_usd >= 0.8 * budget:
-                self._budget_warned = True
-                self._emit({"type": "error",
-                            "message": (f"Heads-up: this session has used ${self.cost_usd:.2f} "
-                                        f"of its ${budget:.2f} budget (≥80%). It will stop "
-                                        "accepting new turns at the limit.")})
+    def _on_usage(self, ev: contract.Usage) -> None:
+        if ev.scope == "turn":
+            self._turn_usage = ev       # the engine's own total: read at turn.ended
             return
-
-        # AssistantMessage (et UserMessage portant des tool_result)
-        self._emit_model(getattr(msg, "model", None))  # le modèle réel du tour
-        if getattr(msg, "model", None):
-            self._turn_model = msg.model
+        self._record_usage(ev)
+        if ev.revision:
+            # the final figures of a call already counted: for the ledger only. The meter
+            # of a run counts a call as it is first reported — unchanged in this lot.
+            return
         if self.meter is not None and (self.meter.active or self.meter.guarding):
             if self.meter.active:
-                self.meter.add(getattr(msg, "usage", None), getattr(msg, "message_id", None))
-            else:  # 3.4.4: Claude priced by the SDK — SOKKAN guards the next call too
-                self.meter.add_sdk(getattr(msg, "usage", None), getattr(msg, "message_id", None),
-                                   getattr(msg, "model", None))
+                self.meter.add(_usage_dict(ev), ev.message_id)
+            else:  # 3.4.4: a model the engine prices — SOKKAN guards the next call too
+                self.meter.add_sdk(_usage_dict(ev), ev.message_id, ev.model)
             why = self.meter.over() if self.budget_stop is None else None
             if why:
                 self.budget_stop = why
                 self._emit({"type": "error", "message": f"Agent run stopped: {why}."})
                 try:
                     asyncio.get_running_loop().create_task(self.interrupt())
-                except RuntimeError:  # no loop (unit test of _translate): the caller stops
+                except RuntimeError:  # no loop (unit test of _consume): the caller stops
                     pass
-        content = getattr(msg, "content", None)
-        if not isinstance(content, list):
-            return
-        # 3.6.7: a text block of a USER message is not the agent speaking — the CLI hands a
-        # loaded skill's body (« Base directory for this skill: … ») back that way, and the
-        # Atelier showed that page as the agent's answer. Only its tool results are read.
-        from_user = type(msg).__name__ == "UserMessage"
-        for b in content:
-            if from_user and isinstance(b, TextBlock):
-                continue
-            self._translate_block(b)
 
-    def _translate_block(self, b: Any) -> None:
-        if isinstance(b, TextBlock):
-            t = getattr(b, "text", "") or ""
-            if t.strip():
-                ev = {"type": "text", "text": t}
-                if self._turn_model:
-                    ev["model"] = self._turn_model
-                self._emit(ev)
-                if t.lstrip().startswith("API Error"):   # the CLI's own line for a refusal
-                    self._explain_refusal(t)
-        elif isinstance(b, ThinkingBlock):
-            self._emit({"type": "thinking",
-                        "text": getattr(b, "thinking", "") or ""})
-        elif isinstance(b, ToolUseBlock):
-            name = getattr(b, "name", "tool")
-            inp = getattr(b, "input", {}) or {}
-            ev = {"type": "tool_use", "id": getattr(b, "id", None),
-                  "tool": name, "title": _tool_title(name, inp), "input": inp}
-            if self._turn_model:
-                ev["model"] = self._turn_model
-            self._emit(ev)
-        elif isinstance(b, ToolResultBlock):
-            out = _text_of(getattr(b, "content", ""))
-            self._emit({"type": "tool_result",
-                        "tool_use_id": getattr(b, "tool_use_id", None),
-                        "text": out[:8000], "is_error": bool(getattr(b, "is_error", False)),
-                        "truncated": len(out) > 8000})
+    def _record_usage(self, ev: contract.Usage) -> None:
+        """The `events` source of Operate › Costs (usage.py): every model call the engine
+        reports, recorded as it comes. Best-effort: a ledger that cannot be written never
+        breaks a turn."""
+        try:
+            import usage
+            usage.record_event(
+                session_id=self.sid, message_id=ev.message_id, model=ev.model,
+                in_tokens=ev.input, out_tokens=ev.output, cache_read=ev.cache_read,
+                cache_write=ev.cache_write, cache_write_long=ev.cache_write_long,
+                turn_id=ev.turn_id, harness=getattr(self.harness, "name", "") or "",
+                engine_session=self.claude_session_id, project=self._usage_project(),
+                basis=ev.basis)
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] usage event of {self.sid} not recorded ({e!r})", file=sys.stderr)
+
+    def _usage_project(self) -> str:
+        p = getattr(self, "_usage_proj", None)
+        if p is None:
+            p = self._usage_proj = session_project(self.sid) or "default"
+        return p
+
+    def _on_turn_ended(self, ev: contract.TurnEnded) -> None:
+        usage, self._turn_usage = self._turn_usage, None
+        if not ev.reported:
+            return                      # no result of the engine: the error was said
+        turn_cost = ev.cost_usd
+        if self.meter is not None and self.meter.active:
+            # the engine's figure is at another model's tariff: use SOKKAN's own count
+            # exact totals of the turn: the calls were counted as first reported, and an
+            # engine reports a call before its output is known (3.6.4)
+            self.meter.settle_turn(_usage_dict(usage) if usage is not None else None)
+            turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
+            self.cost_usd = self.meter.cost_usd
+        elif turn_cost:
+            self.cost_usd += turn_cost
+        if usage is not None:
+            self.tokens_in += usage.input + usage.cache_read + usage.cache_write
+            self.tokens_out += usage.output
+        self.num_turns += int(ev.num_turns or 0)
+        self.last_result = {"text": ev.text, "is_error": ev.is_error, "subtype": ev.stop_reason}
+        if ev.is_error:
+            self._explain_refusal(ev.text)
+        self._emit({
+            "type": "result",
+            "text": ev.text,
+            "is_error": ev.is_error,
+            "num_turns": ev.num_turns,
+            "cost_usd": turn_cost,
+            "session_cost_usd": round(self.cost_usd, 4),
+        })
+        # 3.6: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
+        # words a person can act on, instead of the engine's raw `API Error: …` line alone
+        # — unless the study already said why: a 429 of the study is not « wait a minute
+        # and send again » (the generic sentence of a 429), it would contradict it
+        if (ev.is_error or "API Error" in ev.text) and not study.refusal_code(ev.text):
+            import llmerrors
+            h = llmerrors.from_text(ev.text)
+            if h:
+                self._emit({"type": "error", "code": h["code"], "title": h["title"],
+                            "message": f"{h['title']} — {h['message']}"})
+        budget = instance.budgets().get("budget_session_usd", 0.0)
+        if budget and not self._budget_warned and self.cost_usd >= 0.8 * budget:
+            self._budget_warned = True
+            self._emit({"type": "error",
+                        "message": (f"Heads-up: this session has used ${self.cost_usd:.2f} "
+                                    f"of its ${budget:.2f} budget (≥80%). It will stop "
+                                    "accepting new turns at the limit.")})
 
 
-try:  # champs d'options du SDK installé (max_budget_usd n'existe pas partout)
-    import dataclasses as _dc
-    _OPTION_FIELDS = {f.name for f in _dc.fields(ClaudeAgentOptions)}
-except Exception:  # noqa: BLE001
-    _OPTION_FIELDS = set()
+def _allow(gate: contract.Gate, final: dict, *, by: str, via: str) -> contract.Decision:
+    """Allow a gate with the input that may run: `edit` when it is not what was asked."""
+    if final != gate.input:
+        return contract.Decision.edit(final, by=by, via=via)
+    return contract.Decision.allow(final, by=by, via=via)
+
+
+def _usage_dict(u: contract.Usage) -> dict:
+    """A `usage` event in the shape the price table and the meter read (pricing.cost,
+    agentcost.Meter): the fields of the Messages API."""
+    return {"input_tokens": u.input, "output_tokens": u.output,
+            "cache_read_input_tokens": u.cache_read,
+            "cache_creation_input_tokens": u.cache_write,
+            "cache_creation": {"ephemeral_1h_input_tokens": u.cache_write_long,
+                               "ephemeral_5m_input_tokens": u.cache_write - u.cache_write_long}}
 
 
 def _is_deliverable_path(path: str) -> bool:
@@ -1224,32 +1279,6 @@ def idle_close_s() -> float:
         return max(0.0, float(os.environ.get("SOKKAN_SESSION_IDLE_CLOSE_S") or 1800))
     except ValueError:
         return 1800.0
-
-
-async def _reap(client) -> None:
-    """3.6.7 — make sure the CLI process of a closed client is gone. Seen on the end-to-end
-    pass: a session whose client was closed from the sweep's task kept its CLI alive (parent
-    1, ~0.3 GB) — the SDK's close raised before its terminate/kill escalation ran. SIGTERM,
-    then SIGKILL after 3 s; a process already gone is fine."""
-    import signal
-    proc = getattr(getattr(client, "_transport", None), "_process", None)
-    pid = getattr(proc, "pid", None)
-    if not pid or getattr(proc, "returncode", None) is not None:
-        return
-    for sig, wait in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 1.0)):
-        try:
-            os.kill(pid, sig)
-        except (ProcessLookupError, PermissionError):
-            return
-        end = time.monotonic() + wait
-        while time.monotonic() < end:
-            try:
-                done = os.waitpid(pid, os.WNOHANG)[0] == pid
-            except ChildProcessError:
-                done = True
-            if done:
-                return
-            await asyncio.sleep(0.1)
 
 
 async def park_idle(idle_s: float | None = None) -> list[str]:

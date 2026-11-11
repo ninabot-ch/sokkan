@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from urllib.parse import quote, quote_plus
 
 import pytest
+from harness_helpers import feed
 
 _TMP = tempfile.mkdtemp()
 os.environ.setdefault("SOKKAN_DATA_DIR", _TMP)
@@ -549,14 +550,14 @@ def test_session_meter_stops_the_run_and_replaces_the_claude_priced_cost(env, mo
     meter = agentcost.Meter(agentcost.metering(None), budget_usd=2)
     s = agentchat.AgentSession("sid-m", policy={"budget_usd": 2, "meter": meter, "tools": []})
     assert s._sdk_max_budget() is None  # the CLI would price kimi at a Claude tariff
-    s._translate(_assistant("m1", {"input_tokens": 600, "output_tokens": 10}))
-    s._translate(_assistant("m1", {"input_tokens": 600, "output_tokens": 30}))
+    feed(s, _assistant("m1", {"input_tokens": 600, "output_tokens": 10}))
+    feed(s, _assistant("m1", {"input_tokens": 600, "output_tokens": 30}))
     assert s.budget_stop is None
-    s._translate(_assistant("m2", {"input_tokens": 400, "output_tokens": 30}))
+    feed(s, _assistant("m2", {"input_tokens": 400, "output_tokens": 30}))
     assert s.budget_stop and "token cap reached" in s.budget_stop
     assert any(e["type"] == "error" and "token cap" in e["message"] for e in s.events)
     # the CLI's own figure (Claude tariff) is ignored: price unknown → 0, tokens kept
-    s._translate(ResultMessage(subtype="error_during_execution", duration_ms=1,
+    feed(s, ResultMessage(subtype="error_during_execution", duration_ms=1,
                                duration_api_ms=1, is_error=True, num_turns=2,
                                session_id="x", total_cost_usd=3.21,
                                usage={"input_tokens": 1000, "output_tokens": 60}))
@@ -566,7 +567,7 @@ def test_session_meter_stops_the_run_and_replaces_the_claude_priced_cost(env, mo
     m = agentcost.Meter(agentcost.metering("sonnet"), budget_usd=2)
     s2 = agentchat.AgentSession("sid-c", policy={"budget_usd": 2, "meter": m, "tools": []})
     assert s2._sdk_max_budget() == 2.0
-    s2._translate(ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
+    feed(s2, ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
                                 is_error=False, num_turns=1, session_id="x",
                                 total_cost_usd=0.5, usage={"input_tokens": 10}))
     assert s2.cost_usd == 0.5

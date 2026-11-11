@@ -5,13 +5,14 @@ Since 3.2 the rule « an agent run does not write memory files directly » match
 `default` works in `<data>/projects/<slug>/work` and could not write a single file there
 (noted in docs/enterprise/PILOT-RELEASE-NOTES.md § 4, 11.11.2026). The rule now closes the
 memory directories, the quarantine, and the rest of the tree — except the run's own work
-folder. The decision is played through `AgentSession._can_use_tool`, as the SDK calls it.
+folder. The decision is played through `AgentSession.gate`, as the engine's adapter asks it.
 """
 from __future__ import annotations
 
 import asyncio
 
 import pytest
+from harness_helpers import ask
 
 
 @pytest.fixture()
@@ -37,21 +38,21 @@ def run(tmp_path, monkeypatch):
 
     def write(s, path, tool="Write"):
         key = "notebook_path" if tool == "NotebookEdit" else "file_path"
-        return asyncio.run(s._can_use_tool(tool, {key: str(path), "content": "x"}, None))
+        return asyncio.run(ask(s, tool, {key: str(path), "content": "x"}))
     return {"data": data, "tmp": tmp_path, "session": session, "write": write, "journal": journal,
             "project": project}
 
 
 def _denied(res) -> bool:
-    return type(res).__name__ == "PermissionResultDeny" and "memory_write" in res.message
+    return res.denied and "memory_write" in res.message
 
 
 def test_an_agent_run_writes_in_the_work_folder_of_its_own_project(run):
     s, work = run["session"](), run["data"] / "projects" / "formation" / "work"
     for path in (work / "rapport.md", work / "deliverables" / "abc" / "Plan de formation.md"):
         res = run["write"](s, path)
-        assert type(res).__name__ == "PermissionResultAllow", (path, getattr(res, "message", ""))
-    assert type(run["write"](s, work / "notes.md", tool="Edit")).__name__ == "PermissionResultAllow"
+        assert res.allowed, (path, getattr(res, "message", ""))
+    assert run["write"](s, work / "notes.md", tool="Edit").allowed
     # allowed by the run's mode, like any file outside the instance's own space — not by a hole
     assert [(a, r) for a, r, _p in run["journal"]] == [(True, "mode:acceptEdits")] * 3
 
@@ -93,4 +94,4 @@ def test_a_run_with_no_project_of_its_own_gets_nothing_under_projects(run, slug)
                  run["data"] / "projects" / "default" / "work" / "rapport.md",
                  run["data"] / "projects" / "_no-project" / "work" / "rapport.md"):
         assert _denied(run["write"](s, path)), (slug, path)
-    assert type(run["write"](s, run["tmp"] / "elsewhere.md")).__name__ == "PermissionResultAllow"
+    assert run["write"](s, run["tmp"] / "elsewhere.md").allowed

@@ -3,6 +3,7 @@ import os
 import tempfile
 
 import pytest
+from harness_helpers import ask
 
 pytestmark = pytest.mark.usefixtures("model_credentials")  # 3.2: a configured instance
 
@@ -223,18 +224,17 @@ def test_session_policy_denies_tools_outside_the_list():
     import asyncio
 
     import agentchat
-    from claude_agent_sdk import PermissionResultDeny
 
     s = agentchat.AgentSession("sid", cwd="/tmp", policy={
         "tools": ["Read", "Bash"], "auto_approve": ["Bash(npm audit:*)"],
         "mcp": ["sokkan-memory"]})
     loop = asyncio.new_event_loop()
-    res = loop.run_until_complete(s._can_use_tool("Write", {"file_path": "/x"}, None))
-    assert isinstance(res, PermissionResultDeny) and "not in this agent" in res.message
-    res = loop.run_until_complete(s._can_use_tool("mcp__sokkan-board__create_card", {}, None))
-    assert isinstance(res, PermissionResultDeny)
-    res = loop.run_until_complete(s._can_use_tool("AskUserQuestion", {"questions": []}, None))
-    assert isinstance(res, PermissionResultDeny) and "unattended" in res.message
+    res = loop.run_until_complete(ask(s, "Write", {"file_path": "/x"}))
+    assert res.denied and "not in this agent" in res.message
+    res = loop.run_until_complete(ask(s, "mcp__sokkan-board__create_card", {}))
+    assert res.denied
+    res = loop.run_until_complete(ask(s, "AskUserQuestion", {"questions": []}))
+    assert res.denied and "unattended" in res.message
     allowed = s._allowed_tools()
     assert "Read" in allowed and "Bash(npm audit:*)" in allowed
     assert "mcp__sokkan-memory__memory_search" in allowed

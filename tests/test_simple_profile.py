@@ -8,6 +8,7 @@ import pytest
 
 import simple_fixtures as _fx
 from simple_fixtures import DEFAULT_SID, RADIO_SID, docx, put
+from harness_helpers import ask
 
 world = _fx.world      # the shared fixture (people, projects, no model)
 
@@ -394,8 +395,8 @@ def test_a_simple_work_never_asks_to_approve_a_shell_command(world):
     sid = c.post("/api/simple/start", json={"ask": "Un plan de formation", "lang": "fr"}).json()["session_id"]
     s = agentchat.peek(sid)
     before = len(s.events)
-    r = asyncio.run(s._can_use_tool("Bash", {"command": "mkdir -p x"}, None))
-    assert type(r).__name__ == "PermissionResultDeny" and "Write tool" in r.message
+    r = asyncio.run(ask(s, "Bash", {"command": "mkdir -p x"}))
+    assert r.denied and "Write tool" in r.message
     assert len(s.events) == before and not s._perms            # no card, nobody was asked
     # a technical session of the same person still gets the ordinary request
     t = agentchat.get_or_create(DEFAULT_SID, user="bob@x")

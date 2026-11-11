@@ -4,6 +4,7 @@ import os
 import tempfile
 
 import pytest
+from harness_helpers import ask
 
 _TMP = tempfile.mkdtemp()
 os.environ.update(
@@ -210,13 +211,12 @@ def test_quarantine_api(memenv, client_4eyes):
 
 def test_agent_run_cannot_write_memory_files_directly(memenv):
     import agentchat
-    from claude_agent_sdk import PermissionResultDeny
 
     s = agentchat.AgentSession("sid", cwd="/tmp", policy={"tools": ["Write", "Bash"],
                                                           "mcp": ["sokkan-memory"]})
-    res = asyncio.new_event_loop().run_until_complete(s._can_use_tool(
-        "Write", {"file_path": str(memenv["mdir"] / "sneaky.md"), "content": "x"}, None))
-    assert isinstance(res, PermissionResultDeny) and "quarantined" in res.message
+    res = asyncio.new_event_loop().run_until_complete(ask(s,
+        "Write", {"file_path": str(memenv["mdir"] / "sneaky.md"), "content": "x"}))
+    assert res.denied and "quarantined" in res.message
 
 
 # ---- 3. named session secrets -----------------------------------------------------------
