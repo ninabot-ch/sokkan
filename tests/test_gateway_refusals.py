@@ -1,9 +1,10 @@
 """The refusals of the inference gateway, as the gateway ANSWERS them — and what a person reads.
 
-Inputs come from tests/fixtures/gateway_contract/contract.json: the bodies the gateway of
-sokkan-cloud `study-quotas` (f260ada) answered when its app was played on a throw-away
-database (see `_source` in the file; tests/test_pilot_integration.py compares the file with a
-checkout when one is at hand). Nothing here is written from the instance's code.
+Inputs come from tests/fixtures/gateway_contract/contract.json: what the gateway of
+sokkan-cloud answered (status, body, headers) when its app was played on a throw-away
+database (see `_source` in the file, written by regenerate.py next to it;
+tests/test_pilot_integration.py compares the file with a checkout when one is at hand).
+Nothing here is written from the instance's code.
 
 What must hold for the four refusals about the study — 410 `study_expired`, 412
 `study_mode_required` (its text changed on f260ada: it no longer names the study nor the
@@ -11,7 +12,8 @@ header), 429 `user_daily_cap` (a person's own ceiling), 429 `user_limit_reached`
 distinct people today, `max_users_day`):
 
 * the local router hands them back as they are, once, with `x-should-retry: false` — the
-  gateway sends no such header and the CLI retries a bare 429 for minutes;
+  gateway sends that header itself since `study-no-retry`; the one in production before
+  (bd8a8bc) did not, and the CLI retries a bare 429 for minutes: the router adds it anyway;
 * the session says ONE sentence, with the gateway's code, and not the generic « wait a
   minute and send again » of a 429 on top of it;
 * the simple profile shows the notice of that code in the person's language (French and
@@ -94,10 +96,10 @@ def test_other_errors_are_not_study_refusals():
 # ---- the local router (appliance): handed back once, never retried --------------------------
 class Gateway:
     """A socket that answers /v1/messages like the gateway does when it refuses: the status,
-    the JSON body, the header `x-sokkan-error` when there is a code — and nothing else."""
+    the JSON body and the headers of the contract — and nothing else."""
 
     def __init__(self):
-        self.status, self.body, self.code, self.hits = 200, {}, "", 0
+        self.status, self.body, self.headers, self.hits = 200, {}, {}, 0
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -110,8 +112,8 @@ class Gateway:
                 out = json.dumps(outer.body).encode()
                 self.send_response(outer.status)
                 self.send_header("content-type", "application/json")
-                if outer.code:
-                    self.send_header("x-sokkan-error", outer.code)
+                for k, v in outer.headers.items():
+                    self.send_header(k, v)
                 self.send_header("content-length", str(len(out)))
                 self.end_headers()
                 self.wfile.write(out)
@@ -120,8 +122,10 @@ class Gateway:
         self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
 
-    def refuse(self, r: dict):
-        self.status, self.body, self.code, self.hits = r["status"], r["body"], r["body"]["error"].get("code", ""), 0
+    def refuse(self, r: dict, older: bool = False):
+        """`older`: the gateway in production before `study-no-retry` — the code, no `x-should-retry`."""
+        self.status, self.body, self.hits = r["status"], r["body"], 0
+        self.headers = {k: v for k, v in r["headers"].items() if not (older and k == CONTRACT["no_retry_header"])}
 
 
 @pytest.fixture()
@@ -143,16 +147,23 @@ ASK = {"model": "sokkan-ship", "max_tokens": 16, "stream": True, "messages": [{"
 STUDY_HEADERS = {"x-sokkan-study": "heg-eskills-2027", "x-sokkan-user": "P6"}
 
 
+def test_the_gateway_itself_forbids_the_retry_of_the_four_and_of_them_only():
+    for code in CODES:
+        assert REFUSALS[code]["headers"] == {"x-sokkan-error": code, "x-should-retry": "false"}
+    assert CONTRACT["tenant_cap"]["headers"] == {}                  # the tenant's 429: the client may retry
+
+
+@pytest.mark.parametrize("older", [False, True], ids=["gateway", "gateway-before-no-retry"])
 @pytest.mark.parametrize("code", CODES)
-def test_the_router_hands_a_study_refusal_back_once_and_forbids_the_retry(router, code):
+def test_the_router_hands_a_study_refusal_back_once_and_forbids_the_retry(router, code, older):
     c, gw = router
     r = REFUSALS[code]
-    gw.refuse(r)
+    gw.refuse(r, older=older)
     out = c.post("/v1/messages", json=ASK, headers=STUDY_HEADERS)
     assert out.status_code == r["status"]
     assert out.json() == r["body"]                          # the gateway's own words, untouched
     assert out.headers["x-sokkan-error"] == code
-    assert out.headers["x-should-retry"] == "false"         # the gateway sends none: the router must
+    assert out.headers["x-should-retry"] == "false"         # with or without the gateway's own
     assert gw.hits == 1                                     # … and the router itself asked once
 
 
@@ -244,3 +255,61 @@ def test_the_simple_profile_has_the_sentence_in_french_and_in_english(code):
     thread = (ROOT / "frontend" / "components" / "simple" / "Thread.tsx").read_text(encoding="utf-8")
     listed = re.search(r"t\(\(`no\.\$\{\[(.*?)\]\.includes\(it\.code\)", thread, re.S).group(1)
     assert f'"{code}"' in listed
+
+
+# ---- on an appliance the person's ceiling only closes Deep: the local model remains ----------
+# Seen on the journey against the real gateway (11.11.2026): the notice said « tomorrow » to a
+# person who could go on at once with the model of the box.
+@pytest.fixture()
+def appliance(monkeypatch, tmp_path):
+    import llm
+    monkeypatch.setattr(llm, "CONFIG", tmp_path / "llm.json")       # nothing chosen in the cockpit
+    monkeypatch.setenv("SOKKAN_SHIP_URL", "http://127.0.0.1:8004")
+    assert llm.load().get("engine") == "appliance"
+
+
+def test_on_an_appliance_the_daily_cap_notice_says_the_local_model_remains(appliance):
+    import plain
+    import study
+    shown = shown_by_the_cli(REFUSALS["user_daily_cap"])
+    said = study.explain_refusal(shown)
+    en, fr = said.split(" — ", 1)
+    assert "right away" in en and "tout de suite" in fr and "tomorrow" in en and "demain" in fr
+    for part in (en, fr):
+        assert not TECHNICAL.search(part), part
+    assert study.refusal_code(shown) == "user_daily_cap"             # the gateway's code is unchanged
+    sess = _session()
+    sess._translate(_assistant(shown))
+    sess._translate(_result(shown))
+    assert [(e.get("code"), e["message"]) for e in sess.events if e["type"] == "error"] == [("user_daily_cap", said)]
+    v = plain.View()
+    notices = [x for ev in sess.events for x in v.feed(ev) if x["type"] == "notice"]
+    assert [n["code"] for n in notices] == ["user_daily_cap_local"]  # one notice, its own sentence
+    fr_d, en_d = _dict("fr")["no.user_daily_cap_local"], _dict("en")["no.user_daily_cap_local"]
+    assert "tout de suite" in fr_d and "right away" in en_d and "demain" in fr_d and "tomorrow" in en_d
+    for s in (fr_d, en_d):
+        assert len(s) > 60 and not TECHNICAL.search(s), s
+    assert re.search(r"[éèàç]", fr_d) and not re.search(r"[éèàç]", en_d)
+    thread = (ROOT / "frontend" / "components" / "simple" / "Thread.tsx").read_text(encoding="utf-8")
+    assert '"user_daily_cap_local"' in re.search(r"t\(\(`no\.\$\{\[(.*?)\]\.includes\(it\.code\)", thread, re.S).group(1)
+
+
+@pytest.mark.parametrize("code", [c for c in CODES if c != "user_daily_cap"])
+def test_on_an_appliance_the_other_refusals_keep_their_sentence(appliance, code, monkeypatch):
+    import plain
+    import study
+    shown = shown_by_the_cli(REFUSALS[code])
+    with_box = study.explain_refusal(shown)
+    v = plain.View()
+    assert [x["code"] for x in v.feed({"type": "error", "code": code, "message": with_box})] == [code]
+    monkeypatch.delenv("SOKKAN_SHIP_URL")
+    assert study.explain_refusal(shown) == with_box
+
+
+def test_without_local_model_the_daily_cap_still_says_tomorrow():
+    import plain
+    import study
+    shown = shown_by_the_cli(REFUSALS["user_daily_cap"])
+    assert "right away" not in study.explain_refusal(shown)
+    v = plain.View()
+    assert [x["code"] for x in v.feed({"type": "error", "code": "user_daily_cap", "message": "…"})] == ["user_daily_cap"]

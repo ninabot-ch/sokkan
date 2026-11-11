@@ -257,6 +257,7 @@ export const fr = {
   "no.study_expired": "La période gratuite de l'étude est terminée. Votre travail est conservé, mais l'agent ne peut plus répondre pour l'instant. Prévenez la personne qui administre SOKKAN : elle peut la prolonger.",
   "no.study_mode_required": "L'agent ne peut pas répondre pour l'instant : son usage gratuit est lié à l'étude, et cet espace n'est pas en mode étude. Votre travail est conservé. Renvoyer la demande ne changera rien : prévenez la personne qui administre SOKKAN.",
   "no.user_daily_cap": "Vous avez atteint votre limite d'utilisation pour aujourd'hui. Votre travail est conservé et vous pourrez continuer demain (la limite repart à minuit, heure universelle). Vos collègues ne sont pas concernés.",
+  "no.user_daily_cap_local": "Vous avez atteint pour aujourd'hui votre limite d'utilisation du modèle renforcé. Votre travail est conservé et vous pouvez continuer tout de suite avec le modèle habituel : renvoyez votre demande sans demander le modèle renforcé. Il vous sera rouvert demain (la limite repart à minuit, heure universelle). Vos collègues ne sont pas concernés.",
   "no.user_limit_reached": "Le nombre de personnes qui peuvent utiliser l'agent aujourd'hui est atteint, et vous n'en faites pas encore partie. Votre travail est conservé. Renvoyer la demande aujourd'hui ne changera rien : demandez à la personne qui administre SOKKAN de relever cette limite.",
   // questions
   "q.submit": "Répondre",
@@ -597,6 +598,7 @@ export const en: Record<Key, string> = {
   "no.study_expired": "The free period of the study has ended. Your work is kept, but the agent cannot answer for now. Tell the person who administers SOKKAN: they can extend it.",
   "no.study_mode_required": "The agent cannot answer for now: its free use is tied to the study, and this workspace is not in study mode. Your work is kept. Sending the request again will not help: tell the person who administers SOKKAN.",
   "no.user_daily_cap": "You have reached your usage limit for today. Your work is kept and you can carry on tomorrow (the limit resets at midnight, universal time). Your colleagues are not affected.",
+  "no.user_daily_cap_local": "You have reached your limit for the stronger model for today. Your work is kept and you can carry on right away with the usual model: send your request without asking for the stronger one. It opens again for you tomorrow (the limit resets at midnight, universal time). Your colleagues are not affected.",
   "no.user_limit_reached": "The number of people who can use the agent today is reached, and you are not one of them yet. Your work is kept. Sending the request again today will not help: ask the person who administers SOKKAN to raise this limit.",
   "q.submit": "Answer",
   // 3.6 pilot: review of the ingestion batches, study band and consent

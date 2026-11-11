@@ -1,5 +1,5 @@
 {
-  "_source": "sokkan-cloud branch study-quotas (f260ada): infer/pilote-etude.md § 4 (the `GET /usage` example, verbatim), infer/gateway.py `_refuse` (the four study refusals). The bodies of 412 study_mode_required, 429 user_daily_cap and 429 user_limit_reached are what the gateway of f260ada ANSWERED (its app played in-process on a throw-away database, tenant set as in § 2 of the page: study heg-eskills-2027, audit_required, max_users_day 5; sixth identity of the day for user_limit_reached) — 11.11.2026; the 410 is the source's f-string with the date of the documented example (played with another date: same words). The gateway sends the header x-sokkan-error with the code, and NO x-should-retry and NO retry-after on any of them. Regenerate from a checkout, never by hand; tests/test_pilot_integration.py compares this file with the checkout when one is at hand (SOKKAN_CLOUD_SRC, else /root/sokkan-cloud-wt-study).",
+  "_source": "sokkan-cloud branch study-no-retry (293573d), written by tests/fixtures/gateway_contract/regenerate.py: `usage` is the `GET /usage` example of infer/pilote-etude.md § 4, verbatim; the four study refusals and the tenant-wide 429 are what the gateway's app ANSWERED when played in-process on a throw-away database (tenant set as in § 2 of the page: study heg-eskills-2027, audit_required, expires 2027-04-30, max_users_day 5; sixth identity of the day for user_limit_reached; clock set after the end date for the 410). `headers` holds, of each answer, x-sokkan-error, x-should-retry and retry-after WHEN SENT: since study-no-retry the four study refusals carry `x-should-retry: false`, the tenant-wide 429 carries none of the three. Regenerate with the script, never by hand; tests/test_pilot_integration.py compares this file with the checkout when one is at hand (SOKKAN_CLOUD_SRC, else /root/sokkan-cloud-wt-noretry).",
   "usage": {
     "study": {
       "active": true,
@@ -29,12 +29,17 @@
     "x-sokkan-study"
   ],
   "error_header": "x-sokkan-error",
+  "no_retry_header": "x-should-retry",
   "refusals": [
     {
       "status": 410,
       "type": "permission_error",
       "code": "study_expired",
       "message": "The free inference period for this environment ended on 2027-04-30. Nothing was sent to a model. Contact your SOKKAN administrator to extend it or to switch to a paid plan (same token).",
+      "headers": {
+        "x-sokkan-error": "study_expired",
+        "x-should-retry": "false"
+      },
       "words_in_source": [
         "The free inference period for this environment ended on ",
         ". Nothing was sent to a model. Contact your SOKKAN ",
@@ -54,6 +59,10 @@
       "type": "permission_error",
       "code": "study_mode_required",
       "message": "Free inference for this environment is tied to a study and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings, or contact your SOKKAN administrator. Nothing was sent to a model.",
+      "headers": {
+        "x-sokkan-error": "study_mode_required",
+        "x-should-retry": "false"
+      },
       "words_in_source": [
         "Free inference for this environment is tied to a study and is only served ",
         "while the instance runs in study mode (audited). Turn study mode on in the ",
@@ -74,6 +83,10 @@
       "type": "rate_limit_error",
       "code": "user_daily_cap",
       "message": "personal daily inference cap reached for this user in this environment — resets at midnight UTC (other users are not affected)",
+      "headers": {
+        "x-sokkan-error": "user_daily_cap",
+        "x-should-retry": "false"
+      },
       "words_in_source": [
         "personal daily inference cap reached for this user in this environment — ",
         "resets at midnight UTC (other users are not affected)"
@@ -92,6 +105,10 @@
       "type": "rate_limit_error",
       "code": "user_limit_reached",
       "message": "too many distinct users today for this environment (limit: 5 per day) — users already seen today are not affected; ask your SOKKAN administrator to raise the limit. Nothing was sent to a model.",
+      "headers": {
+        "x-sokkan-error": "user_limit_reached",
+        "x-should-retry": "false"
+      },
       "words_in_source": [
         "too many distinct users today for this environment (limit: ",
         " per day) — users already seen today are not affected; ",
@@ -109,6 +126,7 @@
   ],
   "tenant_cap": {
     "status": 429,
+    "headers": {},
     "body": {
       "type": "error",
       "error": {

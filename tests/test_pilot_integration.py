@@ -857,8 +857,9 @@ def test_sessions_on_the_local_engine_get_medium_effort_and_the_study_headers(bo
 # ============ g. the contract with the inference gateway ====================================
 # Inputs are NOT written from the instance's code: tests/fixtures/gateway_contract/ holds the
 # `GET /usage` example of the gateway's own documentation (sokkan-cloud infer/pilote-etude.md
-# § 4) and the four refusals as its code builds them (infer/gateway.py `_refuse`). When a
-# checkout of sokkan-cloud is at hand (SOKKAN_CLOUD_SRC), the copy is compared with it.
+# § 4) and the four refusals as its app answers them (infer/gateway.py `_refuse`), written by
+# tests/fixtures/gateway_contract/regenerate.py. When a checkout of sokkan-cloud is at hand
+# (SOKKAN_CLOUD_SRC), the copy is compared with it.
 # The refusals themselves (router, session, simple profile): tests/test_gateway_refusals.py.
 CONTRACT = ROOT / "tests" / "fixtures" / "gateway_contract"
 
@@ -868,7 +869,7 @@ def _contract() -> dict:
 
 
 def _cloud() -> Path | None:
-    for p in (os.environ.get("SOKKAN_CLOUD_SRC"), "/root/sokkan-cloud-wt-study"):
+    for p in (os.environ.get("SOKKAN_CLOUD_SRC"), "/root/sokkan-cloud-wt-noretry"):
         if p and (Path(p) / "infer" / "pilote-etude.md").exists():
             return Path(p)
     return None
@@ -889,6 +890,17 @@ def test_the_frozen_contract_is_the_gateways_own_text():
         for words in r["words_in_source"]:
             assert words in gw, (r["code"], words)
         assert re.search(rf'\|\s*{r["status"]}\s*\|\s*`{r["code"]}`', doc), r["code"]
+    # since sokkan-cloud `study-no-retry` the gateway itself forbids the retry of these four
+    # (a session that talks to it WITHOUT the local router waited 177 s on a 429) — and of
+    # these four only: the tenant-wide 429 keeps the client's retry
+    no_retry = _contract()["no_retry_header"]
+    assert no_retry == "x-should-retry"
+    for r in _contract()["refusals"]:
+        assert r["headers"] == {_contract()["error_header"]: r["code"], no_retry: "false"}, r["code"]
+    assert _contract()["tenant_cap"]["headers"] == {}
+    assert f'NO_RETRY_HEADER = "{no_retry}"' in gw
+    assert 'headers={ERR_HEADER: code, NO_RETRY_HEADER: "false"}' in gw
+    assert f"`{no_retry}: false`" in doc
 
 
 def test_usage_of_the_gateway_is_read_as_documented(box, monkeypatch):

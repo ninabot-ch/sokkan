@@ -37,6 +37,14 @@ _REMINDER_RX = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.S)
 STUDY_NOTICES = ("study_expired", "study_mode_required", "user_daily_cap", "user_limit_reached")
 
 
+def _local_model_remains() -> bool:
+    try:
+        import study
+        return study.local_model_remains()
+    except Exception:  # noqa: BLE001 — the view never fails on a lookup
+        return False
+
+
 def _study_code(text: str) -> str | None:
     try:
         import study
@@ -305,6 +313,10 @@ class View:
         if self._refused == code:
             return []
         self._refused = code
+        if code == "user_daily_cap" and _local_model_remains():
+            # an appliance: the ceiling closes the stronger model only, the person can go on
+            # at once with the model of the box — its own sentence (`no.user_daily_cap_local`)
+            code = "user_daily_cap_local"
         return [{"type": "notice", "code": code, "detail": _short(detail, 1000)}]
 
     def sources(self) -> list[dict]:

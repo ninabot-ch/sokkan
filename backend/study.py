@@ -412,6 +412,28 @@ _REFUSALS = (
      "SOKKAN de relever la limite ; renvoyer la demande aujourd'hui ne changera rien."),
 )
 REFUSAL_CODES = tuple(marks[0] for marks, _ in _REFUSALS)
+# On an appliance only the requests sent to the Deep gateway are metered there: a person at
+# their ceiling has lost the stronger model for the day, NOT the model of the box (the notice
+# said « tomorrow » to somebody who could go on at once — journey of 11.11.2026).
+_DAILY_CAP_LOCAL = (
+    "You have reached your personal ceiling of the stronger model for today (your colleagues "
+    "are not affected). Nothing is lost and you can carry on right away with the usual model: "
+    "send your request without asking for the stronger one, which opens again tomorrow "
+    "(midnight UTC). — Vous avez atteint votre plafond personnel du modèle renforcé pour "
+    "aujourd'hui (vos collègues ne sont pas concernés). Rien n'est perdu et vous pouvez "
+    "continuer tout de suite avec le modèle habituel : renvoyez votre demande sans demander "
+    "le modèle renforcé, qui vous sera rouvert demain (minuit UTC).")
+
+
+def local_model_remains() -> bool:
+    """Is this instance an appliance — sessions on the model of the box through the local
+    router, the gateway asked for Deep only (llm.appliance_config, unless a model was chosen
+    in the cockpit)? Then a person's ceiling on the gateway leaves the local model usable."""
+    try:
+        import llm
+        return llm.load().get("engine") == "appliance"
+    except Exception:  # noqa: BLE001 — a sentence never fails on a lookup
+        return False
 
 
 def refusal_code(text: str) -> str | None:
@@ -432,6 +454,8 @@ def explain_refusal(text: str) -> str | None:
     refused the call for a study reason; None for any other error. Works with the feature
     off too (412 is exactly what an instance without study mode gets)."""
     code = refusal_code(text)
+    if code == "user_daily_cap" and local_model_remains():
+        return _DAILY_CAP_LOCAL
     return next(s for marks, s in _REFUSALS if marks[0] == code) if code else None
 
 
