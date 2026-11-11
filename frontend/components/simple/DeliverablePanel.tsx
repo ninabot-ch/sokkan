@@ -9,8 +9,9 @@ import { useMe } from "@/lib/me";
 import Icon from "./icons";
 import Markdown from "./Markdown";
 
-export default function DeliverablePanel({ sid, name, canDrive, onClose, onChanged }: {
-  sid: string; name: string; canDrive: boolean; onClose: () => void; onChanged: () => void;
+export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, onChanged }: {
+  /** changes when the file changed on disk (a new version was saved): the preview reloads */
+  sid: string; name: string; rev?: number; canDrive: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const t = useT();
   const { lang } = useUI();
@@ -23,6 +24,7 @@ export default function DeliverablePanel({ sid, name, canDrive, onClose, onChang
     fetchDeliverable(sid, name).then(setD).catch(() => setFailed(true));
   }, [sid, name]);
   useEffect(() => { setD(null); load(); }, [load]);
+  useEffect(() => { if (rev) load(); }, [rev, load]);
 
   const validate = async () => {
     setBusy(true);

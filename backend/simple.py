@@ -187,7 +187,12 @@ def title_for(ask: str, playbook_label: str = "") -> str:
         t = f"{playbook_label} — {first}"
     else:
         t = first or playbook_label or "Travail"
-    return t if len(t) <= 60 else t[:59].rstrip() + "…"
+    if len(t) <= 60:
+        return t
+    cut = t[:59]
+    if " " in cut[30:]:
+        cut = cut[: cut.rindex(" ")]
+    return cut.rstrip(" ,;:—–-") + "…"
 
 
 # ---- deliverables --------------------------------------------------------------------------

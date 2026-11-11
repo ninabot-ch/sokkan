@@ -75,7 +75,8 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   useEffect(() => {
     const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", team: "nav.team" } as const;
     const work = view.name === "work" ? home?.recents.find((r) => r.sid === view.sid)?.title : "";
-    document.title = `${view.name === "work" ? (work || t("nav.works")) : t(titles[view.name])} — SOKKAN`;
+    if (view.name === "work" && !work) return;   // named once the work is known, never « My work » meanwhile
+    document.title = `${view.name === "work" ? work : t(titles[view.name])} — SOKKAN`;
   }, [view, home, t]);
   useEffect(() => {
     if (!drawer) return;

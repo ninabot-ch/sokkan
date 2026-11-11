@@ -8,7 +8,7 @@ import {
   type Doc, type Limits, type PlainEvent, type Source, type TechDetail, type Work,
 } from "@/lib/simple/api";
 import type { AgentQuestion } from "@/lib/agent";
-import { age, useT, useUI } from "@/lib/simple/i18n";
+import { age, useT } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
@@ -125,19 +125,19 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
       <header className="sk-thread-head">
         <button className="sk-btn sk-btn-quiet sk-btn-icon sk-only-narrow" onClick={onBack} aria-label={t("back")}><Icon name="back" /></button>
         <div className="sk-grow">
-          <h1 className="sk-thread-title">{work?.title || "…"}</h1>
+          <h1 className="sk-thread-title" title={work?.title}>{work?.title || "…"}</h1>
           {!open && <div className="sk-xs sk-muted" role="status">{items.length ? t("th.offline") : t("th.connecting")}</div>}
         </div>
         {pill}
         {work && (
-          <button className="sk-btn sk-btn-quiet" aria-pressed={side?.kind === "docs"}
+          <button className="sk-btn sk-btn-quiet" aria-pressed={side?.kind === "docs"} aria-label={t("th.docs", { n: work.documents.length })}
             onClick={() => setSide(side?.kind === "docs" ? null : { kind: "docs" })}>
             <Icon name="clip" /><span className="sk-hide-narrow">{t("th.docs", { n: work.documents.length })}</span>
             <span className="sk-only-narrow">{work.documents.length}</span>
           </button>
         )}
         {lastDeliverable && (
-          <button className="sk-btn" onClick={() => setSide({ kind: "deliverable", name: lastDeliverable.name })}>
+          <button className="sk-btn sk-open-deliverable" aria-label={t("th.deliverable")} onClick={() => setSide({ kind: "deliverable", name: lastDeliverable.name })}>
             <Icon name="page" /><span className="sk-hide-narrow">{t("th.deliverable")}</span>
           </button>
         )}
@@ -203,7 +203,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
             <div>
               {work && !canDrive ? <p className="sk-small sk-muted">{t("th.readonly")}</p> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--sk-s2)" }}>
-                  {working && (
+                  {working && !waiting && (
                     <div className="sk-row">
                       <button className="sk-btn sk-push" onClick={() => sock.current?.interrupt()}><Icon name="stop" />{t("th.stop")}</button>
                     </div>
@@ -240,6 +240,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
         )}
         {side?.kind === "deliverable" && (
           <DeliverablePanel sid={sid} name={side.name} canDrive={canDrive} onClose={() => setSide(null)}
+            rev={work?.deliverables.find((x) => x.name === side.name)?.updated_at}
             onChanged={() => { reload(); onChanged(); }} />
         )}
         {side?.kind === "docs" && work && (
@@ -306,7 +307,7 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
           {ev.sources.map((s: Source) => {
             const a = age(t, s.modified_at);
             return (
-              <li key={s.id} className="sk-chip"><Icon name="page" small />
+              <li key={s.id} className="sk-source"><Icon name="page" small />
                 <span className="sk-chip-name">{s.name}</span>
                 <span className={`sk-source-age sk-muted${a.old ? " is-old" : ""}`}>· {a.text}</span>
               </li>

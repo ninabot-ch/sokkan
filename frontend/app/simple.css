@@ -79,7 +79,7 @@ html[data-sk-theme="light"] {
   --sk-sea-soft: rgba(29, 95, 196, 0.10);
   --sk-ok: #0f7340;
   --sk-ok-soft: rgba(15, 115, 64, 0.10);
-  --sk-warn: #9c4e00;
+  --sk-warn: #874300;
   --sk-warn-soft: rgba(168, 84, 0, 0.11);
   --sk-danger: #b3261e;
   --sk-danger-soft: rgba(179, 38, 30, 0.09);
@@ -243,7 +243,7 @@ html[data-sk-theme] body {
   transition: background var(--sk-dur) var(--sk-ease);
 }
 .sk .sk-recent:hover { background: var(--sk-sunken); }
-.sk .sk-recent[aria-current="page"] { background: var(--sk-sea-soft); box-shadow: inset 3px 0 0 var(--sk-sea); }
+.sk .sk-recent[aria-current="page"] { background: var(--sk-surface); box-shadow: inset 3px 0 0 var(--sk-sea), var(--sk-shadow); }
 .sk-recent-title { color: var(--sk-text-strong); font-weight: 500;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sk-recent-line { font-size: var(--sk-fs-sm); color: var(--sk-text-muted);
@@ -509,3 +509,24 @@ html[data-sk-theme] body {
   .sk-seg { display: flex; align-self: stretch; flex-wrap: nowrap; }
   .sk .sk-seg button { flex: 1 1 auto; padding: 0 var(--sk-s2); }
 }
+
+/* sources of an approval: a name and its age that wrap instead of colliding */
+.sk-source { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--sk-s2); row-gap: 0; max-width: 100%;
+  padding: var(--sk-s1) var(--sk-s3); border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm);
+  background: var(--sk-bg); font-size: var(--sk-fs-sm); color: var(--sk-text); min-height: 32px; }
+.sk-source .sk-chip-name { font-weight: 500; }
+.sk-md table { overflow-wrap: normal; }
+.sk-md th, .sk-md td { min-width: 7ch; }
+.sk-thread-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 860px) {
+  .sk-thread-head { flex-wrap: wrap; row-gap: var(--sk-s1); }
+  .sk-thread-head > .sk-grow { flex: 1 1 0; min-width: 0; }
+  .sk-thread-head > .sk-pill { order: 9; margin-left: calc(var(--sk-target) + var(--sk-s3)); }
+  .sk-thread-title { font-size: var(--sk-fs-md); }
+}
+.sk-panel-head, .sk-panel-foot, .sk-thread-head, .sk-compose-dock, .sk-topbar { flex: none; }
+.sk-panel-head { align-items: flex-start; }
+.sk-md ul { list-style: disc; }
+.sk-md ol { list-style: decimal; }
+.sk .sk-btn { font-weight: 600; font-size: var(--sk-fs-md); }
+.sk .sk-btn-quiet { font-weight: 500; }
