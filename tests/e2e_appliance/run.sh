@@ -80,10 +80,12 @@ docker run -d --name "$NAME" --privileged --network bridge --memory "$MEM" --mem
 n=0; until docker exec "$NAME" docker info >/dev/null 2>&1; do
   n=$((n + 1)); [ "$n" -gt 60 ] && { docker logs --tail 30 "$NAME"; exit 1; }; sleep 2; done
 # a BLANK machine: when the engine's volume is reused (image and build cache of an earlier run,
-# E2E_KEEP), nothing of that run may come back — no container, no volume, no network
+# E2E_KEEP), nothing of that run may come back — no container, no volume, no network, and none of
+# the folders its containers re-created through their bind mounts when the engine started
 docker exec "$NAME" sh -c 'c="$(docker ps -aq)"; [ -z "$c" ] || docker rm -f -v $c >/dev/null 2>&1;
   v="$(docker volume ls -q)"; [ -z "$v" ] || docker volume rm -f $v >/dev/null 2>&1; docker network prune -f >/dev/null 2>&1;
-  [ -z "$(docker ps -aq)" ] && [ -z "$(docker volume ls -q)" ]' \
+  rm -rf /opt/sokkan /opt/unsigned /home/user /etc/sokkan /var/backups/sokkan;
+  [ -z "$(docker ps -aq)" ] && [ -z "$(docker volume ls -q)" ] && [ ! -e /opt/sokkan ]' \
   || { echo "the test machine is not blank (containers or volumes left)" >&2; exit 1; }
 # the bench never touches a GPU: a privileged container sees the host's render nodes — remove
 # them from ITS /dev (a private tmpfs; the host's are untouched). suite.py also forces the CPU
