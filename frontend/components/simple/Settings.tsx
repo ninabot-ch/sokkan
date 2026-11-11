@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { savePrefs, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
+import { useFeatureOn } from "@/lib/uifeatures";
+import { WORK_EXPORT_URL } from "@/lib/workExport";
 import Icon from "./icons";
 
 export default function Settings({ prefs, onPrefs, onClose, project }: {
@@ -34,7 +36,9 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
     { id: "auto", label: t("set.lang.auto") }, { id: "fr", label: "Français" }, { id: "en", label: "English" }];
   const themes: { id: ThemePref; label: string }[] = [
     { id: "light", label: t("set.theme.light") }, { id: "dark", label: t("set.theme.dark") }, { id: "auto", label: t("set.theme.auto") }];
-  const canSwitch = !prefs.locked || ["admin", "owner"].includes(me?.instance_role || "");
+  const instAdmin = ["admin", "owner"].includes(me?.instance_role || "");
+  const canSwitch = !prefs.locked || instAdmin;
+  const exportOn = useFeatureOn("work_export");
 
   return (
     <div className="sk-scrim" onClick={onClose}>
@@ -62,6 +66,13 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
           </div>
           <p className="sk-small sk-muted">{canSwitch ? t("set.profile.hint") : t("set.profile.locked")}</p>
         </fieldset>
+        {exportOn && instAdmin && (
+          <fieldset>
+            <legend className="sk-legend">{t("set.export")}</legend>
+            <p className="sk-small sk-muted">{t("set.export.hint")}</p>
+            <div><a className="sk-btn" href={WORK_EXPORT_URL} download><Icon name="download" />{t("set.export.button")}</a></div>
+          </fieldset>
+        )}
         <div className="sk-small sk-muted">
           <div>{t("set.signed", { who: me?.email || "" })}</div>
           <div>{t("set.project")} : {project}</div>

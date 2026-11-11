@@ -576,6 +576,18 @@ REGISTRY: tuple[Feature, ...] = (
             vars=_t("simple_profile"),
             config=("SOKKAN_PROFILE_DEFAULT", "SOKKAN_PROFILE_LOCKED"),
             doc="docs/enterprise/SIMPLE-PROFILE.md"),
+    Feature("work_export", "Export our work",
+            "An instance admin downloads ONE zip of what the organisation built here, readable "
+            "without SOKKAN: the memory notes (markdown with their frontmatter), the tools "
+            "(Crew agents, project instructions, the skills / commands / sub-agents of the "
+            "project workspaces, the declared connectors WITHOUT any secret), the deliverables "
+            "of the simple profile and of the agents' runs, a README (English and French) and "
+            "a manifest (version, date, counts, SHA-256 of every file). Only what the admin "
+            "may read: the projects they have a role in, notes up to their clearance. Vault "
+            "values are masked and a last check refuses the archive if one remains; every "
+            "export is in the journal (who, how much, fingerprint). Off: no route (404).",
+            status="beta", defaults=_both(False), vars=_t("work_export"),
+            doc="docs/enterprise/OPERATIONS.md"),
 )
 
 BY_ID: dict[str, Feature] = {f.id: f for f in REGISTRY}

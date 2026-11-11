@@ -24,6 +24,8 @@ import { DemoMembers, DemoProjects, ReadOnlyNote } from "./DemoOrganization";
 import ModelKeys from "./ModelKeys";
 import SecretsProvider from "./SecretsProvider";
 import type { OrgSection } from "@/lib/planes";
+import { useLang } from "@/lib/studyText";
+import { WORK_EXPORT_TEXT, WORK_EXPORT_URL } from "@/lib/workExport";
 
 const ROLES = ["viewer", "dev", "admin", "owner"];
 const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${n}`;
@@ -53,9 +55,28 @@ function Account() {
   );
 }
 
+// ---------- Export our work (feature `work_export`, instance admins) ----------
+function WorkExport() {
+  const [lang] = useLang();
+  const t = WORK_EXPORT_TEXT[lang];
+  return (
+    <section aria-label={t.title} lang={lang} className="rounded-lg border border-line bg-panel2/40 p-3">
+      <h3 className="text-[13px] font-medium text-slate-100">{t.title}</h3>
+      <p className="mt-1 max-w-[72ch] text-[12px] text-slate-300">{t.help}</p>
+      <a href={WORK_EXPORT_URL} download
+        className="ui-focus mt-2 inline-block rounded-lg border border-sea/60 bg-sea/15 px-3 py-1.5 text-[12.5px] font-medium text-slate-100 hover:bg-sea/25">
+        ↓ {t.button}</a>
+      <p className="mt-2 max-w-[72ch] text-[11px] text-mut">{t.note}</p>
+    </section>
+  );
+}
+
 // ---------- Organisation ----------
 function Org() {
   const isAdmin = useCan("admin");
+  const me = useMe();
+  const instAdmin = ["admin", "owner"].includes(me?.instance_role || me?.role || "");
+  const exportOn = useFeatureOn("work_export");
   const [inf, setInf] = useState<InstanceInfo | null>(null);
   const [name, setName] = useState("");
   const [edit, setEdit] = useState(false);
@@ -119,6 +140,7 @@ function Org() {
           )}
         </div>
       )}
+      {exportOn && instAdmin && <WorkExport />}
       <div className="text-[10.5px] text-mut">Hosted and operated by NINABOT — sovereign Swiss infrastructure.</div>
     </div>
   );

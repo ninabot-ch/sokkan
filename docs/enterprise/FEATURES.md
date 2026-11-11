@@ -59,6 +59,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`study_mode`](#study_mode) Study mode (audited use) | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_STUDY_MODE` |
 | [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
 | [`simple_profile`](#simple_profile) Simple profile | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
+| [`work_export`](#work_export) Export our work | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_WORK_EXPORT` |
 
 ## Dependency graph
 
@@ -109,6 +110,7 @@ graph LR
   study_mode["Study mode (audited use)"]
   documents["Document drop"]
   simple_profile["Simple profile"]
+  work_export["Export our work"]
   preview_private_targets --> preview
   agents_cli_login --> agents
   four_eyes --> agents
@@ -603,3 +605,13 @@ A second way into the same cockpit for people who never saw a terminal: a task-f
 - Requires: `documents`
 - Switch: `SOKKAN_FEATURE_SIMPLE_PROFILE`
 - Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)
+
+### work_export
+
+**Export our work** — beta, toggle.
+
+An instance admin downloads ONE zip of what the organisation built here, readable without SOKKAN: the memory notes (markdown with their frontmatter), the tools (Crew agents, project instructions, the skills / commands / sub-agents of the project workspaces, the declared connectors WITHOUT any secret), the deliverables of the simple profile and of the agents' runs, a README (English and French) and a manifest (version, date, counts, SHA-256 of every file). Only what the admin may read: the projects they have a role in, notes up to their clearance. Vault values are masked and a last check refuses the archive if one remains; every export is in the journal (who, how much, fingerprint). Off: no route (404).
+
+- Defaults: community **off**, enterprise **off**
+- Switch: `SOKKAN_FEATURE_WORK_EXPORT`
+- Doc: [docs/enterprise/OPERATIONS.md](../../docs/enterprise/OPERATIONS.md)

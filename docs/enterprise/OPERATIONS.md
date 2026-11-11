@@ -468,6 +468,42 @@ enterprise instance still on files shows a warning there. POC (single node, manu
 contract (raft cluster, transit auto-unseal) and who holds the unseal shares:
 [SECRETS.md § 6.1](SECRETS.md#61-our-cloud-and-poc).
 
+### 5.2 Export our work (feature `work_export`)
+
+A backup restores an instance; it is not something an organisation can read. When a pilot ends
+or a team leaves, an **instance admin** takes what was built here as one zip, readable without
+SOKKAN: `SOKKAN_FEATURE_WORK_EXPORT=1` (on in the appliance profile), then
+**Setup › Organization › Export our work** — or, in the simple profile, **Settings › Our work**.
+The same archive from a script: `GET /api/admin/work-export` with an admin session.
+
+| In the archive | What | Format |
+|---|---|---|
+| `memory/<project>/` | the notes of the project memory | Markdown with its YAML frontmatter, as written |
+| `tools/<project>/agents/` | the Crew agents (purpose, deliverable, done criteria, trigger, tools, secret **names**) | one JSON file each (SOKKAN's own layout) |
+| `tools/<project>/instructions/` | the project's `CLAUDE.md` | Markdown |
+| `tools/<project>/skills/`, `commands/`, `subagents/` | what the project workspace holds under `.claude/skills`, `.claude/commands`, `.claude/agents` | the Claude Code file layout (a skill = a folder with a `SKILL.md`) |
+| `tools/…/connectors/` | the MCP servers of the workspace's `.mcp.json`, the alert channels, the document sources | declarations only, no credential |
+| `deliverables/<project>/` | the deliverables of the simple profile (with `index.json`: title, work, who validated) and, under `crew/`, what the agents' runs delivered | the files as saved |
+| `README.md`, `manifest.json` | what each folder is and how to reuse it (English and French); version, date, counts, size and SHA-256 of every file, what was skipped and why | |
+
+* **Rights**: nothing is decided by the export. A project is included when the admin has a role
+  in it (an instance admin is not a member of every project: the manifest counts the projects
+  left out); notes follow the admin's memory scope and clearance in each project, agents and
+  runs the Crew rules, deliverables the sessions the admin may open.
+* **Secrets**: none leaves. The `env` and `headers` of an MCP server keep their keys and lose
+  their values; every text is searched for the values of the vault and of the model keys
+  (replaced by `[secret:NAME]`), workspace files also for credential patterns (`[masked]`); a
+  last check refuses the archive (HTTP 500, journaled) if a vault value remains. When the vault
+  cannot be read the export is refused (503) rather than made unmasked.
+* **Journal**: each export writes `work.export` to the action journal — who, when, how many
+  files of each kind, the SHA-256 of the archive (also the `X-Sokkan-Export-Sha256` header); a
+  refused one writes `work.export.refused`. With the 3.0 memory store, each note handed out is
+  in the audited recall (`via = export`).
+* **Not in it**: the vault and the keys, the conversations, the documents people uploaded, the
+  accounts, the journals (the journal of human validations has its own export:
+  `GET /api/hitl/journal`). SOKKAN has no skill editor: the `skills/` folders hold what people
+  or sessions added to the workspace, and are empty otherwise.
+
 ## 6. Upgrade and roll back
 
 1. Read the `CHANGELOG.md` entry, *Upgrade notes* first ([RELEASING.md](../RELEASING.md)).

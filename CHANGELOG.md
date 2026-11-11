@@ -3,6 +3,22 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+
+### Added
+- **Feature `work_export` — « Export our work »** (beta, off; on in the appliance profile): an
+  instance admin downloads one zip of what the organisation built, readable without SOKKAN —
+  the memory notes (Markdown with their frontmatter), the tools (Crew agents as JSON, the
+  project's `CLAUDE.md`, the skills / commands / sub-agents of the project workspaces, the
+  declared MCP servers, alert channels and document sources **without any secret**), the
+  deliverables of the simple profile and of the agents' runs, a README in English and French and
+  a manifest (version, date, counts, SHA-256 of every file). Only what the admin may read by the
+  existing rules: the projects they have a role in, notes up to their clearance. Vault values
+  and model keys are masked, a last check refuses the archive if one remains, and every export
+  is journaled with its fingerprint (`work.export`). `GET /api/admin/work-export`;
+  **Setup › Organization › Export our work**, and **Settings › Our work** in the simple profile.
+  [OPERATIONS.md § 5.2](docs/enterprise/OPERATIONS.md#52-export-our-work-feature-work_export).
+
 ## 3.6.1 — 2026-11-11 — "Icebreaker"
 
 No change to the product: the test suite and the demonstration material of 3.6.0.

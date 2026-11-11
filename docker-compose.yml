@@ -300,6 +300,8 @@ services:
       SOKKAN_FEATURE_SIMPLE_PROFILE: ${SOKKAN_FEATURE_SIMPLE_PROFILE:-}
       SOKKAN_PROFILE_DEFAULT: ${SOKKAN_PROFILE_DEFAULT:-technical}
       SOKKAN_PROFILE_LOCKED: ${SOKKAN_PROFILE_LOCKED:-0}
+      # « Export our work »: an admin's zip of notes, tools and deliverables (docs/enterprise/OPERATIONS.md)
+      SOKKAN_FEATURE_WORK_EXPORT: ${SOKKAN_FEATURE_WORK_EXPORT:-}
       # helm — 3.3 (docs/HELM.md) : hiérarchie de cartes, avancement calculé, suggestions de
       # recadrage (job toutes les SOKKAN_HELM_TICK_S), brief du matin (agenda ICS, NOM d'un
       # secret du coffre). Exige multi_project + assistant ; vide = défaut de l'édition.
