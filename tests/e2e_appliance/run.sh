@@ -79,6 +79,12 @@ docker run -d --name "$NAME" --privileged --network bridge --memory "$MEM" --mem
   docker:27-dind --default-address-pool base=10.241.0.0/16,size=24 --bip 10.240.0.1/24 >/dev/null
 n=0; until docker exec "$NAME" docker info >/dev/null 2>&1; do
   n=$((n + 1)); [ "$n" -gt 60 ] && { docker logs --tail 30 "$NAME"; exit 1; }; sleep 2; done
+# a BLANK machine: when the engine's volume is reused (image and build cache of an earlier run,
+# E2E_KEEP), nothing of that run may come back — no container, no volume, no network
+docker exec "$NAME" sh -c 'c="$(docker ps -aq)"; [ -z "$c" ] || docker rm -f -v $c >/dev/null 2>&1;
+  v="$(docker volume ls -q)"; [ -z "$v" ] || docker volume rm -f $v >/dev/null 2>&1; docker network prune -f >/dev/null 2>&1;
+  [ -z "$(docker ps -aq)" ] && [ -z "$(docker volume ls -q)" ]' \
+  || { echo "the test machine is not blank (containers or volumes left)" >&2; exit 1; }
 # the bench never touches a GPU: a privileged container sees the host's render nodes — remove
 # them from ITS /dev (a private tmpfs; the host's are untouched). suite.py also forces the CPU
 # memory profile and checks that no GPU override is configured.

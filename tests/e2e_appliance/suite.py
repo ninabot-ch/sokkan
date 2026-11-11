@@ -271,6 +271,15 @@ def prepare() -> None:
     env = {**ENV, "SOKKAN_COSIGN_KEY": str(keys / "cosign.key"), "COSIGN_PASSWORD": "e2e"}
     r = sh(f"sh {src}/scripts/release-artifacts.sh {srv}/sokkan-{NEW}.tar.gz --images {REG}", env=env, timeout=5400)
     ok = r.returncode == 0 and (srv / f"sokkan-{NEW}.tar.gz.images").exists()
+    if ok:
+        # the machine that installs is not the one that built: drop the images from this engine
+        # so that T1 really pulls them from the registry (the build cache is another store)
+        tag = NEW.replace("+", "-")
+        refs = (srv / f"sokkan-{NEW}.tar.gz.images").read_text().split()
+        sh(" ; ".join(f"docker rmi -f {REG}/sokkan-{n}:{tag}" for n in ("api", "web")))
+        sh(" ; ".join(f"docker rmi -f {x.split('=', 1)[1]}" for x in refs))
+        left = sh(f"docker images -q {REG}/sokkan-api").stdout.strip()
+        assert not left, f"the built image is still in the engine: {left}"
     record("T0", "publisher side: release signed, images built from the tarball, pushed and signed", ok,
            {"build_sign_s": round(time.time() - t0), "images": (srv / f"sokkan-{NEW}.tar.gz.images").read_text().split()
             if ok else []}, (r.stdout + r.stderr)[-600:] if not ok else "")
