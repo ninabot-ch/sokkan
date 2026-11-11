@@ -91,14 +91,18 @@ falls under 4.5:1 in either theme, or when the two dictionaries differ.
 
 ## Known limits (beta)
 
-* A person's approve / refuse click is not yet a line of the journal (the validation of a deliverable is).
 * A classified document cannot go to an agent session (transcripts do not carry a level yet).
-* Study mode (another feature): the band has its slot (`components/simple/BannerSlot.tsx`); the scenario tag
-  and the two end-of-task questions are wired (`components/simple/StudyHooks.tsx`) and appear when a
-  `study_mode` feature is in the registry — every call tolerates a missing route.
+* Study mode (feature `study_mode`): the band, « What is recorded » and the consent, the scenario of a
+  work and the two end-of-task questions are in the simple profile (`components/simple/StudyConsent.tsx`,
+  `StudyHooks.tsx`); each click on the approval card is a row of the journal of validations
+  (docs/enterprise/STUDY-MODE.md). Without the feature nothing is asked and nothing is shown.
+* A session that was handed documents does not write the memory directly: its `memory_write` waits in
+  quarantine (CortHeXis › quarantine), and a file tool aimed at the memory directory is refused.
 * On a custom engine served by vLLM, the CLI's default reasoning effort is refused (« Unexpected reasoning
-  effort high »): run the API with `CLAUDE_CODE_EFFORT_LEVEL=medium`.
+  effort high »): sessions on a custom engine now get `medium` by themselves; `CLAUDE_CODE_EFFORT_LEVEL`
+  (low | medium | high | max) chooses another level for the instance.
 * Time to a first draft is the engine's: 81 s on an idle qwen3.8-27b, 5 to 7 minutes when 4-8 other requests
   share it (measured 11.11.2026).
-* Local auth has one identity: several people on the simple profile need SSO.
+* Local auth with the owner's token alone is one identity: several people need a personal access code
+  each (`scripts/appliance/accounts.sh`, docs/appliance/README.md § 3) or an identity provider.
 * The sign-in screen is the cockpit's (English).

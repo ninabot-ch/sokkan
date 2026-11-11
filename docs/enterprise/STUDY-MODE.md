@@ -93,8 +93,17 @@ An instance that is not on the gateway can declare a study itself:
 | `SOKKAN_STUDY_AUDIT_REQUIRED` | `1` (default): no session without consent; `0`: consent is optional |
 | `SOKKAN_STUDY_DB` | path of `study.db` (default: the data directory) |
 
-**Give each person their own account first.** Local sign-in is one identity: every
-volunteer would share a single pseudonym (Setup › Organization › Features says so).
+**Give each person their own account first.** Local sign-in with the owner's token alone is
+one identity: every volunteer would share a single pseudonym (Setup › Organization › Features
+and Setup › Study say so). On an appliance, give each person a personal access code
+(`scripts/appliance/accounts.sh add <e-mail> --name … --project …`, docs/appliance/README.md
+§ 3): the warning goes away with the first code, and three people are P1, P2, P3.
+
+**On an appliance** (sessions go through the local router): the study is read from the Deep
+gateway (`SOKKAN_DEEP_URL` + `SOKKAN_DEEP_TOKEN`, `GET /usage`), the sessions send
+`x-sokkan-study` and the pseudonym, and the router hands both to the gateway — an e-mail
+address never leaves the box. The gateway's refusals (410 `study_expired`, 412
+`study_mode_required`, 429 `user_daily_cap`) come back as it said them, in words.
 
 ## 3. What a participant sees
 
@@ -114,6 +123,13 @@ volunteer would share a single pseudonym (Setup › Organization › Features sa
 A session is tagged by the first request of a consenting participant; the person then
 picks the scenario. A card can be tagged too (`PUT /api/board/card/{id}/study`): the
 session opened from it starts with the card's scenario and reference time.
+
+**In the simple profile** (feature `simple_profile`) the same things are said in its own
+screens: a band above the content (study, end date, pseudonym), the dialog « What is
+recorded » with the consent (opened from the band, and by itself when a first work is refused
+for a missing consent — no work is created before the consent), the scenario under the title
+of a work, and the two questions once its deliverable is validated. Each click on the approval
+card (allow, refuse, correct then allow) is a row of the journal of validations.
 
 ## 4. What is collected, and what is not
 

@@ -115,6 +115,43 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
   light theme by default. Chosen per person (`SOKKAN_PROFILE_DEFAULT`, `SOKKAN_PROFILE_LOCKED`); the
   approval mode cannot be changed from it. Docs: `docs/enterprise/SIMPLE-PROFILE.md`.
 
+### Pilot integration — Added
+- **Review screen of the ingestion batches** — « Notes to review » in the simple profile and
+  Setup › Ingestion in the technical cockpit (one component, French / English): batches, the
+  batch in figures, flagged notes first, a sample to read, approve / reject the batch or a note
+  with a reason; every decision in the journal.
+- **Study mode in the simple profile**: the band (study, end date, pseudonym), « What is
+  recorded » and the consent, the scenario of a work and the two end-of-task questions.
+- **The appliance profile turns the pilot's features on**: `documents`, `simple_profile`
+  (`SOKKAN_PROFILE_DEFAULT=simple`), `study_mode`, `doc_ingest` on the local model, sessions at
+  `CLAUDE_CODE_EFFORT_LEVEL=medium`. Release images carry the document extractors.
+- `docs/enterprise/PILOT-RELEASE-NOTES.md`: what the candidate holds, settings of the pilot,
+  known limits, how to cut it.
+
+### Pilot integration — Changed
+- **Every click on the simple profile's approval card is a row of the journal of validations**
+  (allow, refuse, corrected then allowed), as is the shell request a simple work refuses by
+  itself (automatic, `policy:simple_profile_no_shell`).
+- **A session that was handed documents does not write the memory directly**: its `memory_write`
+  waits in the unit quarantine (`reason: session_documents`), a file tool aimed at the memory
+  directories is refused. Sessions without documents are unchanged.
+- **An ingestion source cannot be SOKKAN's own space** (data directory, workspace, memory,
+  quarantine): configuration error.
+- **Named accounts of the local sign-in are distinct participants**: the « one identity »
+  warning of study mode only shows while nobody has a personal access code.
+- **On an appliance the study is read from the Deep gateway** and carried by the local router:
+  `x-sokkan-study` and the pseudonym are forwarded (never an address), `GET /usage` goes to
+  `SOKKAN_DEEP_URL`, the refusals 410 / 412 / 429-per-person come back as the gateway worded
+  them with `x-should-retry: false`.
+- Sessions on a custom engine get reasoning effort `medium` unless `CLAUDE_CODE_EFFORT_LEVEL`
+  says otherwise (the CLI's default is refused by vLLM with a 400).
+- In study mode, the simple profile creates no work before the consent (`409 study_consent`).
+- Setup gains a sub-tab « Ingestion » (only with `doc_ingest`, for who may review).
+
+### Pilot integration — Fixed
+- The test suite no longer depends on the host having tmux / Chromium (12 tests of other lots
+  failed on a host without a browser since tmux and Preview follow their binary).
+
 ## 3.5.1 — 2026-10-10 — "Lookout"
 
 What the first day of Operate › Alerts on a real instance showed (Telegram + Teams channels,

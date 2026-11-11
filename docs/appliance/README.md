@@ -83,11 +83,32 @@ the `router` service, which decides at every request:
 | the local model does not answer | `SOKKAN_SHIP_FALLBACK_DEEP=1` (uses credit) |
 
 `SOKKAN_ESCALATION=0` keeps everything local unless asked. Who typed a request is **not** sent
-to the gateway (`SOKKAN_DEEP_FORWARD_USER=0`). What a person reads when it fails: a sentence
+to the gateway (`SOKKAN_DEEP_FORWARD_USER=0`) — except in study mode, where the instance sends a
+**pseudonym** (P1, P2…) with the study: the router hands both to the gateway, which serves the
+free tier on that condition and meters per person; an address is never forwarded. The study
+itself (end date, ceilings) is read by the api from the gateway (`GET /usage` with
+`SOKKAN_DEEP_TOKEN`); its refusals (410 / 412 / 429 per person) reach the person as the gateway
+worded them. What a person reads when it fails: a sentence
 (402 credit, 429 quota, unreachable), in `SOKKAN_ERROR_LANG`. State: `GET /api/appliance/inference`.
 
 Not yet there (decision needed, § 9): the hosted gateway's « sentinel » escalation (the small
 model asking for help by itself) and its judge are not in the box's router.
+
+### What the people of the site get (3.6 pilot)
+
+The profile turns on, with what each needs:
+
+| Feature | Needs | Setting of the profile |
+|---|---|---|
+| `documents` (document drop) | — | `SOKKAN_FEATURE_DOCUMENTS=1` |
+| `simple_profile` | `documents` | `SOKKAN_FEATURE_SIMPLE_PROFILE=1`, `SOKKAN_PROFILE_DEFAULT=simple` |
+| `study_mode` | — (inert until a study is active) | `SOKKAN_FEATURE_STUDY_MODE=1` |
+| `doc_ingest` | `agents`, `memory_quarantine`, a LOCAL model | `SOKKAN_FEATURE_DOC_INGEST=1`, `SOKKAN_DOC_INGEST_LLM_URL` / `_MODEL` = the Ship model, 4 streams |
+
+Sessions on the local model run with `CLAUDE_CODE_EFFORT_LEVEL=medium` (vLLM refuses the CLI's
+default with a 400). Without a local model the installer leaves `doc_ingest` off: documents are
+never read by the Deep gateway. The release images carry the document extractors. Details:
+`docs/enterprise/PILOT-RELEASE-NOTES.md`.
 
 ## 5. HTTPS (decision D12)
 

@@ -120,6 +120,13 @@ mount is not an emptied archive).
 `sources.register("kind", Class)`. The runner filters its listing through the same
 allow-list: a connector cannot widen it.
 
+**A source is never SOKKAN's own space.** A `folder` whose `root` is inside — or contains — the
+data directory, the workspace (where the documents people drop and the deliverables live), the
+memory or its quarantine is a configuration error. The documents a person drops in a session
+(feature `documents`) keep their own level and never become a batch; what a session learnt from
+them reaches the memory only through the unit quarantine (`memory_write` of a session that was
+handed documents is quarantined, provenance `reason: session_documents`).
+
 ## 4. Microsoft 365 and Google Drive (rclone)
 
 SOKKAN never talks to Graph or Drive itself for documents: `rclone` (MIT) mirrors the
@@ -379,7 +386,12 @@ level, flags of the note; notes approved / left pending; how many notes the revi
 opened; seconds since the batch was offered). It is a research signal: how people review
 machine-written memory. It contains reviewers' identities — treat the export accordingly.
 
-There is no screen yet: the API is complete, the cockpit page is not written (§ 13).
+**The screen** (3.6): « Notes to review » in the simple profile (shown to the people who may
+review the batches of the project), and Setup › Ingestion in the technical cockpit — the same
+component (`frontend/components/simple/IngestReview.tsx`), French and English. Batches to
+review, the batch in figures, the flagged notes first (decided one by one), a sample to read
+(the progress towards `SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE` is shown), approve / reject the
+batch or one note, with a reason kept in the journal.
 
 ## 9. Passes: scheduling, resume, budget, journal
 
@@ -566,7 +578,9 @@ folder, not as one batch of 26 000 notes.
   people with different rights on the same SharePoint library see the same notes if they
   have the same clearance in SOKKAN. Declare one source per confidentiality zone; do not
   ingest a library whose folders have heterogeneous rights as one source.
-* **No screen.** The review is an API (§ 8).
+* **The review screen is minimal** (§ 8): no search inside a batch, no side-by-side with the
+  source document, no keyboard review; ~26 000 notes for 20 000 documents will make the human
+  review the bottleneck — the trust policy per source (`trust_after`) is the lever.
 * **Real tenants not validated** (§ 4); the image's rclone (Debian 1.60) is too old for the
   Microsoft application-only mode; rclone credentials are a file, not yet in the vault /
   secrets provider.
