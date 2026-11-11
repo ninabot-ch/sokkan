@@ -745,7 +745,9 @@ def t14():
         "SOKKAN_AUTH_MODE": http(BASE + "/api/auth/info")[1] == {"mode": "local", "login_required": True},
         "SOKKAN_DEFAULT_ROLE": owner.call("/api/iam/access-codes")[1][0]["role"] == "none",
         "SOKKAN_FEATURE_MULTI_PROJECT": feats["multi_project"] is True and "SOKKAN_FEATURE_MULTI_PROJECT" in reg["multi_project"]["reason"],
-        "SOKKAN_TZ": sh("docker compose exec -T api python3 -c \"import usage,os;print(os.environ['SOKKAN_TZ'])\"", cwd=BOX).stdout.strip() == e["SOKKAN_TZ"],
+        # reaches the api and is a zone it can load (what dates in Costs and the agents' schedules use)
+        "SOKKAN_TZ": sh("docker compose exec -T api python3 -c \"import os, zoneinfo; "
+                        "print(zoneinfo.ZoneInfo(os.environ['SOKKAN_TZ']).key)\"", cwd=BOX).stdout.strip() == e["SOKKAN_TZ"],
         "SOKKAN_ERROR_LANG": True,               # proven by T5/T6/T7 (messages in French)
         "SOKKAN_BIND": "127.0.0.1:3009" in ls and "0.0.0.0:3009" not in ls,
         "SOKKAN_PORT": any(x.endswith(":" + e["SOKKAN_PORT"]) for x in ls),

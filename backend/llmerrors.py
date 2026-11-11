@@ -79,11 +79,14 @@ _MSG = {
 }
 CODES = tuple(_MSG)
 # the Anthropic error `type` each code is sent as (what the CLI and SDKs understand)
+# NB « overloaded » is sent as a plain 503 `api_error`, NOT as Anthropic's 529
+# `overloaded_error`: the CLI retries that one by itself whatever `x-should-retry` says, and the
+# person waited 150 s in front of a spinner (seen on the test bench with both endpoints down).
 ANTHROPIC_TYPE = {"quota_exhausted": "billing_error", "rate_limited": "rate_limit_error",
                   "unreachable": "api_error", "auth": "authentication_error",
-                  "overloaded": "overloaded_error", "too_long": "invalid_request_error"}
+                  "overloaded": "api_error", "too_long": "invalid_request_error"}
 HTTP_STATUS = {"quota_exhausted": 402, "rate_limited": 429, "unreachable": 503, "auth": 401,
-               "overloaded": 529, "too_long": 400}
+               "overloaded": 503, "too_long": 400}
 
 
 def lang(explicit: str | None = None) -> str:

@@ -207,6 +207,18 @@ def test_local_model_down_without_fallback_is_a_readable_503(box, lang, needle):
     assert "Traceback" not in r.text and "ConnectError" not in e["error"]["message"].split("[sokkan")[0]
 
 
+def test_a_busy_gateway_is_never_sent_as_a_529_overloaded(box):
+    """The CLI retries 529 / `overloaded_error` on its own, header or not."""
+    c, ship, deep, mp = box
+    mp.setenv("SOKKAN_SHIP_URL", _dead_url())
+    deep.status = 503
+    r = c.post("/v1/messages", json=msg())
+    assert r.status_code == 503 and r.headers["x-sokkan-error"] == "overloaded"
+    assert r.headers["x-should-retry"] == "false" and r.json()["error"]["type"] == "api_error"
+    assert "overloaded_error" not in r.text and llmerrors.from_text("API Error: 503 " + r.text)["code"] == "overloaded"
+    assert 529 not in llmerrors.HTTP_STATUS.values()
+
+
 def test_both_down_is_readable_too(box):
     c, ship, deep, mp = box
     mp.setenv("SOKKAN_SHIP_URL", _dead_url())
