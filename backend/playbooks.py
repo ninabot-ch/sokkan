@@ -157,14 +157,109 @@ _REGISTRY: dict[str, dict] = {
             "for me to decide."
         ),
     },
+    # ---- business task templates (feature `simple_profile`) -------------------------------
+    # `audience: simple` keeps them out of the technical spawn form (catalog()) and gives them
+    # to the simple profile's home (catalog("simple", lang)). They shape the MISSION only: the
+    # plain-language rules, the attached documents and where the deliverable is saved are added
+    # by simple.brief(). `i18n` = what the person reads; the prompt stays in English (the brief
+    # tells the agent which language to answer in).
+    "training-plan": {
+        "label": "Training plan", "tag": "docs", "audience": "simple",
+        "description": "A structured training plan built from your documents.",
+        "i18n": {
+            "fr": {"label": "Plan de formation", "description": "À partir de vos documents",
+                   "hint": "Pour qui, sur quoi, en combien de temps ? Ex. « Formation Excel "
+                           "intermédiaire pour 12 assistantes, 2 jours »", "deliverable": "Plan de formation"},
+            "en": {"label": "Training plan", "description": "From your documents",
+                   "hint": "For whom, about what, how long? E.g. “Intermediate Excel course "
+                           "for 12 assistants, 2 days”", "deliverable": "Training plan"},
+        },
+        "prompt": (
+            "Write a training plan. What the person asked for: {subject}\n\n"
+            "A good training plan states: the audience and its prerequisites; the learning "
+            "objectives (observable verbs: « is able to… »); the sequence of modules, each with "
+            "its duration, method and materials; how learning is assessed; logistics; and what "
+            "still has to be decided. Build it from the attached documents: reuse their "
+            "vocabulary and constraints, and say for each important choice which document it "
+            "comes from. Where the documents disagree or say nothing, do not invent: list it "
+            "under a last section « Points to confirm »."
+        ),
+    },
+    "document-summary": {
+        "label": "Summary", "tag": "docs", "audience": "simple",
+        "description": "A faithful summary of one or several files.",
+        "i18n": {
+            "fr": {"label": "Synthèse", "description": "Résumer un ou plusieurs fichiers",
+                   "hint": "Que voulez-vous retenir, et pour qui ? Ex. « L'essentiel pour la "
+                           "direction, une page »", "deliverable": "Synthèse"},
+            "en": {"label": "Summary", "description": "Summarise one or several files",
+                   "hint": "What should be kept, and for whom? E.g. “The essentials for "
+                           "management, one page”", "deliverable": "Summary"},
+        },
+        "prompt": (
+            "Summarise the attached documents. What the person asked for: {subject}\n\n"
+            "Start with the answer in three to five lines, then the key points grouped by "
+            "theme, then the figures, dates and commitments that matter (exactly as written), "
+            "then what the documents leave open. Say which document each point comes from. "
+            "Nothing that is not in the documents; when two documents disagree, show both."
+        ),
+    },
+    "client-proposal": {
+        "label": "Client proposal", "tag": "docs", "audience": "simple",
+        "description": "A proposal drafted from a brief and your references.",
+        "i18n": {
+            "fr": {"label": "Proposition client", "description": "Depuis un brief et vos références",
+                   "hint": "Quel client, quel besoin, quelle échéance ? Ex. « Réponse au brief "
+                           "de la commune, à rendre vendredi »", "deliverable": "Proposition"},
+            "en": {"label": "Client proposal", "description": "From a brief and your references",
+                   "hint": "Which client, which need, which deadline? E.g. “Answer to the "
+                           "town's brief, due Friday”", "deliverable": "Proposal"},
+        },
+        "prompt": (
+            "Draft a proposal for a client. What the person asked for: {subject}\n\n"
+            "Structure: what we understood of the need (in the client's own words, from the "
+            "brief); what we propose and why it answers the need; how it will run (steps, "
+            "schedule, who does what); what it includes and what it does not; our relevant "
+            "references (only those found in the attached documents); next step. Never invent "
+            "a price, a date, a reference or a commitment: when one is missing, leave a "
+            "clearly marked « [to be completed: …] » and list them at the end."
+        ),
+    },
+    "assessment-quiz": {
+        "label": "Assessment quiz", "tag": "docs", "audience": "simple",
+        "description": "A quiz with its answer key, from an existing module.",
+        "i18n": {
+            "fr": {"label": "Quiz d'évaluation", "description": "Depuis un module existant",
+                   "hint": "Combien de questions, quel niveau ? Ex. « 10 questions pour "
+                           "vérifier les acquis du module 3 »", "deliverable": "Quiz"},
+            "en": {"label": "Assessment quiz", "description": "From an existing module",
+                   "hint": "How many questions, which level? E.g. “10 questions to check "
+                           "what module 3 taught”", "deliverable": "Quiz"},
+        },
+        "prompt": (
+            "Write an assessment quiz. What the person asked for: {subject}\n\n"
+            "Use only what the attached module teaches. Unless asked otherwise: 10 questions, "
+            "mixing recall and application; for each one the question, four options when it "
+            "is multiple choice, the right answer, a one-line explanation and the passage of "
+            "the document it checks. Order them from easy to hard, no trick question, one "
+            "idea per question. Give the questions first (ready to hand out), then the answer "
+            "key as a separate section."
+        ),
+    },
 }
 
 
-def catalog() -> list[dict]:
-    """Playbooks for the spawn UI — id, label, description, default tag."""
+def catalog(audience: str = "", lang: str = "en") -> list[dict]:
+    """Playbooks for the spawn UI — id, label, description, default tag. ``audience``
+    "simple" = the business task templates of the simple profile, worded in ``lang``;
+    default = the technical ones (unchanged)."""
+    if audience == "simple":
+        lang = lang if lang in ("fr", "en") else "en"
+        return [{"id": pid, "tag": p["tag"], **p["i18n"][lang]}
+                for pid, p in _REGISTRY.items() if p.get("audience") == "simple"]
     return [{"id": pid, "label": p["label"], "description": p["description"],
              "tag": p["tag"], "subject_optional": bool(p.get("subject_optional"))}
-            for pid, p in _REGISTRY.items()]
+            for pid, p in _REGISTRY.items() if not p.get("audience")]
 
 
 def get(playbook_id: str) -> dict | None:

@@ -630,9 +630,47 @@ def _prepare(user_email: str, message: str, scope=None, meta: dict | None = None
     if notes:
         system += ("\n\n=== EXTRAITS DE MÉMOIRE PROJET (pertinents pour la question) ==="
                    f"\n\n{notes}")
+    # 3.6 : une personne sur le profil simple ne voit ni Board, ni Sessions, ni Setup
+    system += _simple_profile_directive(user_email)
     # en dernier : ce qui est en fin de prompt système pèse le plus
     system += _language_directive(message)
     return cfg, fb, system, msgs
+
+
+SIMPLE_PROFILE_GUIDE = """
+
+=== CETTE PERSONNE UTILISE LE PROFIL SIMPLE ===
+Elle n'est pas développeuse et ne voit PAS les écrans techniques (Board, Sessions, Crew, Helm,
+Operate, Setup, terminal). Pour elle, tu es « Nina, son guide dans SOKKAN » — pas une
+ingénieure DevOps. Son écran a un menu à gauche : Accueil, Mes travaux, Documents, Mon équipe
+d'agents, puis ses travaux récents ; en bas, la jauge d'utilisation du jour et les Réglages
+(langue, apparence claire ou nuit, profil).
+Comment elle obtient un document :
+1. Accueil : elle écrit ce qu'elle veut obtenir dans la zone de saisie, ou choisit un modèle
+   (Plan de formation, Synthèse, Proposition client, Quiz d'évaluation) ;
+2. « Joindre des documents » (ou glisser-déposer) : PDF, Word, PowerPoint, Excel, texte —
+   ils restent dans son espace SOKKAN, rien ne part à l'extérieur ;
+3. « Lancer » : l'agent lit les documents et rédige ; le fil dit ce qu'il fait en clair ;
+4. une carte « Votre accord est demandé » apparaît avant tout enregistrement : elle montre
+   ce que l'agent veut enregistrer et les documents utilisés avec leur ancienneté ; boutons
+   Autoriser, Voir le brouillon, Refuser (refuser ne casse rien) ;
+5. le livrable s'ouvre en aperçu : « Télécharger en Word », puis « Valider le livrable » quand
+   elle l'a relu (la validation est datée et enregistrée) ; elle peut demander une
+   modification dans la zone de réponse, sous le fil.
+Règles pour TES réponses à cette personne : des mots de tous les jours, phrases courtes, les
+libellés exacts de SON écran entre guillemets ; jamais les mots session, spawn, playbook, MCP,
+tmux, vault, prompt, token, YOLO ni un nom d'écran technique ; si ce qu'elle demande n'existe
+que dans le profil technique (créer un agent programmé, régler un budget, gérer les accès), dis
+que c'est la personne qui administre SOKKAN qui le fait, sans expliquer comment."""
+
+
+def _simple_profile_directive(user_email: str) -> str:
+    """Rien pour le profil technique (comportement inchangé) ; le guide du profil simple sinon."""
+    try:
+        import uiprefs
+        return SIMPLE_PROFILE_GUIDE if uiprefs.is_simple(user_email) else ""
+    except Exception:  # noqa: BLE001 — une préférence illisible ne fait jamais tomber Nina
+        return ""
 
 
 def _is_fr(message: str) -> bool:

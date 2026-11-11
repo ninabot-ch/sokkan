@@ -97,6 +97,24 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
   (sessions and Nina) and the study in `x-sokkan-study`; outside a study, nothing changes.
 - The `permission`, `question` and their `…_resolved` events of a session carry a `ts`.
 
+### Document ingestion — Added
+- **Feature `doc_ingest`** (experimental, off; requires `agents` + `memory_quarantine`). Sources in
+  an allow-list on the host (`sources.json`: read-only folder or mount, rclone for M365 / Drive),
+  extraction (MarkItDown, Docling fallback), a memory agent in strict JSON with no tool (one sourced
+  `reference` note, one `decision` note per decision, tags, links, level never below the folder's
+  floor, abstention), quarantine PER BATCH behind `/api/doc-ingest/*`, resumable and capped passes,
+  CLI `python -m docingest`. No change in `memory/core`. Docs: `docs/enterprise/DOC-INGEST.md`.
+
+### Simple profile — Added
+- **Feature `documents`** (beta, off): people attach documents (PDF, docx, pptx, xlsx, txt, md) to a
+  project or a session — types checked on extension AND content, names sanitised, stored in the
+  project's own space with a text copy, every upload / download / removal in the journal.
+- **Feature `simple_profile`** (beta, off; requires `documents`): a task-first home, a
+  plain-language thread (`?view=simple`), an approval card that says what will be saved and from
+  which sources, a deliverable to preview / download / validate, French and English, design tokens,
+  light theme by default. Chosen per person (`SOKKAN_PROFILE_DEFAULT`, `SOKKAN_PROFILE_LOCKED`); the
+  approval mode cannot be changed from it. Docs: `docs/enterprise/SIMPLE-PROFILE.md`.
+
 ## 3.5.1 — 2026-10-10 — "Lookout"
 
 What the first day of Operate › Alerts on a real instance showed (Telegram + Teams channels,

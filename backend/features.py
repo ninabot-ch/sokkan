@@ -546,6 +546,28 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_STUDY_ID", "SOKKAN_STUDY_EXPIRES_AT", "SOKKAN_STUDY_AUDIT_REQUIRED",
                     "SOKKAN_STUDY_DB"),
             check=_study_check, doc="docs/enterprise/STUDY-MODE.md"),
+    # -- simple profile (pilot HEG × eSkills, 3.6): the cockpit for people who are not developers
+    Feature("documents", "Document drop",
+            "People attach documents (PDF, docx, pptx, xlsx, txt, md) to a project or a session: "
+            "size and types bounded (extension AND content checked), names sanitised, stored in "
+            "the project's own space where the session's agent reads them (with a text copy), "
+            "every upload / download / removal in the journal, project roles and clearances "
+            "applied. Off: no upload route (404), nothing stored.",
+            status="beta", defaults=_both(False), vars=_t("documents"),
+            config=("SOKKAN_DOCUMENTS_MAX_MB", "SOKKAN_DOCUMENTS_MAX_PER_PROJECT"),
+            doc="docs/enterprise/SIMPLE-PROFILE.md"),
+    Feature("simple_profile", "Simple profile",
+            "A second way into the same cockpit for people who never saw a terminal: a "
+            "task-first home (« what are we working on? », attach documents, four business "
+            "task templates), a plain-language thread (no tool names, technical detail folded), "
+            "an approval card that says what the agent wants to save and from which sources, a "
+            "deliverable to preview, download and validate; French and English; light theme by "
+            "default. Chosen per person (simple / technical); the technical profile keeps every "
+            "existing screen. From the simple profile the approval mode cannot be changed.",
+            status="beta", defaults=_both(False), requires=("documents",),
+            vars=_t("simple_profile"),
+            config=("SOKKAN_PROFILE_DEFAULT", "SOKKAN_PROFILE_LOCKED"),
+            doc="docs/enterprise/SIMPLE-PROFILE.md"),
 )
 
 BY_ID: dict[str, Feature] = {f.id: f for f in REGISTRY}

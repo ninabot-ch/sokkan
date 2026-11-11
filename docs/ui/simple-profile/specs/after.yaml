@@ -1,0 +1,113 @@
+name: sokkan-simple-after
+base_url: http://100.124.110.23:3854
+widths:
+- 1440
+- 1280
+- 390
+themes:
+- light
+- dark
+settle_ms: 1200
+locale: fr-CH
+ignore_requests:
+- /api/auth/local
+ignore_console:
+- 401 (Unauthorized)
+pages:
+- name: 01-home
+  path: /
+  viewport_only: true
+  steps:
+  - &id001
+    fill:
+      selector: input[type=password]
+      value: <token of the disposable instance>
+  - &id002
+    click: text=Sign in
+  - &id003
+    wait: 2500
+- name: 02-home-template
+  path: /
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - click: .sk-task >> text=Plan de formation
+  - fill:
+      selector: textarea
+      value: Formation Excel intermédiaire pour 12 assistantes, 2 jours
+  - wait: 400
+- name: 03-thread
+  path: /?w=7507ba8b19654b6c83fe16610a9a4633
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 2500
+- name: 04-draft
+  path: /?w=7507ba8b19654b6c83fe16610a9a4633
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 2000
+  - click: text=Voir le brouillon
+  - wait: 800
+- name: 05-deliverable
+  path: /?w=7507ba8b19654b6c83fe16610a9a4633
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 2000
+  - click: .sk-open-deliverable
+  - wait: 1500
+- name: 06-works
+  path: /?v=works
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 800
+- name: 07-documents
+  path: /?v=documents
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 800
+- name: 08-team
+  path: /?v=team
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - wait: 800
+- name: 09-settings
+  path: /
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - eval: document.querySelector('.sk-user').click()
+  - wait: 500
+- name: 10-nina
+  path: /
+  viewport_only: true
+  steps:
+  - *id001
+  - *id002
+  - *id003
+  - eval: document.querySelector('.sk-drawer-foot .sk-nav-item').click()
+  - wait: 800
+ignore_selectors:
+- .sk-visually-hidden
+- .sk-skip

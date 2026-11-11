@@ -25,6 +25,11 @@ import { currentProject, installProjectFetch, noteTab, switchProject } from "@/l
 import Wordmark from "@/components/Wordmark";
 import { helmAccess } from "@/lib/helm";
 import { navLast, navRemember } from "@/lib/nav";
+import dynamic from "next/dynamic";
+import { fetchPrefs, type Prefs } from "@/lib/simple/api";
+
+// 3.6 — the simple profile is its own bundle: the technical cockpit does not load it
+const SimpleApp = dynamic(() => import("@/components/simple/SimpleApp"), { ssr: false });
 import {
   PLANES, PLANE_OF, href, landingPlane, pickTab, planeForKey, resolveTarget, visiblePlanes,
   type PlaneId, type SubTab, type Target,
@@ -87,7 +92,30 @@ function NoProjectGate({ me }: { me: Me }) {
 
 function Cockpit() {
   const me = useMe();
+  const feats = useFeatures();
+  // 3.6 — which profile this person uses (feature `simple_profile`, per-person setting).
+  // undefined = not known yet · null = the technical cockpit (feature off, or their choice)
+  const [prefs, setPrefs] = useState<Prefs | null | undefined>(undefined);
+  const simpleOn = !!feats.simple_profile;
+  useEffect(() => {
+    if (!feats.loaded) return;
+    if (!simpleOn) { setPrefs(null); return; }
+    fetchPrefs().then((p) => setPrefs(p.profile === "simple" ? p : null)).catch(() => setPrefs(null));
+  }, [feats.loaded, simpleOn]);
+  useEffect(() => {
+    if (prefs !== null) return;
+    // the technical cockpit: nothing of the simple profile stays on the page (a cookie left by
+    // a previous visit would pre-paint its light theme under the dark cockpit)
+    const el = document.documentElement;
+    if (el.dataset.skTheme) delete el.dataset.skTheme;
+    if (el.lang !== "en") el.lang = "en";
+    try { for (const c of ["sokkan_lang", "sokkan_sk_theme"]) document.cookie = `${c}=; path=/; max-age=0; samesite=lax`; } catch { /* cookies blocked */ }
+  }, [prefs]);
   if (me && me.role === "none") return <NoProjectGate me={me} />;
+  if (prefs === undefined) return <div className="flex h-screen items-center justify-center text-[13px] text-mut">…</div>;
+  if (prefs) {
+    return <SimpleApp prefs={prefs} onPrefs={(p) => { if (p.profile === "simple") setPrefs(p); else window.location.assign("/"); }} />;
+  }
   return <CockpitBody />;
 }
 

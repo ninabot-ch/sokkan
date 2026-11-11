@@ -1,4 +1,5 @@
 "use client";
+import ProfileSwitch from "./ProfileSwitch";
 import { useEffect, useState } from "react";
 import { useMe, useCan } from "@/lib/me";
 import {
@@ -609,6 +610,7 @@ export function AccountPage() {
   return (
     <div className="space-y-4">
       <Account />
+      <ProfileSwitch />
       {gitlab && (
         <section id="linked" aria-label="Linked accounts" className="border-t border-line pt-3">
           <h3 className="mb-2 text-[12.5px] font-medium text-slate-100">Linked accounts</h3>
