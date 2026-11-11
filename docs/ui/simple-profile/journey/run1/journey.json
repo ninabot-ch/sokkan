@@ -1,0 +1,93 @@
+{
+  "journey": "sokkan simple profile — Camille gets a training plan from 3 documents and validates it",
+  "persona": "Camille, instructional designer at a training agency. Never saw a terminal. Uses Word, Outlook, Teams. French speaker.",
+  "goal": "Have a training plan drafted from 3 internal documents (a client brief, an existing module, a skills framework) and validate the result.",
+  "mode": "write",
+  "verdict": "SUCCESS (slow)",
+  "ttfv_s": 422.5,
+  "ttfv_target_s": 360,
+  "total_s": 422.6,
+  "actions": 14,
+  "min_actions": 9,
+  "efficiency": 0.64,
+  "hesitations": 1,
+  "confusions": 1,
+  "abandon": null,
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Understand where to start and say what she wants",
+      "reached": true,
+      "seconds": 24.5,
+      "actions": 3,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 1,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    },
+    {
+      "id": "s2",
+      "title": "Attach the 3 documents",
+      "reached": true,
+      "seconds": 12.0,
+      "actions": 2,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 0,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    },
+    {
+      "id": "s3",
+      "title": "Launch and follow what the agent does",
+      "reached": true,
+      "seconds": 350.9,
+      "actions": 2,
+      "min_actions": 1,
+      "budget_s": 120,
+      "extra_actions": 1,
+      "hesitations": 1,
+      "hesitation_detail": [
+        "hesitate: au-delà de 3 minutes annoncées, je me demande si c'est bloqué ; le bandeau « En cours » et le cercle qui tourne me retiennent"
+      ],
+      "confusions": []
+    },
+    {
+      "id": "s4",
+      "title": "Understand the approval request and read the draft",
+      "reached": true,
+      "seconds": 19.4,
+      "actions": 4,
+      "min_actions": 2,
+      "budget_s": 90,
+      "extra_actions": 2,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": [
+        {
+          "ts": "2026-11-11T02:18:38.181",
+          "kind": "confusion",
+          "step": "s4",
+          "note": "une phrase de l'agent est en anglais au milieu du fil français",
+          "shot": "shots/simpleui-j4-approval.jpg"
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "title": "Open the deliverable and validate it",
+      "reached": true,
+      "seconds": 15.0,
+      "actions": 3,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 1,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    }
+  ]
+}

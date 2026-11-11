@@ -1,0 +1,91 @@
+{
+  "journey": "sokkan simple profile — Camille gets a training plan from 3 documents and validates it",
+  "persona": "Camille, instructional designer at a training agency. Never saw a terminal. Uses Word, Outlook, Teams. French speaker.",
+  "goal": "Have a training plan drafted from 3 internal documents (a client brief, an existing module, a skills framework) and validate the result.",
+  "mode": "write",
+  "verdict": "SUCCESS (slow)",
+  "ttfv_s": 483.6,
+  "ttfv_target_s": 360,
+  "total_s": 483.7,
+  "actions": 13,
+  "min_actions": 9,
+  "efficiency": 0.69,
+  "hesitations": 0,
+  "confusions": 1,
+  "abandon": null,
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Understand where to start and say what she wants",
+      "reached": true,
+      "seconds": 25.4,
+      "actions": 3,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 1,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    },
+    {
+      "id": "s2",
+      "title": "Attach the 3 documents",
+      "reached": true,
+      "seconds": 0.4,
+      "actions": 2,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 0,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    },
+    {
+      "id": "s3",
+      "title": "Launch and follow what the agent does",
+      "reached": true,
+      "seconds": 430.9,
+      "actions": 3,
+      "min_actions": 1,
+      "budget_s": 120,
+      "extra_actions": 2,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": [
+        {
+          "ts": "2026-11-11T02:27:00.748",
+          "kind": "confusion",
+          "step": "s3",
+          "note": "après 5 min 30 : « L'agent veut effectuer une opération technique » (un mkdir) — je ne sais pas ce que c'est ; le détail technique est illisible pour moi",
+          "shot": "shots/simpleui-k4-approval.jpg"
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "title": "Understand the approval request and read the draft",
+      "reached": true,
+      "seconds": 25.8,
+      "actions": 3,
+      "min_actions": 2,
+      "budget_s": 90,
+      "extra_actions": 1,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    },
+    {
+      "id": "s5",
+      "title": "Open the deliverable and validate it",
+      "reached": true,
+      "seconds": 0.4,
+      "actions": 2,
+      "min_actions": 2,
+      "budget_s": 60,
+      "extra_actions": 0,
+      "hesitations": 0,
+      "hesitation_detail": [],
+      "confusions": []
+    }
+  ]
+}

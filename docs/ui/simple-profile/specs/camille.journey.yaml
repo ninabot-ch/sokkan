@@ -1,0 +1,18 @@
+# WRITE journey on a DISPOSABLE instance (rog1:/root/sokkan-simple/scratch/after, fictional documents).
+name: sokkan simple profile — Camille gets a training plan from 3 documents and validates it
+persona: Camille, instructional designer at a training agency. Never saw a terminal. Uses Word, Outlook, Teams. French speaker.
+goal: Have a training plan drafted from 3 internal documents (a client brief, an existing module, a skills framework) and validate the result.
+start_url: http://100.124.110.23:3854
+device: desktop 1440x900
+mode: write
+target_is_disposable: true
+lane: simpleui
+steps:
+  - {id: s1, title: Understand where to start and say what she wants, min_actions: 2, budget_s: 60}
+  - {id: s2, title: Attach the 3 documents, min_actions: 2, budget_s: 60}
+  - {id: s3, title: Launch and follow what the agent does, min_actions: 1, budget_s: 120}
+  - {id: s4, title: Understand the approval request and read the draft, min_actions: 2, budget_s: 90}
+  - {id: s5, title: Open the deliverable and validate it, min_actions: 2, budget_s: 60}
+success:
+  criterion: A training plan built from the 3 documents is saved, previewed and validated by Camille without help; first draft visible in under 6 minutes.
+  ttfv_target_s: 360
