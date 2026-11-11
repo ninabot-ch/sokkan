@@ -249,9 +249,9 @@ def prepare() -> None:
     shutil.copy(keys / "cosign.pub", "/etc/sokkan/cosign.pub")
     sh("docker inspect e2e-registry >/dev/null 2>&1 || docker run -d --name e2e-registry --restart unless-stopped "
        "-p 127.0.0.1:5000:5000 registry:2", check=True)
-    sh("docker inspect e2e-minio >/dev/null 2>&1 || docker run -d --name e2e-minio --restart unless-stopped "
-       "-p 127.0.0.1:9000:9000 -e MINIO_ROOT_USER=e2e-access -e MINIO_ROOT_PASSWORD=e2e-secret-key "
-       "minio/minio:latest server /data", check=True)
+    # an S3-compatible store for T11 (SeaweedFS: MinIO's image left Docker Hub in 2026)
+    sh("docker inspect e2e-s3 >/dev/null 2>&1 || docker run -d --name e2e-s3 --restart unless-stopped "
+       "-p 127.0.0.1:9000:8333 chrislusf/seaweedfs:latest server -dir=/data -s3", check=True)
     src = WORK / "newsrc"
     shutil.rmtree(src, ignore_errors=True)
     src.mkdir()
@@ -612,7 +612,7 @@ def t11():
     bad = sh("RESTIC_PASSWORD=wrong-key restic -r s3:http://127.0.0.1:9000/sokkan-backups/pilot-e2e snapshots",
              env={**ENV, "AWS_ACCESS_KEY_ID": "e2e-access", "AWS_SECRET_ACCESS_KEY": "e2e-secret-key"})
     assert bad.returncode != 0, "the repository opens with a wrong key"
-    leak = sh("docker exec e2e-minio sh -c \"grep -rl 'Moulin de S' /data 2>/dev/null | head -n 1\"").stdout.strip()
+    leak = sh("docker exec e2e-s3 sh -c \"grep -rl 'Moulin de S' /data 2>/dev/null | head -n 1\"").stdout.strip()
     assert not leak, f"client text readable in the bucket: {leak}"
     # ---- the machine is lost: volumes and install gone; only the bucket and the client's key remain
     client_key = key

@@ -99,7 +99,7 @@ SAMPLER=$!
 
 # images the stacks need, from the host cache when present (saves pulls)
 for i in pgvector/pgvector:pg16 python:3.12-slim node:22-alpine ghcr.io/ggml-org/llama.cpp:server-b11347 \
-         caddy:2.10.2-alpine caddy:2-alpine registry:2 minio/minio:latest; do
+         caddy:2.10.2-alpine caddy:2-alpine registry:2 chrislusf/seaweedfs:latest; do
   docker image inspect "$i" >/dev/null 2>&1 && docker save "$i" | docker exec -i "$NAME" docker load -q >/dev/null 2>&1 || true
 done
 
@@ -110,6 +110,8 @@ phase() {
 }
 docker exec "$NAME" sh /harness/e2e_appliance/inner.sh tools
 phase prepare
+grep -q '"id": "T0".*"pass": true' "$W/work/results.jsonl" 2>/dev/null \
+  || { echo "the release could not be prepared (T0) — nothing else can be played; see $W/work/prepare.log" >&2; exit 1; }
 case "$WHAT" in all|appliance)
   phase appliance
   # T13: the machine is « rebooted » — its engine stops and starts, nobody types anything inside

@@ -8,7 +8,7 @@
 #   tests/e2e_upgrade/run.sh <case>…          e.g. 2.3.0-installer 2.3.0-manual
 #   tests/e2e_upgrade/run.sh all
 #
-# Cases: <version>-installer | <version>-manual for 2.3.0 2.2.0 2.0.1 0.1.0, plus
+# Cases: <version>-installer | <version>-manual for 3.5.1 3.4.6 2.3.0 2.2.0 2.0.1 0.1.0, plus
 #   old-compose   2.3.0 -> this tree with Docker Engine 20.10 + Compose 2.12.2 (installer)
 #   vm4g          2.3.0 -> this tree (installer) in 4 GB without swap: RAM peak measured
 #
@@ -29,7 +29,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 P=sokkan-v3-upg
 OUT="${OUT:-$(mktemp -d)}"
 DISTS="$OUT/dists"
-SOURCES="2.3.0 2.2.0 2.0.1 0.1.0"
+SOURCES="3.5.1 3.4.6 2.3.0 2.2.0 2.0.1 0.1.0"
 mkdir -p "$DISTS" "$HERE/results"
 say() { printf '\n######## %s\n' "$*"; }
 
@@ -51,8 +51,16 @@ for v in $SOURCES; do
 done
 ref="$(git -C "$ROOT" stash create 2>/dev/null || true)"
 git -C "$ROOT" archive --prefix=sokkan/ -o "$DISTS/sokkan-3.tar.gz" "${ref:-HEAD}"
+# 3.6: the tree under its release name too — the installer pins <version>+<commit> and the
+# upgrade waits until /api/version answers exactly that
+TREE_VERSION="$(cat "$ROOT/VERSION")+$(git -C "$ROOT" rev-parse --short HEAD)"
+cp "$DISTS/sokkan-3.tar.gz" "$DISTS/sokkan-$TREE_VERSION.tar.gz"
+echo "$TREE_VERSION" > "$DISTS/TREE_VERSION"
 echo "3.0 tree: ${ref:-HEAD} ($(git -C "$ROOT" rev-parse --short HEAD))" > "$DISTS/tree.txt"
-if [ -n "${INSTALLER_REPO:-}" ]; then cp "$INSTALLER_REPO/site/site/install.sh" "$DISTS/install-3.sh"
+# 3.6: the installer of this tree lives in the repository (scripts/install.sh) — it runs the
+# release's own scripts/upgrade.sh, so this bench exercises the ONE upgrade path
+if [ -f "$ROOT/scripts/install.sh" ]; then cp "$ROOT/scripts/install.sh" "$DISTS/install-3.sh"
+elif [ -n "${INSTALLER_REPO:-}" ]; then cp "$INSTALLER_REPO/site/site/install.sh" "$DISTS/install-3.sh"
 else curl -fsSL https://sokkan.ch/install.sh > "$DISTS/install-3.sh"; fi
 
 host_image() {  # host_image <dind tag> <compose version or ''>
