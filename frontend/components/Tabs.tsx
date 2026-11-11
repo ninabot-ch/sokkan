@@ -8,6 +8,7 @@ import { useFeatures } from "@/lib/features";
 import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import ProjectSelector from "./ProjectSelector";
+import StudyBanner from "./StudyBanner";
 import { SHORTCUTS_HELP, type PlaneDef, type PlaneId, type SubTab } from "@/lib/planes";
 
 /** ←/→/Home/End inside a tablist: move the focus and activate (WAI-ARIA tabs pattern). */
@@ -38,6 +39,8 @@ export default function Tabs({
   return (
     <>
     {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} captains={!!feats.demo_captains} />}
+    {/* feature `study_mode`: standalone, renders nothing unless a study is active */}
+    <StudyBanner onOpen={(section) => onGo("study", section)} />
     {me?.secrets_warning && (
       <div role="status" className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[12px] text-amber-100">
         ⚠ {me.secrets_warning}

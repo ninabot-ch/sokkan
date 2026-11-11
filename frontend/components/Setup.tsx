@@ -2,6 +2,7 @@
 // 3.2.2 — the Setup plane: Organization · Engines · Magnitude · Secrets · My account ·
 // Notifications. The pages are the former « Profile & organization » sections (SetupPages).
 import Magnitude from "./Magnitude";
+import StudyPage from "./StudyPage";
 import { AccountPage, EnginesPage, Notifications, OrganizationPage, Secrets } from "./SetupPages";
 import type { SubTab } from "@/lib/planes";
 
@@ -12,6 +13,11 @@ const TITLES: Partial<Record<SubTab, string>> = {
 
 export default function Setup({ tab, section }: { tab: SubTab; section?: string }) {
   if (tab === "magnitude") return <Magnitude />;
+  if (tab === "study") return (      // feature `study_mode`: its own title and language switch
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-5xl p-4 md:p-6"><StudyPage section={section} /></div>
+    </div>
+  );
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className={`mx-auto w-full p-4 md:p-6 ${tab === "organization" ? "max-w-5xl" : "max-w-3xl"}`}>
