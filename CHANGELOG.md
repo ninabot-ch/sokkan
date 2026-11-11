@@ -3,7 +3,10 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## 3.6.2 — 2026-11-12 — "Icebreaker"
+
+An organisation takes its work with it, and a rollback leaves the tree of the release it goes
+back to. No changed default, no new required variable.
 
 ### Added
 - **Feature `work_export` — « Export our work »** (beta, off; on in the appliance profile): an
@@ -18,6 +21,18 @@ Notable changes, newest first. Versions: semver + release hash (see
   is journaled with its fingerprint (`work.export`). `GET /api/admin/work-export`;
   **Setup › Organization › Export our work**, and **Settings › Our work** in the simple profile.
   [OPERATIONS.md § 5.2](docs/enterprise/OPERATIONS.md#52-export-our-work-feature-work_export).
+
+### Fixed
+- **A rollback removes the top-level files only the newer release ships.** After
+  `scripts/rollback.sh` from 3.6 to 3.5.1 or 3.4.6, `docker-compose.doc-ingest.yml` (a top-level
+  file new in 3.6) stayed in the tree — and in `COMPOSE_FILE` when the instance named it: the
+  script removed the release folders and the entries of the target release only. It now knows
+  every top-level entry a release has ever shipped and removes the ones the target does not
+  have. Never removed: `.env` and any `.env.*`, `docker-compose.override.yml`, the workspace, a
+  local data folder (`SOKKAN_DATA_DIR`), any file or folder that is not a release's, and the data
+  volumes. A test fails when a release ships a top-level entry the script does not know; the
+  appliance bench (T10) fails on any file of the newer release left after a rollback. An
+  instance already rolled back with the script of 3.6.0 or 3.6.1 keeps the file: delete it by hand.
 
 ## 3.6.1 — 2026-11-11 — "Icebreaker"
 
