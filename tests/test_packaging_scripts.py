@@ -195,6 +195,65 @@ def test_rollback_without_argument_goes_back_to_the_previous_version(world):
     assert not (d / "backend" / "only_3_6_0.py").exists()
 
 
+def test_rollback_removes_the_top_level_files_only_the_newer_release_ships(world):
+    """3.6 added docker-compose.doc-ingest.yml at the top level: after a rollback to a release
+    that does not ship it, it is gone from the tree AND from COMPOSE_FILE. What the admin put
+    there (settings, override, own files and folders, a local data folder) is not touched."""
+    tmp, env = world
+    _publish(tmp / "dist", V_OLD, _release(V_OLD), latest=False)
+    _publish(tmp / "dist", V_NEW, _release(V_NEW, {"docker-compose.doc-ingest.yml": "services: {}  # 3.6 only\n"}))
+    d = _installed(tmp, env, V_OLD)
+    assert _sh(S / "install.sh", "--dir", "sokkan", cwd=tmp, env=env).returncode == 0
+    assert (d / "docker-compose.doc-ingest.yml").exists()
+    mine = {".env.local": "SECRET=1\n", "docker-compose.override.yml": "services: {}  # mine\n",
+            "my-notes.txt": "mine\n", "backups/dump.sql": "mine\n", "data/pg/PG_VERSION": "16\n",
+            "workspace/mine.txt": "mine"}
+    for rel, text in mine.items():
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        (d / rel).write_text(text)
+    with (d / ".env").open("a") as f:
+        f.write("SOKKAN_DATA_DIR=./data\nCOMPOSE_FILE=docker-compose.yml:docker-compose.doc-ingest.yml\n")
+    r = _sh(d / "scripts" / "rollback.sh", cwd=d, env=env)
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert not (d / "docker-compose.doc-ingest.yml").exists()
+    e = _env(d)
+    assert e["SOKKAN_VERSION"] == V_OLD and e["SOKKAN_LOCAL_TOKEN"] == "keepme" and e["SOKKAN_DATA_DIR"] == "./data"
+    assert "COMPOSE_FILE" not in e                    # only docker-compose.yml was left: the default
+    for rel, text in mine.items():
+        assert (d / rel).read_text() == text, rel
+    # the tree is the target release's, plus what belongs to the instance — nothing else
+    with tarfile.open(tmp / "dist" / f"sokkan-{V_OLD}.tar.gz") as t:
+        shipped = {m.name.split("/", 1)[1] for m in t.getmembers() if m.isfile()}
+    assert set(_tree(d)) == shipped | set(mine)
+
+
+def _rollback_release_entries() -> set:
+    import re
+    m = re.search(r'^RELEASE_ENTRIES="([^"]*)"', (S / "rollback.sh").read_text(), re.M)
+    assert m, "scripts/rollback.sh no longer declares RELEASE_ENTRIES"
+    return set(m.group(1).split())
+
+
+def test_rollback_knows_every_top_level_entry_this_release_ships():
+    """rollback.sh removes a top-level entry the target release lacks only when it knows the name
+    as a release's. A new top-level file missing from its list would stay behind after a rollback
+    (docker-compose.doc-ingest.yml did, 3.6.0 and 3.6.1)."""
+    known = _rollback_release_entries()
+    git = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
+    if git.returncode == 0 and git.stdout:
+        top = {f.split("/", 1)[0] for f in git.stdout.split("\0") if f}
+    else:   # a release tarball, no history: the folder itself (caches and hidden entries aside)
+        top = {p.name for p in ROOT.iterdir()
+               if not p.name.startswith(".") and p.name not in ("__pycache__", "node_modules", "workspace")}
+    assert not top - known, f"top-level entries missing from RELEASE_ENTRIES in scripts/rollback.sh: {sorted(top - known)}"
+
+
+def test_rollback_never_lists_what_belongs_to_the_instance():
+    known = _rollback_release_entries()
+    assert not known & {".env", ".git", "workspace", "docker-compose.override.yml", "data"}
+    assert not [e for e in known if e.startswith(".env.") and e != ".env.example"]
+
+
 # ---------------------------------------------------------------- verification, fail closed
 
 def _snapshot(d: Path) -> dict:

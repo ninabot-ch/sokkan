@@ -12,7 +12,8 @@
 #
 # The code is REPLACED, not overwritten: extracting an older tarball over a newer folder
 # leaves the newer files behind, and the older build trips on them (a 2.3 web build
-# compiles the 3.0 CortHeXis components and fails). Kept: .env, your workspace folder,
+# compiles the 3.0 CortHeXis components and fails). Kept: .env and any .env.*, your
+# docker-compose.override.yml, your workspace folder, a local data folder (SOKKAN_DATA_DIR),
 # anything that is not part of a release, and the data (Docker volumes) — untouched.
 # Then: SOKKAN_VERSION pinned in .env, COMPOSE_FILE dropped (a 3.0 GPU override an older
 # compose file does not know), `docker compose up -d --build --remove-orphans`.
@@ -47,12 +48,22 @@ tar xzf "$TB" -C "$NEW" --strip-components=1
 [ -f "$NEW/docker-compose.yml" ] || { echo "rollback: not a SOKKAN release tarball" >&2; exit 1; }
 CUR="$(sed -n 's/^SOKKAN_VERSION=//p' .env | tail -n 1)"
 
-# release folders of any version (0.1 - 3.x) + every entry of the target release
-WS="$(sed -n 's/^SOKKAN_WORKSPACE=//p' .env | tail -n 1)"
-for e in backend frontend memory magnitude cli docker scripts examples docs tests \
-         $(ls -A "$NEW"); do
-  case "$e" in .env|workspace|"$NEW"|.git) continue ;; esac
-  [ -n "$WS" ] && [ "./$e" = "$WS" -o "$e" = "$WS" ] && continue
+# Every top-level entry a release has ever shipped (0.1 - 3.x): the ones the RUNNING release
+# has and the target does not must go too (3.6 added docker-compose.doc-ingest.yml: left behind,
+# it stayed in the tree — and in COMPOSE_FILE — of a 3.5 that does not know it). A name that is
+# not in this list and not in the target release is yours: it is never removed.
+# tests/test_packaging_scripts.py fails when a release ships a top-level entry missing here.
+RELEASE_ENTRIES="backend frontend memory magnitude cli deploy docker scripts examples docs tests
+  docker-compose.yml docker-compose.doc-ingest.yml VERSION CHANGELOG.md CONTRIBUTING.md LICENSE
+  README.md SECURITY.md pyproject.toml requirements-dev.txt .env.example .forgejo .github
+  .gitattributes .gitignore"
+WS="$(sed -n 's/^SOKKAN_WORKSPACE=//p' .env | tail -n 1 | sed 's|^\./||; s|/$||')"
+DD="$(sed -n 's/^SOKKAN_DATA_DIR=//p' .env | tail -n 1 | sed 's|^\./||; s|/$||')"
+for e in $RELEASE_ENTRIES $(ls -A "$NEW"); do
+  # never removed, whatever a release ships (same rule as scripts/upgrade.sh)
+  case "$e" in .env|.env.*|docker-compose.override.yml|workspace|"$NEW"|"$DL"|.git) continue ;; esac
+  [ -n "$WS" ] && [ "$e" = "$WS" ] && continue
+  [ -n "$DD" ] && [ "$e" = "$DD" ] && continue
   rm -rf "./$e"
 done
 for e in $(ls -A "$NEW"); do mv "$NEW/$e" "./$e"; done

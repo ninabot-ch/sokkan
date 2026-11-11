@@ -986,8 +986,8 @@ def check_kept(tok: str, before: dict) -> None:
 def newer_only() -> list:
     """The files NEW carries and OLD does not, by comparing the two tarballs (from 3.4.6 or 3.5.1
     scripts/verify-release.sh is one of them; from 3.6.0 it is not, so one name cannot be the
-    check). After a rollback none may remain inside a release folder; a top-level file that only
-    the newer release has is outside what rollback.sh removes — reported as a measure."""
+    check). After a rollback none may remain: neither inside a release folder nor at the top
+    level (docker-compose.doc-ingest.yml stayed there until 3.6.2)."""
     def names(ver: str) -> set:
         with tarfile.open(WORK / "srv" / "dist" / f"sokkan-{ver}.tar.gz") as t:
             return {m.name.split("/", 1)[1] for m in t.getmembers() if m.isfile() and "/" in m.name}
@@ -1056,8 +1056,7 @@ def upgrade() -> None:
         v = http(BASE + "/api/version")[1] or {}
         assert v.get("version") == OLD.split("+")[0], f"after rollback: {v}"
         left = [f for f in newer_only() if (d / f).exists()]
-        inside = [f for f in left if "/" in f]
-        assert not inside, f"files of the newer release were left behind: {inside[:8]}"
+        assert not left, f"files of the newer release were left behind: {left[:8]}"
         check_kept(ctx["tok"], ctx["before"])
         assert (d / ".sokkan-previous").read_text().strip() == NEW
         return {"rollback_s": round(dur), "interruption_s": longest_outage(samples),

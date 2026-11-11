@@ -99,8 +99,11 @@ cd sokkan
 
 The script (3.0+) replaces the code with that release — **do not extract an older
 tarball over a newer folder**: the newer files stay behind and the older build trips
-on them (a 2.3 web build compiles the 3.0 CortHeXis components and fails). It keeps
-`.env`, your workspace and the data volumes, pins `SOKKAN_VERSION` in `.env` (so the
+on them (a 2.3 web build compiles the 3.0 CortHeXis components and fails). The files and
+folders of the newer release that the target does not ship are removed, at the top level too
+(3.6.2: `docker-compose.doc-ingest.yml` stayed behind, and in `COMPOSE_FILE`, after a rollback
+from 3.6 to 3.5). It keeps `.env` and any `.env.*`, `docker-compose.override.yml`, your
+workspace, a local data folder, every file of yours and the data volumes, pins `SOKKAN_VERSION` in `.env` (so the
 update banner reflects reality) and runs `docker compose up -d --build --remove-orphans`.
 
 The full changelog (with hashes) is at
