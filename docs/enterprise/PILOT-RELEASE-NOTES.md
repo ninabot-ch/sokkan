@@ -146,15 +146,15 @@ Of the integration:
   the answers of its app played in-process on a throw-away database, head `study-no-retry` 293573d
   (`tests/fixtures/gateway_contract/`, compared with a `sokkan-cloud` checkout when one is at
   hand — the comparison is **skipped** where there is none) and against a fake gateway on a
-  real socket. The branch `study-quotas` of `sokkan-cloud` is itself not deployed.
-* **No retry guard without the local router — fixed on the gateway's side, NOT deployed.** The
-  gateway in production (`sokkan-cloud` bd8a8bc) sends no `x-should-retry` on its refusals; the
-  router of the appliance adds it. An instance whose sessions call the gateway directly lets the
-  CLI retry the two 429 before the sentence appears — not the pilot's setting; played once on
-  the real gateway: 177 s of spinner before the notice. `sokkan-cloud` branch `study-no-retry`
-  (293573d) sends `x-should-retry: false` on the four study refusals and on them only; the
-  frozen contract here was regenerated from it (`tests/fixtures/gateway_contract/regenerate.py`).
-  Until that branch is deployed, the guard is the local router alone.
+  real socket. (`study-quotas` itself is deployed on the gateway since 11.11.2026, `sokkan-cloud` bd8a8bc.)
+* **No retry guard without the local router — fixed and deployed on the gateway.** `sokkan-cloud`
+  main 293573d sends `x-should-retry: false` on the four study refusals and on them only; in
+  production on the gateway since 11.11.2026 (checked there: a 412 of the test tenant carries the
+  header, a 401 does not). Before it, an instance whose sessions called the gateway directly let
+  the CLI retry the two 429: 177 s of spinner before the notice, played once on the real gateway
+  (real CLI against the gateway's app: 189 s and 22 requests before, 1.4 s and 2 after). The frozen
+  contract here is regenerated from that code (`tests/fixtures/gateway_contract/regenerate.py`).
+  Not replayed in a browser against the real gateway since the fix.
 * **Three of the four refusal notices of the simple profile were looked at in a browser**, on
   the real gateway (see above); the fourth (`study_expired`) has tests only.
 * **A person's token ceiling must be sized on a whole work**: one request of a session is
