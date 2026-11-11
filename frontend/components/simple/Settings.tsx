@@ -6,7 +6,7 @@ import { savePrefs, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
 import { useFeatureOn } from "@/lib/uifeatures";
-import { WORK_EXPORT_URL } from "@/lib/workExport";
+import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
 
 export default function Settings({ prefs, onPrefs, onClose, project }: {
@@ -39,6 +39,12 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
   const instAdmin = ["admin", "owner"].includes(me?.instance_role || "");
   const canSwitch = !prefs.locked || instAdmin;
   const exportOn = useFeatureOn("work_export");
+  // 3.6.3: the export says what happens — preparing, downloaded (and what is not in it), failed
+  const [exp, setExp] = useState<"idle" | "busy" | "failed" | WorkExportResult>("idle");
+  const runExport = async () => {
+    setExp("busy");
+    try { setExp(await downloadWorkExport()); } catch { setExp("failed"); }
+  };
 
   return (
     <div className="sk-scrim" onClick={onClose}>
@@ -70,7 +76,23 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
           <fieldset>
             <legend className="sk-legend">{t("set.export")}</legend>
             <p className="sk-small sk-muted">{t("set.export.hint")}</p>
-            <div><a className="sk-btn" href={WORK_EXPORT_URL} download><Icon name="download" />{t("set.export.button")}</a></div>
+            <div>
+              <button className="sk-btn" onClick={runExport} disabled={exp === "busy"}>
+                {exp === "busy" ? <span className="sk-spin" aria-hidden /> : <Icon name="download" />}
+                {t(exp === "busy" ? "set.export.preparing" : "set.export.button")}
+              </button>
+            </div>
+            <div role="status" aria-live="polite" className="sk-list">
+              {typeof exp === "object" && (
+                <div className="sk-export-done"><Icon name="check" small />
+                  <span>{t(exp.projects === 1 ? "set.export.done" : "set.export.done.n", { file: exp.filename, n: exp.projects })}</span></div>
+              )}
+              {typeof exp === "object" && exp.notIncluded > 0 && (
+                <div className="sk-notice"><Icon name="info" />
+                  <span>{t(exp.notIncluded === 1 ? "set.export.missing" : "set.export.missing.n", { n: exp.notIncluded })}</span></div>
+              )}
+              {exp === "failed" && <div className="sk-error"><Icon name="alert" small /><span>{t("set.export.failed")}</span></div>}
+            </div>
           </fieldset>
         )}
         <div className="sk-small sk-muted">

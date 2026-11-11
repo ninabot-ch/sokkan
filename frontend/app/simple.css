@@ -463,6 +463,7 @@ html[data-sk-theme] body {
   background: var(--sk-surface); color: var(--sk-text-strong); padding: 0 var(--sk-s3); }
 .sk .sk-input:focus { outline: 2px solid var(--sk-sea); outline-offset: 0; border-color: var(--sk-sea); }
 
+.sk-export-done { display: flex; gap: var(--sk-s2); align-items: flex-start; color: var(--sk-ok); font-weight: 600; overflow-wrap: anywhere; }
 /* memory (components/simple/Memory.tsx) */
 .sk-plain-list { list-style: none; margin: 0; padding: 0; }
 .sk-mem-tools { gap: var(--sk-s4); }

@@ -6,7 +6,9 @@
 
 For the instance's admins only (403 otherwise); 404 while the feature is off. Every export
 is written to the action journal: who, when, how many files of each kind, the SHA-256 of
-the archive (also sent as the ``X-Sokkan-Export-Sha256`` response header). A refused export
+the archive (also sent as the ``X-Sokkan-Export-Sha256`` response header; the number of
+projects in the archive and of projects left out — no role in them — are sent the same way,
+for the message shown after the click). A refused export
 (a vault value reached the archive, or the vault cannot be read) is journaled too.
 """
 from __future__ import annotations
@@ -53,4 +55,8 @@ def export(_f=Depends(_on), u: dict = Depends(_admin)):
     return Response(out["zip"], media_type="application/zip", headers={
         "Content-Disposition": f'attachment; filename="{work_export.filename(m)}"',
         "X-Sokkan-Export-Sha256": out["sha256"],
+        # 3.6.3: what the screen says after the click — how many projects are in the archive and
+        # how many are not (the caller has no role in them); the manifest holds the same numbers
+        "X-Sokkan-Export-Projects": str(len(m["projects"])),
+        "X-Sokkan-Export-Projects-Not-Included": str(m["projects_not_included"]),
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})

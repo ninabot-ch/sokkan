@@ -244,6 +244,10 @@ def test_only_the_projects_the_admin_has_a_role_in(org):
     m = json.loads(f["manifest.json"])
     assert "radio" not in [p["slug"] for p in m["projects"]]
     assert m["projects_not_included"] >= 1
+    # 3.6.3: the same two numbers reach the screen (response headers), nothing more
+    r = org["as"]("admin@x").get(URL)
+    assert r.headers["x-sokkan-export-projects"] == str(len(m["projects"]))
+    assert r.headers["x-sokkan-export-projects-not-included"] == str(m["projects_not_included"])
     assert not [n for n in f if "/radio/" in n]
     assert b"Radio" not in b"".join(f.values())
 
