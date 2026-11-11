@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from collections import Counter
 
@@ -175,13 +176,42 @@ _HOP = {"host", "content-length", "connection", "keep-alive", "transfer-encoding
         "x-sokkan-tier", "accept-encoding", "cookie"}
 
 
+_PSEUDONYM_RE = re.compile(r"^(?:[a-z][a-z0-9_-]{0,23}:)?P[0-9]{1,6}$")
+# refusals of the gateway that are about the STUDY (infer/pilote-etude.md § Refus): their own
+# words are the readable message (backend/study.explain_refusal recognises them)
+STUDY_REFUSALS = ("study_expired", "study_mode_required", "user_daily_cap")
+
+
+def _pseudonymous(headers: dict) -> bool:
+    """Study mode: `x-sokkan-study` names the study and `x-sokkan-user` is a pseudonym
+    (never an address). Anything else is treated as a person's identity."""
+    low = {k.lower(): v for k, v in headers.items()}
+    return bool((low.get("x-sokkan-study") or "").strip()) and bool(
+        _PSEUDONYM_RE.match((low.get("x-sokkan-user") or "").strip()))
+
+
+def study_refusal(status: int, raw: str, header: str = "") -> str:
+    """The study code of a gateway refusal ('' when it is not one)."""
+    if status not in (410, 412, 429):
+        return ""
+    code = (header or "").strip()
+    if code not in STUDY_REFUSALS:
+        try:
+            code = str(((json.loads(raw) or {}).get("error") or {}).get("code") or "")
+        except (ValueError, AttributeError):
+            code = ""
+    return code if code in STUDY_REFUSALS else ""
+
+
 def _upstream(tier: str, c: dict, inbound) -> tuple[str, dict]:
     h = {k: v for k, v in inbound.items() if k.lower() not in _HOP}
     if tier == "deep":
         h["x-api-key"] = c["deep_token"]
         h["authorization"] = f"Bearer {c['deep_token']}"
-        if not c["forward_user"]:
-            # who typed the request stays on the box unless the operator says otherwise
+        if not c["forward_user"] and not _pseudonymous(h):
+            # who typed the request stays on the box unless the operator says otherwise —
+            # in study mode the instance sends a PSEUDONYM (P1, P2…) with the study: that one
+            # goes to the gateway, which meters per person and caps Deep per person
             h = {k: v for k, v in h.items() if k.lower() not in ("x-sokkan-user", "anthropic-custom-headers")}
         return c["deep_url"] + "/v1/messages", h
     h = {k: v for k, v in h.items() if k.lower() != "x-sokkan-user"}
@@ -259,6 +289,14 @@ async def messages(request: Request):
         raw = (await r.aread())[:4000].decode("utf-8", "replace")
         await r.aclose()
         await client.aclose()
+        refusal = study_refusal(status, raw, r.headers.get("x-sokkan-error") or "")
+        if refusal:
+            # 410 / 412 / 429-per-person of the study: handed back as the gateway said it
+            # (status, code, its sentence), and never retried by the CLI
+            return Response(raw, status_code=status,
+                            media_type=r.headers.get("content-type", "application/json"),
+                            headers={"x-sokkan-tier": tier, "x-sokkan-reason": reason,
+                                     "x-sokkan-error": refusal, "x-should-retry": "false"})
         code = llmerrors.classify(status, raw)
         if code:
             return _error(code, tier, reason)

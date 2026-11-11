@@ -241,7 +241,7 @@ def admin_get(u: dict = Depends(_admin), _f=Depends(_on)) -> dict:
     return {**_public_state(st), "scenarios": list(study.SCENARIOS), "participants": people,
             "tokens": study.list_tokens(), "exports": study.exports(),
             "auth_mode": auth.MODE,
-            "single_identity": auth.MODE == "local"}
+            "single_identity": study.single_identity()}
 
 
 @router.post("/api/admin/study/refresh")

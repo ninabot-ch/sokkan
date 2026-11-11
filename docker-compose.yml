@@ -438,6 +438,14 @@ services:
       SOKKAN_SHIP_ROUTER_URL: ${SOKKAN_SHIP_ROUTER_URL:-}
       SOKKAN_SHIP_ALIAS: ${SOKKAN_SHIP_ALIAS:-}
       SOKKAN_ERROR_LANG: ${SOKKAN_ERROR_LANG:-}
+      # the Deep gateway of an appliance, seen from the api: it is where the study (end date,
+      # ceilings, audited-use condition) and the usage gauges are read (GET /usage) — the
+      # sessions themselves go through the router
+      SOKKAN_DEEP_URL: ${SOKKAN_DEEP_URL:-}
+      SOKKAN_DEEP_TOKEN: ${SOKKAN_DEEP_TOKEN:-}
+      # reasoning effort of the sessions on a custom / local engine (low | medium | high | max).
+      # Empty = medium: a model served by vLLM refuses the CLI's default (HTTP 400)
+      CLAUDE_CODE_EFFORT_LEVEL: ${CLAUDE_CODE_EFFORT_LEVEL:-}
     volumes:
       - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data

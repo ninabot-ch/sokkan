@@ -260,6 +260,17 @@ def session_env(user_email: str = "") -> dict:
         small = c.get("small_model") or c.get("model")
         if small:
             env["ANTHROPIC_SMALL_FAST_MODEL"] = small
+        # a model served by vLLM / llama.cpp refuses the CLI's default reasoning effort
+        # (« Unexpected reasoning effort high », HTTP 400 at the first turn): `medium` unless
+        # the operator chose a level for the instance
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = custom_effort()
+        if c.get("engine") == "appliance":
+            # 3.6 pilot: the local router (shiprouter) hands the study and — in study mode —
+            # the pseudonym to the Deep gateway, which serves the free tier on that condition
+            # (412 otherwise) and meters per person. The router keeps an e-mail on the box.
+            hdrs = identity_headers(user_email)
+            if hdrs:
+                env["ANTHROPIC_CUSTOM_HEADERS"] = "\n".join(f"{k}: {v}" for k, v in hdrs.items())
         return env
     if c.get("mode") == "included" and c.get("base_url") and c.get("auth_token"):
         env = {"ANTHROPIC_BASE_URL": c["base_url"].rstrip("/"),
@@ -276,6 +287,16 @@ def session_env(user_email: str = "") -> dict:
             env["ANTHROPIC_CUSTOM_HEADERS"] = "\n".join(f"{k}: {v}" for k, v in hdrs.items())
         return env
     return {}
+
+
+EFFORT_LEVELS = ("low", "medium", "high", "max")
+
+
+def custom_effort() -> str:
+    """Reasoning effort of a session on a custom engine: CLAUDE_CODE_EFFORT_LEVEL of the
+    instance when it is one of the CLI's levels, else `medium`."""
+    v = (os.environ.get("CLAUDE_CODE_EFFORT_LEVEL") or "").strip().lower()
+    return v if v in EFFORT_LEVELS else "medium"
 
 
 def identity_headers(user_email: str = "", prefix: str = "") -> dict[str, str]:
@@ -339,12 +360,20 @@ def usage(headers: dict | None = None) -> dict | None:
     None si pas en mode included (BYOK = aucun quota côté NINABOT). `headers` : identity
     headers (x-sokkan-user) — the gateway then also answers that person's own consumption."""
     c = load()
-    if c.get("mode") != "included" or not (c.get("base_url") and c.get("auth_token")):
+    base, tok = c.get("base_url"), c.get("auth_token")
+    if c.get("engine") == "appliance":
+        # 3.6 pilot: on an appliance the sessions talk to the local router; the gateway —
+        # the one that knows the study, its end date and the ceilings — is the Deep door
+        base = (os.environ.get("SOKKAN_DEEP_URL") or "").strip()
+        tok = (os.environ.get("SOKKAN_DEEP_TOKEN") or "").strip()
+    elif c.get("mode") != "included":
+        return None
+    if not (base and tok):
         return None
     import httpx
     try:
-        r = httpx.get(f"{c['base_url'].rstrip('/')}/usage",
-                      headers={**(headers or {}), "x-api-key": c["auth_token"]}, timeout=8)
+        r = httpx.get(f"{base.rstrip('/')}/usage",
+                      headers={**(headers or {}), "x-api-key": tok}, timeout=8)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError:

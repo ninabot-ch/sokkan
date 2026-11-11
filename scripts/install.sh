@@ -289,6 +289,13 @@ set_env SOKKAN_SHIP_MODEL "$SOKKAN_SHIP_MODEL"
 set_env SOKKAN_ASSISTANT_LLM_MODEL "$SOKKAN_SHIP_MODEL"
 if [ -n "$SOKKAN_SHIP_URL" ]; then set_env SOKKAN_ASSISTANT_LLM_URL "${SOKKAN_SHIP_URL%/}/v1"
 else set_env SOKKAN_FEATURE_ASSISTANT 0; set_env SOKKAN_ASSISTANT_LLM_URL ""; fi
+# document ingestion reads with the LOCAL model only: no local model = the feature stays off
+# (it never falls back on the Deep gateway — the documents would leave the site)
+set_env SOKKAN_DOC_INGEST_LLM_MODEL "$SOKKAN_SHIP_MODEL"
+if [ -n "$SOKKAN_SHIP_URL" ]; then set_env SOKKAN_DOC_INGEST_LLM_URL "${SOKKAN_SHIP_URL%/}/v1"
+else set_env SOKKAN_FEATURE_DOC_INGEST 0; set_env SOKKAN_DOC_INGEST_LLM_URL ""; fi
+[ -n "${SOKKAN_STUDY_ID:-}" ] && set_env SOKKAN_STUDY_ID "$SOKKAN_STUDY_ID"
+[ -n "${SOKKAN_STUDY_EXPIRES_AT:-}" ] && set_env SOKKAN_STUDY_EXPIRES_AT "$SOKKAN_STUDY_EXPIRES_AT"
 set_env SOKKAN_DEEP_TOKEN "$SOKKAN_DEEP_TOKEN"
 [ -n "${SOKKAN_DEEP_URL:-}" ] && set_env SOKKAN_DEEP_URL "$SOKKAN_DEEP_URL"
 set_env SOKKAN_DB_PASSWORD "$(rand_hex 18)"

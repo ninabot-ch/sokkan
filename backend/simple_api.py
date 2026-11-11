@@ -151,6 +151,16 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             out.append(d)
         return out
 
+    def _study_gate(email: str) -> None:
+        """Study mode (feature `study_mode`): while a study that requires the audit is active,
+        a person works only once they have consented. Said BEFORE a work is created — the
+        simple profile then opens « What is recorded » instead of an empty conversation with
+        an error in it. Off, or no active study: nothing happens."""
+        import study
+        blocked = study.gate(email)
+        if blocked:
+            raise HTTPException(409, {"code": "study_consent", "message": blocked})
+
     def _state(sid: str) -> str:
         a = agentchat.peek(sid)
         if a is None:
@@ -268,6 +278,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         label = pb["i18n"][lang]["label"] if pb else ""
         if not ask and not pb:
             raise HTTPException(400, {"code": "empty", "message": "say what you want to obtain"})
+        _study_gate(email)
         docs = _docs(body.documents, slug, pu)
         if not ask:
             if not docs:
@@ -318,6 +329,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if not text:
             raise HTTPException(400, {"code": "empty", "message": "empty message"})
         email = (pu.get("email") or "").lower()
+        _study_gate(email)
         already = {d["id"] for d in documents.of_session(sid)}
         docs = [d for d in _docs(body.documents, project, pu) if d["id"] not in already]
         for d in docs:

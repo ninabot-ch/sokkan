@@ -43,6 +43,11 @@ PATH_OVERRIDE = {  # where a store lives; defaults under SOKKAN_DATA_DIR — tes
     "SOKKAN_TEAMS_KEY_FILE", "SOKKAN_FORGE_SOCKET_DIR", "CORTHEXIS_MIGRATION_DIR", "CORTHEXIS_MEMORY_DIR",
     "CORTHEXIS_DATA_DIR", "CORTHEXIS_MEMORY_DB", "SOKKAN_APPLIANCE_DIR",
     "SOKKAN_LOCAL_ACCOUNTS_DB",
+    "SOKKAN_DOCUMENTS_DB", "SOKKAN_SIMPLE_DB", "SOKKAN_UIPREFS_STORE",   # 3.6 simple profile / document drop
+}
+CHILD_DEFAULT = {  # handed by the api to a child process WITH a default (`environ.get(X, "1")`);
+    # declaring them `${X:-}` in the compose file would pass an empty string and lose the default
+    "HF_HUB_OFFLINE", "OMP_NUM_THREADS",                # docingest extraction worker (Docling)
 }
 OTHER_RUNTIME = {  # not the compose install: Kubernetes chart, systemd / dev checkout, the OS
     "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT", "SOKKAN_K8S_API", "SOKKAN_K8S_CA",
@@ -59,7 +64,7 @@ OTHER_RUNTIME = {  # not the compose install: Kubernetes chart, systemd / dev ch
     "CORTHEXIS_PRIORITY_BOOST", "CORTHEXIS_DATABASE_URL",
     "CORTHEXIS_RECALL_SEUIL",                               # pre-3.0 name of CORTHEXIS_RECALL_THRESHOLD
 }
-CLASSIFIED = IMAGE | PER_SESSION | PATH_OVERRIDE | OTHER_RUNTIME
+CLASSIFIED = IMAGE | PER_SESSION | PATH_OVERRIDE | OTHER_RUNTIME | CHILD_DEFAULT
 
 _READ = re.compile(
     r"""(?:environ(?:\.get)?\s*[\(\[]\s*|getenv\(\s*|env_num\(\s*|\benv\.get\(\s*|Var\(\s*)["']([A-Z][A-Z0-9_]{2,})["']""")
@@ -147,7 +152,7 @@ def test_classification_is_honest():
     env, reads = api_env(), env_reads()
     stale = sorted(n for n in CLASSIFIED if n not in reads)
     assert not stale, f"classified but no longer read anywhere — remove from the lists: {stale}"
-    both = sorted(n for n in (PER_SESSION | IMAGE) if n in env)
+    both = sorted(n for n in (PER_SESSION | IMAGE | CHILD_DEFAULT) if n in env)
     assert not both, f"per-session / image variables must not be set on the api service: {both}"
     docker = (ROOT / "docker" / "api.Dockerfile").read_text()
     not_in_image = sorted(n for n in IMAGE if not re.search(rf"\b{n}=", docker))

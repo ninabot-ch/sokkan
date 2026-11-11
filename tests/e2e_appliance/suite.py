@@ -763,6 +763,22 @@ def t14():
         "SOKKAN_ASSISTANT_LLM_MODEL": feats.get("assistant") is True,
         "SOKKAN_ASSISTANT_LLM_API": feats.get("assistant") is True,
         "SOKKAN_ASSISTANT_LLM_TOKEN": feats.get("assistant") is True,
+        # 3.6 pilot: what the people of the site get — each switch named by its own variable
+        "CLAUDE_CODE_EFFORT_LEVEL": sh("docker compose exec -T -w /app/backend api python3 -c "
+                                       "\"import llm; print(llm.session_env('x@pilot.example')['CLAUDE_CODE_EFFORT_LEVEL'])\"",
+                                       cwd=BOX).stdout.strip() == e["CLAUDE_CODE_EFFORT_LEVEL"] == "medium",
+        "SOKKAN_FEATURE_DOCUMENTS": feats["documents"] is True and "SOKKAN_FEATURE_DOCUMENTS" in reg["documents"]["reason"],
+        "SOKKAN_FEATURE_SIMPLE_PROFILE": feats["simple_profile"] is True and not reg["simple_profile"]["problem"],
+        "SOKKAN_PROFILE_DEFAULT": owner.call("/api/me/prefs")[1]["profile"] == e["SOKKAN_PROFILE_DEFAULT"] == "simple",
+        "SOKKAN_FEATURE_STUDY_MODE": reg["study_mode"]["enabled"] is True and owner.call("/api/study/me")[1]["enabled"] is True,
+        "SOKKAN_FEATURE_DOC_INGEST": reg["doc_ingest"]["enabled"] is True and not reg["doc_ingest"]["problem"]
+                                     and owner.call("/api/doc-ingest/status")[1]["enabled"] is True,
+        "SOKKAN_DOC_INGEST_LLM_URL": owner.call("/api/doc-ingest/status")[1]["model"]["configured"] is True
+                                     and not owner.call("/api/doc-ingest/status")[1]["model"]["not_ready"],
+        "SOKKAN_DOC_INGEST_LLM_MODEL": owner.call("/api/doc-ingest/status")[1]["model"]["model"] == e["SOKKAN_DOC_INGEST_LLM_MODEL"],
+        "SOKKAN_DOC_INGEST_CONCURRENCY": sh("docker compose exec -T -w /app/backend api python3 -c "
+                                            "\"from docingest import config; print(config.Limits.from_env().concurrency)\"",
+                                            cwd=BOX).stdout.strip() == e["SOKKAN_DOC_INGEST_CONCURRENCY"],
         "SOKKAN_DB_PASSWORD": pg_ok.stdout.strip() == "1",
         "CORTHEXIS_MEMORY_BACKEND": (owner.call("/api/memory/migration")[1] or {}).get("serving") in ("store", "postgres", None),
         "SOKKAN_FEATURE_TMUX": feat_off("tmux", "SOKKAN_FEATURE_TMUX=0"),

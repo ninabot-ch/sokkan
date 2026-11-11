@@ -138,14 +138,22 @@ def _cortex_configured() -> bool:
 
 
 def _study_check() -> str | None:
-    if (os.environ.get("SOKKAN_AUTH_MODE") or "local").strip() == "local":
-        return ("local sign-in is ONE identity: every volunteer would share a single "
-                "pseudonym — give each person their own account (OIDC, LDAPS or Cloudflare "
+    import study
+    if study.single_identity():
+        return ("local sign-in with no personal access code is ONE identity: every volunteer "
+                "would share a single pseudonym — give each person their own account (a "
+                "personal code: scripts/appliance/accounts.sh, or OIDC / LDAPS / Cloudflare "
                 "Access) before the study starts")
     return None
 
 
 def _doc_ingest_check() -> str | None:
+    import importlib.util
+    if importlib.util.find_spec("markitdown") is None:
+        # a prebuilt image cannot be rebuilt on the box: say it instead of failing each file
+        return ("the document extractors are not in this image (build the api with "
+                "--build-arg SOKKAN_DOC_INGEST=1, or pip install -r "
+                "backend/requirements-docingest.txt)")
     from docingest import llmclient
     why = llmclient.ready()
     if why:

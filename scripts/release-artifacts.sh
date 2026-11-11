@@ -38,7 +38,10 @@ COMMIT="unknown"; case "$VER" in *+*) COMMIT="${VER#*+}" ;; esac
 : > "$TB.images"
 for name in api web; do
   ref="$REG/sokkan-$name:$TAG"
-  docker build -q -f "$SRC/docker/$name.Dockerfile" --build-arg "SOKKAN_COMMIT=$COMMIT" -t "$ref" "$SRC" >/dev/null
+  # the api image of a release carries the document extractors (feature `doc_ingest`, which
+  # the appliance profile turns on): a prebuilt image cannot be rebuilt on the box
+  docker build -q -f "$SRC/docker/$name.Dockerfile" --build-arg "SOKKAN_COMMIT=$COMMIT" \
+    --build-arg "SOKKAN_DOC_INGEST=${SOKKAN_RELEASE_DOC_INGEST:-1}" -t "$ref" "$SRC" >/dev/null
   docker push -q "$ref" >/dev/null
   digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$ref")"
   "$COSIGN" sign --yes --key "$KEY" --tlog-upload=false ${SOKKAN_COSIGN_IMAGE_FLAGS:-} "$digest" >/dev/null 2>&1

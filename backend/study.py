@@ -410,6 +410,20 @@ def explain_refusal(text: str) -> str | None:
     return None
 
 
+def single_identity() -> bool:
+    """Would every volunteer share ONE pseudonym? True for the local sign-in while nobody
+    has a personal access code (localaccounts.py, 3.6): the owner's token is then the only
+    identity. With named accounts — or any identity provider — each person is their own."""
+    try:
+        import auth
+        if auth.MODE != "local":
+            return False
+        import localaccounts
+        return not localaccounts.any_account()
+    except Exception:  # noqa: BLE001 — unknown = warn
+        return True
+
+
 def active() -> bool:
     return enabled() and state()["active"]
 
