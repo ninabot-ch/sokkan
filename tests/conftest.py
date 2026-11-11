@@ -26,6 +26,19 @@ def _isolated_projects_db(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _host_binaries_present(monkeypatch):
+    """3.6: tmux and Preview are OFF on a host without their binary (features._which). The
+    suite must not depend on what the machine that runs it has installed — found when the
+    integration ran on a build host with no Chromium: `preview` off, hence `shared_review`
+    off, hence 12 unrelated tests red. Default for every test: the binaries are there; the
+    tests about their absence patch `_which` themselves."""
+    import features
+
+    monkeypatch.setattr(features, "_which", lambda binary: f"/usr/bin/{binary.rsplit('/', 1)[-1]}")
+    yield
+
+
 @pytest.fixture()
 def model_credentials(monkeypatch):
     """An instance WITH model credentials explicitly configured (3.2 scheduler guard).
