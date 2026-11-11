@@ -18,6 +18,7 @@ PASS criteria are the assertions below, written out in README.md.
 from __future__ import annotations
 
 import http.cookiejar as cookiejar
+import io
 import json
 import os
 import re
@@ -30,6 +31,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 WORK = Path(os.environ.get("E2E_WORK", "/work"))
@@ -157,6 +159,17 @@ class Person:
         err = next((e for e in evs if e.get("type") == "error" and e.get("code")), None)
         return {"sid": sid, "text": text, "events": evs, "error": err, "s": round(time.time() - t0, 1),
                 "rc": r.returncode}
+
+
+def work_export_of(p: Person) -> tuple[int, list]:
+    """GET /api/admin/work-export as that person: (status, the names inside the zip)."""
+    try:
+        with p.op.open(urllib.request.Request(p.base + "/api/admin/work-export"), timeout=120) as r:
+            return r.status, zipfile.ZipFile(io.BytesIO(r.read())).namelist()
+    except urllib.error.HTTPError as e:
+        return e.code, []
+    except (urllib.error.URLError, OSError, zipfile.BadZipFile):
+        return 0, []
 
 
 def env_of(d: Path = BOX) -> dict:
@@ -712,7 +725,13 @@ def t14():
     ls = listeners()
     psv = sh("docker compose ps --format '{{.Service}}'", cwd=BOX).stdout.split()
     hb = owner.call("/api/appliance/heartbeat")[1]
-    posts = (seen(DEEP).get("posts") or {})
+    # the first heartbeat leaves 60 s after the api started: a fast run gets here before it does
+    posts: dict = {}
+    for _ in range(45):
+        posts = seen(DEEP).get("posts") or {}
+        if posts.get("/hb"):
+            break
+        time.sleep(2)
     cert = sh(f"echo | openssl s_client -connect 127.0.0.1:443 -servername {HOSTNAME} 2>/dev/null | "
               "openssl x509 -noout -ext subjectAltName 2>/dev/null").stdout
     cookie = sh(f"curl -s -D - -o /dev/null --cacert /work/ca.crt --resolve {HOSTNAME}:443:127.0.0.1 "
@@ -728,6 +747,10 @@ def t14():
     pg_ok, pg_bad = pg(e["SOKKAN_DB_PASSWORD"]), pg("not-the-password")
     sup = owner.call("/api/appliance/support", {"action": "open", "hours": 99})
     images = sh("docker compose images", cwd=BOX).stdout
+    # « Export our work »: the zip for the instance's admin, a refusal for a person who is not one
+    someone = Person(s["codes"][PEOPLE[0][0]], PEOPLE[0][2])
+    someone.login()
+    exp, exp_other = work_export_of(owner), work_export_of(someone)
 
     def feat_off(fid: str, var: str) -> bool:
         return reg[fid]["enabled"] is False and var in reg[fid]["reason"]
@@ -774,6 +797,10 @@ def t14():
         "SOKKAN_FEATURE_SIMPLE_PROFILE": feats["simple_profile"] is True and not reg["simple_profile"]["problem"],
         "SOKKAN_PROFILE_DEFAULT": owner.call("/api/me/prefs")[1]["profile"] == e["SOKKAN_PROFILE_DEFAULT"] == "simple",
         "SOKKAN_FEATURE_STUDY_MODE": reg["study_mode"]["enabled"] is True and owner.call("/api/study/me")[1]["enabled"] is True,
+        "SOKKAN_FEATURE_WORK_EXPORT": reg["work_export"]["enabled"] is True
+                                      and "SOKKAN_FEATURE_WORK_EXPORT" in reg["work_export"]["reason"]
+                                      and exp[0] == 200 and {"README.md", "manifest.json"} <= set(exp[1])
+                                      and exp_other[0] == 403,
         "SOKKAN_FEATURE_DOC_INGEST": reg["doc_ingest"]["enabled"] is True and not reg["doc_ingest"]["problem"]
                                      and owner.call("/api/doc-ingest/status")[1]["enabled"] is True,
         "SOKKAN_DOC_INGEST_LLM_URL": owner.call("/api/doc-ingest/status")[1]["model"]["configured"] is True
@@ -836,7 +863,8 @@ def t14():
     failed = sorted(k for k, v in checks.items() if not v)
     assert not failed, f"no observable effect for: {failed}"
     assert not not_covered, f"variables of the template without a check: {not_covered}"
-    return {"variables_checked": len(checks), "flipped": sorted(flips), "template_lines": len(template)}
+    return {"variables_checked": len(checks), "flipped": sorted(flips), "template_lines": len(template),
+            "work_export": {"admin": exp[0], "files_in_zip": len(exp[1]), "not_admin": exp_other[0]}}
 
 
 @test("T2b", "support tunnel: opened by the client for a bounded time, journaled, closes alone")
