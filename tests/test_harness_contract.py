@@ -614,6 +614,31 @@ def test_an_edit_is_not_sent_to_an_engine_that_does_not_take_one(world):
     assert res["is_error"] and "does not take the decision 'edit'" in res["text"]
 
 
+def test_a_mode_the_engine_does_not_have_is_not_engaged(world):
+    """Cockpit side of C7: no plan mode in the engine → the session stays in its mode and
+    says so; with an engine that has one, the mode is engaged in the engine."""
+    import agentchat
+    import board
+    from harness.conformance import reference
+
+    async def go(plan):
+        h = reference.ReferenceHarness(plan=plan)
+        sid = f"sid-plan-{int(plan)}"
+        board.add_sdk_session(sid, "t")
+        s = agentchat.AgentSession(sid, cwd=str(world), user="alice@x")
+        s.attach(h, contract.RunSpec(run_id=sid, cwd=str(world)))
+        await s.set_mode("plan", actor="alice@x")
+        return s, h
+
+    s, h = _run(go(False))
+    assert s.mode == "default" and h.mode == "default"
+    assert [e["type"] for e in s.events] == ["error", "perm_mode"]
+    assert "no plan mode" in s.events[0]["message"] and s.events[1]["mode"] == "default"
+    s, h = _run(go(True))
+    assert s.mode == "plan" and h.mode == "plan"
+    assert s.events == [{"type": "perm_mode", "mode": "plan"}]
+
+
 def test_the_scope_of_the_recall_is_the_cockpits(world, monkeypatch):
     """Cockpit side of C8: the provider handed to the engine is built with the session's
     project and the clearance of the person — the engine has no say in it."""

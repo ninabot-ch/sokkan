@@ -33,7 +33,9 @@ class Engine:
         return getattr(self.load(), self.factory)()
 
     def capabilities(self) -> Capabilities:
-        return getattr(self.load(), "CAPABILITIES")
+        # asked of an instance, not of the module: what an engine can do may depend on how
+        # it is deployed (a remote engine is probed), and is known before any run starts
+        return self.create().capabilities()
 
     def detect(self) -> tuple[bool, str]:
         """(usable here, why / how). Never raises."""

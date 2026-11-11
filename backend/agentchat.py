@@ -910,6 +910,15 @@ class AgentSession:
         engine."""
         if mode not in VALID_MODES:
             return
+        if mode == "plan" and self.harness is not None \
+                and not self.harness.capabilities().plan:
+            # a capability the engine does not have is not emulated: the mode is not
+            # engaged, and the person is told why
+            self._emit({"type": "error",
+                        "message": "This engine has no plan mode: the approval mode is "
+                                   "unchanged."})
+            self._emit({"type": "perm_mode", "mode": self.mode})
+            return
         if mode != self.mode:
             hitl_journal.mode_changed(self.sid, self.mode, mode, actor=actor, owner=self.user)
         self.mode = mode
