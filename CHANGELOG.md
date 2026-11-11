@@ -3,6 +3,29 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## 3.6.1 — 2026-11-11 — "Icebreaker"
+
+No change to the product: the test suite and the demonstration material of 3.6.0.
+
+### Fixed
+- **The test suite passes in one process on SQLite.** On the public CI (one `pytest` process,
+  SQLite) two tests of 3.6.0 failed with « no such table: users » / « no such table: sessions »:
+  a test that moved the `iam` or `board` database left their once-per-process schema flag up for
+  the next one. `tests/conftest.py` lowers both flags before every test. An instance is not
+  concerned: its databases never move, and both schemas are created on the first request.
+- **The comparison of the frozen gateway contract skips when the gateway's source cannot be
+  read** (it failed with `PermissionError` on a CI runner) — it runs wherever a checkout is at
+  hand (`SOKKAN_CLOUD_SRC`).
+
+### Changed
+- **Neutral demonstration names** in the tests, the fixtures and the documentation: a neutral
+  organisation (`atelier.example`), a neutral study identifier (`etude-pilote-2027`). The frozen
+  gateway contract is compared after ONE documented substitution, the study identifier
+  (`tests/fixtures/gateway_contract/neutral.py`); every word, status and header of the refusals
+  is compared as before.
+- **Captures**: eleven captures of `docs/ui/pilot-integration/` that showed the internal name of
+  a test study are withdrawn; the README keeps what each one showed.
+
 ## 3.6.0 — 2026-11-11 — "Icebreaker"
 
 SOKKAN installed on a box at a site with no engineer: reproducible images, one verified
