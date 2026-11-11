@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.6.3 — 2026-11-12 — "Icebreaker"
+## 3.6.3 — 2026-11-11 — "Icebreaker"
 
 What a person who is not an engineer met on a first real journey through an appliance. No
 changed default, no new required variable, no new feature switch.

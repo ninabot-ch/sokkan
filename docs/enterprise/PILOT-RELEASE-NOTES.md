@@ -8,7 +8,7 @@ test suite fixed for one process on SQLite, neutral demonstration names). **3.6.
 signed**: 2026-11-11, commit `d1e75a7`, tag `v3.6.2`, dist `3.6.2+d1e75a7`, the tarball served
 with its `.sha256` and its `.sig`; over 3.6.1 it brought « Export our work » (`work_export`) and
 the fix of `scripts/rollback.sh`. **3.6.3 is a candidate**: set on this branch by `e7dd899`
-(`VERSION`, CHANGELOG section dated 2026-11-12, Chart `appVersion`) — no tag, not merged in
+(`VERSION`, CHANGELOG section dated 2026-11-11, Chart `appVersion`) — no tag, not merged in
 `main`, deployed nowhere. It answers what a first real journey of people who are not engineers
 showed on an appliance of 3.6.2 (CHANGELOG, section 3.6.3; § 1, « On top, in 3.6.3 »).
 
@@ -355,8 +355,8 @@ Exoscale has no native registry (only a third-party Marketplace listing, billed 
 #    (a --no-ff merge would tag a commit nobody tested). If it refuses, main has moved: merge
 #    main into the branch, replay § 4.
 git fetch origin && git merge --ff-only origin/release-3.6.3
-# 2. nothing to do if the cut is made on 2026-11-12: VERSION, the CHANGELOG section dated
-#    2026-11-12 and the Chart appVersion are on the branch since e7dd899. On another day, fix the
+# 2. nothing to do if the cut is made on 2026-11-11: VERSION, the CHANGELOG section dated
+#    2026-11-11 and the Chart appVersion are on the branch since e7dd899. On another day, fix the
 #    date of the section first (cut-release.sh commits VERSION and CHANGELOG.md if they differ,
 #    then tags).
 # 3. from the operations repository — a patch needs no banner: the site already announces 3.6.
