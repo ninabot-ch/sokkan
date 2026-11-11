@@ -802,7 +802,9 @@ def t14():
         "SOKKAN_OWNER_EMAIL": owner.call("/api/me")[1]["email"] == e["SOKKAN_OWNER_EMAIL"],
         "SOKKAN_OWNER_NAME": owner.call("/api/me")[1]["name"] == e["SOKKAN_OWNER_NAME"],
         "SOKKAN_LOCAL_TOKEN": Person(e["SOKKAN_LOCAL_TOKEN"]).login() == 200 and Person(e["SOKKAN_LOCAL_TOKEN"][:-1] + "x").login() == 401,
-        "SOKKAN_AUTH_MODE": http(BASE + "/api/auth/info")[1] == {"mode": "local", "login_required": True},
+        # local mode, a sign-in is asked, and — named accounts, simple profile by default — the
+        # sign-in screen is the one for people who are not engineers (3.6.3)
+        "SOKKAN_AUTH_MODE": http(BASE + "/api/auth/info")[1] == {"mode": "local", "login_required": True, "plain": True},
         "SOKKAN_DEFAULT_ROLE": owner.call("/api/iam/access-codes")[1][0]["role"] == "none",
         "SOKKAN_FEATURE_MULTI_PROJECT": feats["multi_project"] is True and "SOKKAN_FEATURE_MULTI_PROJECT" in reg["multi_project"]["reason"],
         # reaches the api and is a zone it can load (what dates in Costs and the agents' schedules use)
