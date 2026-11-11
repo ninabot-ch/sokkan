@@ -30,24 +30,73 @@ the router, Postgres, the embedding servers and the model are not reachable from
 
 ## 2. Install
 
-On the box (Ubuntu 24.04, Docker, the model unit prepared — § 6), as root:
+On the box (Ubuntu 24.04, Docker, the model unit prepared — § 6), as root.
+
+**First, once: the verification tool and the public key.** The installer does not fetch them —
+a release is only verified with a tool and a key that were on the machine before it. Without
+both, an appliance install stops with « signature required but cosign or the public key is
+missing — REFUSED » and changes nothing.
 
 ```sh
+# cosign, the build pinned in deploy/appliance/versions.env (copy the three values from there)
+COSIGN_VERSION=v2.4.1
+COSIGN_SHA256=8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b
+COSIGN_URL=https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64
+curl -fsSL "$COSIGN_URL" -o /usr/local/bin/cosign
+echo "$COSIGN_SHA256  /usr/local/bin/cosign" | sha256sum -c - && chmod 0755 /usr/local/bin/cosign
+
+# the public key of the SOKKAN releases
+install -d -m 0755 /etc/sokkan
+curl -fsSL https://sokkan.ch/cosign.pub -o /etc/sokkan/cosign.pub
+sha256sum /etc/sokkan/cosign.pub
+```
+
+The key served on `https://sokkan.ch/cosign.pub` is the file `deploy/appliance/cosign.pub` of
+this repository. Compare the printed SHA-256 with the one of that file **obtained another way**
+(the public repository, or read to you by the publisher): a key and a release downloaded from
+the same site only prove that the site agrees with itself. Other places the installer accepts:
+`SOKKAN_COSIGN=<path to the binary>`, `SOKKAN_COSIGN_PUB=<path to the key>`.
+
+**Then the install:**
+
+```sh
+curl -fsSL https://sokkan.ch/install.sh -o install.sh
 sh install.sh --profile appliance --version <version>+<commit>
 ```
 
-Non-interactive when these are in the environment (otherwise it asks): `SOKKAN_ORG_NAME`,
-`SOKKAN_OWNER_EMAIL`, `SOKKAN_OWNER_NAME`, `SOKKAN_BOX_NAME` (the name people type),
-`SOKKAN_BOX_IP`, `SOKKAN_DEEP_TOKEN`, `SOKKAN_INSTANCE_ID`, `SOKKAN_HEARTBEAT_URL`,
-`SOKKAN_ACCEPT_GEMMA_TERMS` (the client's answer), `SOKKAN_ACCOUNTS="a@x:Ana:projet-ana,…"`.
+Non-interactive when these are in the environment (otherwise it asks, with the default shown):
+
+| Variable | What it is | Default |
+|---|---|---|
+| `SOKKAN_ORG_NAME` | the organisation's name, shown in the cockpit | `Organisation` |
+| `SOKKAN_OWNER_EMAIL`, `SOKKAN_OWNER_NAME` | the administrator | `admin@localhost`, `Admin` |
+| `SOKKAN_BOX_NAME` | the name people type to reach the box (§ 5) | `sokkan.lan` |
+| `SOKKAN_BOX_IP` | the box's address on the local network | first address of the machine |
+| `SOKKAN_SHIP_URL` | the local model's endpoint, **as the containers reach it**. Empty = no local model (the assistant and document ingestion stay off) | `http://host.docker.internal:8004` |
+| `SOKKAN_SHIP_MODEL` | the name the local model is served under (what its `/v1/models` lists) | `qwen3.8-27b` |
+| `SOKKAN_DEEP_TOKEN` | this instance's token for the Deep gateway; empty = no Deep | — |
+| `SOKKAN_DEEP_URL` | another Deep gateway than the template's (not asked) | template value |
+| `SOKKAN_INSTANCE_ID` | opaque name for supervision | `sokkan-box` |
+| `SOKKAN_HEARTBEAT_URL`, `SOKKAN_HEARTBEAT_TOKEN` | supervision heartbeat; empty = nothing is sent | — |
+| `SOKKAN_ACCEPT_GEMMA_TERMS` | the client's answer to the embedding model's terms (`1` / `0`) | — |
+| `SOKKAN_ACCOUNTS` | the people: `"a@x:Ana:projet-ana,b@x:Ben:projet-ben"` | none |
+
+`SOKKAN_SHIP_URL` — the default points at a model served **on the box itself** (§ 6: it listens
+on the host loopback and the Docker bridge, port 8004). A model on another machine: its address
+on the network, e.g. `http://192.168.1.60:8004`; `localhost` would be the container, not the box.
+`SOKKAN_SHIP_MODEL` must be the served name exactly, or every request is refused by the model
+server. Both can be changed later in `.env`, followed by `docker compose up -d`.
 
 What it does: downloads **that** release, verifies its signature (refused without one — § 7),
-writes `.env` from `deploy/appliance/env.appliance.example`, pulls the signed images, starts,
-waits until `/api/version` answers the pinned version, installs the host units
-(`scripts/appliance/host-setup.sh`), creates the people and prints each access code **once**.
+writes `.env` from `deploy/appliance/env.appliance.example`, pulls the signed images — or, when
+the release publishes none, says so and **builds them on the machine** from the verified
+tarball (5-10 min) —, starts, waits until `/api/version` answers the pinned version, installs
+the host units (`scripts/appliance/host-setup.sh`), creates the people and prints each access
+code **once**.
 
 Then, once: `sh scripts/appliance/export-ca.sh` → install `sokkan-local-ca.crt` on each
-workstation (read the fingerprint out loud when handing it over).
+workstation (read the fingerprint out loud when handing it over). People reach the box by its
+**name** (§ 5).
 
 ## 3. People: one code each (decision D2)
 
@@ -61,7 +110,8 @@ sh scripts/appliance/accounts.sh revoke ana@client.ch    # leaves: open cockpit 
 sh scripts/appliance/accounts.sh list
 ```
 
-The login screen is unchanged (one field). The instance stores a salted hash, never the code.
+The sign-in screen has one field, « Access code », in the browser's language (3.6.3: French or
+English, light theme, no variable name). The instance stores a salted hash, never the code.
 With `SOKKAN_DEFAULT_ROLE=none` (set by the profile) a person sees only their project; nobody
 but the owner reads the whole journal. The owner's code is `SOKKAN_LOCAL_TOKEN`.
 
@@ -118,7 +168,15 @@ offline; the price is installing one root certificate per workstation. The exist
 service is something else (public custom domains with on-demand Let's Encrypt, for managed
 fleets) and cannot issue for a LAN name.
 
-`SOKKAN_TLS_SITES` lists every name/IP people type; a name that is not listed gets no certificate.
+`SOKKAN_TLS_SITES` lists every name people type; a name that is not listed gets no certificate.
+
+**People reach the box by its name, not by its address.** `https://<box name>` answers once the
+name resolves to the box on the workstation — a record in the site's DNS, or one line in the
+workstation's hosts file (`192.168.1.50  sokkan.lan`). `https://<box IP>` does **not** answer,
+although the installer lists the address in `SOKKAN_TLS_SITES`: a browser that connects to a bare
+address sends no server name, the `tls` container cannot tell which certificate is asked for,
+and the TLS handshake fails (measured on an appliance install: « tlsv1 alert internal error »). The installer's
+last message says so since 3.6.3; before, it announced « also https://<box IP> ».
 The CA lives in the `caddy-data` volume: **it is not in the SOKKAN backup** — after a restore on
 a new machine a new CA is created and must be installed again (or copy the volume).
 
