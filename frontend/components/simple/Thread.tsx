@@ -191,7 +191,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   <div key={i} className="sk-notice" role="status">
                     <Icon name="alert" />
                     <div className="sk-grow">
-                      <div>{t((`no.${["busy", "budget", "engine", "read_only", "mode_locked", "sandbox"].includes(it.code) ? it.code : "engine"}`) as Key)}</div>
+                      <div>{t((`no.${["busy", "budget", "engine", "read_only", "mode_locked", "sandbox", "study_expired", "study_mode_required", "user_daily_cap", "user_limit_reached"].includes(it.code) ? it.code : "engine"}`) as Key)}</div>
                       <Tech detail={{ result: it.detail }} />
                     </div>
                   </div>

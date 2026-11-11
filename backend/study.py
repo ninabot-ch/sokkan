@@ -25,7 +25,8 @@ The gateway as delivered (sokkan-cloud `infer/pilote-etude.md`) also serves `stu
 `study.days_left`, `study.notice` (the end of the free period is near), `free`,
 `limits.user_tokens_day` and, for the person named by `x-sokkan-user` on the call,
 `used.user_tokens_day` / `used.deep_user_day`; a limit of 0 means no ceiling. It refuses with
-410 `study_expired`, 412 `study_mode_required`, 429 `user_daily_cap` (`explain_refusal`).
+410 `study_expired`, 412 `study_mode_required`, 429 `user_daily_cap` (a person's ceiling), 429
+`user_limit_reached` (too many distinct people today) — `explain_refusal`.
 
 Storage: ``$SOKKAN_DATA_DIR/study.db`` (SQLite, survives restarts, in the instance backup).
 """
@@ -378,7 +379,10 @@ def my_usage(email: str) -> dict | None:
 
 
 # what the gateway answers when it refuses (infer/gateway.py `_refuse`): code, then the
-# words of its message — Claude Code shows « API Error: <status> <message> », not the code
+# words of its message — Claude Code shows « API Error: <status> <message> », not the code.
+# The sentences are for a person who is not technical: what happened, that nothing is lost,
+# who can act. No variable name, no status code. (The simple profile says the same in the
+# person's own language: `no.<code>` of frontend/lib/simple/dict.ts.)
 _REFUSALS = (
     (("study_expired", "free inference period for this environment ended"),
      "The free period of the study has ended: nothing was sent to a model. Ask your SOKKAN "
@@ -386,29 +390,49 @@ _REFUSALS = (
      "est terminée : rien n'a été envoyé à un modèle. Demandez à votre administrateur SOKKAN "
      "de la prolonger ou de passer à une offre payante."),
     (("study_mode_required", "only served while the instance runs in study mode"),
-     "Free use is served only while this instance runs in study mode: nothing was sent to a "
-     "model. An administrator must turn study mode on (SOKKAN_FEATURE_STUDY_MODE=1) or check "
-     "the study in Setup › Study. — L'usage gratuit n'est servi que si cette instance est en "
-     "mode étude : rien n'a été envoyé à un modèle. Un administrateur doit activer le mode "
-     "étude (SOKKAN_FEATURE_STUDY_MODE=1) ou vérifier l'étude dans Setup › Étude."),
+     "The free use of the assistant is tied to a study, and this workspace is not in study mode "
+     "at the moment: nothing was sent to a model and nothing is lost. Only your SOKKAN "
+     "administrator can turn study mode back on: please tell them; sending the request again "
+     "will not help. — L'usage gratuit de l'assistant est lié à une étude, et cet espace n'est "
+     "pas en mode étude pour l'instant : rien n'a été envoyé à un modèle et rien n'est perdu. "
+     "Seul votre administrateur SOKKAN peut réactiver le mode étude : prévenez-le ; renvoyer la "
+     "demande ne changera rien."),
     (("user_daily_cap", "personal daily inference cap reached"),
      "You have reached your personal ceiling for today; it resets at midnight UTC (your "
      "colleagues are not affected). — Vous avez atteint votre plafond personnel du jour ; il "
      "repart à minuit UTC (vos collègues ne sont pas concernés)."),
+    (("user_limit_reached", "too many distinct users today"),
+     "The number of people who can use the assistant today in this workspace is reached, and "
+     "you are not one of them yet: nothing was sent to a model and nothing is lost. The people "
+     "who already used it today are not affected. Ask your SOKKAN administrator to raise the "
+     "limit; sending the request again today will not help. — Le nombre de personnes qui "
+     "peuvent utiliser l'assistant aujourd'hui dans cet espace est atteint, et vous n'en faites "
+     "pas encore partie : rien n'a été envoyé à un modèle et rien n'est perdu. Les personnes qui "
+     "l'ont déjà utilisé aujourd'hui ne sont pas concernées. Demandez à votre administrateur "
+     "SOKKAN de relever la limite ; renvoyer la demande aujourd'hui ne changera rien."),
 )
+REFUSAL_CODES = tuple(marks[0] for marks, _ in _REFUSALS)
+
+
+def refusal_code(text: str) -> str | None:
+    """The gateway's own code of a study refusal (`error.code`, header `x-sokkan-error`),
+    found in what the session saw of it — the JSON body, or the CLI's « API Error: <status>
+    <message> » line; None for any other error."""
+    low = (text or "").lower()
+    if not low:
+        return None
+    for marks, _ in _REFUSALS:
+        if any(m in low for m in marks):
+            return marks[0]
+    return None
 
 
 def explain_refusal(text: str) -> str | None:
     """A sentence a person can read, in English and in French, when the inference gateway
     refused the call for a study reason; None for any other error. Works with the feature
     off too (412 is exactly what an instance without study mode gets)."""
-    low = (text or "").lower()
-    if not low:
-        return None
-    for marks, sentence in _REFUSALS:
-        if any(m in low for m in marks):
-            return sentence
-    return None
+    code = refusal_code(text)
+    return next(s for marks, s in _REFUSALS if marks[0] == code) if code else None
 
 
 def single_identity() -> bool:

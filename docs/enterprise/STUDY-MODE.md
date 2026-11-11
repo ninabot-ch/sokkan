@@ -75,14 +75,29 @@ In return every inference call of the instance (sessions and Nina) carries
 `x-sokkan-study: <study_id>` and `x-sokkan-user: <pseudonym>` — never the e-mail. With the
 Claude CLI they go through `ANTHROPIC_CUSTOM_HEADERS`, one per line.
 
-When the gateway refuses, the session says it in words, in English and in French, next to
-the raw error:
+When the gateway refuses, the session says it in words, once per turn: in the technical
+cockpit one sentence in English and in French next to the raw error; in the simple profile
+the notice of that refusal in the person's own language (`no.<code>` of
+`frontend/lib/simple/dict.ts`), the raw error folded under « technical detail ». No status
+code, no variable, no header name in what the person reads — and never « send your request
+again »:
 
 | Gateway | The person reads |
 |---|---|
 | 410 `study_expired` | the free period of the study has ended; ask the administrator to extend it or switch to a paid plan |
-| 412 `study_mode_required` | free use is served only while the instance runs in study mode; an administrator must turn it on |
-| 429 `user_daily_cap` | your personal ceiling for today is reached; it resets at midnight UTC |
+| 412 `study_mode_required` | free use is tied to a study and this workspace is not in study mode; only the administrator can turn it back on, sending again will not help |
+| 429 `user_daily_cap` | your personal ceiling for today is reached; it resets at midnight UTC, colleagues are not affected |
+| 429 `user_limit_reached` | the number of people who can use the assistant today is reached (`max_users_day` on the gateway) and you are not one of them yet; people already seen today are not affected; ask the administrator to raise the limit, sending again today will not help |
+
+A 429 of the tenant itself (day or month ceiling, no code) keeps the generic message of a
+429. The gateway sends no `x-should-retry` on its refusals: on an appliance the local router
+adds `x-should-retry: false`, so the CLI asks once. **An instance whose sessions call the
+gateway directly (no local router) has no such guard** for the two 429: the CLI is expected to
+retry them by itself before the sentence appears (150 s without a word were measured on the
+appliance bench for a 429 before the router sent the header; the direct path itself was not
+played). The pilot's box goes through the router. The contract these sentences are tested against:
+`tests/fixtures/gateway_contract/contract.json` (what the gateway of `study-quotas` f260ada
+answered), `tests/test_gateway_refusals.py`.
 
 An instance that is not on the gateway can declare a study itself:
 
@@ -103,7 +118,8 @@ and Setup › Study say so). On an appliance, give each person a personal access
 gateway (`SOKKAN_DEEP_URL` + `SOKKAN_DEEP_TOKEN`, `GET /usage`), the sessions send
 `x-sokkan-study` and the pseudonym, and the router hands both to the gateway — an e-mail
 address never leaves the box. The gateway's refusals (410 `study_expired`, 412
-`study_mode_required`, 429 `user_daily_cap`) come back as it said them, in words.
+`study_mode_required`, 429 `user_daily_cap`, 429 `user_limit_reached`) come back as it said
+them, in words, with `x-should-retry: false`.
 
 ## 3. What a participant sees
 

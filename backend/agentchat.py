@@ -770,11 +770,13 @@ class AgentSession:
 
     def _explain_refusal(self, text: str) -> None:
         """The gateway refused for a study reason (free period over, study mode required,
-        personal ceiling): say it in words, in English and in French, once per turn."""
+        personal ceiling, too many people today): say it in words, in English and in French,
+        once per turn. The event carries the gateway's code: the simple profile says it in
+        the person's own language (backend/plain.py → `no.<code>`)."""
         why = study.explain_refusal(text)
         if why and why != self._refusal_said:
             self._refusal_said = why
-            self._emit({"type": "error", "message": why})
+            self._emit({"type": "error", "code": study.refusal_code(text), "message": why})
 
     def _study_owner(self) -> str:
         """The person a session's work belongs to: who opened it (board), else who attached."""
@@ -869,7 +871,10 @@ class AgentSession:
             })
             # 3.6: an inference refusal (402 credit, 429 quota, endpoint unreachable) said in
             # words a person can act on, instead of the CLI's raw `API Error: …` line alone
-            if getattr(msg, "is_error", False) or "API Error" in (getattr(msg, "result", "") or ""):
+            # — unless the study already said why: a 429 of the study is not « wait a minute
+            # and send again » (the generic sentence of a 429), it would contradict it
+            if (getattr(msg, "is_error", False) or "API Error" in (getattr(msg, "result", "") or "")) \
+                    and not study.refusal_code(getattr(msg, "result", "") or ""):
                 import llmerrors
                 h = llmerrors.from_text(getattr(msg, "result", "") or "")
                 if h:

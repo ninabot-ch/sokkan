@@ -149,6 +149,19 @@ client controls. Minor release (new variables, changed defaults). Docs: `docs/ap
 - Setup gains a sub-tab « Ingestion » (only with `doc_ingest`, for who may review).
 
 ### Pilot integration — Fixed
+- **The gateway's refusals as `study-quotas` f260ada answers them.** The instance did not know the
+  429 `user_limit_reached` (too many distinct people today, `max_users_day`): the local router turned
+  it into the generic « wait a minute and send again ». It is now a study refusal like the three
+  others (handed back once, `x-should-retry: false`). The 412 sentence no longer names a variable.
+  A study 429 no longer gets the generic 429 sentence on top of its own. In the simple profile each
+  of the four refusals has its notice in French and English (`no.study_expired`,
+  `no.study_mode_required`, `no.user_daily_cap`, `no.user_limit_reached`) instead of « a technical
+  problem, you can send your request again ». The frozen contract was regenerated from what the
+  gateway answered (`tests/test_gateway_refusals.py`).
+- **An agent run writes in the work folder of its own project.** Since 3.2 the rule « an agent run
+  does not write memory files » matched the whole `<data>/projects` tree: a Crew agent of a project
+  other than `default` could not write a file in its own working directory. The memory directories,
+  the quarantine and the other projects stay closed (`tests/test_agent_run_project_work.py`).
 - The test suite no longer depends on the host having tmux / Chromium (12 tests of other lots
   failed on a host without a browser since tmux and Preview follow their binary).
 

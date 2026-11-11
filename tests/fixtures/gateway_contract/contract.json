@@ -1,5 +1,5 @@
 {
-  "_source": "sokkan-cloud branch study-quotas (664a47f): infer/pilote-etude.md § 4 (the `GET /usage` example, verbatim), infer/gateway.py `_refuse` (the three study refusals: the message is the source's f-string with the values of the documented example). Regenerate from a checkout, never by hand; tests/test_pilot_integration.py compares this file with the checkout when SOKKAN_CLOUD_SRC is set.",
+  "_source": "sokkan-cloud branch study-quotas (f260ada): infer/pilote-etude.md § 4 (the `GET /usage` example, verbatim), infer/gateway.py `_refuse` (the four study refusals). The bodies of 412 study_mode_required, 429 user_daily_cap and 429 user_limit_reached are what the gateway of f260ada ANSWERED (its app played in-process on a throw-away database, tenant set as in § 2 of the page: study heg-eskills-2027, audit_required, max_users_day 5; sixth identity of the day for user_limit_reached) — 11.11.2026; the 410 is the source's f-string with the date of the documented example (played with another date: same words). The gateway sends the header x-sokkan-error with the code, and NO x-should-retry and NO retry-after on any of them. Regenerate from a checkout, never by hand; tests/test_pilot_integration.py compares this file with the checkout when one is at hand (SOKKAN_CLOUD_SRC, else /root/sokkan-cloud-wt-study).",
   "usage": {
     "study": {
       "active": true,
@@ -53,17 +53,18 @@
       "status": 412,
       "type": "permission_error",
       "code": "study_mode_required",
-      "message": "Free inference for this environment is part of study 'heg-eskills-2027' and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings — it then sends the header 'x-sokkan-study: heg-eskills-2027'. Nothing was sent to a model.",
+      "message": "Free inference for this environment is tied to a study and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings, or contact your SOKKAN administrator. Nothing was sent to a model.",
       "words_in_source": [
-        "Free inference for this environment is part of study '",
-        "only served while the instance runs in study mode (audited). Turn study mode ",
-        "on in the instance settings — it then sends the header "
+        "Free inference for this environment is tied to a study and is only served ",
+        "while the instance runs in study mode (audited). Turn study mode on in the ",
+        "instance settings, or contact your SOKKAN administrator. Nothing was sent ",
+        "to a model."
       ],
       "body": {
         "type": "error",
         "error": {
           "type": "permission_error",
-          "message": "Free inference for this environment is part of study 'heg-eskills-2027' and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings — it then sends the header 'x-sokkan-study: heg-eskills-2027'. Nothing was sent to a model.",
+          "message": "Free inference for this environment is tied to a study and is only served while the instance runs in study mode (audited). Turn study mode on in the instance settings, or contact your SOKKAN administrator. Nothing was sent to a model.",
           "code": "study_mode_required"
         }
       }
@@ -85,6 +86,35 @@
           "code": "user_daily_cap"
         }
       }
+    },
+    {
+      "status": 429,
+      "type": "rate_limit_error",
+      "code": "user_limit_reached",
+      "message": "too many distinct users today for this environment (limit: 5 per day) — users already seen today are not affected; ask your SOKKAN administrator to raise the limit. Nothing was sent to a model.",
+      "words_in_source": [
+        "too many distinct users today for this environment (limit: ",
+        " per day) — users already seen today are not affected; ",
+        "ask your SOKKAN administrator to raise the limit. Nothing was sent to a model."
+      ],
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "rate_limit_error",
+          "message": "too many distinct users today for this environment (limit: 5 per day) — users already seen today are not affected; ask your SOKKAN administrator to raise the limit. Nothing was sent to a model.",
+          "code": "user_limit_reached"
+        }
+      }
     }
-  ]
+  ],
+  "tenant_cap": {
+    "status": 429,
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "rate_limit_error",
+        "message": "daily inference cap reached for this environment — resets at midnight UTC (protective cap, adjustable)"
+      }
+    }
+  }
 }

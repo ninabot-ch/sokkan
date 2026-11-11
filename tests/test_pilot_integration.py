@@ -857,8 +857,9 @@ def test_sessions_on_the_local_engine_get_medium_effort_and_the_study_headers(bo
 # ============ g. the contract with the inference gateway ====================================
 # Inputs are NOT written from the instance's code: tests/fixtures/gateway_contract/ holds the
 # `GET /usage` example of the gateway's own documentation (sokkan-cloud infer/pilote-etude.md
-# § 4) and the three refusals as its code builds them (infer/gateway.py `_refuse`). When a
+# § 4) and the four refusals as its code builds them (infer/gateway.py `_refuse`). When a
 # checkout of sokkan-cloud is at hand (SOKKAN_CLOUD_SRC), the copy is compared with it.
+# The refusals themselves (router, session, simple profile): tests/test_gateway_refusals.py.
 CONTRACT = ROOT / "tests" / "fixtures" / "gateway_contract"
 
 
@@ -958,7 +959,7 @@ def test_on_an_appliance_the_study_is_read_from_the_deep_gateway(box, monkeypatc
     assert "@" not in json.dumps(calls)             # no address ever leaves for the gateway
 
 
-@pytest.mark.parametrize("code", ["study_expired", "study_mode_required", "user_daily_cap"])
+@pytest.mark.parametrize("code", ["study_expired", "study_mode_required", "user_daily_cap", "user_limit_reached"])
 def test_a_refusal_of_the_gateway_is_readable_and_reaches_the_person(code):
     """The refusal as the gateway builds it, shown by Claude Code as « API Error: <status>
     <message> » — recognised by its words, said in French and in English."""

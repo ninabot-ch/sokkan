@@ -304,11 +304,10 @@ REFUSALS = {
     "study_expired": "API Error: 410 The free inference period for this environment ended on "
                      "2027-04-30. Nothing was sent to a model. Contact your SOKKAN administrator "
                      "to extend it or to switch to a paid plan (same token).",
-    "study_mode_required": "API Error: 412 Free inference for this environment is part of study "
-                           "'study-2027-a' and is only served while the instance runs in "
-                           "study mode (audited). Turn study mode on in the instance settings — "
-                           "it then sends the header 'x-sokkan-study: study-2027-a'. Nothing "
-                           "was sent to a model.",
+    "study_mode_required": "API Error: 412 Free inference for this environment is tied to a study "
+                           "and is only served while the instance runs in study mode (audited). "
+                           "Turn study mode on in the instance settings, or contact your SOKKAN "
+                           "administrator. Nothing was sent to a model.",
     "user_daily_cap": "API Error: 429 personal daily inference cap reached for this user in this "
                       "environment — resets at midnight UTC (other users are not affected)",
 }
@@ -408,6 +407,7 @@ def test_a_refusal_of_the_gateway_is_said_in_words_in_both_languages(world):
     _run(sess.handle_user("bonjour"))
     errors = [e["message"] for e in sess.events if e["type"] == "error"]
     assert errors == [said["study_expired"]]
+    assert [e.get("code") for e in sess.events if e["type"] == "error"] == ["study_expired"]
     assert any(e["type"] == "result" and e["is_error"] for e in sess.events)
 
 

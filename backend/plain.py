@@ -32,6 +32,20 @@ from pathlib import Path
 
 BRIEF_RX = re.compile(r"<sokkan-brief>.*?</sokkan-brief>\s*", re.S)
 _REMINDER_RX = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.S)
+# the study refusals of the inference gateway (sokkan-cloud infer/pilote-etude.md § Refus):
+# each has its own sentence in the simple profile's dictionary (`no.<code>`)
+STUDY_NOTICES = ("study_expired", "study_mode_required", "user_daily_cap", "user_limit_reached")
+
+
+def _study_code(text: str) -> str | None:
+    try:
+        import study
+        code = study.refusal_code(text)
+    except Exception:  # noqa: BLE001 — the view never fails on a lookup
+        return None
+    return code if code in STUDY_NOTICES else None
+
+
 _ENGINE_ERROR = re.compile(r"\s*(API Error\b|Credit balance is too low|Invalid API key)", re.I)
 _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _DETAIL_MAX = 4000
@@ -92,6 +106,7 @@ class View:
         self._tools: dict[str, dict] = {}       # tool_use id → {kind, deliverable}
         self._used: dict[str, dict] = {}        # doc id → source (documents the agent opened)
         self._writes: dict[str, int] = {}       # deliverable name → version seen in this view
+        self._refused: str | None = None        # study refusal already said in this turn
 
     # ---- paths ---------------------------------------------------------------------------
     def _resolve(self, p: str) -> Path | None:
@@ -212,8 +227,15 @@ class View:
             text = ev.get("text") or ""
             if _ENGINE_ERROR.match(text):
                 # the CLI reports an unreachable / failing engine as an assistant sentence
+                code = _study_code(text)
+                if code:
+                    # … or a refusal of the gateway about the study: said once, as what it is
+                    # (« the agent ran into a technical problem, send it again » would be false)
+                    return self._refusal(code, text)
                 return [{"type": "notice", "code": "engine", "detail": _short(text, 1000)}]
             return [{"type": "text", "text": text}]
+        if t in ("user_echo", "user"):
+            self._refused = None                # a new turn: a refusal is said again
         if t == "user_echo":
             return [{"type": "user", "text": ev.get("text") or "",
                      "documents": ev.get("documents") or []}]
@@ -263,6 +285,10 @@ class View:
         if t == "error":
             msg = str(ev.get("message") or "")
             low = msg.lower()
+            if ev.get("code") in STUDY_NOTICES:
+                # a refusal of the inference gateway about the study (backend/study.py): its
+                # own notice, in the person's language — never « you can send it again »
+                return self._refusal(ev["code"], msg)
             code = ("busy" if "already running" in low else
                     "budget" if "budget" in low else
                     "read_only" if "lecture seule" in low or "read-only" in low else
@@ -272,6 +298,14 @@ class View:
             return [{"type": "notice", "code": "sandbox",
                      "detail": _short(str(ev.get("message") or ""), 1000)}] if ev.get("denied") else []
         return []      # thinking, model, session, perm_mode, result: not for this thread
+
+    def _refusal(self, code: str, detail: str) -> list[dict]:
+        """One notice per turn for a study refusal: the session reports it twice (the CLI's
+        « API Error » line, then the sentence of backend/study.py)."""
+        if self._refused == code:
+            return []
+        self._refused = code
+        return [{"type": "notice", "code": code, "detail": _short(detail, 1000)}]
 
     def sources(self) -> list[dict]:
         return sorted(self._used.values(), key=lambda s: s["name"].lower())

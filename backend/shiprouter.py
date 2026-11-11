@@ -179,7 +179,7 @@ _HOP = {"host", "content-length", "connection", "keep-alive", "transfer-encoding
 _PSEUDONYM_RE = re.compile(r"^(?:[a-z][a-z0-9_-]{0,23}:)?P[0-9]{1,6}$")
 # refusals of the gateway that are about the STUDY (infer/pilote-etude.md § Refus): their own
 # words are the readable message (backend/study.explain_refusal recognises them)
-STUDY_REFUSALS = ("study_expired", "study_mode_required", "user_daily_cap")
+STUDY_REFUSALS = ("study_expired", "study_mode_required", "user_daily_cap", "user_limit_reached")
 
 
 def _pseudonymous(headers: dict) -> bool:
@@ -291,8 +291,10 @@ async def messages(request: Request):
         await client.aclose()
         refusal = study_refusal(status, raw, r.headers.get("x-sokkan-error") or "")
         if refusal:
-            # 410 / 412 / 429-per-person of the study: handed back as the gateway said it
-            # (status, code, its sentence), and never retried by the CLI
+            # 410 / 412 / 429 (a person's ceiling, too many people today) of the study: handed
+            # back as the gateway said it
+            # (status, code, its sentence), and never retried by the CLI — the gateway sends no
+            # `x-should-retry` itself, and the CLI retries a bare 429 for minutes
             return Response(raw, status_code=status,
                             media_type=r.headers.get("content-type", "application/json"),
                             headers={"x-sokkan-tier": tier, "x-sokkan-reason": reason,
