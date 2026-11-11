@@ -28,7 +28,7 @@ One pass over one source, document by document:
 | 2. Changed? | `runner.py`, `state.py` | Same size and date → skipped. Else SHA-256; same hash → skipped. | An unchanged document is never sent to the model twice. |
 | 3. Extract | `extract.py`, `extract_worker.py` | A **child process** turns the file into text, headings, metadata (MarkItDown; Docling for PDFs without a text layer). | A parser that hangs, crashes or eats memory is killed; the file is consigned as an error, the pass goes on. |
 | 4. Same text? | `state.py` | Same extracted text as a file already read → `duplicate`, no model call. | — |
-| 5. Neighbours | `state.py` | The closest existing notes (the agent's own lexical index + the project memory when the 3.0 store serves), **never above the source's level**. | A note above the source folder's classification is never shown to the model. |
+| 5. Neighbours | `state.py` | The closest existing notes (the agent's own lexical index + the project memory when the 3.0 store serves). Notes of other sources and of the memory: **never above the source's level**. Notes of the same source that the model itself raised: shown, and the new notes **inherit the highest level shown**. | A note of another source above this folder's classification is never shown to the model; a derived note is never below what it was derived from. |
 | 6. Read | `agent.py`, `llmclient.py` | The **local** model answers one JSON object (strict schema, no tool, reasoning off). | The endpoint must be on the machine or its private network. |
 | 7. Validate | `agent.py` | Code re-checks every field against the document (§ 7) and renders CortHeXis markdown. | The model cannot choose a file name, a frontmatter key, a lower classification, a link target that was not offered. |
 | 8. Quarantine | `batches.py` | Notes are written under `memory-quarantine/batches/<id>/` and indexed by nothing. | Nothing is recalled, by anyone, before approval. |
@@ -318,7 +318,10 @@ but the design does not rely on the model obeying: a test runs a model that does
 | The documents go to a local model only | `llmclient.check_local` | `test_docingest_scheduler.py::test_only_a_local_endpoint_gets_the_documents` |
 | The model has no tool; strict JSON; reasoning off | `llmclient.Client.complete` | `…::test_the_client_asks_for_strict_json…` |
 | Classification never below the source floor | `agent.validate` | `test_docingest_agent.py::test_classification_is_never_below_the_source_floor` |
-| A neighbour above the source level is never shown | `state.neighbours`, `runner._process` | `test_docingest_runner.py::test_a_neighbour_above_the_source_level_is_never_shown` |
+| A neighbour of another source above the source level is never shown | `state.neighbours`, `runner._process` | `test_docingest_runner.py::test_a_neighbour_above_the_source_level_is_never_shown` |
+| The derived inherits the highest level it was shown | `runner._process` | `…::test_a_raised_note_of_the_same_source_is_shown_and_its_level_is_inherited` |
+| A contradiction must rest on what the note was shown to say | `agent.validate` | `test_docingest_agent.py::test_a_contradiction_must_rest_on_what_the_note_was_shown_to_say` |
+| A model that stops answering suspends the pass, blames no document | `llmclient.Client.complete`, `runner._safe` | `test_docingest_scheduler.py::test_a_model_that_restarts_is_waited_for…` |
 | Links only to notes that were offered | `agent.validate` | `…::test_links_only_to_notes_that_were_offered` |
 | A decision whose quote or figures are not in the document is flagged | `agent.validate` | `…::test_a_decision_without_proof_in_the_document_is_flagged` |
 | URLs, e-mails not in the document, images, HTML are removed | `agent._clean_text` | `…::test_urls_emails_images_and_html…` |
@@ -337,7 +340,7 @@ but the design does not rely on the model obeying: a test runs a model that does
 
 Flags a note can carry: `conflict` · `quote_not_found` · `unsupported_figure` ·
 `injection_suspected` · `invented_link` · `truncated_source` · `updates_existing` ·
-`previous_version_notes`.
+`previous_version_notes` · `level_inherited`.
 
 What the guardrails do **not** catch: a wrong summary that only uses words and figures of
 the document; a decision attributed to the wrong body; a document that lies. That is what
@@ -493,7 +496,68 @@ it — in docx, pptx, xlsx, pdf, md and txt, with the expected outcome of each (
 18 decisions, 5 abstentions, 2 duplicates, 2 unreadable, 2 contradictions).
 `scripts/doc-ingest-bench.py` runs it against a real local model.
 
-<!-- MEASURES -->
+**Model**: Qwen3.8-27B (INT4, vLLM, 4× Intel Arc Pro B60 — the reference Anchor), local
+endpoint, reasoning off, strict JSON. **Date**: 2026-11-11, three runs of the same code
+(two at 4 streams, one at 8), extraction with MarkItDown only (Docling off). Raw results,
+every produced note included: `tests/docingest_gold/results/`.
+
+| | run A (4 streams) | run B (4 streams) | run C (8 streams) |
+|---|---|---|---|
+| Documents with the expected outcome | 32 / 32 | 32 / 32 | 32 / 32 |
+| **Decisions found** (of 18 expected) | 18 | 18 | 18 |
+| Decisions produced | 19 | 18 | 19 |
+| … of which **not a decision** | 1 (a postponement recorded as a decision) | 0 | 1 (the same) |
+| … flagged by the checks (quote / figure not in the document) | 0 | 0 | 0 |
+| **Correct abstentions** (of 5 valueless documents) | 5 | 5 | 5 |
+| Wrong abstentions (a document worth a note) | 0 | 0 | 0 |
+| Notes on valueless documents | 0 | 0 | 0 |
+| Duplicates recognised (1 exact copy, 1 converted copy) | 2 / 2 | 2 / 2 | 2 / 2 |
+| Contradictions reported (of 2) | 2 | 2 | **1** |
+| Contradictions reported that are not one | 1 (vague, no figure) | 0 | 0 |
+| Trapped document: flagged · forbidden content in a note · level lowered | yes · none · no | yes · none · no | yes · none · no |
+| Unreadable files consigned (scan without OCR, broken docx) | 2 / 2 | 2 / 2 | 2 / 2 |
+| Notes produced (reference + decision) · flagged | 42 · 6 | 41 · 5 | 42 · 3 |
+| **False notes** (not-a-decision + false contradiction) | 2 of 42 | 0 of 41 | 1 of 42 |
+| Wall time, 32 documents (29–33 model calls) | 177 s | 190 s | 159 s |
+| **Documents per hour** | 652 | 608 | 723 |
+| Seconds per document, median · max | 17.3 · 41.3 | 17.5 · 42.1 | 25.8 · 72.3 |
+| **Tokens per document read by the model** (in · out) | 2 364 · 521 | 2 383 · 509 | 2 212 · 503 |
+| Second pass (nothing changed): model tokens | 0 | 0 | 0 |
+
+Reading it honestly:
+
+* **The decision figures are an upper bound.** 18 of 18 on documents written by the author
+  of the prompt, in clean French, where decisions say « décide », « est fixé », « adopte ».
+  The one recurring error is the realistic one: an item *postponed* is recorded as a
+  decision (2 runs of 3).
+* **Contradictions are the weak point.** Found 5 times out of 6; the miss is at 8 streams,
+  where two related documents were read at the same moment and the serial re-reading did not
+  pick the pair. And three defects were found *by this measure* and fixed before these
+  runs: a revised decision was not reported as a contradiction (prompt); the earlier note
+  had been raised to `confidential` by the model and was therefore hidden from the later
+  document of the same folder (now shown, and the level is inherited — flag
+  `level_inherited`); the model invented what the existing note said (now checked against
+  the excerpt it was shown — one vague case without a figure still passed in run A).
+* **Use 4 streams.** 8 streams gain 10–15 % of throughput, double the latency per document
+  and cost a contradiction. The prompt keeps its stable part (instructions, schema) first,
+  so the model's prefix cache serves every call.
+* An earlier run fell in the middle of a restart of the model: 8 documents were marked as
+  errors. That is why a model that stops answering now suspends the pass (§ 9) instead of
+  blaming the documents.
+
+**Extrapolation to 20 000 documents** — arithmetic, not a measure:
+
+| Assumption | Time on one Anchor at 4 streams | Tokens |
+|---|---|---|
+| Documents like the gold set (≈ 2 400 tokens, 1–2 pages), ≈ 630 documents / hour | **≈ 32 hours** — 4 nights of 8 h | ≈ 52 M (47 M in, 10 M out for the ≈ 90 % that reach the model) |
+| Real documents averaging ≈ 8 000 tokens (10–12 pages) — **not measured**; bounded by the cold reading speed of ≈ 900 tokens/s shared by the streams | **≈ 55–65 hours** — 7 to 8 nights | ≈ 155 M |
+| Scans through Docling (CPU) | + ≈ 3.4 s per page | — |
+
+Then the nightly incremental pass only reads what changed (0 token when nothing did).
+**The scarce resource is not the machine, it is the review**: at 1.3 notes per document,
+20 000 documents are ≈ 26 000 notes, of which 7–14 % flagged (≈ 2 000–3 500 notes that can
+only be approved one by one), plus a sample of 5 per batch. Plan the first pass folder by
+folder, not as one batch of 26 000 notes.
 
 ## 13. Limits, and what is not done
 
@@ -515,8 +579,12 @@ it — in docx, pptx, xlsx, pdf, md and txt, with the expected outcome of each (
 * **Long documents** are truncated (first 75 %, last 25 % of 240 000 characters), flagged —
   a decision in the middle of a 300-page report can be missed. No map-reduce yet.
 * **Contradictions** are searched only against the handful of closest notes (lexical index
-  of ingested notes + the memory's search), at or below the source's level; a contradiction
-  with a more classified note, or with a note that does not look alike, is not seen.
+  of ingested notes + the memory's search); a contradiction with a more classified note of
+  another source, or with a note that does not look alike, is not seen. Measured: 5 found
+  of 6, and one false report in three runs (§ 12).
+* **Level creep inside a source**: when the model raises one note of a folder, the
+  look-alike documents of that folder inherit the level. Upward only, flagged
+  `level_inherited`, lowered by a maintainer with a reason (existing reclassification).
 * **Deleted and moved files**: a deleted file is marked `gone`, its notes stay. A file
   moved to another path is read as a new document (same text → `duplicate`, so no second
   note, but the note keeps the old path).

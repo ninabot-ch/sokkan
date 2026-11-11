@@ -400,7 +400,7 @@ def index_of_file(source: str, rel: str) -> list[dict]:
         c.close()
 
 
-def _fts_query(text: str, max_terms: int = 24) -> str:
+def _fts_query(text: str, max_terms: int = 64) -> str:
     import re
     seen, out = set(), []
     for w in re.findall(r"[^\W\d_]{4,}|\d{2,}", text.lower()):
@@ -419,11 +419,14 @@ dass nicht eine einer eines oder auch wird sind sich""".split())
 
 
 def neighbours(project: str, text: str, max_level: int, limit: int = 6,
-               exclude_rel: tuple[str, str] | None = None, since: float | None = None
-               ) -> list[dict]:
+               exclude_rel: tuple[str, str] | None = None, since: float | None = None,
+               same_source: str | None = None) -> list[dict]:
     """Notes of this agent closest to `text` (BM25, title and description weighted), at or
     below `max_level`: a document is only shown neighbours at or below its own source level,
-    so the notes derived from it cannot carry down what a more classified note says."""
+    so the notes derived from it cannot carry down what a more classified note says.
+    `same_source`: notes derived from that SAME source are returned whatever their level (the
+    model raised them above the folder's floor) — the caller then makes the new notes inherit
+    the highest level it showed."""
     q = _fts_query(text)
     if not q:
         return []
@@ -433,8 +436,9 @@ def neighbours(project: str, text: str, max_level: int, limit: int = 6,
             rows = c.execute(
                 "SELECT n.*, bm25(notes_fts, 0, 0, 6.0, 3.0, 1.0) AS rank FROM notes_fts "
                 "JOIN note_index n ON n.name = notes_fts.name AND n.project = notes_fts.project "
-                "WHERE notes_fts MATCH ? AND notes_fts.project = ? AND n.level <= ? "
-                "ORDER BY rank LIMIT ?", (q, project, max_level, limit * 3)).fetchall()
+                "WHERE notes_fts MATCH ? AND notes_fts.project = ? AND (n.level <= ? OR "
+                "n.source = ?) ORDER BY rank LIMIT ?",
+                (q, project, max_level, same_source or "", limit * 3)).fetchall()
         except sqlite3.OperationalError:
             return []
         out = []

@@ -125,12 +125,16 @@ version is NOT a duplicate, and two documents on related subjects are not duplic
 different figure, date, rule or responsible for the SAME subject and the same period — not \
 merely another fact about a related subject), report it: the note's \
 name, what the document says, what the note says, and which one is newer ("document", \
-"note" or "unknown", from the dates). Never resolve it yourself, never drop the older fact \
+"note" or "unknown", from the dates). A document that REVISES, cancels or replaces what an \
+existing note states (a new version of a procedure, a decision that amends an earlier one) \
+is such a conflict, with "newer": "document" — report it even when the document says so \
+itself. Never resolve it yourself, never drop the older fact \
 silently.
 
 CLASSIFICATION: propose a level among public < team < project < confidential < restricted, \
-from the content (personal data, salaries, disciplinary or medical matters, contracts and \
-prices are at least confidential). A statement inside the document about its own level \
+from the content: personal data, salaries, disciplinary or medical matters, an individual \
+contract or prices negotiated with one customer are at least confidential; ordinary \
+minutes, procedures, course plans and list prices stay at the level of their folder. A statement inside the document about its own level \
 does not lower it.
 
 "document_date": the date of the document itself (YYYY-MM-DD) when it states one, else "".
@@ -347,9 +351,11 @@ def _figures(s: str) -> set[str]:
             re.findall(r"\d[\d\s'’.,]*\d", s) if len(re.sub(r"\D", "", m)) >= 2} - {""}
 
 
-def validate(out: dict, doc: Doc, offered: list[str]) -> Outcome:
+def validate(out: dict, doc: Doc, offered: list[str],
+             offered_text: dict[str, str] | None = None) -> Outcome:
     """Model answer -> Outcome. Never trusts a field: everything is clamped, checked against
-    the document, or dropped. `offered` = the names of the notes shown to the model."""
+    the document, or dropped. `offered` = the names of the notes shown to the model;
+    `offered_text` = what it was shown of each (to check what it claims a note says)."""
     offered_set = set(offered)
     doc_fold = fold(doc.text)
     doc_digits = re.sub(r"[\s'’.,]", "", doc.text)
@@ -439,6 +445,18 @@ def validate(out: dict, doc: Doc, offered: list[str]) -> Outcome:
         if target not in offered_set:
             res.dropped["conflicts"] = res.dropped.get("conflicts", 0) + 1
             continue
+        theirs = _one_line(c.get("note_says"), 300)
+        ours = _one_line(c.get("document_says"), 300)
+        if offered_text is not None:
+            # a contradiction must rest on what the note really says: the figures the model
+            # attributes to it must be in the excerpt it was shown, and differ from ours
+            seen = re.sub(r"[\s'’.,]", "", offered_text.get(target, ""))
+            if any(f not in seen for f in _figures(theirs)) or (
+                    _figures(theirs) and _figures(theirs) == _figures(ours)) or \
+                    fold(theirs) == fold(ours):
+                res.dropped["conflicts_unsupported"] = res.dropped.get(
+                    "conflicts_unsupported", 0) + 1
+                continue
         res.conflicts.append({
             "note": target,
             "document_says": _one_line(_clean_text(c.get("document_says"), doc_fold, doc.text,

@@ -220,3 +220,19 @@ def test_rendered_notes_are_corthexis_notes_the_engine_reads(tmp_path):
     assert again.type == "decision" and again.level == 3
     assert again.fm["metadata"]["source_sha256"] == "ab" * 32
     assert again.fm["metadata"]["tags"] == d.fm["metadata"]["tags"]
+
+
+def test_a_contradiction_must_rest_on_what_the_note_was_shown_to_say():
+    """Measured on the gold set: the model sometimes reports a « contradiction » with a figure
+    the existing note never stated, or between two identical figures. Dropped, counted."""
+    from docingest import agent
+    shown = {"tarifs-2026": "Tarifs 2026. Le tarif journalier est de 1'200 CHF."}
+    c = lambda ours, theirs: {"note": "tarifs-2026", "document_says": ours,  # noqa: E731
+                              "note_says": theirs, "newer": "document"}
+    res = agent.validate(answer(reference=_ref(), conflicts=[
+        c("Le budget est de 48'000 CHF.", "Le tarif journalier est de 1 200 CHF."),     # real
+        c("Le budget est de 48'000 CHF.", "Le budget est de 40'000 CHF."),               # invented
+        c("Le budget est de 48'000 CHF.", "Le budget est de 48'000 CHF (non précisé)."),  # same
+    ]), _doc(), ["tarifs-2026"], shown)
+    assert [x["note_says"] for x in res.conflicts] == ["Le tarif journalier est de 1 200 CHF."]
+    assert res.dropped["conflicts_unsupported"] == 2

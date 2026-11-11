@@ -150,8 +150,11 @@ def test_interrupted_pass_resumes_in_the_same_pass_and_batch(world):
     first = world.run(llm, stop=stop, on_progress=progress)
     assert first["status"] == "interrupted" and len(llm.calls) == 2
     assert batches.get(first["batch_id"])["status"] == "open"
-    with pytest.raises(batches.ReviewError):       # a batch still being written is not reviewable
-        batches.approve_batch(first["batch_id"], "bob@x")
+    one = batches.notes_of(first["batch_id"])[0]["name"]
+    for decide in (lambda: batches.approve_note(first["batch_id"], one, "bob@x"),
+                   lambda: batches.reject_batch(first["batch_id"], "bob@x")):
+        with pytest.raises(batches.ReviewError, match="still being written"):
+            decide()                               # a batch being written is not reviewable
     second = world.run(llm)
     assert second["id"] == first["id"] and second["batch_id"] == first["batch_id"]
     assert second["status"] == "done"
@@ -342,3 +345,33 @@ def test_a_model_that_obeys_a_trapped_document_still_cannot_do_harm(world):
     # … so a bulk approval lets none of it through
     batches.sample(p["batch_id"], "bob@x")
     assert batches.approve_batch(p["batch_id"], "bob@x")["approved"] == 0
+
+
+def test_a_raised_note_of_the_same_source_is_shown_and_its_level_is_inherited(world):
+    """The model may raise a note above its folder's floor. A later document of the SAME
+    source still meets it (else a revised decision never meets the one it revises) — and the
+    notes derived from that later document inherit the level."""
+    from docingest import batches
+    world.put("cours/tarifs-avril.md", "# Tarifs des formations inter-entreprises\n\nLe tarif "
+              "journalier inter-entreprises est de 1450 CHF par participant.\n", mtime=1_700_000_000)
+    world.put("cours/tarifs-octobre.md", "# Tarifs des formations inter-entreprises (révision)\n\n"
+              "Le tarif journalier inter-entreprises est de 1520 CHF par participant.\n",
+              mtime=1_750_000_000)
+
+    def script(doc, user):
+        from docingest_helpers import default_script
+        out = default_script(doc, user)
+        if "1450" in doc:
+            out["classification"] = "confidential"
+        names = offered(user)
+        if "1520" in doc and names:
+            out["conflicts"] = [{"note": names[0], "document_says": "tarif 1520 CHF",
+                                 "note_says": "tarif 1450 CHF", "newer": "document"}]
+        return out
+    llm = FakeLLM(script)
+    p = world.run(llm)
+    notes = {n["rel"]: n for n in batches.notes_of(p["batch_id"])}
+    assert notes["cours/tarifs-avril.md"]["level"] == 3
+    assert "1450" in llm.calls[1]["user"], "the raised note of the same source was shown"
+    new = notes["cours/tarifs-octobre.md"]
+    assert new["level"] == 3 and {"conflict", "level_inherited"} <= set(new["flags"])

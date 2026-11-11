@@ -332,8 +332,11 @@ class Pass:
                         truncated=bool(r.get("truncated")), extractor=r.get("extractor") or "")
         started = time.time()
         query = " ".join([doc.title, " ".join(doc.headings[:12]), doc.text[:2500]])
+        # notes of other sources: never above this source's level. Notes of THIS source: also
+        # those the model raised above the folder's floor (else a revised decision would never
+        # meet the one it revises) — and then the derived notes inherit the highest level shown
         neigh = state.neighbours(src.project, query, max_level=src.classification, limit=6,
-                                 exclude_rel=(src.id, f.rel))
+                                 exclude_rel=(src.id, f.rel), same_source=src.id)
         have = {n["name"] for n in neigh}
         for m in self.memory_neighbours(src.project, query, src.classification):
             # capped again here: a neighbour above the source's level is never shown, so a
@@ -342,6 +345,9 @@ class Pass:
                 neigh.append(m)
                 have.add(m["name"])
         neigh = neigh[:8]
+        shown = max([int(n.get("level", 2)) for n in neigh], default=src.classification)
+        if shown > doc.floor:
+            doc.floor = shown                  # the derived inherits the highest level it saw
         system, user = agent.build_prompt(doc, neigh, self.read_date)
         tin = tout = 0
         out = None
@@ -363,7 +369,12 @@ class Pass:
                       tokens_in=tin, tokens_out=tout)
             state.event(pid, f.rel, "error", f"model: {last}", tin, tout, time.time() - t)
             return
-        res = agent.validate(out, doc, [n["name"] for n in neigh])
+        res = agent.validate(out, doc, [n["name"] for n in neigh],
+                             {n["name"]: f"{n.get('description', '')} {n.get('body', '')}"
+                              for n in neigh})
+        if doc.floor > src.classification:
+            for n in res.notes:
+                n.flags.append("level_inherited")
         common = {"text_sha": r["text_sha"], "doc_date": res.document_date,
                   "tokens_in": tin, "tokens_out": tout}
         if res.verdict == "abstain":
@@ -389,7 +400,8 @@ class Pass:
             ref = res.notes[0]
             mine = f"{ref.title} {ref.description}"
             for late in state.neighbours(src.project, mine, src.classification, limit=3,
-                                         exclude_rel=(src.id, f.rel), since=started):
+                                         exclude_rel=(src.id, f.rel), since=started,
+                                         same_source=src.id):
                 if late["type"] == "reference" and _similar(
                         mine, f"{late['title']} {late['description']}") >= 0.3:
                     with self._lock:
