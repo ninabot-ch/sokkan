@@ -10,7 +10,7 @@ import type { Key } from "@/lib/simple/dict";
 import { useT, useUI, when, type T } from "@/lib/simple/i18n";
 import {
   approveBatch, approveNote, batchFlagged, batchNote, batchSample, batchStats, ingestBatches, ingestStatus,
-  noteBody, rejectBatch, rejectNote, type BatchNote, type BatchRow, type BatchStats, type IngestStatus,
+  noteBody, noteHead, rejectBatch, rejectNote, type BatchNote, type BatchRow, type BatchStats, type IngestStatus,
 } from "@/lib/simple/ingest";
 import Icon from "./icons";
 import Markdown from "./Markdown";
@@ -20,7 +20,9 @@ const FLAGS = ["quote_not_found", "unsupported_figure", "conflict", "injection_s
   "truncated_source", "level_inherited", "updates_existing", "previous_version_notes"];
 
 const flagLabel = (t: T, f: string) => (FLAGS.includes(f) ? t(`ing.flag.${f}` as Key) : t("ing.flag.other", { flag: f }));
-const why = (e: unknown) => (e instanceof ApiError ? e.message : String((e as Error)?.message || e));
+// refusals a reviewer can act on are said in the screen's language; the rest keeps the API's words
+const why = (t: T, e: unknown) => (e instanceof ApiError && e.code === "memory_store_required" ? t("ing.err.store")
+  : e instanceof ApiError ? e.message : String((e as Error)?.message || e));
 const todo = (b: BatchRow) => (b.status === "pending" || b.status === "partial") && (b.counts?.pending || 0) > 0;
 
 function StatusPill({ status }: { status: BatchRow["status"] }) {
@@ -103,6 +105,7 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string[]>([]);
+  const [rejected, setRejected] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const top = useRef<HTMLHeadingElement>(null);
@@ -118,9 +121,14 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
   }, [id]);
   useEffect(() => { refresh(); top.current?.focus(); }, [refresh]);
 
-  const run = async (fn: () => Promise<void>) => {
-    setBusy(true); setError("");
-    try { await fn(); } catch (e) { setError(t("ing.error", { why: why(e) })); } finally { setBusy(false); }
+  // an action that fails says so WHERE it was asked: on the note, or above the batch's decision
+  const [noteError, setNoteError] = useState<{ name: string; text: string } | null>(null);
+  const run = async (fn: () => Promise<void>, note = "") => {
+    setBusy(true); setError(""); setNoteError(null);
+    try { await fn(); } catch (e) {
+      const text = t("ing.error", { why: why(t, e) });
+      if (note) setNoteError({ name: note, text }); else setError(text);
+    } finally { setBusy(false); }
   };
   const draw = () => run(async () => { const s = await batchSample(id, SAMPLE); setSample(s.notes); await refresh(); });
   const decided = (n: BatchNote, status: "approved" | "rejected") => {
@@ -131,7 +139,7 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
     if (action === "approve") await approveNote(id, n.name); else await rejectNote(id, n.name, r);
     decided(n, action === "approve" ? "approved" : "rejected");
     await refresh();
-  });
+  }, n.name);
 
   if (failed && !stats) {
     return <div className="sk-scroll"><div className="sk-page"><div className="sk-empty" role="alert"><Icon name="alert" /><p>{t("ing.failed")}</p>
@@ -182,7 +190,7 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
       <section aria-labelledby="sk-ing-flag" className="sk-list">
         <div className="sk-section-head"><h2 className="sk-h3" id="sk-ing-flag">{t("ing.flagged.title", { n: flagged.length })}</h2></div>
         {flagged.length === 0 ? <p className="sk-muted">{t("ing.flagged.none")}</p> : <p className="sk-muted">{t("ing.flagged.help")}</p>}
-        {flagged.map((n) => <Note key={n.name} batch={id} n={n} live={live} busy={busy} onDecide={onNote} onOpened={refresh} />)}
+        {flagged.map((n) => <Note key={n.name} batch={id} n={n} live={live} busy={busy} onDecide={onNote} onOpened={refresh} error={noteError?.name === n.name ? noteError.text : ""} />)}
       </section>
 
       {live && (
@@ -192,11 +200,11 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
           <div><button className="sk-btn" disabled={busy || pending === 0} onClick={draw}>
             <Icon name="eye" />{t(sample ? "ing.sample.again" : "ing.sample.draw", { n: SAMPLE })}</button></div>
           {sample && sampleOnly.length === 0 && sample.length === 0 && <p className="sk-muted">{t("ing.sample.empty")}</p>}
-          {sampleOnly.map((n) => <Note key={n.name} batch={id} n={n} live={live} busy={busy} onDecide={onNote} onOpened={refresh} />)}
+          {sampleOnly.map((n) => <Note key={n.name} batch={id} n={n} live={live} busy={busy} onDecide={onNote} onOpened={refresh} error={noteError?.name === n.name ? noteError.text : ""} />)}
         </section>
       )}
 
-      {done.length > 0 && <div className="sk-notice" role="status"><Icon name="check" /><div>{done.map((d) => <div key={d}>{d}</div>)}</div></div>}
+      {done.length > 0 && <div className={`sk-notice${rejected ? "" : " is-ok"}`} role="status"><Icon name={rejected ? "info" : "check"} /><div>{done.map((d) => <div key={d}>{d}</div>)}</div></div>}
       {error && <div className="sk-error" role="alert"><Icon name="alert" small /><span>{error}</span></div>}
 
       {live && (
@@ -213,7 +221,7 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
                 onChange={(e) => setReason(e.target.value)} />
               <button className="sk-btn sk-btn-danger" disabled={busy} onClick={() => run(async () => {
                 const r = await rejectBatch(id, reason.trim());
-                setDone([t("ing.done.rejected", { n: r.rejected })]); setRejecting(false); setReason("");
+                setDone([t("ing.done.rejected", { n: r.rejected })]); setRejected(true); setRejecting(false); setReason("");
                 setFlagged((cur) => cur.map((x) => (x.status === "pending" ? { ...x, status: "rejected" } : x)));
                 setSample((cur) => (cur ? cur.map((x) => (x.status === "pending" ? { ...x, status: "rejected" } : x)) : cur));
                 await refresh();
@@ -227,7 +235,7 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
                 const said = [t("ing.done.approved", { n: r.approved })];
                 if (r.left_pending.length) said.push(t("ing.done.left", { n: r.left_pending.length }));
                 if (r.failed.length) said.push(t("ing.done.failed", { n: r.failed.length }));
-                setDone(said);
+                setDone(said); setRejected(false);
                 setSample((cur) => (cur ? cur.map((x) => (x.status === "pending" && !x.flags.length ? { ...x, status: "approved" } : x)) : cur));
                 await refresh();
               })}><Icon name="check" />{bulk > 0 ? t("ing.approve", { n: bulk }) : t("ing.approve.none")}</button>
@@ -241,8 +249,8 @@ function Batch({ id, onBack }: { id: number; onBack: () => void }) {
 }
 
 // ---- one note ----------------------------------------------------------------------------------
-function Note({ batch, n, live, busy, onDecide, onOpened }: {
-  batch: number; n: BatchNote; live: boolean; busy: boolean;
+function Note({ batch, n, live, busy, onDecide, onOpened, error }: {
+  batch: number; n: BatchNote; live: boolean; busy: boolean; error: string;
   onDecide: (n: BatchNote, action: "approve" | "reject", reason?: string) => void; onOpened: () => void;
 }) {
   const t = useT();
@@ -251,6 +259,7 @@ function Note({ batch, n, live, busy, onDecide, onOpened }: {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
   const pending = n.status === "pending";
+  const head = noteHead(n);
   const read = async () => {
     if (shown) { setShown(false); return; }
     if (text === null) {
@@ -260,14 +269,14 @@ function Note({ batch, n, live, busy, onDecide, onOpened }: {
   };
   const cls = n.status === "approved" ? " is-approved" : n.status === "rejected" ? " is-rejected" : n.flags.length ? " is-flagged" : "";
   return (
-    <article className={`sk-note${cls}`} aria-label={n.title}>
+    <article className={`sk-note${cls}`} aria-label={head.title}>
       <div className="sk-row">
         <span className="sk-pill sk-pill-idle">{n.type === "decision" ? t("ing.type.decision") : n.type === "reference" ? t("ing.type.reference") : n.type}</span>
         <span className="sk-pill sk-pill-idle">{n.level_id}</span>
         {n.flags.map((f) => <span key={f} className="sk-pill sk-pill-flag"><Icon name="alert" small />{flagLabel(t, f)}</span>)}
       </div>
-      <div className="sk-note-title">{n.title}</div>
-      {n.description && n.description !== n.title && <div className="sk-muted">{n.description}</div>}
+      <div className="sk-note-title">{head.title}</div>
+      {head.more && <div className="sk-muted">{head.more}</div>}
       <div className="sk-small sk-muted">{t("ing.source")} <span className="sk-note-src">{n.rel}</span></div>
       {shown && text !== null && <div className="sk-note-body"><Markdown text={noteBody(text)} /></div>}
       <div className="sk-actions">
@@ -284,6 +293,7 @@ function Note({ batch, n, live, busy, onDecide, onOpened }: {
           </>
         )}
       </div>
+      {error && <div className="sk-error" role="alert"><Icon name="alert" small /><span>{error}</span></div>}
       {pending && live && asking && (
         <div className="sk-reason">
           <label className="sk-visually-hidden" htmlFor={`sk-why-${n.name}`}>{t("ing.reason")}</label>

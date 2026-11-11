@@ -593,6 +593,8 @@ html[data-sk-theme] body {
 .sk-note-src { font-family: var(--sk-mono); font-size: var(--sk-fs-xs); color: var(--sk-text-muted); overflow-wrap: anywhere; }
 .sk-note-body { border-top: 1px solid var(--sk-line); padding-top: var(--sk-s3); max-height: 360px; overflow-y: auto; }
 .sk-pill-flag { color: var(--sk-warn); background: var(--sk-warn-soft); border-color: var(--sk-warn); }
+.sk-notice.is-ok { background: var(--sk-ok-soft); border-color: var(--sk-ok); }
+.sk-notice.is-ok .sk-icon { color: var(--sk-ok); }
 .sk-section-head { display: flex; align-items: baseline; gap: var(--sk-s3); flex-wrap: wrap; margin-top: var(--sk-s4); }
 .sk-progress { height: 6px; border-radius: var(--sk-r-pill); background: var(--sk-sunken); overflow: hidden; }
 .sk-progress i { display: block; height: 100%; background: var(--sk-brass-fill); border-radius: var(--sk-r-pill);

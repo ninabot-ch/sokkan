@@ -44,8 +44,19 @@ export const approveNote = (id: number, name: string) => call<{ ok: boolean }>(`
 export const rejectNote = (id: number, name: string, reason: string) =>
   call<{ ok: boolean }>(`${B}/batches/${id}/notes/${encodeURIComponent(name)}/reject`, "POST", { reason });
 
-/** The note as a person reads it: the body, without the front matter the memory keeps. */
+/** The note as a person reads it: the body, without the front matter the memory keeps and
+ *  without its first heading (the card already shows the title). */
 export function noteBody(text: string): string {
   const m = /^---\n[\s\S]*?\n---\n?/.exec(text || "");
-  return (m ? text.slice(m[0].length) : text || "").trim();
+  return (m ? text.slice(m[0].length) : text || "").trim().replace(/^#\s[^\n]*\n+/, "");
+}
+
+/** Title and description of a note often say the same thing (the title is the description cut
+ *  short): one line then, the complete one. */
+export function noteHead(n: Pick<BatchNote, "title" | "description">): { title: string; more: string } {
+  const cut = (n.title || "").replace(/…$/, "").trim();
+  const d = (n.description || "").trim();
+  if (!d || d === n.title) return { title: n.title, more: "" };
+  if (cut && d.startsWith(cut)) return { title: d, more: "" };
+  return { title: n.title, more: d };
 }
