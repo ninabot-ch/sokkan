@@ -555,7 +555,7 @@ class AgentSession:
         # only through mcp__sokkan-memory__memory_write, which quarantines it for that session
         # (memory/memory_search_server.py). Same rule as an agent run, for the same reason: a
         # document is outside content.
-        if not self.policy and tool_name in _EDIT_TOOLS and _in_memory_dirs(
+        if not self.policy and tool_name in _EDIT_TOOLS and _is_memory_path(
                 str(input_data.get("file_path") or input_data.get("notebook_path") or "")) \
                 and self._has_documents():
             self._journal_auto(tool_name, input_data, False, "policy:documents_memory_write")
@@ -933,6 +933,32 @@ try:  # champs d'options du SDK installé (max_budget_usd n'existe pas partout)
     _OPTION_FIELDS = {f.name for f in _dc.fields(ClaudeAgentOptions)}
 except Exception:  # noqa: BLE001
     _OPTION_FIELDS = set()
+
+
+def _is_memory_path(path: str) -> bool:
+    """Does the path aim at a memory directory or at the quarantine — and at nothing else?
+    The memory of the default project, `<data>/projects/<slug>/memory` of any other, the
+    quarantine. NOT the rest of a project's space: `<data>/projects/<slug>/work` is where its
+    sessions work, where the dropped documents and the deliverables live (the broader
+    `_in_memory_dirs` below would refuse the deliverable itself — seen on the first journey
+    of the integration, 11.11.2026)."""
+    if not path:
+        return False
+    try:
+        import quarantine
+        p = Path(path).expanduser().resolve()
+        for d in (quarantine.memory_dir(), quarantine.qdir()):
+            d = d.expanduser().resolve()
+            if p == d or d in p.parents:
+                return True
+        projects = (Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser(
+            "~/.local/share/sokkan"))) / "projects").expanduser().resolve()
+        if projects in p.parents:
+            rel = p.relative_to(projects).parts
+            return len(rel) >= 2 and rel[1] == "memory"
+    except Exception:  # noqa: BLE001
+        return False
+    return False
 
 
 def _in_memory_dirs(path: str) -> bool:

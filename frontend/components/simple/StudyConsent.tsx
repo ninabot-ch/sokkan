@@ -16,7 +16,8 @@ export function openStudyConsent() { try { window.dispatchEvent(new Event(OPEN))
 const day = (iso: string | undefined, lang: string) => {
   const d = iso ? new Date(iso) : null;
   return d && !Number.isNaN(d.getTime())
-    ? d.toLocaleDateString(lang === "fr" ? "fr-CH" : "en-GB", { day: "numeric", month: "long", year: "numeric" }) : "";
+    // the end of the study is a date of the protocol (« …-04-30T23:59:59Z »): shown as written
+    ? d.toLocaleDateString(lang === "fr" ? "fr-CH" : "en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }) : "";
 };
 
 export default function StudyBand() {

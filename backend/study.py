@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
+RUNNING_TURN_MAX_S = 2 * 3600        # an open turn older than this belongs to a dead process
 _lock = threading.RLock()
 _state_cache: tuple[float, dict] | None = None
 
@@ -704,9 +705,12 @@ def my_sessions(email: str, limit: int = 30) -> list[dict]:
     con = _con()
     rows = [dict(r) for r in con.execute(
         "SELECT t.*, f.useful, f.verify_minutes, f.created_at AS feedback_at,"
-        " (SELECT count(*) FROM turns u WHERE u.session_id = t.session_id) AS turns"
+        " (SELECT count(*) FROM turns u WHERE u.session_id = t.session_id) AS turns,"
+        " (SELECT count(*) FROM turns u WHERE u.session_id = t.session_id AND u.ended_at IS NULL"
+        "   AND u.started_at > ?) AS running"
         " FROM tags t LEFT JOIN feedback f ON f.session_id = t.session_id"
-        " WHERE t.pseudonym = ? ORDER BY t.tagged_at DESC LIMIT ?", (p, max(1, min(limit, 200))))]
+        " WHERE t.pseudonym = ? ORDER BY t.tagged_at DESC LIMIT ?",
+        (time.time() - RUNNING_TURN_MAX_S, p, max(1, min(limit, 200))))]
     con.close()
     return rows
 
@@ -790,8 +794,12 @@ def give_feedback(session_id: str, email: str, useful, verify_minutes) -> dict:
 
 
 def pending_feedback(email: str) -> int:
-    """Study sessions of the person that have turns and no answers yet."""
-    return sum(1 for s in my_sessions(email, 200) if s["turns"] and s["feedback_at"] is None)
+    """Study sessions of the person that have turns, no answers yet, and no turn running:
+    the agent is still working (or waits for a validation) = the task is not over, nobody is
+    asked « two answers » about it yet. A turn left open by a process that died stops
+    counting as running after RUNNING_TURN_MAX_S."""
+    return sum(1 for s in my_sessions(email, 200)
+               if s["turns"] and s["feedback_at"] is None and not s["running"])
 
 
 # ---- export tokens: read-only, limited to the researcher's package -----------------------

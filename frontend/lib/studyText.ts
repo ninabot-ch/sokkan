@@ -266,7 +266,10 @@ export function fmtDate(v: string | number | null | undefined, lang: Lang): stri
   if (v === null || v === undefined || v === "") return "—";
   const d = typeof v === "number" ? new Date(v * 1000) : new Date(v);
   if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleDateString(lang === "fr" ? "fr-CH" : "en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+  // an ISO instant (the study's end, « 2027-04-30T23:59:59Z ») is a DATE of the protocol: shown
+  // as written, not shifted to the next day by the reader's time zone; an epoch is a moment
+  return d.toLocaleDateString(lang === "fr" ? "fr-CH" : "en-GB",
+    { day: "2-digit", month: "2-digit", year: "numeric", ...(typeof v === "string" ? { timeZone: "UTC" } : {}) });
 }
 
 export function fmtTokens(n: number | null | undefined): string {

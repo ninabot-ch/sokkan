@@ -350,7 +350,16 @@ def test_study_hooks_of_the_simple_profile_with_study_mode_on(box):
     assert r.status_code == 200 and r.json()["scenario"] == "S2"
     assert ana.get(f"/api/sessions/{sid}/study").json()["scenario"] == "S2"
     assert ana.put(f"/api/sessions/{sid}/study", json={"scenario": "S9"}).status_code == 400
-    # the two questions, once the deliverable is validated
+    # the two questions, once the deliverable is validated — and the band does not ask for
+    # them while the agent is still working on that very task
+    import sqlite3
+    con = sqlite3.connect(box["tmp"] / "study.db")
+    con.execute("UPDATE turns SET ended_at = NULL WHERE session_id = ?", (sid,))
+    con.commit()
+    assert ana.get("/api/study/me").json()["pending_feedback"] == 0      # a turn is running
+    con.execute("UPDATE turns SET ended_at = started_at + 1 WHERE session_id = ?", (sid,))
+    con.commit()
+    con.close()
     assert ana.get("/api/study/me").json()["pending_feedback"] == 1
     r = ana.post(f"/api/sessions/{sid}/study/feedback", json={"useful": 4, "verify_minutes": 7.5})
     assert r.status_code == 200 and r.json()["useful"] == 4 and r.json()["verify_minutes"] == 7.5
@@ -624,6 +633,42 @@ def test_what_a_session_learnt_from_a_dropped_document_waits_in_quarantine(box, 
     # approved by a person, the quarantined note enters the memory — the only way in
     quarantine.approve("client-lemania-brief", OWNER)
     assert (mdir / "client-lemania-brief.md").exists()
+
+
+def test_a_work_with_documents_still_saves_its_deliverable_in_any_project(box):
+    """The rule above is about the MEMORY directories. A project's own space — where its
+    documents and deliverables live, `<data>/projects/<slug>/work` — is not one: the save of
+    the deliverable reaches the person's card. (The first journey of the integration, on the
+    real model, had the deliverable refused as « a memory file » in a project other than the
+    default one: the agent then asked to keep its plan in the memory instead.)"""
+    import agentchat
+    import quarantine
+    ana_mail, _n, project = PEOPLE[0]
+    ana = box["people"][ana_mail]
+    _consent(ana)
+    doc = _drop(ana)
+    sid = _start(ana, docs=[doc["id"]])
+    sess = agentchat.peek(sid)
+    assert sess._has_documents() and project != "default"
+    target = _deliverable(box, project, sid)
+    assert str(box["data"] / "projects" / project / "work") in target
+    with ana.websocket_connect(f"/api/agent/ws/{sid}?view=simple") as ws:
+        tool = _Tool(sess, "Write", {"file_path": target, "content": "# Plan de formation\n"}, ws)
+        pid = tool.pid()                                     # a person is asked: not refused
+        card = _until(ws, "approval", id=pid)
+        assert card["kind"] == "write_draft" and card["draft"]["text"].startswith("# Plan")
+        ws.send_json({"type": "permission", "id": pid, "decision": "allow"})
+        _until(ws, "approval_resolved", id=pid)
+        assert type(tool.done()).__name__ == "PermissionResultAllow"
+    assert [r["decision"] for r in _hitl(session_id=sid)] == ["allow"]
+    # the memory of THAT project, and the quarantine, stay closed to the file tools
+    for path in (quarantine.memory_dir(project) / "glisse.md", quarantine.qdir(project) / "glisse.md",
+                 box["data"] / "projects" / "qualite" / "memory" / "glisse.md"):
+        res = _Tool(sess, "Write", {"file_path": str(path), "content": "x"}).done()
+        assert type(res).__name__ == "PermissionResultDeny" and "memory_write" in res.message, path
+    assert [r["auto_reason"] for r in _hitl(session_id=sid) if r["auto"]] == ["policy:documents_memory_write"] * 3
+    for other in ("documents/x.md", "notes.md", "deliverables/autre/Plan.md"):
+        assert agentchat._is_memory_path(str(box["data"] / "projects" / project / "work" / other)) is False
 
 
 # ============ e. the batch review screen: every decision is journaled ========================
