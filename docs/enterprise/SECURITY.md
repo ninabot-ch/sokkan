@@ -92,6 +92,12 @@ overrides ●; `project.create|archive|grant|revoke`, `project.grant.self`, `tea
 `memory.scope_violation` ◐; `forge.*`, `byok.*`, `revoke.now` ○. With several projects the
 journal is for instance admins only ◐.
 
+Human validations have a journal of their own (table `hitl` of `audit.db`, always on): every
+approval a session asks for and its decision — who, which tool, the input with secrets masked,
+asked at, decided at, delay, origin (owner, project member, share, Teams) — and the approvals
+nobody clicked, marked automatic ●. Export `GET /api/hitl/journal` (JSON / CSV); see
+[STUDY-MODE.md](STUDY-MODE.md) § 1.
+
 ## 8. Classification and clearances (3.4, stable)
 
 A note, a decision, a card or an agent deliverable carries a **level**; a person carries a

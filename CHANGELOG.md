@@ -3,6 +3,39 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+
+### Added
+- **Journal of human validations** (always on). Every approval a session asks for and every
+  decision is written durably in `audit.db` (table `hitl`): allow, deny, allow with an edited
+  input, answer to a question, change of approval mode — with the session, the project, who
+  decided, the tool, a summary of the input with secrets masked, when it was asked, when it was
+  decided, the delay and the origin (owner, another dev of the project, delegated share,
+  Microsoft Teams). An approval nobody clicked (approval mode, agent policy, sandbox) is a row
+  of its own, marked automatic with its reason. Before, the owner's click left no trace: only
+  the delegated decisions were journaled (they still are, unchanged). A request pending when
+  the API stops is closed as `interrupted` at the next start. Export: `GET /api/hitl/journal`
+  (JSON or CSV; project, person, period) for the admins of the instance or of the project;
+  owner decisions also show in Operate › Journal.
+- **Study mode** (feature `study_mode`, off by default — docs/enterprise/STUDY-MODE.md): an
+  instance used under a research protocol. Sessions and cards tagged with the study, the
+  participant, a scenario (S1…S6) and a reference time; people pseudonymised at the source
+  (P1, P2… in a local correspondence table that is never exported); explicit consent per
+  person before the first session, withdrawable; two questions at the end of a task; a
+  permanent banner and Setup › Study (« What is recorded », consent, tasks) in French and in
+  English; a researcher's export package — metadata only by default, content only for the
+  scenarios a person agreed to, secrets masked, refused if it names anybody — behind a
+  read-only export token. Whether a study is active, its end date and its ceilings are read
+  from the inference gateway (`GET /usage`: `study`, `limits`, `used`, all optional);
+  `SOKKAN_STUDY_ID` declares one locally. A refusal of the gateway — free period over (410),
+  study mode required (412), personal ceiling (429) — is said in words in the session, in
+  English and in French; the banner announces the end of the free period.
+
+### Changed
+- In study mode the inference gateway receives the person's pseudonym in `x-sokkan-user`
+  (sessions and Nina) and the study in `x-sokkan-study`; outside a study, nothing changes.
+- The `permission`, `question` and their `…_resolved` events of a session carry a `ts`.
+
 ## 3.5.1 — 2026-10-10 — "Lookout"
 
 What the first day of Operate › Alerts on a real instance showed (Telegram + Teams channels,
