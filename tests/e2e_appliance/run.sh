@@ -109,10 +109,14 @@ PUBLISHED="$(docker port "$NAME" 2>/dev/null || true)"
   done ) &
 WATCH=$!
 ( cg="/sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' "$NAME").scope"
-  while [ -d "$cg" ]; do
+  # until the machine is removed — NOT « while its cgroup exists »: the cgroup disappears for a
+  # moment at the reboot of T13 and the upgrade phase was then left without samples
+  while docker inspect "$NAME" >/dev/null 2>&1; do
+    if [ -d "$cg" ]; then
     # time · memory.current (with page cache) · host pressure · anon + shmem (what processes hold)
     printf '%s %s %s %s\n' "$(date +%s)" "$(cat "$cg/memory.current" 2>/dev/null)" "$(sed -n 's/^some avg10=\([0-9.]*\).*/\1/p' /proc/pressure/memory)" \
       "$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' "$cg/memory.stat" 2>/dev/null)"
+    fi
     sleep 2
   done > "$W/work/mem.tsv" ) &
 SAMPLER=$!
