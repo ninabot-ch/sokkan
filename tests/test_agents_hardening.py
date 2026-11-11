@@ -397,6 +397,43 @@ def test_live_events_and_replay_of_a_run_are_masked(env, monkeypatch):
 
 
 # ---- A3 : cost of non-Claude runs ---------------------------------------------
+def test_meter_settles_a_turn_on_the_exact_totals_of_its_result(env, monkeypatch):
+    """3.6.4: messages announce their usage when the call starts (1 output token); the
+    result of the turn has the real totals, and the token cap must see them."""
+    pytest.importorskip("claude_agent_sdk")
+    import agentchat
+    import agentcost
+    from claude_agent_sdk import ResultMessage
+
+    _llm(env, {"mode": "custom", "base_url": "https://llm.internal", "auth_token": "t",
+               "model": "kimi-k2"})
+    monkeypatch.setenv("SOKKAN_AGENTS_MAX_TOKENS_PER_RUN", "1000")
+    meter = agentcost.Meter(agentcost.metering(None), budget_usd=2)
+    s = agentchat.AgentSession("sid-s", policy={"budget_usd": 2, "meter": meter, "tools": []})
+
+    def result(u):
+        return ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
+                             is_error=False, num_turns=1, session_id="x", usage=u)
+
+    s._translate(_assistant("m1", {"input_tokens": 300, "output_tokens": 1}))
+    s._translate(_assistant("m2", {"input_tokens": 300, "output_tokens": 1}))
+    assert meter.tokens == 602
+    s._translate(result({"input_tokens": 600, "output_tokens": 250}))
+    assert meter.tokens == 850 and s.budget_stop is None
+    # next turn: its result covers its own calls only, the first turn is not counted twice
+    s._translate(_assistant("m3", {"input_tokens": 100, "output_tokens": 1}))
+    s._translate(result({"input_tokens": 100, "output_tokens": 40}))
+    assert meter.tokens == 990
+    # a result smaller than what was announced never lowers the count
+    s._translate(_assistant("m4", {"input_tokens": 5, "output_tokens": 1}))
+    s._translate(result({"input_tokens": 1}))
+    assert meter.tokens == 996
+    assert meter.over() is None
+    s._translate(_assistant("m5", {"input_tokens": 3, "output_tokens": 1}))
+    s._translate(result({"input_tokens": 3, "output_tokens": 30}))
+    assert "token cap reached" in meter.over()
+
+
 def _llm(env, cfg):
     env.llm.CONFIG.write_text(json.dumps(cfg))
 

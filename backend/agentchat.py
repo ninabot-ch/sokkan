@@ -838,8 +838,8 @@ class AgentSession:
             usage = getattr(msg, "usage", None) or {}
             if self.meter is not None and self.meter.active:
                 # the CLI's figure is at a Claude tariff: use SOKKAN's own count
-                if not self.meter.seen:
-                    self.meter.add(usage if isinstance(usage, dict) else None)
+                # exact totals of the turn: the messages only announced their calls (3.6.4)
+                self.meter.settle_turn(usage if isinstance(usage, dict) else None)
                 turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
                 self.cost_usd = self.meter.cost_usd
             elif turn_cost:

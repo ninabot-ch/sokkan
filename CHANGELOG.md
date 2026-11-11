@@ -3,6 +3,16 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+
+### Fixed
+- **The token cap and the budget of an agent run see every token it used.** On a model the
+  Claude Code CLI does not price (SOKKAN Inference, a custom endpoint), SOKKAN counts the run
+  itself, and it read the usage that each message announces when its API call starts — one
+  output token for a call that ends with hundreds. A run could go past its token cap or its
+  budget. At the end of each turn the count is now settled on the exact totals of the turn's
+  result (added, never subtracted). Runs on Claude priced by the SDK are unchanged.
+
 ## 3.6.3 — 2026-11-11 — "Icebreaker"
 
 What a person who is not an engineer met on a first real journey through an appliance. No

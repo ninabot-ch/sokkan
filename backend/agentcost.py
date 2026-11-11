@@ -304,6 +304,7 @@ class Meter:
         self.first_msg_usd = 0.0    # the run's first API message (3.4.4: calibrates the next run)
         self._first_id: str | None = None
         self._sdk_by_msg: dict[str, float] = {}   # Claude on Anthropic: per-message USD
+        self._settled: dict[str, int] = {}        # _sum() at the last end of turn (3.6.4)
 
     @property
     def guarding(self) -> bool:
@@ -358,6 +359,21 @@ class Meter:
             c = self._cost_of(u)
             self.max_msg_usd = max(self.max_msg_usd, c)
             self._note_first(f"_loose{len(self._loose)}", c)
+
+    def settle_turn(self, usage: dict | None) -> None:
+        """3.6.4: an assistant message announces its usage when the API call STARTS (one output
+        token where the call ends with hundreds): counting those alone under-counts the output,
+        so a token cap or a budget let a run go past it. The result of a turn carries the exact
+        totals of the turn's calls: whatever they hold beyond what the messages of this turn
+        announced is added, never subtracted (a figure only ever grows)."""
+        if not isinstance(usage, dict):
+            return
+        now = self._sum()
+        gap = {k: int(usage.get(k) or 0) - (now[k] - self._settled.get(k, 0)) for k in now}
+        gap = {k: v for k, v in gap.items() if v > 0}
+        if gap:  # spread over several calls: not a single call's cost, max_msg_usd is left alone
+            self._loose.append(gap)
+        self._settled = self._sum()
 
     @property
     def seen(self) -> bool:
