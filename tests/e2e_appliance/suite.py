@@ -25,6 +25,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.error
@@ -982,6 +983,17 @@ def check_kept(tok: str, before: dict) -> None:
     assert len(u.call("/api/audit?limit=1000")[1] or []) >= before["audit"], "journal shorter after the upgrade"
 
 
+def newer_only() -> list:
+    """The files NEW carries and OLD does not, by comparing the two tarballs (from 3.4.6 or 3.5.1
+    scripts/verify-release.sh is one of them; from 3.6.0 it is not, so one name cannot be the
+    check). After a rollback none may remain inside a release folder; a top-level file that only
+    the newer release has is outside what rollback.sh removes — reported as a measure."""
+    def names(ver: str) -> set:
+        with tarfile.open(WORK / "srv" / "dist" / f"sokkan-{ver}.tar.gz") as t:
+            return {m.name.split("/", 1)[1] for m in t.getmembers() if m.isfile() and "/" in m.name}
+    return sorted(names(NEW) - names(OLD))
+
+
 def tree_of(d: Path) -> dict:
     skip = {".env", ".sokkan-previous", "workspace", "node_modules", ".next"}
     out = {}
@@ -1043,10 +1055,13 @@ def upgrade() -> None:
         assert r.returncode == 0, f"rollback rc={r.returncode}: {(r.stderr or r.stdout)[-500:]}"
         v = http(BASE + "/api/version")[1] or {}
         assert v.get("version") == OLD.split("+")[0], f"after rollback: {v}"
-        assert not (d / "scripts" / "verify-release.sh").exists(), "files of the newer release were left behind"
+        left = [f for f in newer_only() if (d / f).exists()]
+        inside = [f for f in left if "/" in f]
+        assert not inside, f"files of the newer release were left behind: {inside[:8]}"
         check_kept(ctx["tok"], ctx["before"])
         assert (d / ".sokkan-previous").read_text().strip() == NEW
-        return {"rollback_s": round(dur), "interruption_s": longest_outage(samples)}
+        return {"rollback_s": round(dur), "interruption_s": longest_outage(samples),
+                "newer_only_files_checked": len(newer_only()), "left_at_top_level": left}
 
     @test("T9", f"in-place upgrade {OLD} → {NEW} by scripts/upgrade.sh (entry B) — same result as entry A")
     def t9():
