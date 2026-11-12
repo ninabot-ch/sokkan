@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## 3.6.4 — 2026-11-13 — "Icebreaker"
+## 3.6.4 — 2026-11-12 — "Icebreaker"
 
 What a real install of 3.6.3 still showed to people who are not engineers, and an agent run's
 token count. No changed default, no new required variable, no new feature switch.
