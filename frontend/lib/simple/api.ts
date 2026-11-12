@@ -76,13 +76,12 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Start a work. A failure that says nothing about the work itself — no answer at all, or
  *  a 5xx from the way — is asked again with the SAME id before anything is shown: the work
  *  may well have started. A refusal (4xx) is final and thrown as it is. */
-export async function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string) {
+async function retrying<T>(call: () => Promise<T>): Promise<T> {
   let last: unknown;
   for (const wait of [0, 1500, 4000]) {
     if (wait) await pause(wait);
     try {
-      return await send<{ session_id: string; title: string }>("/api/simple/start", "POST",
-        { ask, playbook, documents, lang, request_id: requestId });
+      return await call();
     } catch (e) {
       if (e instanceof ApiError && e.status < 500) throw e;
       last = e;
@@ -90,9 +89,17 @@ export async function startWork(ask: string, playbook: string, documents: string
   }
   throw last;
 }
+export function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string) {
+  return retrying(() => send<{ session_id: string; title: string }>("/api/simple/start", "POST",
+    { ask, playbook, documents, lang, request_id: requestId }));
+}
 export const fetchWork = (sid: string) => get<Work>(`/api/simple/sessions/${sid}`);
-export const sendMessage = (sid: string, text: string, documents: string[]) =>
-  send<{ ok: boolean }>(`/api/simple/sessions/${sid}/message`, "POST", { text, documents });
+/** A further message (3.6.4): the same remedy as a start — one id per click on « Send », the
+ *  server takes it once, and a failure that says nothing (no answer, a 5xx from the way) is
+ *  asked again with the SAME id before anything is shown: the message may well have arrived. */
+export const sendMessage = (sid: string, text: string, documents: string[], requestId: string) =>
+  retrying(() => send<{ ok: boolean; replayed?: boolean }>(`/api/simple/sessions/${sid}/message`, "POST",
+    { text, documents, request_id: requestId }));
 const dl = (sid: string, name: string) => `/api/simple/sessions/${sid}/deliverables/${encodeURIComponent(name)}`;
 export const fetchDeliverable = (sid: string, name: string) => get<Deliverable>(dl(sid, name));
 export const downloadUrl = (sid: string, name: string, format: "md" | "docx") => `${dl(sid, name)}/download?format=${format}`;

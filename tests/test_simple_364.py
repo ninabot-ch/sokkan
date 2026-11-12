@@ -16,7 +16,7 @@ import re
 import pytest
 
 import simple_fixtures as _fx
-from simple_fixtures import RADIO_SID
+from simple_fixtures import DEFAULT_SID, RADIO_SID
 
 world = _fx.world
 
@@ -97,3 +97,31 @@ def test_replayed_deliverables_keep_the_version_of_each_save_after_a_restart(wor
     assert _versions(RADIO_SID) == first
     item, = simple.list_deliverables("radio", RADIO_SID)
     assert item["version"] == 5
+
+
+def test_a_follow_up_sent_twice_with_the_same_id_is_taken_once(world):
+    import agentchat
+    c = world["as"]("bob@x")
+    url = f"/api/simple/sessions/{DEFAULT_SID}/message"
+    body = {"text": "Ajoute une pause à 10 h.", "request_id": "cd" * 16}
+    first = c.post(url, json=body)
+    assert first.status_code == 200 and first.json() == {"ok": True}, first.text
+    # the agent is working on it — which is exactly when the browser asks again
+    agentchat.get_or_create(DEFAULT_SID)._busy = True
+    again = c.post(url, json=body)
+    assert again.status_code == 200 and again.json() == {"ok": True, "replayed": True}, again.text
+    assert len([1 for s, _ in world["turns"] if s == DEFAULT_SID]) == 1
+    assert len(world["audit"]("session.send")) == 1
+    # another message while it works is still refused as busy, as before
+    other = c.post(url, json={"text": "Et une autre chose.", "request_id": "ef" * 16})
+    assert other.status_code == 409 and other.json()["detail"]["code"] == "busy"
+    agentchat.get_or_create(DEFAULT_SID)._busy = False
+    # … and taken once it is free: a refused message did not burn its id
+    assert c.post(url, json={"text": "Et une autre chose.", "request_id": "ef" * 16}).json() == {"ok": True}
+    # no id, or one that is not an id: every message is sent, as before
+    assert c.post(url, json={"text": "Encore."}).json() == {"ok": True}
+    assert c.post(url, json={"text": "Encore.", "request_id": "../x"}).json() == {"ok": True}
+    assert len(world["audit"]("session.send")) == 4
+    # the id belongs to the work: the same one on another work is another message
+    alice = world["as"]("alice@x", "radio")
+    assert alice.post(f"/api/simple/sessions/{RADIO_SID}/message", json=body).json() == {"ok": True}

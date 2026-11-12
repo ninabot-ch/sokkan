@@ -61,6 +61,10 @@ def _con() -> sqlite3.Connection:
             sid TEXT NOT NULL, name TEXT NOT NULL, tool_id TEXT NOT NULL, at REAL NOT NULL,
             PRIMARY KEY (sid, name, tool_id)
         );
+        CREATE TABLE IF NOT EXISTS messages_sent (
+            sid TEXT NOT NULL, request_id TEXT NOT NULL, at REAL NOT NULL,
+            PRIMARY KEY (sid, request_id)
+        );
         CREATE TABLE IF NOT EXISTS validations (
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, by TEXT NOT NULL,
             at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
@@ -106,9 +110,29 @@ def note_last_line(sid: str, line: str) -> None:
     con.close()
 
 
+def message_seen(sid: str, request_id: str) -> bool:
+    """Was a further message with this request id already taken for this work?"""
+    con = _con()
+    r = con.execute("SELECT 1 FROM messages_sent WHERE sid=? AND request_id=?",
+                    (sid, request_id)).fetchone()
+    con.close()
+    return r is not None
+
+
+def claim_message(sid: str, request_id: str) -> bool:
+    """Take a further message once (3.6.4): True for the first request with this id, False
+    for the same one sent again (the answer was lost on the way, a second click)."""
+    con = _con()
+    cur = con.execute("INSERT OR IGNORE INTO messages_sent(sid, request_id, at) VALUES(?,?,?)",
+                      (sid, request_id, time.time()))
+    con.commit()
+    con.close()
+    return cur.rowcount == 1
+
+
 def forget(sid: str) -> None:
     con = _con()
-    for t in ("works", "deliverable_writes", "validations"):
+    for t in ("works", "deliverable_writes", "validations", "messages_sent"):
         con.execute(f"DELETE FROM {t} WHERE sid=?", (sid,))
     con.commit()
     con.close()

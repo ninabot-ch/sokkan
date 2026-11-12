@@ -18,6 +18,13 @@ Notable changes, newest first. Versions: semver + release hash (see
   reconnection, a restart of the instance) every card said the latest number. The thread now
   keeps ONE card per document, where it was last saved, and each save keeps its own version
   number when the thread is replayed. What the agent did is still told save by save.
+- **A further message is not announced as failed, nor sent twice.** The same defect as the
+  start of a work (3.6.3), on « Send » in a work of the simple profile: when the answer was lost
+  on the way the person read « The work could not start », and a second click sent the message
+  again. The browser sends one id per message (`request_id` of `POST
+  /api/simple/sessions/{sid}/message`), the server takes it once — also while the agent is
+  already working on it — and the browser asks again with the same id before it shows a
+  failure, which now says that the message was not sent. Without `request_id` nothing changes.
 
 ## 3.6.3 — 2026-11-11 — "Icebreaker"
 

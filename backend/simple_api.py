@@ -9,7 +9,7 @@
     GET  /api/simple/works                  every work of the caller, with its deliverables
     POST /api/simple/start                  {ask, playbook?, documents[], lang} → a session
     GET  /api/simple/sessions/{sid}         one work: title, documents, deliverables
-    POST /api/simple/sessions/{sid}/message {text, documents[]} a further message
+    POST /api/simple/sessions/{sid}/message {text, documents[], request_id?} a further message
     GET  /api/simple/sessions/{sid}/deliverables
     POST /api/simple/sessions/{sid}/deliverables            {title, text} keep an answer
     GET  /api/simple/sessions/{sid}/deliverables/{name}     preview (text)
@@ -103,6 +103,9 @@ class StartIn(BaseModel):
 class MessageIn(BaseModel):
     text: str
     documents: list[str] = []
+    # 3.6.4: one id per click on « Send » (hex, made by the browser), as for a start: the same
+    # id sent again — the answer was lost on the way, a second click — is taken ONCE
+    request_id: str = ""
 
 
 class SaveIn(BaseModel):
@@ -343,6 +346,12 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if not text:
             raise HTTPException(400, {"code": "empty", "message": "empty message"})
         email = (pu.get("email") or "").lower()
+        # idempotence (3.6.4): a message already taken is answered as taken — BEFORE the busy
+        # check, since the agent is busy precisely because the first one was taken
+        rid = (body.request_id or "").strip().lower()
+        rid = rid if re.fullmatch(r"[0-9a-f]{16,64}", rid) else ""
+        if rid and simple.message_seen(sid, rid):
+            return {"ok": True, "replayed": True}
         _study_gate(email)
         already = {d["id"] for d in documents.of_session(sid)}
         docs = [d for d in _docs(body.documents, project, pu) if d["id"] not in already]
@@ -351,6 +360,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         session = agentchat.get_or_create(sid, user=email)
         if session._busy:
             raise HTTPException(409, {"code": "busy", "message": "the agent is still working"})
+        if rid and not simple.claim_message(sid, rid):
+            return {"ok": True, "replayed": True}      # the same request, arrived meanwhile
         session._emit({"type": "user_echo", "text": text,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
         lang = (simple.get_work(sid) or {}).get("lang") or ""

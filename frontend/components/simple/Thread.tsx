@@ -4,8 +4,8 @@
 // raw material stays behind « Technical detail », folded.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ApiError, PlainSocket, fetchWork, keepAsDeliverable, sendMessage,
-  type Doc, type Limits, type PlainEvent, type Source, type TechDetail, type Work,
+  ApiError, PlainSocket, fetchWork, keepAsDeliverable, newRequestId, sendMessage,
+  type Doc, type Limits, type Source, type TechDetail, type Work,
 } from "@/lib/simple/api";
 import type { AgentQuestion } from "@/lib/agent";
 import { age, useT } from "@/lib/simple/i18n";
@@ -32,6 +32,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   const [open, setOpen] = useState(false);
   const [side, setSide] = useState<Side>(null);
   const sock = useRef<PlainSocket | null>(null);
+  const pendingMsg = useRef<{ sig: string; id: string } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -181,8 +182,17 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   <Composer compact session={sid} limits={limits} placeholder={t("th.reply")} submitLabel={t("th.send")}
                     disabled={!work || !open}
                     onSubmit={async (text, docs: Doc[]) => {
-                      try { await sendMessage(sid, text, docs.map((d) => d.id)); stick.current = true; if (docs.length) reload(); }
-                      catch (e) { throw new Error(e instanceof ApiError && e.code === "busy" ? t("no.busy") : t("home.failed")); }
+                      // one id per message: kept while the same message is tried again, so a second
+                      // click after a lost answer does not send it twice (3.6.4)
+                      const sig = JSON.stringify([text, docs.map((d) => d.id)]);
+                      if (pendingMsg.current?.sig !== sig) pendingMsg.current = { sig, id: newRequestId() };
+                      try {
+                        await sendMessage(sid, text, docs.map((d) => d.id), pendingMsg.current.id);
+                        pendingMsg.current = null; stick.current = true; if (docs.length) reload();
+                      } catch (e) {
+                        if (e instanceof ApiError && e.status < 500) pendingMsg.current = null;   // refused: nothing was sent
+                        throw new Error(e instanceof ApiError && e.code === "busy" ? t("no.busy") : t("th.send.failed"));
+                      }
                     }} />
                 </div>
               )}
