@@ -405,6 +405,10 @@ def test_a_refusal_of_the_router_is_one_notice_in_the_persons_words(prefix):
     assert n["title"] == "Claude n'est pas autorisé pour ce projet" and "Rien n'a été envoyé" in n["detail"]
     # the error result of the same turn does not add « a technical problem »
     assert v.feed({"type": "error", "message": "Claude Code returned an error result"}) == []
+    assert v.feed({"type": "error", "code": "claude_forbidden", "message": "x"}) == []   # its coded twin
+    # the coded error alone (no text line before it) is the notice itself
+    (n2,) = plain.View(lang="en").feed({"type": "error", "code": "claude_no_key", "message": "x"})
+    assert n2["code"] == "claude" and n2["title"] == "No Anthropic key on this instance"
     assert v.feed({"type": "text", "text": line}) == []
     # nor is the raw line the preview of the work in « Recents »
     assert plain.last_line([{"type": "text", "text": "Voici le module."}, {"type": "text", "text": line}]) \

@@ -331,8 +331,11 @@ class View:
             return [{"type": "approval_resolved", "id": ev.get("id") or ""}]
         if t == "error":
             msg = str(ev.get("message") or "")
-            if self._refused == "claude" and not ev.get("code"):
-                return []          # the error result of the same refusal: already said
+            if str(ev.get("code") or "").startswith("claude_") or \
+                    (self._refused == "claude" and not ev.get("code")):
+                if self._refused == "claude":
+                    return []      # the error result of the same refusal: already said
+                return self.feed({"type": "text", "text": f"[sokkan:{ev['code']}]"})
             low = msg.lower()
             if ev.get("code") in STUDY_NOTICES:
                 # a refusal of the inference gateway about the study (backend/study.py): its
