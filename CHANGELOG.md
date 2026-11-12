@@ -12,6 +12,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   output token for a call that ends with hundreds. A run could go past its token cap or its
   budget. At the end of each turn the count is now settled on the exact totals of the turn's
   result (added, never subtracted). Runs on Claude priced by the SDK are unchanged.
+- **One card per document in the thread of a work, with the right version.** An agent that
+  saves its document a section at a time (each save approved) showed one card per save — five
+  cards « version 1…5 » for one plan — and once the thread was read again (another tab, a
+  reconnection, a restart of the instance) every card said the latest number. The thread now
+  keeps ONE card per document, where it was last saved, and each save keeps its own version
+  number when the thread is replayed. What the agent did is still told save by save.
 
 ## 3.6.3 — 2026-11-11 — "Icebreaker"
 

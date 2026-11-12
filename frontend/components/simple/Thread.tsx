@@ -9,6 +9,7 @@ import {
 } from "@/lib/simple/api";
 import type { AgentQuestion } from "@/lib/agent";
 import { age, useT } from "@/lib/simple/i18n";
+import { reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
@@ -16,46 +17,9 @@ import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
-interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail"; detail: TechDetail }
-type Approval = Extract<PlainEvent, { type: "approval" }>;
-type Item =
-  | { k: "user"; text: string; docs: { id: string; name: string }[] }
-  | { k: "text"; text: string }
-  | { k: "acts"; acts: Act[] }
-  | { k: "approval"; ev: Approval; decided?: "allow" | "deny" }
-  | { k: "deliverable"; name: string; title: string; version: number }
-  | { k: "notice"; code: string; detail: string }
-  | { k: "question"; id: string; questions: AgentQuestion[] };
-
 type Side = { kind: "draft"; ev: Approval } | { kind: "deliverable"; name: string } | { kind: "docs" } | null;
 
 const KEEP_FROM = 700;   // an answer this long is probably the document itself
-
-function reduce(items: Item[], e: PlainEvent): Item[] {
-  switch (e.type) {
-    case "user": return [...items, { k: "user", text: e.text, docs: e.documents || [] }];
-    case "text": return [...items, { k: "text", text: e.text }];
-    case "activity": {
-      const act: Act = { id: e.id, kind: e.kind, subject: e.subject, state: "live", detail: e.detail };
-      const last = items[items.length - 1];
-      if (last?.k === "acts") return [...items.slice(0, -1), { k: "acts", acts: [...last.acts, act] }];
-      return [...items, { k: "acts", acts: [act] }];
-    }
-    case "activity_done":
-      return items.map((it) => it.k !== "acts" ? it : {
-        k: "acts", acts: it.acts.map((a) => a.id === e.id
-          ? { ...a, state: e.ok ? "done" : "fail", detail: { ...a.detail, result: e.detail?.result } } : a),
-      });
-    case "approval": return [...items.filter((it) => !(it.k === "approval" && it.ev.id === e.id)), { k: "approval", ev: e }];
-    case "approval_resolved": return items.filter((it) => !(it.k === "approval" && it.ev.id === e.id && !it.decided));
-    case "deliverable": return [...items, { k: "deliverable", name: e.name, title: e.title, version: e.version }];
-    case "notice": return [...items, { k: "notice", code: e.code, detail: e.detail }];
-    case "error": return [...items, { k: "notice", code: "engine", detail: e.message }];
-    case "question": return [...items, { k: "question", id: e.id, questions: e.questions }];
-    case "question_resolved": return items.filter((it) => !(it.k === "question" && it.id === e.id));
-    default: return items;
-  }
-}
 
 export default function Thread({ sid, limits, onBack, onChanged }: {
   sid: string; limits: Limits | null; onBack: () => void; onChanged: () => void;

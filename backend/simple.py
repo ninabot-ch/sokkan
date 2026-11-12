@@ -232,14 +232,24 @@ def _sha(p: Path) -> str:
 
 
 def note_write(sid: str, name: str, tool_id: str) -> int:
-    """Register one successful save (idempotent per tool call) → the version number."""
+    """Register one successful save (idempotent per tool call) → THAT save's version number:
+    its rank among the saves of this deliverable, in the order they were registered.
+
+    3.6.4: it returned the number of saves known at the time of the call. A thread replayed
+    later (a new connection, the api restarted) feeds every save again, and each of them was
+    then numbered with the total — five cards « version 5 » for one document."""
     con = _con()
     if tool_id:
         con.execute("INSERT OR IGNORE INTO deliverable_writes(sid, name, tool_id, at) VALUES(?,?,?,?)",
                     (sid, name, tool_id, time.time()))
         con.commit()
-    n = con.execute("SELECT count(*) FROM deliverable_writes WHERE sid=? AND name=?",
-                    (sid, name)).fetchone()[0]
+        n = con.execute(
+            "SELECT count(*) FROM deliverable_writes WHERE sid=? AND name=? AND rowid <= "
+            "(SELECT rowid FROM deliverable_writes WHERE sid=? AND name=? AND tool_id=?)",
+            (sid, name, sid, name, tool_id)).fetchone()[0]
+    else:
+        n = con.execute("SELECT count(*) FROM deliverable_writes WHERE sid=? AND name=?",
+                        (sid, name)).fetchone()[0]
     con.close()
     return max(1, n)
 
