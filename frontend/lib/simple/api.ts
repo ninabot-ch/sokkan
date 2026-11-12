@@ -106,6 +106,9 @@ export function startWork(ask: string, playbook: string, documents: string[], la
 }
 export const fetchClaudeSettings = () => get<ClaudeSettings>("/api/claude/settings");
 export const saveClaudeKey = (key: string) => send<ClaudeSettings>("/api/claude/key", "PUT", { key });
+export const fetchClaudeGate = (lang: string) => get<ClaudeGate>(`/api/claude/gate?lang=${lang}`);
+export const saveProjectLevel = (slug: string, level: string, reason: string) =>
+  send<{ level: string; label: string; claude: ClaudeGate }>(`/api/projects/${encodeURIComponent(slug)}/level`, "PUT", { level, reason });
 export const saveClaudeDefault = (model: string) => send<ClaudeSettings>("/api/claude/settings", "PUT", { default_model: model });
 export const fetchWork = (sid: string) => get<Work>(`/api/simple/sessions/${sid}`);
 /** A further message (3.6.4): the same remedy as a start — one id per click on « Send », the

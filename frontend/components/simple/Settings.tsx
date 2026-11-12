@@ -2,8 +2,10 @@
 // Simple profile — settings a person owns: language, appearance, and the profile itself
 // (simple / technical). The approval mode is deliberately NOT here.
 import { useEffect, useRef, useState } from "react";
-import { fetchClaudeSettings, saveClaudeDefault, saveClaudeKey, savePrefs, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
+import { ApiError, fetchClaudeGate, fetchClaudeSettings, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
+  type ClaudeGate, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
+import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
@@ -97,6 +99,7 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
           </fieldset>
         )}
         {claudeOn && instAdmin && <ClaudeAdmin />}
+        {claudeOn && instAdmin && <ProjectLevel project={project} />}
         <div className="sk-small sk-muted">
           <div>{t("set.signed", { who: me?.email || "" })}</div>
           <div>{t("set.project")} : {project}</div>
@@ -145,6 +148,44 @@ function ClaudeAdmin() {
           </select>
         </>
       )}
+    </fieldset>
+  );
+}
+
+const LEVELS = ["public", "team", "project", "confidential", "restricted"] as const;
+
+/** 3.6.5 — the classification of the current project: what decides whether its work may be
+ *  written with Claude. Lowering it takes a reason (journaled); the server checks the role. */
+function ProjectLevel({ project }: { project: string }) {
+  const t = useT();
+  const { lang } = useUI();
+  const [g, setG] = useState<ClaudeGate | null>(null);
+  const [lvl, setLvl] = useState("");
+  const [reason, setReason] = useState("");
+  const [msg, setMsg] = useState("");
+  useEffect(() => { fetchClaudeGate(lang).then((x) => { setG(x); setLvl(x.level); }).catch(() => setG(null)); }, [lang]);
+  if (!g) return null;
+  const lower = LEVELS.indexOf(lvl as typeof LEVELS[number]) < LEVELS.indexOf(g.level as typeof LEVELS[number]);
+  const save = async () => {
+    setMsg("");
+    try {
+      const r = await saveProjectLevel(project, lvl, reason.trim());
+      setG(r.claude); setReason("");
+      setMsg(r.claude.allowed ? t("set.level.claude.on") : t("set.level.claude.off"));
+    } catch (e) { setMsg(e instanceof ApiError && e.status === 403 ? t("set.level.forbidden") : t("set.level.failed")); }
+  };
+  return (
+    <fieldset className="sk-claude-set">
+      <legend className="sk-legend">{t("set.level", { project })}</legend>
+      <p className="sk-small sk-muted">{t("set.level.hint", { max: g.max_label })}</p>
+      <select aria-label={t("set.level", { project })} value={lvl} onChange={(e) => setLvl(e.target.value)}>
+        {LEVELS.map((l) => <option key={l} value={l}>{t(`set.level.${l}` as Key)}</option>)}
+      </select>
+      {lower && <input type="text" value={reason} placeholder={t("set.level.reason")} aria-label={t("set.level.reason")}
+        onChange={(e) => setReason(e.target.value)} />}
+      <div><button className="sk-btn" disabled={lvl === g.level || (lower && reason.trim().length < 3)} onClick={save}>
+        <Icon name="check" />{t("set.level.save")}</button></div>
+      {msg && <div className="sk-small" role="status">{msg}</div>}
     </fieldset>
   );
 }
