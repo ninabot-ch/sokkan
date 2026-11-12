@@ -404,6 +404,13 @@ class AgentSession:
                 # the Claude model the person chose: the CLI shapes its requests for it (the
                 # router checks it is in the instance's list before anything leaves)
                 model = claude_env["ANTHROPIC_MODEL"]
+                # the API refuses the current Claude models to an older CLI (« Claude Code
+                # 2.1.259 does not support this model; 2.1.280 or newer is required », seen on
+                # 12.11.2026): the SDK runs its OWN bundled CLI unless told otherwise — a Claude
+                # work runs the CLI pinned in the image (docker/api.Dockerfile)
+                cli = claudetier.pinned_cli()
+                if cli and "cli_path" in _OPTION_FIELDS:
+                    opts_kwargs["cli_path"] = cli
             if model:
                 opts_kwargs["model"] = model
             if self.resume:

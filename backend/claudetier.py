@@ -167,6 +167,19 @@ def project_level(project: str) -> int:
 
 
 # ---- the decision ---------------------------------------------------------------------
+_FR_LEVELS = ("Public", "Équipe (interne)", "Projet", "Confidentiel", "Restreint")
+
+
+def level_label(rank: int, lang: str = "fr") -> str:
+    """The customer's own grid when it has one (CORTHEXIS/SOKKAN_CLASSIFICATION_LABELS), else
+    the level in the person's language."""
+    from core import levels
+    lab = levels.label(rank)
+    if lang == "fr" and lab == levels.IDS[levels.clamp(rank)].capitalize():
+        return _FR_LEVELS[levels.clamp(rank)]
+    return lab
+
+
 def gate(project: str, model: str = "", lang: str = "fr") -> dict:
     """May a work of ``project`` be written with Claude (``model``, or the default)?
     → {allowed, code, reason, …}. Decided here, checked again by the router."""
@@ -174,8 +187,8 @@ def gate(project: str, model: str = "", lang: str = "fr") -> dict:
     lvl, cap = project_level(project), max_level()
     av = available_models()
     out = {"allowed": False, "code": "", "reason": "", "project": project,
-           "level": levels.ident(lvl), "level_label": levels.label(lvl),
-           "max_level": levels.ident(cap), "max_label": levels.label(cap),
+           "level": levels.ident(lvl), "level_label": level_label(lvl, lang),
+           "max_level": levels.ident(cap), "max_label": level_label(cap, lang),
            "models": [{"id": m, "label": label(m)} for m in av],
            "default_model": default_model(), "destination": DESTINATION.get(lang, DESTINATION["en"])}
     fr = lang == "fr"
@@ -190,8 +203,8 @@ def gate(project: str, model: str = "", lang: str = "fr") -> dict:
                    if fr else "No Anthropic key: the administrator enters it in Settings.")
     elif lvl > cap:
         out.update(code="level", reason=(
-            f"Ce projet est classé « {levels.label(lvl)} » : ses travaux restent sur le modèle de la "
-            f"machine. Claude n'est possible que sur un projet classé « {levels.label(cap)} » ou moins."
+            f"Ce projet est classé « {level_label(lvl)} » : ses travaux restent sur le modèle de la "
+            f"machine. Claude n'est possible que sur un projet classé « {level_label(cap)} » ou moins."
             if fr else
             f"This project is classified « {levels.label(lvl)} »: its work stays on the model of this "
             f"machine. Claude is possible on a project classified « {levels.label(cap)} » or lower."))
@@ -244,6 +257,12 @@ def session_env(sid: str, project: str, env: dict) -> dict:
              if x.strip() and not x.lower().startswith((HEADER_TIER, HEADER_PROJECT))]
     lines += [f"{HEADER_TIER}: claude", f"{HEADER_PROJECT}: {project}"]
     return {"ANTHROPIC_MODEL": model, "ANTHROPIC_CUSTOM_HEADERS": "\n".join(lines)}
+
+
+def pinned_cli() -> str:
+    """The Claude Code CLI installed in the image (pinned), '' when there is none."""
+    import shutil
+    return shutil.which("claude") or ""
 
 
 def cap_scope(sid: str, scope):

@@ -254,7 +254,8 @@ def test_the_threshold_follows_the_project_classification(inst, monkeypatch):
     g = claudetier.gate("cours")
     assert g["allowed"] is False and g["code"] == "level"
     g = claudetier.gate("gestion")
-    assert g["allowed"] is False and g["code"] == "level" and "Confidential" in g["reason"]
+    assert g["allowed"] is False and g["code"] == "level" and "Confidentiel" in g["reason"]
+    assert "Confidential" in claudetier.gate("gestion", lang="en")["reason"]
     # no variable opens confidential and above
     monkeypatch.setenv("SOKKAN_CLAUDE_MAX_LEVEL", "restricted")
     assert claudetier.max_level() == 2 and claudetier.gate("gestion")["allowed"] is False
@@ -335,7 +336,7 @@ def test_start_with_claude_on_a_public_project_and_refusal_on_a_confidential_one
     n = len(inst["turns"])
     r = c.post("/api/simple/start", json={"ask": "Relance le devis", "tier": "claude"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "claude_level"
-    assert "Confidential" in r.json()["detail"]["message"] and len(inst["turns"]) == n
+    assert "Confidentiel" in r.json()["detail"]["message"] and len(inst["turns"]) == n
     # an ordinary work of the same project: on the model of the machine, no header
     sid2 = c.post("/api/simple/start", json={"ask": "Relance le devis"}).json()["session_id"]
     assert claudetier.work_tier(sid2) == ("", "") and claudetier.session_env(sid2, "gestion", {}) == {}
