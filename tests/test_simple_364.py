@@ -155,3 +155,59 @@ def test_the_cockpit_never_reads_the_transcript_of_another_project(world, monkey
     assert c.get(f"/api/sessions/{DEFAULT_SID}").json()["messages"] == []
     row = next(s for s in c.get("/api/sessions").json() if s["session_id"] == DEFAULT_SID)
     assert row["exists"] is False
+
+
+# ---- the title of a memory note --------------------------------------------------------------
+def _note(name, description, body="", extra=""):
+    return (f"---\nname: {name}\ndescription: {json.dumps(description, ensure_ascii=False)}\n{extra}"
+            f"metadata:\n  type: reference\n---\n\n{body}")
+
+
+@pytest.mark.parametrize("text,title", [
+    (_note("evaluation-des-acquis", "Évaluation des acquis à l'Atelier : trois questions par module"),
+     "Évaluation des acquis à l'Atelier"),
+    (_note("relance-des-devis-sans-reponse", "Relance des devis sans réponse après dix jours"),
+     "Relance des devis sans réponse après dix jours"),
+    (_note("faq-clients", "FAQ clients : les questions qui reviennent", "# Questions fréquentes\n\nTexte."),
+     "Questions fréquentes"),
+    (_note("charte", "Charte éditoriale : vouvoiement", "# Autre\n", extra="title: \"Charte éditoriale de l'Atelier\"\n"),
+     "Charte éditoriale de l'Atelier"),
+    (_note("procedure-de-devis", "x" * 200), "Procedure de devis"),
+])
+def test_a_note_is_titled_by_its_own_words(tmp_path, text, title):
+    from core import notes
+    p = tmp_path / "n.md"
+    p.write_text(text, encoding="utf-8")
+    parsed = notes.parse_note(text, "n.md")
+    assert notes.title_of_file(p, parsed.name, parsed.description) == title
+    assert notes.title_of_file(tmp_path / "missing.md", "faq-clients", "FAQ clients : les questions") == "FAQ clients"
+
+
+def test_the_card_of_a_note_to_retain_says_its_title_from_the_description():
+    import plain
+    tool = "mcp__sokkan-memory__memory_write"
+    c = plain.View().classify(tool, {"name": "evaluation-des-acquis", "body": "Trois questions par module.",
+                                     "description": "Évaluation des acquis à l'Atelier : trois questions"})
+    assert c == {"kind": "save_memory", "subject": "Évaluation des acquis à l'Atelier"}
+
+
+def test_the_memory_list_carries_the_title(tmp_path, monkeypatch):
+    """The 2.x index (memory.db): every row of /api/memory/notes says its title, so the Memory
+    page no longer reads forty bodies to find them."""
+    import sqlite3
+
+    import memorykb
+    f = tmp_path / "evaluation_des_acquis.md"
+    f.write_text(_note("evaluation-des-acquis", "Évaluation des acquis à l'Atelier : trois questions"), encoding="utf-8")
+    db = tmp_path / "memory.db"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE notes (name TEXT, description TEXT, type TEXT, mtime REAL, source_path TEXT,"
+                      " priority INTEGER); CREATE TABLE chunks (note_name TEXT); CREATE TABLE links (src TEXT, dst TEXT);")
+    con.execute("INSERT INTO notes VALUES (?,?,?,?,?,0)", ("evaluation-des-acquis",
+                "Évaluation des acquis à l'Atelier : trois questions", "reference", 1.0, str(f)))
+    con.commit()
+    con.close()
+    monkeypatch.setattr(memorykb, "MEM_DB", db)
+    monkeypatch.setattr(memorykb, "_store", lambda: None)
+    row, = memorykb.list_notes()
+    assert row["title"] == "Évaluation des acquis à l'Atelier"

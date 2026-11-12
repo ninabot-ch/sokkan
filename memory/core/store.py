@@ -34,6 +34,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from . import levels as _lv
+from . import notes as _notes
 from . import scope as _scope
 from . import search as rk
 from .config import env, env_int
@@ -1024,6 +1025,8 @@ class Store:
                  "mtime": (_to_dt(r["modified"]).timestamp() if _to_dt(r["modified"])
                            else None),
                  "path": (r["source_path"] or "").rsplit("/", 1)[-1],
+                 # 3.6.4: the title a person reads (a name is a slug, without its accents)
+                 "title": _notes.title_of_file(r["source_path"], r["name"], r["description"] or ""),
                  "priority": bool(r["priority"]), "chunks": counts.get(r["id"], 0),
                  "links": out_l.get((r["project"], r["name"]), []),
                  "backlinks": sorted(back.get((r["project"], r["name"]), ()))}

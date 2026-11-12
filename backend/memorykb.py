@@ -73,9 +73,12 @@ def list_notes(projects=None) -> list[dict]:
                 if tgt in incoming:
                     incoming[tgt].add(name)
     con.close()
+    from core import notes as _notes
     out = []
     for name, desc, typ, mtime, path, priority in rows:
         out.append({"name": name, "description": desc, "type": typ, "mtime": mtime,
+                    # 3.6.4: the title a person reads (a name is a slug, without its accents)
+                    "title": _notes.title_of_file(path, name, desc or ""),
                     "chunks": counts.get(name, 0), "links": outgoing.get(name, []),
                     "priority": bool(priority)})
     for o in out:  # liens entrants (qui me cite)

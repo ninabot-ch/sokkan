@@ -81,6 +81,11 @@ def test_recall_log_status_and_notes(client):
     assert st["indexer"]["runs"] == 1
     notes = c.get("/api/memory/notes").json()
     assert any(n["name"] == "packaging-supplier" for n in notes)
+    # 3.6.4: each note says the title a person reads — no `# heading` in this corpus, so the
+    # one out of its description (the name, a slug, is the last resort)
+    clara = next(n for n in notes if n["name"] == "mailbox-access-clara")
+    assert clara["title"] == "Mail access granted to the assistant — which mailboxes it may read"
+    assert all(n["title"] for n in notes)
     assert c.get("/api/memory/stats").json()["generation"]
     res = c.get("/api/memory/search", params={"q": "Kartonage Weiss cardboard"}).json()
     assert res[0]["note_name"] == "packaging-supplier"

@@ -30,6 +30,13 @@ Notable changes, newest first. Versions: semver + release hash (see
   the instance's folder only; a session of a project other than `default` works in its project's
   folder (fixed for the thread of a work in 3.6.3). They now look in the session's own folder
   too — and only that one.
+- **A memory note is titled with its own words.** The Memory page of the simple profile and the
+  card « retain in memory » titled a note without a `# heading` from its name, a slug without
+  accents (« Evaluation des acquis »). The title is now, first that answers: `title:` of the
+  note's front matter, its opening `# heading`, a title out of its description (what comes
+  before the first « : » when that is short), the name made readable last. `GET
+  /api/memory/notes` gives it as `title`, and the Memory page no longer reads up to forty notes
+  to find their titles.
 
 ## 3.6.3 — 2026-11-11 — "Icebreaker"
 

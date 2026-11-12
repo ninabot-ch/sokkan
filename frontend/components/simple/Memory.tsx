@@ -9,7 +9,9 @@ import { useT, useUI, when } from "@/lib/simple/i18n";
 import Icon from "./icons";
 import Markdown from "./Markdown";
 
-interface Note { name: string; description: string; mtime: number | null }
+// `title`: the title a person reads, said by the server (3.6.4: frontmatter title, then the
+// note's `# heading`, then its description, the name made readable last)
+interface Note { name: string; title?: string; description: string; mtime: number | null }
 
 /** « procedure-de-devis » → « Procedure de devis » (the name of a note is a slug). */
 export function noteTitle(name: string): string {
@@ -19,12 +21,13 @@ export function noteTitle(name: string): string {
 
 /** What a person reads of a note: without the technical first line (« [note x — updated …] »)
  *  and the front matter; its own first heading, when it has one, is its title. */
-export function readable(name: string, raw: string): { title: string; text: string } {
+export function readable(name: string, raw: string, known = ""): { title: string; text: string } {
   let text = raw.replace(/^\s*\[note [^\]\n]*\]\s*\n?/, "");
   text = text.replace(/^\s*---\n[\s\S]*?\n---\s*\n?/, "").trim();
-  let title = noteTitle(name);
+  let title = known || noteTitle(name);
   const m = text.match(/^#\s+(.+?)\s*#*\s*(?:\n|$)/);
-  if (m) { title = m[1].replace(/[*_`]/g, "").trim() || title; text = text.slice(m[0].length).trim(); }
+  // its opening heading is the title (unless the server already said one) and is not repeated below
+  if (m) { title = known || m[1].replace(/[*_`]/g, "").trim() || title; text = text.slice(m[0].length).trim(); }
   // a link to another note is shown as that note's name
   text = text.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_x, target: string, label?: string) => `*${label || noteTitle(target)}*`);
   return { title, text };
@@ -36,7 +39,7 @@ function opening(text: string): string {
   return flat.length > 220 ? `${flat.slice(0, 219).trimEnd()}…` : flat;
 }
 
-const ENRICH_MAX = 40;   // titles and openings are read for the first notes only; the others keep their name
+const ENRICH_MAX = 40;   // openings are read for the first notes WITHOUT a description only
 
 export default function Memory() {
   const t = useT();
@@ -45,13 +48,13 @@ export default function Memory() {
   const [failed, setFailed] = useState(false);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Note | null>(null);
-  // the name of a note is a slug (« procedure-de-devis »): its own title (« Procédure de devis »)
-  // and its first lines come from the note itself, read as the person may read it
+  // the title comes with the list (the server reads it from the note); the first lines of a
+  // note are read here only for a note that has no description to show under its title
   const [own, setOwn] = useState<Record<string, { title: string; start: string }>>({});
   useEffect(() => {
     if (!notes) return;
     let stop = false;
-    const todo = notes.slice(0, ENRICH_MAX);
+    const todo = notes.filter((n) => !n.description).slice(0, ENRICH_MAX);
     let i = 0;
     const worker = async () => {
       while (!stop && i < todo.length) {
@@ -61,7 +64,7 @@ export default function Memory() {
           if (!r.ok) continue;
           const d: { body: string | null } = await r.json();
           if (stop || typeof d.body !== "string") continue;
-          const x = readable(n.name, d.body);
+          const x = readable(n.name, d.body, n.title);
           setOwn((cur) => ({ ...cur, [n.name]: { title: x.title, start: opening(x.text) } }));
         } catch { /* the name and the description stay */ }
       }
@@ -69,7 +72,7 @@ export default function Memory() {
     for (let k = 0; k < 3; k++) void worker();
     return () => { stop = true; };
   }, [notes]);
-  const titleOf = useCallback((n: Note) => own[n.name]?.title || noteTitle(n.name), [own]);
+  const titleOf = useCallback((n: Note) => n.title || own[n.name]?.title || noteTitle(n.name), [own]);
 
   const load = useCallback(() => {
     setFailed(false);
@@ -137,12 +140,12 @@ function NoteView({ note, onBack }: { note: Note; onBack: () => void }) {
       .catch(() => setBody(null));
   }, [note.name]);
   useEffect(load, [load]);
-  const r = typeof body === "string" ? readable(note.name, body) : null;
+  const r = typeof body === "string" ? readable(note.name, body, note.title) : null;
   return (
     <div className="sk-scroll"><div className="sk-page">
       <div><button className="sk-btn sk-btn-quiet" onClick={onBack}><Icon name="back" />{t("mem.back")}</button></div>
       <article className="sk-card sk-mem-note" aria-busy={body === undefined}>
-        <h1 className="sk-h2">{r?.title || noteTitle(note.name)}</h1>
+        <h1 className="sk-h2">{r?.title || note.title || noteTitle(note.name)}</h1>
         <p className="sk-small sk-muted">
           {note.mtime ? `${t("mem.updated", { when: when(t, note.mtime, lang) })} · ` : ""}{t("mem.readonly")}
         </p>
