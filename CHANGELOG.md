@@ -3,7 +3,10 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6.5
+## 3.6.5 — 2026-11-12 — "Icebreaker"
+
+A person can choose to write course content with Claude on an appliance, and everyone sees which
+model wrote what. New feature switch `claude_tier` (off by default); no changed default.
 
 - **« Write with Claude » on an appliance** (feature `claude_tier`): a third tier of the local
   router, reached only by a person's explicit choice when sending a work, in a project classified
@@ -16,6 +19,10 @@ Notable changes, newest first. Versions: semver + release hash (see
   `SOKKAN_CLAUDE_MAX_LEVEL`; `SOKKAN_SHIP_MODEL` now also reaches the api (the badge).
 - On an appliance, an Anthropic key saved in Setup › Model keys no longer becomes the engine of
   every session.
+- **Projects from Settings**: an administrator of the instance creates a project, sets its
+  classification and who works in it; the simple profile shows a « Project » picker when a person
+  works in two projects or more. An administrator can classify a project without being a member.
+- « Recent » shows a refusal in words, never a raw code.
 
 ## 3.6.4 — 2026-11-12 — "Icebreaker"
 
