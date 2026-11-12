@@ -396,12 +396,19 @@ def test_every_answer_and_deliverable_names_the_model_that_answered(tmp_path, mo
     assert card["engine"]["label"] == "Claude Sonnet 5.5" and writes == [("Module 3.md", "w1", "claude-sonnet-5-5")]
 
 
-def test_a_refusal_of_the_router_is_a_notice_in_the_persons_words():
+@pytest.mark.parametrize("prefix", ["API Error: 403 ", "Failed to authenticate. API Error: 403 "])
+def test_a_refusal_of_the_router_is_one_notice_in_the_persons_words(prefix):
     v = plain.View(lang="fr")
-    line = "API Error: 403 " + json.dumps(llmerrors.anthropic_body("claude_forbidden", "en"))
+    line = prefix + llmerrors.anthropic_body("claude_forbidden", "fr")["error"]["message"]
     (n,) = v.feed({"type": "text", "text": line})
     assert n["type"] == "notice" and n["code"] == "claude"
     assert n["title"] == "Claude n'est pas autorisé pour ce projet" and "Rien n'a été envoyé" in n["detail"]
+    # the error result of the same turn does not add « a technical problem »
+    assert v.feed({"type": "error", "message": "Claude Code returned an error result"}) == []
+    assert v.feed({"type": "text", "text": line}) == []
+    # nor is the raw line the preview of the work in « Recents »
+    assert plain.last_line([{"type": "text", "text": "Voici le module."}, {"type": "text", "text": line}]) \
+        == "Voici le module."
 
 
 def test_saves_validations_and_export_carry_the_model(inst):

@@ -639,10 +639,10 @@ html[data-sk-theme] body {
 .sk-eng-banner { padding: var(--sk-s2) var(--sk-s4) 0; }
 .sk-engine { display: flex; flex-direction: column; gap: var(--sk-s2); }
 .sk-engine-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sk-s2); }
-.sk-engine-opt { display: flex; gap: var(--sk-s2); align-items: flex-start; text-align: left; padding: var(--sk-s3);
+.sk .sk-engine-opt { display: flex; gap: var(--sk-s2); align-items: flex-start; text-align: left; padding: var(--sk-s3);
   border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm); background: var(--sk-surface, transparent); cursor: pointer; color: inherit; font: inherit; }
-.sk-engine-opt[aria-pressed="true"] { border-color: var(--sk-sea); box-shadow: 0 0 0 1px var(--sk-sea) inset; }
-.sk-engine-opt:disabled { opacity: .55; cursor: not-allowed; }
+.sk .sk-engine-opt[aria-pressed="true"] { border-color: var(--sk-sea); box-shadow: 0 0 0 1px var(--sk-sea) inset; }
+.sk .sk-engine-opt:disabled { opacity: .55; cursor: not-allowed; }
 .sk-engine-opt small { display: block; color: var(--sk-text-muted); }
 .sk-engine-where { display: flex; gap: var(--sk-s2); align-items: flex-start; padding: var(--sk-s2) var(--sk-s3);
   border-radius: var(--sk-r-sm); border: 1px solid var(--sk-warn); background: var(--sk-warn-soft); }

@@ -122,14 +122,14 @@ function ClaudeAdmin() {
     try {
       const r = await saveClaudeKey(key.trim());
       setSt(r); setKey("");
-      setMsg(t("set.claude.saved", { masked: r.key?.masked || "", detail: r.test?.detail || "" }));
+      setMsg(t("set.claude.saved", { masked: r.key?.masked || "", detail: r.test?.ok ? t("set.claude.valid") : r.test?.detail || "" }));
     } catch { setMsg(t("set.claude.failed")); } finally { setBusy(false); }
   };
   return (
     <fieldset className="sk-claude-set">
       <legend className="sk-legend">{t("set.claude")}</legend>
       <p className="sk-small sk-muted">{t("set.claude.hint")}</p>
-      {st.key && <div className="sk-small">{t("set.claude.current", { masked: st.key.masked })}{st.key.test_detail ? ` · ${st.key.test_detail}` : ""}</div>}
+      {st.key && <div className="sk-small">{t("set.claude.current", { masked: st.key.masked })}{st.key.test_ok ? ` · ${t("set.claude.valid")}` : st.key.test_detail ? ` · ${st.key.test_detail}` : ""}</div>}
       <label className="sk-small" htmlFor="sk-claude-key">{t("set.claude.key")}</label>
       <input id="sk-claude-key" type="password" autoComplete="off" spellCheck={false} value={key}
         placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />

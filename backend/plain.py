@@ -54,6 +54,7 @@ def _study_code(text: str) -> str | None:
     return code if code in STUDY_NOTICES else None
 
 
+_CLAUDE_REFUSAL = re.compile(r"\[sokkan:(claude_[a-z_]+)\]")
 _ENGINE_ERROR = re.compile(r"\s*(API Error\b|Credit balance is too low|Invalid API key)", re.I)
 _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _DETAIL_MAX = 4000
@@ -248,19 +249,19 @@ class View:
             return [ev]
         if t == "text":
             text = ev.get("text") or ""
+            cm = _CLAUDE_REFUSAL.search(text) if "[sokkan:claude_" in text else None
+            if cm:
+                # 3.6.5: the router refused a « Write with Claude » request — its own sentence,
+                # in the person's language, once per turn (the CLI prefixes a 403 with « Failed
+                # to authenticate. », and its error result would add « a technical problem »)
+                import llmerrors
+                if cm.group(1) not in llmerrors.CODES or self._refused == "claude":
+                    return []
+                self._refused = "claude"
+                h = llmerrors.humanize(cm.group(1), self.lang)
+                return [{"type": "notice", "code": "claude", "title": h["title"], "detail": h["message"]}]
             if _ENGINE_ERROR.match(text):
                 # the CLI reports an unreachable / failing engine as an assistant sentence
-                cm = re.search(r"\[sokkan:(claude_[a-z_]+)\]", text)
-                if cm:
-                    # 3.6.5: the router refused a « Write with Claude » request — its own
-                    # sentence, in the person's language (nothing went to another model)
-                    try:
-                        import llmerrors
-                        h = llmerrors.humanize(cm.group(1), self.lang)
-                        return [{"type": "notice", "code": "claude", "title": h["title"],
-                                 "detail": h["message"]}]
-                    except Exception:  # noqa: BLE001
-                        pass
                 code = _study_code(text)
                 if code:
                     # … or a refusal of the gateway about the study: said once, as what it is
@@ -330,6 +331,8 @@ class View:
             return [{"type": "approval_resolved", "id": ev.get("id") or ""}]
         if t == "error":
             msg = str(ev.get("message") or "")
+            if self._refused == "claude" and not ev.get("code"):
+                return []          # the error result of the same refusal: already said
             low = msg.lower()
             if ev.get("code") in STUDY_NOTICES:
                 # a refusal of the inference gateway about the study (backend/study.py): its
@@ -365,7 +368,7 @@ def last_line(events: list[dict], limit: int = 140) -> str:
     """The last sentence the agent wrote — the preview under a recent work."""
     for ev in reversed(events or []):
         if ev.get("type") == "text" and (ev.get("text") or "").strip() \
-                and not _ENGINE_ERROR.match(ev["text"]):
+                and not _ENGINE_ERROR.match(ev["text"]) and "[sokkan:" not in ev["text"]:
             text = re.sub(r"```.*?```", " ", ev["text"], flags=re.S)
             text = re.sub(r"[#*_`>|]+", " ", text)
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
