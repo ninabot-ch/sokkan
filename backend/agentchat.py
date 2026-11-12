@@ -254,6 +254,9 @@ class AgentSession:
         self._budget_warned = False  # avertissement 80 % émis une seule fois
         self._project_budget_warned = False  # idem pour le budget du projet (lot 4)
         self._model_seen: str | None = None
+        # 3.6.5: the model THE API ANSWERED WITH on the last assistant message (the badge of
+        # each answer, of each save, of each validation) — not the alias the CLI was given
+        self._turn_model: str | None = None
         self.mode = "default"  # default | acceptEdits | bypassPermissions | plan
         # agent run (3.1) : politique d'outils/secrets/budget de l'agent, None pour
         # une session humaine (comportement inchangé). Clés : tools (noms de base
@@ -346,6 +349,11 @@ class AgentSession:
             if secret_env:  # 3.4.4: what the env holds is masked in everything emitted
                 self.redact_values = {**self.redact_values, **secret_env}
             env_extra = {**secret_env, **llm.session_env(self.user)}
+            # 3.6.5: a work started with « Write with Claude » — tier, project and model on
+            # every call of its session (the router decides again, claudetier)
+            import claudetier
+            claude_env = claudetier.session_env(self.sid, proj, env_extra)
+            env_extra.update(claude_env)
             # 3.2 connect_ai: a Crew card's engine (model `engine:<id>`) or the project's
             eng_env, eng_model = connectai.session_overrides(self.sid, self.model)
             env_extra.update(eng_env)
@@ -392,6 +400,10 @@ class AgentSession:
             if env_extra:
                 opts_kwargs["env"] = {**os.environ, **env_extra}
             model = eng_model if eng_model is not None else (self.model or llm.session_model())
+            if claude_env.get("ANTHROPIC_MODEL"):
+                # the Claude model the person chose: the CLI shapes its requests for it (the
+                # router checks it is in the instance's list before anything leaves)
+                model = claude_env["ANTHROPIC_MODEL"]
             if model:
                 opts_kwargs["model"] = model
             if self.resume:
@@ -438,7 +450,10 @@ class AgentSession:
         """Memory scope of this session (3.2): its project + shared (see session_project)."""
         import classification
         p = session_project(self.sid)
-        return classification.scope_for_email(self.user, p) if p else ()
+        if not p:
+            return ()
+        import claudetier
+        return claudetier.cap_scope(self.sid, classification.scope_for_email(self.user, p))
 
     def _secret_names(self) -> list[str] | None:
         """Quels secrets du coffre vont dans l'env : ceux de l'agent pour un run ;
@@ -511,7 +526,7 @@ class AgentSession:
             session_id=self.sid, tool=tool_name, title=_tool_title(tool_name, input_data),
             input_data=input_data, allowed=allowed, reason=reason, mode=self.mode,
             secrets=self.redact_values, owner=self.user,
-            agent_run=str((self.policy or {}).get("agent") or ""))
+            agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "")
 
     # ---- callback de permission (cœur de l'interactivité) -------------------
     async def _can_use_tool(self, tool_name: str, input_data: dict, context: Any):
@@ -586,7 +601,8 @@ class AgentSession:
             hitl_journal.requested(qid, "question", session_id=self.sid, tool=tool_name,
                                    title=_tool_title(tool_name, input_data),
                                    input_data=input_data, mode=self.mode,
-                                   secrets=self.redact_values, owner=self.user)
+                                   secrets=self.redact_values, owner=self.user,
+                                   model=self._turn_model or "")
             self._emit({"type": "question", "id": qid, "ts": time.time(),
                         "questions": input_data.get("questions", [])})
             try:
@@ -616,7 +632,8 @@ class AgentSession:
         hitl_journal.requested(pid, "permission", session_id=self.sid, tool=tool_name,
                                title=title, input_data=input_data, mode=self.mode,
                                secrets=self.redact_values, owner=self.user,
-                               agent_run=str((self.policy or {}).get("agent") or ""))
+                               agent_run=str((self.policy or {}).get("agent") or ""),
+                               model=self._turn_model or "")
         self._emit({"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
                     "title": title, "input": input_data})
         self._arm_hitl_notify(pid, title)  # ping si tu ne réponds pas à temps
@@ -892,6 +909,8 @@ class AgentSession:
 
         # AssistantMessage (et UserMessage portant des tool_result)
         self._emit_model(getattr(msg, "model", None))  # le modèle réel du tour
+        if getattr(msg, "model", None):
+            self._turn_model = msg.model
         if self.meter is not None and (self.meter.active or self.meter.guarding):
             if self.meter.active:
                 self.meter.add(getattr(msg, "usage", None), getattr(msg, "message_id", None))
@@ -916,7 +935,10 @@ class AgentSession:
         if isinstance(b, TextBlock):
             t = getattr(b, "text", "") or ""
             if t.strip():
-                self._emit({"type": "text", "text": t})
+                ev = {"type": "text", "text": t}
+                if self._turn_model:
+                    ev["model"] = self._turn_model
+                self._emit(ev)
                 if t.lstrip().startswith("API Error"):   # the CLI's own line for a refusal
                     self._explain_refusal(t)
         elif isinstance(b, ThinkingBlock):
@@ -925,8 +947,11 @@ class AgentSession:
         elif isinstance(b, ToolUseBlock):
             name = getattr(b, "name", "tool")
             inp = getattr(b, "input", {}) or {}
-            self._emit({"type": "tool_use", "id": getattr(b, "id", None),
-                        "tool": name, "title": _tool_title(name, inp), "input": inp})
+            ev = {"type": "tool_use", "id": getattr(b, "id", None),
+                  "tool": name, "title": _tool_title(name, inp), "input": inp}
+            if self._turn_model:
+                ev["model"] = self._turn_model
+            self._emit(ev)
         elif isinstance(b, ToolResultBlock):
             out = _text_of(getattr(b, "content", ""))
             self._emit({"type": "tool_result",
@@ -1056,12 +1081,13 @@ def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
         if role == "user" and kind == "text":
             evs.append({"type": "user", "text": text})
         elif role == "assistant" and kind == "text":
-            evs.append({"type": "text", "text": text})
+            evs.append({"type": "text", "text": text, **({"model": m["model"]} if m.get("model") else {})})
         elif role == "assistant" and kind == "thinking":
             evs.append({"type": "thinking", "text": text})
         elif kind == "tool":
             evs.append({"type": "tool_use", "id": m.get("id"), "tool": m.get("tool", "tool"),
-                        "title": m.get("title", ""), "input": m.get("input", {}) or {}})
+                        "title": m.get("title", ""), "input": m.get("input", {}) or {},
+                        **({"model": m["model"]} if m.get("model") else {})})
             r = m.get("result")
             if r and m.get("id"):
                 evs.append({"type": "tool_result", "tool_use_id": m["id"],

@@ -7,32 +7,41 @@ export interface Prefs { profile: "simple" | "technical"; chosen: boolean; lang:
 export interface Limits { max_bytes: number; extensions: string[]; max_per_project: number }
 export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string }
 export type WorkState = "waiting" | "working" | "idle";
+/** 3.6.5 — the model that answered (the model of the API's response, never the one asked for) */
+export interface Engine { model: string; label: string; where: "local" | "anthropic" | "other"; place: string }
+/** May this project's work be written with Claude (backend/claudetier.gate) */
+export interface ClaudeGate { allowed: boolean; code: string; reason: string; level: string; level_label: string;
+  max_level: string; max_label: string; models: { id: string; label: string }[]; default_model: string; destination: string }
+export interface ClaudeSettings { key: { masked: string; test_ok: boolean | null; test_detail: string } | null;
+  models: { id: string; label: string; available: boolean }[]; default_model: string; appliance: boolean; router: boolean;
+  test?: { ok: boolean | null; detail: string } }
 export interface Recent { sid: string; title: string; state: WorkState; last_line: string; created_at: number;
   updated_at: number; deliverables: number; validated: boolean; to_validate: number; items?: Deliverable[] }
 export interface HomeData { first_name: string; project: string; can_start: boolean; playbooks: TaskTemplate[];
   recents: Recent[]; works_total: number; usage: { pct: number | null; basis: string }; nina: boolean;
-  limits: Limits | null; prefs: Prefs }
+  limits: Limits | null; prefs: Prefs; claude?: ClaudeGate | null }
 export interface Doc { id: string; name: string; ext: string; size: number; owner: string; level: number;
   created_at: number; modified_at: number; text_state: string; text_chars: number; uses: number }
 export interface Deliverable { name: string; title: string; ext: string; size: number; updated_at: number; version: number;
   previewable: boolean; validated: boolean; validated_by: string; validated_at: number | null;
-  changed_since_validation: boolean; text?: string }
+  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
-  documents: Doc[]; deliverables: Deliverable[] }
+  documents: Doc[]; deliverables: Deliverable[];
+  engine?: { tier: "claude" | "local"; model: string; label: string; destination: string } }
 
 export interface Source { id: string; name: string; ext: string; modified_at: number }
 export interface TechDetail { tool?: string; title?: string; input?: unknown; result?: string }
 export type PlainEvent =
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string; documents: { id: string; name: string }[] }
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; engine?: Engine }
   | { type: "activity"; id: string; kind: string; subject: string; detail: TechDetail }
   | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
       stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail }
   | { type: "approval_resolved"; id: string }
-  | { type: "deliverable"; name: string; title: string; version: number }
-  | { type: "notice"; code: string; detail: string }
+  | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
+  | { type: "notice"; code: string; detail: string; title?: string }
   | { type: "error"; message: string }
   | { type: "question"; id: string; questions: AgentQuestion[] }
   | { type: "question_resolved"; id: string };
@@ -89,10 +98,15 @@ async function retrying<T>(call: () => Promise<T>): Promise<T> {
   }
   throw last;
 }
-export function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string) {
+export function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string,
+  claude?: { model: string }) {
   return retrying(() => send<{ session_id: string; title: string }>("/api/simple/start", "POST",
-    { ask, playbook, documents, lang, request_id: requestId }));
+    { ask, playbook, documents, lang, request_id: requestId,
+      ...(claude ? { tier: "claude", claude_model: claude.model } : {}) }));
 }
+export const fetchClaudeSettings = () => get<ClaudeSettings>("/api/claude/settings");
+export const saveClaudeKey = (key: string) => send<ClaudeSettings>("/api/claude/key", "PUT", { key });
+export const saveClaudeDefault = (model: string) => send<ClaudeSettings>("/api/claude/settings", "PUT", { default_model: model });
 export const fetchWork = (sid: string) => get<Work>(`/api/simple/sessions/${sid}`);
 /** A further message (3.6.4): the same remedy as a start — one id per click on « Send », the
  *  server takes it once, and a failure that says nothing (no answer, a 5xx from the way) is

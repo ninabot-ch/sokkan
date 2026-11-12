@@ -33,13 +33,15 @@ export function precheck(t: T, f: File, limits: Limits | null): string | null {
 
 export default function Composer({
   placeholder, submitLabel, busyLabel, limits, session, canAttach = true, disabled = false, compact = false,
-  autoFocus = false, allowEmptyWithDocs = false, emptyHint, header, focusKey, onSubmit,
+  autoFocus = false, allowEmptyWithDocs = false, emptyHint, header, footer, focusKey, onSubmit,
 }: {
   placeholder: string; submitLabel: string; busyLabel?: string; limits: Limits | null;
   /** attach uploads to this session at once (thread); none on the home (attached at start) */
   session?: string; canAttach?: boolean; disabled?: boolean; compact?: boolean; autoFocus?: boolean;
   /** the home with a template: documents alone are a valid request */
   allowEmptyWithDocs?: boolean; emptyHint?: string; header?: React.ReactNode; focusKey?: string;
+  /** above the send button: the choice of who writes (3.6.5 « Write with Claude ») */
+  footer?: React.ReactNode;
   onSubmit: (text: string, docs: Doc[]) => Promise<void>;
 }) {
   const t = useT();
@@ -136,6 +138,7 @@ export default function Composer({
           ))}
         </ul>
       )}
+      {footer}
       <div className="sk-composer-bar">
         {canAttach && (
           <>

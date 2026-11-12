@@ -252,6 +252,15 @@ def test_key(scope: str, provider: str) -> dict:
         try:
             r = _client().get(url, headers=spec["test_headers"](key), timeout=10)
             ok = 200 <= r.status_code < 300
+            if ok and provider == "anthropic":
+                # 3.6.5: the models this key really sees — « Write with Claude » offers those
+                try:
+                    ids = [str(m.get("id")) for m in (r.json() or {}).get("data") or []
+                           if isinstance(m, dict) and m.get("id")]
+                    if ids:
+                        _update(scope, provider, seen_models=ids[:200])
+                except Exception:  # noqa: BLE001 — a body we cannot read: no filter
+                    pass
             res = {"ok": ok, "detail": "valid" if ok else
                    ("rejected (HTTP %d)" % r.status_code if r.status_code in (401, 403)
                     else "provider answered HTTP %d" % r.status_code)}

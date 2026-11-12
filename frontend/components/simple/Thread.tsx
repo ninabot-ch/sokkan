@@ -15,6 +15,7 @@ import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
+import EngineBadge, { engineText } from "./EngineBadge";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
 type Side = { kind: "draft"; ev: Approval } | { kind: "deliverable"; name: string } | { kind: "docs" } | null;
@@ -112,6 +113,11 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
         )}
       </header>
 
+      {work?.engine?.tier === "claude" && (
+        <div className="sk-eng-banner" role="note">
+          <span className="sk-eng-badge sk-eng-anthropic"><Icon name="info" small />{t("eng.work.claude", { label: work.engine.label })}</span>
+        </div>
+      )}
       {study && canDrive && <StudyTag sid={sid} study={study} />}
       <div className="sk-thread-body">
         <div className="sk-thread-col">
@@ -132,6 +138,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   <div key={i} className="sk-msg-agent">
                     <span className="sk-visually-hidden">{t("th.agent")} : </span>
                     <Markdown text={it.text} />
+                    {it.engine && <EngineBadge engine={it.engine} />}
                     {canDrive && it.text.length >= KEEP_FROM && <Keep sid={sid} text={it.text} onKept={(name) => { reload(); onChanged(); setSide({ kind: "deliverable", name }); }} />}
                   </div>
                 );
@@ -145,11 +152,21 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                     <span className="sk-deliv-ico"><Icon name="page" /></span>
                     <div className="sk-grow">
                       <div className="sk-card-title">{it.title}</div>
-                      <div className="sk-small sk-muted">{t("dl.ready")} · {t("dl.version", { n: it.version })}</div>
+                      <div className="sk-small sk-muted">{t("dl.ready")} · {t("dl.version", { n: it.version })}
+                        {it.engine && <> · <span className={`sk-eng-inline sk-eng-${it.engine.where}`}>{t("eng.wrote", { label: engineText(t, it.engine) })}</span></>}</div>
                     </div>
                     <button className="sk-btn sk-btn-primary" onClick={() => setSide({ kind: "deliverable", name: it.name })}>
                       <Icon name="eye" />{t("dl.open")}
                     </button>
+                  </div>
+                );
+                if (it.k === "notice" && it.code === "claude") return (
+                  <div key={i} className="sk-notice sk-notice-claude" role="alert">
+                    <Icon name="alert" />
+                    <div className="sk-grow">
+                      <div><b>{it.title || t("no.claude")}</b></div>
+                      <div className="sk-small">{it.detail}</div>
+                    </div>
                   </div>
                 );
                 if (it.k === "notice") return (
@@ -428,3 +445,4 @@ function Question({ id, questions, disabled, onAnswer }: {
     </section>
   );
 }
+

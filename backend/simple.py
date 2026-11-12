@@ -70,15 +70,23 @@ def _con() -> sqlite3.Connection:
             at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
         );
         """)
+    # 3.6.5 « Write with Claude »: the engine chosen for the work, the model that wrote each save
+    for table, col, ddl in (("works", "tier", "TEXT NOT NULL DEFAULT ''"),
+                            ("works", "claude_model", "TEXT NOT NULL DEFAULT ''"),
+                            ("deliverable_writes", "model", "TEXT NOT NULL DEFAULT ''")):
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     return con
 
 
 # ---- works ---------------------------------------------------------------------------------
-def add_work(sid: str, project: str, owner: str, ask: str, playbook: str, lang: str) -> None:
+def add_work(sid: str, project: str, owner: str, ask: str, playbook: str, lang: str,
+             tier: str = "", claude_model: str = "") -> None:
     con = _con()
-    con.execute("INSERT OR REPLACE INTO works(sid, project, owner, ask, playbook, lang, created_at)"
-                " VALUES(?,?,?,?,?,?,?)",
-                (sid, project, (owner or "").lower().strip(), ask[:4000], playbook, lang, time.time()))
+    con.execute("INSERT OR REPLACE INTO works(sid, project, owner, ask, playbook, lang, created_at,"
+                " tier, claude_model) VALUES(?,?,?,?,?,?,?,?,?)",
+                (sid, project, (owner or "").lower().strip(), ask[:4000], playbook, lang, time.time(),
+                 tier, claude_model))
     con.commit()
     con.close()
 
@@ -255,7 +263,7 @@ def _sha(p: Path) -> str:
     return h.hexdigest()
 
 
-def note_write(sid: str, name: str, tool_id: str) -> int:
+def note_write(sid: str, name: str, tool_id: str, model: str = "") -> int:
     """Register one successful save (idempotent per tool call) → THAT save's version number:
     its rank among the saves of this deliverable, in the order they were registered.
 
@@ -264,8 +272,11 @@ def note_write(sid: str, name: str, tool_id: str) -> int:
     then numbered with the total — five cards « version 5 » for one document."""
     con = _con()
     if tool_id:
-        con.execute("INSERT OR IGNORE INTO deliverable_writes(sid, name, tool_id, at) VALUES(?,?,?,?)",
-                    (sid, name, tool_id, time.time()))
+        con.execute("INSERT OR IGNORE INTO deliverable_writes(sid, name, tool_id, at, model)"
+                    " VALUES(?,?,?,?,?)", (sid, name, tool_id, time.time(), (model or "")[:120]))
+        if model:   # a replayed thread knows the model of a save registered without it
+            con.execute("UPDATE deliverable_writes SET model=? WHERE sid=? AND name=? AND tool_id=?"
+                        " AND model=''", (model[:120], sid, name, tool_id))
         con.commit()
         n = con.execute(
             "SELECT count(*) FROM deliverable_writes WHERE sid=? AND name=? AND rowid <= "
@@ -288,6 +299,10 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
     con = _con()
     versions = {r[0]: r[1] for r in con.execute(
         "SELECT name, count(*) FROM deliverable_writes WHERE sid=? GROUP BY name", (sid,))}
+    # the model that wrote each save, in order: the last one wrote the current version
+    written: dict[str, list[str]] = {}
+    for r in con.execute("SELECT name, model FROM deliverable_writes WHERE sid=? ORDER BY rowid", (sid,)):
+        written.setdefault(r[0], []).append(r[1] or "")
     vals: dict[str, list[dict]] = {}
     for r in con.execute("SELECT * FROM validations WHERE sid=? ORDER BY at", (sid,)):
         vals.setdefault(r["name"], []).append(dict(r))
@@ -317,7 +332,14 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
             "validated_at": current["at"] if current else None,
             # validated once, changed since: the person must look again
             "changed_since_validation": bool(history) and not current,
+            # 3.6.5: which model wrote it (the model the API answered with), and every model
+            # that wrote one of its versions — '' = not recorded (a save before 3.6.5)
+            "model": (written.get(p.name) or [""])[-1],
+            "models": sorted({m for m in written.get(p.name, []) if m}),
         })
+    import claudetier
+    for d in out:
+        d["engine"] = claudetier.describe_model(d["model"])
     return out
 
 
@@ -347,7 +369,7 @@ def _file_stem(title: str) -> str:
     return s[:80] or "Document"
 
 
-def save_text(project: str, sid: str, title: str, text: str) -> str:
+def save_text(project: str, sid: str, title: str, text: str, model: str = "") -> str:
     """Keep an answer of the thread as a deliverable (the agent answered in the chat instead
     of saving a file). → the file name."""
     if len(text.encode("utf-8")) > MAX_DELIVERABLE:
@@ -360,7 +382,7 @@ def save_text(project: str, sid: str, title: str, text: str) -> str:
         name, n = f"{stem} ({n}).md", n + 1
     body = text if plain.title_from_markdown(text) else f"# {stem}\n\n{text.strip()}\n"
     (base / name).write_text(body, encoding="utf-8")
-    note_write(sid, name, f"manual-{int(time.time() * 1000)}")
+    note_write(sid, name, f"manual-{int(time.time() * 1000)}", model)
     return name
 
 

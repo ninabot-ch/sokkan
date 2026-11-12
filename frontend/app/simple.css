@@ -627,3 +627,26 @@ html[data-sk-theme] body {
   .sk-batch { grid-template-columns: minmax(0, 1fr); }
   .sk-band { padding-left: var(--sk-s4); padding-right: var(--sk-s4); }
 }
+
+/* 3.6.5 « Rédiger avec Claude » — the model that answered, on every answer and deliverable */
+.sk-eng-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px var(--sk-s2); border-radius: var(--sk-r-pill);
+  font-size: 12px; line-height: 18px; border: 1px solid var(--sk-line-strong); color: var(--sk-text-muted); background: transparent; }
+.sk-eng-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.sk-eng-local { color: var(--sk-ok); border-color: var(--sk-ok); background: var(--sk-ok-soft); }
+.sk-eng-anthropic { color: var(--sk-warn); border-color: var(--sk-warn); background: var(--sk-warn-soft); }
+.sk-eng-inline.sk-eng-anthropic { border: 0; background: none; font-weight: 600; }
+.sk-eng-inline.sk-eng-local { border: 0; background: none; }
+.sk-eng-banner { padding: var(--sk-s2) var(--sk-s4) 0; }
+.sk-engine { display: flex; flex-direction: column; gap: var(--sk-s2); }
+.sk-engine-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sk-s2); }
+.sk-engine-opt { display: flex; gap: var(--sk-s2); align-items: flex-start; text-align: left; padding: var(--sk-s3);
+  border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm); background: var(--sk-surface, transparent); cursor: pointer; color: inherit; font: inherit; }
+.sk-engine-opt[aria-pressed="true"] { border-color: var(--sk-sea); box-shadow: 0 0 0 1px var(--sk-sea) inset; }
+.sk-engine-opt:disabled { opacity: .55; cursor: not-allowed; }
+.sk-engine-opt small { display: block; color: var(--sk-text-muted); }
+.sk-engine-where { display: flex; gap: var(--sk-s2); align-items: flex-start; padding: var(--sk-s2) var(--sk-s3);
+  border-radius: var(--sk-r-sm); border: 1px solid var(--sk-warn); background: var(--sk-warn-soft); }
+.sk-engine-model { display: flex; gap: var(--sk-s2); align-items: center; flex-wrap: wrap; }
+.sk-engine-model select, .sk-claude-set select, .sk-claude-set input { font: inherit; padding: 6px 8px; border-radius: var(--sk-r-sm);
+  border: 1px solid var(--sk-line-strong); background: transparent; color: inherit; min-height: 36px; }
+.sk-claude-set { display: flex; flex-direction: column; gap: var(--sk-s2); }

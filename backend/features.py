@@ -588,6 +588,20 @@ REGISTRY: tuple[Feature, ...] = (
             "export is in the journal (who, how much, fingerprint). Off: no route (404).",
             status="beta", defaults=_both(False), vars=_t("work_export"),
             doc="docs/enterprise/OPERATIONS.md"),
+    Feature("claude_tier", "Write with Claude (appliance)",
+            "On an on-prem appliance, a person may choose — explicitly, when sending a piece of "
+            "work — to have it written by Claude (Anthropic API, the organisation's own key, "
+            "entered by an administrator in Settings). Allowed only in a project classified at "
+            "most SOKKAN_CLAUDE_MAX_LEVEL (default team; confidential and above never); the "
+            "instance decides, the local router checks again at every request and refuses with "
+            "a readable message — never a silent fall back, never by keyword, size or failure. "
+            "Every answer and every deliverable names the model that answered; the choice is in "
+            "the journal of validations and in « Export our work ». Off: no choice, no route.",
+            status="beta", defaults=_both(False), requires=("simple_profile",),
+            vars=_t("claude_tier"),
+            config=("SOKKAN_CLAUDE_MODELS", "SOKKAN_CLAUDE_MODEL", "SOKKAN_CLAUDE_MAX_LEVEL",
+                    "SOKKAN_ROUTER_SECRET"),
+            doc="docs/appliance/README.md"),
 )
 
 BY_ID: dict[str, Feature] = {f.id: f for f in REGISTRY}

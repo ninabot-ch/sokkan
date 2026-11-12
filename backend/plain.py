@@ -99,18 +99,27 @@ def _host(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def _engine(model, lang: str) -> dict | None:
+    try:
+        import claudetier
+        return claudetier.describe_model(model, lang)
+    except Exception:  # noqa: BLE001 — a badge never breaks the thread
+        return None
+
+
 class View:
     """Stateful translator for ONE connection. ``docs_dir`` / ``deliv_dir`` are the session's
     documents and deliverables directories; ``doc_lookup(id)`` returns a document dict (or
     None); ``on_write(name, tool_id)`` registers a saved deliverable and returns its version."""
 
     def __init__(self, *, docs_dir: Path | str | None = None, deliv_dir: Path | str | None = None,
-                 doc_lookup=None, on_write=None, attached: int = 0):
+                 doc_lookup=None, on_write=None, attached: int = 0, lang: str = "fr"):
         self.docs_dir = Path(docs_dir).resolve() if docs_dir else None
         self.deliv_dir = Path(deliv_dir).resolve() if deliv_dir else None
         self.doc_lookup = doc_lookup or (lambda _id: None)
         self.on_write = on_write or (lambda name, tool_id: 1)
         self.attached = attached
+        self.lang = lang if lang in ("fr", "en") else "fr"
         self._tools: dict[str, dict] = {}       # tool_use id → {kind, deliverable}
         self._used: dict[str, dict] = {}        # doc id → source (documents the agent opened)
         self._writes: dict[str, int] = {}       # deliverable name → version seen in this view
@@ -241,13 +250,28 @@ class View:
             text = ev.get("text") or ""
             if _ENGINE_ERROR.match(text):
                 # the CLI reports an unreachable / failing engine as an assistant sentence
+                cm = re.search(r"\[sokkan:(claude_[a-z_]+)\]", text)
+                if cm:
+                    # 3.6.5: the router refused a « Write with Claude » request — its own
+                    # sentence, in the person's language (nothing went to another model)
+                    try:
+                        import llmerrors
+                        h = llmerrors.humanize(cm.group(1), self.lang)
+                        return [{"type": "notice", "code": "claude", "title": h["title"],
+                                 "detail": h["message"]}]
+                    except Exception:  # noqa: BLE001
+                        pass
                 code = _study_code(text)
                 if code:
                     # … or a refusal of the gateway about the study: said once, as what it is
                     # (« the agent ran into a technical problem, send it again » would be false)
                     return self._refusal(code, text)
                 return [{"type": "notice", "code": "engine", "detail": _short(text, 1000)}]
-            return [{"type": "text", "text": text}]
+            out = {"type": "text", "text": text}
+            eng = _engine(ev.get("model"), self.lang)
+            if eng:
+                out["engine"] = eng     # 3.6.5: the model that answered, on every answer
+            return [out]
         if t in ("user_echo", "user"):
             self._refused = None                # a new turn: a refusal is said again
         if t == "user_echo":
@@ -261,7 +285,7 @@ class View:
             c = self.classify(tool, inp)
             tid = ev.get("id") or ""
             if tid:
-                self._tools[tid] = c
+                self._tools[tid] = {**c, "model": ev.get("model") or ""}
             return [{"type": "activity", "id": tid, "kind": c["kind"],
                      "subject": c.get("subject") or "", "detail": self._detail(ev)}]
         if t == "tool_result":
@@ -272,10 +296,18 @@ class View:
                     "detail": {"result": _short(ev.get("text") or "", 2000)}}]
             if ok and c.get("deliverable"):
                 name = c["deliverable"]
-                version = int(self.on_write(name, tid) or 1)
+                model = c.get("model") or ""
+                try:
+                    version = int(self.on_write(name, tid, model) or 1)
+                except TypeError:           # a two-argument callback (before 3.6.5)
+                    version = int(self.on_write(name, tid) or 1)
                 self._writes[name] = version
-                out.append({"type": "deliverable", "name": name,
-                            "title": human_title(name), "version": version})
+                card = {"type": "deliverable", "name": name,
+                        "title": human_title(name), "version": version}
+                eng = _engine(model, self.lang)
+                if eng:
+                    card["engine"] = eng
+                out.append(card)
             return out
         if t == "permission":
             tool, inp = ev.get("tool") or "", ev.get("input") or {}

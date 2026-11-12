@@ -40,6 +40,7 @@ import audit
 import auth
 import board
 import budgets
+import claudetier
 import documents
 import features
 import iam
@@ -63,8 +64,9 @@ def make_view(sid: str) -> plain.View:
         return d if d and d["project"] == project else None
 
     return plain.View(docs_dir=documents.docs_dir(project), deliv_dir=deliv, doc_lookup=lookup,
-                      on_write=lambda name, tool_id: simple.note_write(sid, name, tool_id),
-                      attached=len(documents.of_session(sid)))
+                      on_write=lambda name, tool_id, model="": simple.note_write(sid, name, tool_id, model),
+                      attached=len(documents.of_session(sid)),
+                      lang=(simple.get_work(sid) or {}).get("lang") or "fr")
 
 
 def edited_input(session, permission_id: str, draft_text) -> dict | None:
@@ -98,6 +100,10 @@ class StartIn(BaseModel):
     # 3.6.3: one id per click on « Start » (hex, made by the browser). The same id sent again —
     # the answer was lost on the way, the person clicked twice — opens the SAME work.
     request_id: str = ""
+    # 3.6.5: « Write with Claude » — the person's explicit choice for THIS work ('' = the model
+    # of the machine), and the Claude model they picked ('' = the administrator's default)
+    tier: str = ""
+    claude_model: str = ""
 
 
 class MessageIn(BaseModel):
@@ -196,6 +202,34 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             out["items"] = dl
         return out
 
+    def _claude_docs(docs: list[dict], lang: str) -> None:
+        """A document classified above what Claude may receive never goes with the work."""
+        for d in docs:
+            if not claudetier.doc_allowed(d):
+                raise HTTPException(409, {"code": "claude_document", "message": (
+                    f"« {d['name']} » est classé trop haut pour partir chez Anthropic." if lang == "fr"
+                    else f"« {d['name']} » is classified too high to go to Anthropic.")})
+
+    def _engine_of(sid: str) -> dict:
+        tier, model = claudetier.work_tier(sid)
+        lang = (simple.get_work(sid) or {}).get("lang") or "fr"
+        if tier == "claude":
+            return {"tier": "claude", "model": model, "label": claudetier.label(model),
+                    "destination": claudetier.DESTINATION.get(lang, claudetier.DESTINATION["en"])}
+        return {"tier": "local", "model": "", "label": "", "destination": ""}
+
+    def _model_of_text(sid: str, text: str) -> str:
+        """The model that wrote an answer kept as a deliverable: read from the session's own
+        events (never from the browser), else the last model the session answered with."""
+        a = agentchat.peek(sid)
+        if a is None:
+            return ""
+        want = (text or "").strip()
+        for ev in reversed(a.events):
+            if ev.get("type") == "text" and (ev.get("text") or "").strip() == want and ev.get("model"):
+                return str(ev["model"])
+        return a._turn_model or ""
+
     def _mine(project: str, email: str) -> list[dict]:
         return [s for s in board.list_sessions()
                 if (s.get("project") or "default") == project and s.get("kind") == "sdk"
@@ -258,7 +292,9 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 "recents": recents[:6], "works_total": len(mine),
                 "usage": simple.usage_gauge(slug), "nina": bool(nina),
                 "limits": documents.limits() if documents.enabled() else None,
-                "prefs": uiprefs.get(email)}
+                "prefs": uiprefs.get(email),
+                # 3.6.5: may this project's work be written with Claude, and why not
+                "claude": claudetier.gate(slug, lang=lang) if claudetier.enabled() else None}
 
     @r.get("/api/simple/works")
     def works(request: Request, _f=Depends(_feature)) -> dict:
@@ -297,7 +333,18 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 s = next((x for x in board.list_sessions() if x["session_id"] == sid), None) or {}
                 return {"session_id": sid, "title": s.get("title") or "", "replayed": True}
         _study_gate(email)
+        tier = (body.tier or "").strip().lower()
+        if tier not in ("", "local", "claude"):
+            raise HTTPException(400, "tier: local | claude")
+        cmodel = ""
+        if tier == "claude":
+            cmodel = (body.claude_model or "").strip() or claudetier.default_model()
+            g = claudetier.gate(slug, cmodel, lang)
+            if not g["allowed"]:
+                raise HTTPException(409, {"code": f"claude_{g['code']}", "message": g["reason"]})
         docs = _docs(body.documents, slug, pu)
+        if tier == "claude":
+            _claude_docs(docs, lang)
         if not ask:
             if not docs:
                 raise HTTPException(400, {"code": "empty", "message":
@@ -305,7 +352,12 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             ask = label
         title = simple.title_for(ask if ask != label else "", label)
         s = board.add_sdk_session(sid, "docs", title=title, prompt=ask, project=slug, owner=email)
-        simple.add_work(sid, slug, email, ask, body.playbook, lang)
+        simple.add_work(sid, slug, email, ask, body.playbook, lang,
+                        tier="claude" if tier == "claude" else "", claude_model=cmodel)
+        if tier == "claude":
+            import hitl_journal
+            hitl_journal.engine_chosen(sid, actor=email, project=slug, model=cmodel,
+                                       level=g["level"], destination=claudetier.DESTINATION["fr"])
         for d in docs:
             documents.attach(sid, d["id"], by=email)
         session = agentchat.get_or_create(sid, user=email)
@@ -321,7 +373,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
                                             mission=mission, docs=docs, recall=recall)))
         audit.log(email, "session.spawn", sid,
-                  f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''})"
+                  f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''}"
+                  f"{', claude ' + cmodel if tier == 'claude' else ''})"
                   f" · {len(docs)} document(s)", project=slug)
         return {"session_id": sid, "title": s["title"]}
 
@@ -337,7 +390,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 and (not owner or owner == me or iam.rank(pu["role"]) >= iam.rank("admin")),
                 "documents": [documents.public(d) for d in documents.of_session(sid)
                               if documents.visible(d, pu.get("clearance"))],
-                "deliverables": simple.list_deliverables(project, sid)}
+                "deliverables": simple.list_deliverables(project, sid),
+                "engine": _engine_of(sid)}
 
     @r.post("/api/simple/sessions/{sid}/message")
     async def work_message(sid: str, body: MessageIn, request: Request, _f=Depends(_feature)) -> dict:
@@ -355,6 +409,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         _study_gate(email)
         already = {d["id"] for d in documents.of_session(sid)}
         docs = [d for d in _docs(body.documents, project, pu) if d["id"] not in already]
+        if claudetier.work_tier(sid)[0] == "claude":
+            _claude_docs(docs, (simple.get_work(sid) or {}).get("lang") or "fr")
         for d in docs:
             documents.attach(sid, d["id"], by=email)
         session = agentchat.get_or_create(sid, user=email)
@@ -382,7 +438,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if not (body.text or "").strip():
             raise HTTPException(400, {"code": "empty", "message": "nothing to save"})
         try:
-            name = simple.save_text(project, sid, body.title, body.text)
+            name = simple.save_text(project, sid, body.title, body.text, _model_of_text(sid, body.text))
         except ValueError as e:
             raise HTTPException(413, str(e))
         audit.log(pu.get("email") or "", "deliverable.save", sid, name, project=project)

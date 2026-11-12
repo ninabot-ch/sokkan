@@ -166,6 +166,10 @@ def init(force: bool = False) -> None:
         con = sqlite3.connect(DB)
         con.execute("PRAGMA journal_mode=WAL")
         con.executescript(_SCHEMA)
+        # 3.6.5: the classification of the project itself (a level of core.levels, default
+        # `project` = 2) — what decides whether its work may be written with Claude (claudetier)
+        if "level" not in {r[1] for r in con.execute("PRAGMA table_info(projects)")}:
+            con.execute("ALTER TABLE projects ADD COLUMN level INTEGER NOT NULL DEFAULT 2")
         if not con.execute("SELECT 1 FROM projects WHERE slug=?", (SHARED_PROJECT,)).fetchone():
             con.execute(
                 "INSERT INTO projects(slug, name, description, access_source, created_at,"
@@ -476,6 +480,20 @@ def explain(user: dict, project: str) -> dict:
             "computed_at": c["computed_at"] if c else None,
             "expires_at": c["expires_at"] if c else None})
     return out
+
+
+def set_level(slug: str, level: int) -> dict:
+    """Classification of the project (0 public … 4 restricted). Who may change it and the
+    journal are the route's (claudetier_api)."""
+    if not isinstance(level, int) or not 0 <= level <= 4:
+        raise ValueError("level: 0..4")
+    con = _con()
+    with con:
+        n = con.execute("UPDATE projects SET level=? WHERE slug=?", (level, slug)).rowcount
+    con.close()
+    if not n:
+        raise ValueError(f"unknown project: {slug}")
+    return get(slug)  # type: ignore[return-value]
 
 
 def update(slug: str, *, name: str | None = None, description: str | None = None,

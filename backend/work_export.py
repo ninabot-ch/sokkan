@@ -499,7 +499,12 @@ def _export_deliverables(arc: _Archive, pu: dict, project: str) -> None:
                 "opened_by": s.get("owner") or "", "updated_at": _iso(d["updated_at"]),
                 "validated": d["validated"], "validated_by": d["validated_by"],
                 "validated_at": _iso(d["validated_at"]) if d["validated_at"] else None,
-                "changed_since_validation": d["changed_since_validation"]})
+                "changed_since_validation": d["changed_since_validation"],
+                # 3.6.5: which model wrote it — the model the API answered with ('' = not
+                # recorded, a save made before 3.6.5) — and how the work was asked for
+                "model": d.get("model") or "", "models": d.get("models") or [],
+                "written_with": (d.get("engine") or {}).get("label") or "",
+                "engine": (works.get(sid) or {}).get("tier") or "local"})
     if index:
         arc.add(f"deliverables/{_seg(project)}/index.json", _json(index), "index", project)
 
@@ -629,7 +634,8 @@ Projects in this archive: {prj}
   will have to enter your own again wherever you reuse them.
 - **Deliverables** are the files as they were saved (Markdown, text, CSV, HTML or JSON).
   `deliverables/<project>/index.json` gives, for each one, its title, the piece of work it
-  belongs to, who validated it and when.
+  belongs to, who validated it and when, and which model wrote it (`model`: the model the
+  API answered with; `engine`: `claude` when a person chose « Write with Claude »).
 
 ## What is not in this archive
 
@@ -690,7 +696,8 @@ Projets dans cette archive : {prj}
   `{MASKED}` ou `[secret:NOM]` ; il faudra saisir les vôtres là où vous les réutilisez.
 - **Les livrables** sont les fichiers tels qu'enregistrés (Markdown, texte, CSV, HTML ou
   JSON). `deliverables/<projet>/index.json` donne pour chacun son titre, le travail
-  auquel il appartient, qui l'a validé et quand.
+  auquel il appartient, qui l'a validé et quand, et quel modèle l'a rédigé (`model` : le
+  modèle qui a répondu ; `engine` : `claude` quand la personne a choisi « Rédiger avec Claude »).
 
 ## Ce que l'archive ne contient pas
 

@@ -27,6 +27,7 @@ PER_SESSION = {  # set by the api for ONE session / run / helper process, never 
     "SOKKAN_SESSION_ID", "SOKKAN_SESSION_USER", "SOKKAN_SESSION_PROJECT", "SOKKAN_SESSION_SCOPE",
     "SOKKAN_AGENT_RUN", "SOKKAN_AGENT_NAME", "SOKKAN_AGENT_RUN_ID",
     "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",            # session env built by llm.session_env
+    "ANTHROPIC_CUSTOM_HEADERS",                         # same, merged by claudetier.session_env
     "CORTHEXIS_RECALL_API_URL", "CORTHEXIS_RECALL_API_TIMEOUT", "CORTHEXIS_RECALL_TOKEN_FILE",
     "CORTHEXIS_RECALL_DEBUG", "CORTHEXIS_RECALL_SESSION_ID",   # recall hook of a session
     "SOKKAN_FORGE_API_URL", "SOKKAN_FORGE_SOCKET", "SOKKAN_FORGE_TICKET",   # git credential helper

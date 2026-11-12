@@ -2008,7 +2008,8 @@ _AUTH_FREE = ("/api/auth/", "/api/health", "/api/version", "/api/edge/ask", "/ap
               forge_routes.CRED_PATH,  # 3.2 lot 5 : ticket de session + loopback seulement
               "/api/scim/",  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)
               "/api/teams/messages",  # 3.4 : JWT Bot Framework vérifié par teams.botauth
-              "/api/study/export")  # study_mode : jeton d'export en lecture seule, ou admin
+              "/api/study/export",  # study_mode : jeton d'export en lecture seule, ou admin
+              "/api/internal/claude-grant")  # 3.6.5 : le routeur seul (secret partagé, hors proxy)
 
 
 @app.middleware("http")
@@ -3308,6 +3309,8 @@ import uiprefs  # noqa: E402
 
 app.include_router(documents_api.router)
 app.include_router(simple_api.router(bg=_bg, preseed=_memory_preseed, shown_name=_shown_name))
+import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
+app.include_router(claudetier_api.router)
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402

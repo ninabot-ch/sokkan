@@ -270,7 +270,12 @@ def model_key_set(provider: str, body: ModelKeyIn, u: dict = Depends(_admin),
         out["test"] = modelkeys.test_key(rec["scope"], provider)
         audit.log(u["email"], "byok.test", f"{rec['scope']}:{provider}", out["test"]["detail"])
     if provider == "anthropic" and body.use_for_sessions:
-        if llm.status().get("operator_managed"):
+        if llm.appliance_config():
+            # 3.6.5: on an appliance the sessions run on the model of the machine through the
+            # local router; an Anthropic key is for « Write with Claude » only — making it the
+            # engine of every session would send all the organisation's requests to Anthropic
+            out["sessions"] = "appliance: sessions keep the model of this machine"
+        elif llm.status().get("operator_managed"):
             out["sessions"] = "managed inference: sessions keep the operator's gateway"
         else:
             llm.save({"mode": "byok", "key_ref": modelkeys.ref(rec["scope"], provider),

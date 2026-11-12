@@ -76,6 +76,51 @@ _MSG = {
                "La demande dépasse ce que le modèle peut lire en une fois. Ouvrez une nouvelle "
                "session (la mémoire garde l'essentiel), ou joignez moins de documents, ou plus courts."),
     },
+    # 3.6.5 « Write with Claude » (backend/claudetier.py): refusals of the router, said as they
+    # are — the work is NOT sent to another model behind the person's back
+    "claude_forbidden": {
+        "en": ("Claude is not allowed for this project",
+               "This work asked for Claude, but its project is classified too high for a request to "
+               "leave for Anthropic (or Claude is not offered on this instance). Nothing was sent. "
+               "Start the work again with the model of this machine, or ask the administrator."),
+        "fr": ("Claude n'est pas autorisé pour ce projet",
+               "Ce travail demandait Claude, mais son projet est classé trop haut pour qu'une demande "
+               "parte chez Anthropic (ou Claude n'est pas proposé sur cette instance). Rien n'a été "
+               "envoyé. Relancez le travail avec le modèle de la machine, ou demandez à "
+               "l'administrateur."),
+    },
+    "claude_no_key": {
+        "en": ("No Anthropic key on this instance",
+               "This work asked for Claude, but no Anthropic key is entered. Nothing was sent. The "
+               "administrator enters the organisation's key in Settings."),
+        "fr": ("Aucune clé Anthropic sur cette instance",
+               "Ce travail demandait Claude, mais aucune clé Anthropic n'est saisie. Rien n'a été "
+               "envoyé. L'administrateur saisit la clé de l'organisation dans Réglages."),
+    },
+    "claude_model": {
+        "en": ("This Claude model is not offered",
+               "The Claude model asked for is not in the list of this instance. Nothing was sent. "
+               "Choose one of the models offered when you start the work."),
+        "fr": ("Ce modèle Claude n'est pas proposé",
+               "Le modèle Claude demandé n'est pas dans la liste de cette instance. Rien n'a été "
+               "envoyé. Choisissez un des modèles proposés au lancement du travail."),
+    },
+    "claude_auth": {
+        "en": ("Anthropic refused the key",
+               "Anthropic refused the key of this instance (revoked, wrong, or without credit). "
+               "Only the administrator can fix it, in Settings."),
+        "fr": ("Anthropic a refusé la clé",
+               "Anthropic a refusé la clé de cette instance (révoquée, erronée ou sans crédit). "
+               "Seul l'administrateur peut corriger, dans Réglages."),
+    },
+    "claude_unavailable": {
+        "en": ("Claude cannot be reached right now",
+               "The router of this machine could not check the work's right to Claude, or Anthropic "
+               "does not answer. Nothing was sent elsewhere. Try again in a minute."),
+        "fr": ("Claude est injoignable pour l'instant",
+               "Le routeur de la machine n'a pas pu vérifier le droit de ce travail à Claude, ou "
+               "Anthropic ne répond pas. Rien n'a été envoyé ailleurs. Réessayez dans une minute."),
+    },
 }
 CODES = tuple(_MSG)
 # the Anthropic error `type` each code is sent as (what the CLI and SDKs understand)
@@ -84,9 +129,13 @@ CODES = tuple(_MSG)
 # person waited 150 s in front of a spinner (seen on the test bench with both endpoints down).
 ANTHROPIC_TYPE = {"quota_exhausted": "billing_error", "rate_limited": "rate_limit_error",
                   "unreachable": "api_error", "auth": "authentication_error",
-                  "overloaded": "api_error", "too_long": "invalid_request_error"}
+                  "overloaded": "api_error", "too_long": "invalid_request_error",
+                  "claude_forbidden": "permission_error", "claude_no_key": "permission_error",
+                  "claude_model": "permission_error", "claude_auth": "authentication_error",
+                  "claude_unavailable": "api_error"}
 HTTP_STATUS = {"quota_exhausted": 402, "rate_limited": 429, "unreachable": 503, "auth": 401,
-               "overloaded": 503, "too_long": 400}
+               "overloaded": 503, "too_long": 400, "claude_forbidden": 403, "claude_no_key": 403,
+               "claude_model": 403, "claude_auth": 401, "claude_unavailable": 503}
 
 
 def lang(explicit: str | None = None) -> str:

@@ -249,7 +249,10 @@ def session_scope(session_id: str | None) -> tuple[str, ...]:
     if project is None:
         return projects.session_scope(None)
     owner = board.get_session_owner(session_id) if enabled() else ""
-    return scope_for_email(owner, project) if owner else projects.session_scope(project)
+    out = scope_for_email(owner, project) if owner else projects.session_scope(project)
+    # 3.6.5: a work written with Claude never recalls a note above what Claude may receive
+    import claudetier
+    return claudetier.cap_scope(session_id, out)
 
 
 def ctx_user() -> dict | None:

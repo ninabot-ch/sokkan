@@ -60,6 +60,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
 | [`simple_profile`](#simple_profile) Simple profile | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
 | [`work_export`](#work_export) Export our work | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_WORK_EXPORT` |
+| [`claude_tier`](#claude_tier) Write with Claude (appliance) | beta | toggle | off | off | `simple_profile` | — | `SOKKAN_FEATURE_CLAUDE_TIER` |
 
 ## Dependency graph
 
@@ -111,6 +112,7 @@ graph LR
   documents["Document drop"]
   simple_profile["Simple profile"]
   work_export["Export our work"]
+  claude_tier["Write with Claude (appliance)"]
   preview_private_targets --> preview
   agents_cli_login --> agents
   four_eyes --> agents
@@ -142,6 +144,7 @@ graph LR
   doc_ingest --> agents
   doc_ingest --> memory_quarantine
   simple_profile --> documents
+  claude_tier --> simple_profile
   four_eyes -.-x admin_approval
   classDef planned stroke-dasharray: 5 5,color:#888;
   classDef integration fill:#eef6ff;
@@ -603,6 +606,7 @@ A second way into the same cockpit for people who never saw a terminal: a task-f
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `documents`
+- Required by: `claude_tier`
 - Switch: `SOKKAN_FEATURE_SIMPLE_PROFILE`
 - Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)
 
@@ -615,3 +619,14 @@ An instance admin downloads ONE zip of what the organisation built here, readabl
 - Defaults: community **off**, enterprise **off**
 - Switch: `SOKKAN_FEATURE_WORK_EXPORT`
 - Doc: [docs/enterprise/OPERATIONS.md](../../docs/enterprise/OPERATIONS.md)
+
+### claude_tier
+
+**Write with Claude (appliance)** — beta, toggle.
+
+On an on-prem appliance, a person may choose — explicitly, when sending a piece of work — to have it written by Claude (Anthropic API, the organisation's own key, entered by an administrator in Settings). Allowed only in a project classified at most SOKKAN_CLAUDE_MAX_LEVEL (default team; confidential and above never); the instance decides, the local router checks again at every request and refuses with a readable message — never a silent fall back, never by keyword, size or failure. Every answer and every deliverable names the model that answered; the choice is in the journal of validations and in « Export our work ». Off: no choice, no route.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `simple_profile`
+- Switch: `SOKKAN_FEATURE_CLAUDE_TIER`
+- Doc: [docs/appliance/README.md](../../docs/appliance/README.md)

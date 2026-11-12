@@ -180,6 +180,12 @@ main() {
     # the commit of the release, for the image build and /api/version (3.6: it said "unknown")
     case "$VER" in *+*) set_env SOKKAN_COMMIT "${VER#*+}" ;; esac
   fi
+  # 3.6.5: the secret between the router and the api (« Write with Claude »), generated once on
+  # a box that has a local model and none yet — the value never shown
+  if grep -q '^SOKKAN_SHIP_URL=.' .env && ! grep -q '^SOKKAN_ROUTER_SECRET=.' .env; then
+    set_env SOKKAN_ROUTER_SECRET "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    echo "→ router secret generated (SOKKAN_ROUTER_SECRET)"
+  fi
   if [ "${IMAGES:-0}" = 1 ]; then
     set_env SOKKAN_IMAGES 1
     set_env SOKKAN_IMAGE_TAG "$ITAG"

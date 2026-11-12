@@ -3,7 +3,7 @@
 // recent works with the last sentence + today's usage), the current view, Nina and Settings.
 // Structure borrowed from Nokker (drawer + thread + ONE composer); the brand is SOKKAN's.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, fetchHome, newRequestId, savePrefs, startWork, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
+import { ApiError, fetchHome, newRequestId, savePrefs, startWork, type ClaudeGate, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
 import { SimpleUIProvider, useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
@@ -211,6 +211,9 @@ function Home({ home, failed, retry, onStarted }: {
   // one id per work asked: kept while the same request is tried again, so a second click
   // after a lost answer opens the work that did start instead of a twin
   const pending = useRef<{ sig: string; id: string } | null>(null);
+  // 3.6.5: who writes this work — the model of the machine (default) or Claude, chosen here
+  const [engine, setEngine] = useState<"local" | "claude">("local");
+  const [cmodel, setCmodel] = useState("");
   if (!home) {
     return (
       <div className="sk-scroll"><div className="sk-page">
@@ -220,6 +223,9 @@ function Home({ home, failed, retry, onStarted }: {
     );
   }
   const can = home.can_start;
+  const gate = home.claude || null;
+  const claudeOn = engine === "claude" && !!gate?.allowed;
+  const model = cmodel || gate?.default_model || "";
   return (
     <div className="sk-scroll"><div className="sk-page">
       <h1 className="sk-h1">{home.first_name ? t("home.hello", { name: home.first_name }) : t("home.hello.anon")}</h1>
@@ -227,17 +233,21 @@ function Home({ home, failed, retry, onStarted }: {
       <Composer autoFocus disabled={!can} canAttach={!!home.limits} limits={home.limits}
         placeholder={tpl ? tpl.hint : t("home.placeholder")} submitLabel={t("home.launch")} busyLabel={t("home.launching")}
         allowEmptyWithDocs={!!tpl} emptyHint={t("home.need")} focusKey={focusKey}
+        footer={gate ? <EngineChoice gate={gate} engine={engine} model={model} disabled={!can}
+          onEngine={setEngine} onModel={setCmodel} /> : undefined}
         header={tpl ? (
           <div className="sk-template-on"><Icon name={templateIcon(tpl.id)} small />{t("home.template.on", { label: tpl.label })}
             <button className="sk-chip-x" style={{ marginRight: 0 }} onClick={() => setTpl(null)} aria-label={t("home.template.off")}><Icon name="close" small /></button></div>
         ) : undefined}
         onSubmit={async (text, docs) => {
-          const sig = JSON.stringify([text, tpl?.id || "", docs.map((d) => d.id)]);
+          const sig = JSON.stringify([text, tpl?.id || "", docs.map((d) => d.id), claudeOn ? model : ""]);
           if (pending.current?.sig !== sig) pending.current = { sig, id: newRequestId() };
           try {
-            const r = await startWork(text, tpl?.id || "", docs.map((d) => d.id), lang, pending.current.id);
+            const r = await startWork(text, tpl?.id || "", docs.map((d) => d.id), lang, pending.current.id,
+              claudeOn ? { model } : undefined);
             pending.current = null;
             setTpl(null);
+            setEngine("local");
             onStarted(r.session_id);
           } catch (e) {
             if (e instanceof ApiError && e.status < 500) pending.current = null;   // refused: nothing was started
@@ -246,6 +256,7 @@ function Home({ home, failed, retry, onStarted }: {
               openStudyConsent();
               throw new Error(t("home.need.consent"));
             }
+            if (e instanceof ApiError && e.code.startsWith("claude_")) throw new Error(e.message);
             throw new Error(e instanceof ApiError && e.code === "empty" ? t("home.need")
               : e instanceof ApiError && e.code === "classified" ? t("up.err.classified", { name: "" }) : t("home.failed"));
           }
@@ -264,5 +275,42 @@ function Home({ home, failed, retry, onStarted }: {
         </div>
       </section>
     </div></div>
+  );
+}
+
+/** 3.6.5 — « Write with Claude »: an explicit choice at the moment of sending, with where the
+ *  request goes; absent reasons are said, never hidden (greyed out with the reason). */
+function EngineChoice({ gate, engine, model, disabled, onEngine, onModel }: {
+  gate: ClaudeGate; engine: "local" | "claude"; model: string; disabled: boolean;
+  onEngine: (e: "local" | "claude") => void; onModel: (m: string) => void;
+}) {
+  const t = useT();
+  const claude = engine === "claude" && gate.allowed;
+  return (
+    <div className="sk-engine" role="group" aria-label={t("eng.choose")}>
+      <div className="sk-xs sk-muted">{t("eng.choose")}</div>
+      <div className="sk-engine-opts">
+        <button type="button" className="sk-engine-opt" aria-pressed={!claude} disabled={disabled} onClick={() => onEngine("local")}>
+          <Icon name="check" small /><span><b>{t("eng.local.opt")}</b><small>{t("eng.local.sub")}</small></span>
+        </button>
+        <button type="button" className="sk-engine-opt" aria-pressed={claude} disabled={disabled || !gate.allowed}
+          aria-describedby={!gate.allowed ? "sk-claude-why" : undefined} onClick={() => onEngine("claude")}>
+          <Icon name="send" small /><span><b>{t("eng.claude.opt")}</b>
+            <small id={!gate.allowed ? "sk-claude-why" : undefined}>{gate.allowed ? t("eng.claude.sub") : t("eng.claude.off", { reason: gate.reason })}</small></span>
+        </button>
+      </div>
+      {claude && (
+        <>
+          <div className="sk-engine-model">
+            <label className="sk-small" htmlFor="sk-claude-model">{t("eng.claude.model")}</label>
+            <select id="sk-claude-model" value={model} onChange={(e) => onModel(e.target.value)}>
+              {gate.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+          <div className="sk-engine-where" role="note"><Icon name="alert" small />
+            <span className="sk-small">{t("eng.claude.where", { dest: gate.destination })}</span></div>
+        </>
+      )}
+    </div>
   );
 }

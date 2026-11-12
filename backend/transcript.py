@@ -136,7 +136,10 @@ def parse_lines(lines: Iterable[str]) -> dict:
             if bt == "text":
                 t = b.get("text", "")
                 if t.strip():
-                    messages.append({"role": rtype, "kind": "text", "text": t, "ts": ts})
+                    m = {"role": rtype, "kind": "text", "text": t, "ts": ts}
+                    if rtype == "assistant" and msg.get("model"):
+                        m["model"] = msg["model"]   # 3.6.5: the model the API answered with
+                    messages.append(m)
                     if rtype == "user" and not title:
                         title = t.strip().splitlines()[0][:80]
             elif bt == "thinking":
@@ -148,6 +151,8 @@ def parse_lines(lines: Iterable[str]) -> dict:
                 ev = {"role": "assistant", "kind": "tool", "tool": name,
                       "title": _tool_title(name, inp), "input": inp,
                       "id": b.get("id"), "result": None, "ts": ts}
+                if msg.get("model"):
+                    ev["model"] = msg["model"]
                 messages.append(ev)
                 if b.get("id"):
                     tool_by_id[b["id"]] = ev

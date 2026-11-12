@@ -47,7 +47,7 @@ HUMAN = ("allow", "deny", "edit", "answer", "mode_change")
 COLUMNS = ("id", "request_id", "kind", "session_id", "project", "owner", "actor", "origin",
            "tool", "title", "input_summary", "input_sha256", "mode", "requested_at",
            "decided_at", "delay_ms", "decision", "auto", "auto_reason", "edited",
-           "edited_summary", "message", "agent_run")
+           "edited_summary", "message", "agent_run", "model")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS hitl (
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS hitl (
     edited INTEGER NOT NULL DEFAULT 0,        -- 1 = allowed with a modified input
     edited_summary TEXT NOT NULL DEFAULT '',  -- the input that actually ran (masked)
     message TEXT NOT NULL DEFAULT '',         -- reason of a refusal / the answers (masked)
-    agent_run TEXT NOT NULL DEFAULT ''        -- agent name when the session is an agent run
+    agent_run TEXT NOT NULL DEFAULT '',       -- agent name when the session is an agent run
+    model TEXT NOT NULL DEFAULT ''            -- 3.6.5: the model that answered when asked
 );
 CREATE INDEX IF NOT EXISTS ix_hitl_session ON hitl(session_id, requested_at);
 CREATE INDEX IF NOT EXISTS ix_hitl_project ON hitl(project, requested_at);
@@ -148,6 +149,10 @@ def summarize(obj, secrets: dict[str, str] | None = None) -> tuple[str, str]:
 
 def _con() -> sqlite3.Connection:
     con = audit._con()  # same file as the action journal (audit.DB, patched by tests)
+    if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hitl'").fetchone() \
+            and "model" not in {r[1] for r in con.execute("PRAGMA table_info(hitl)")}:
+        # 3.6.5: which model the session ran on when it asked (« done with Claude? »)
+        con.execute("ALTER TABLE hitl ADD COLUMN model TEXT NOT NULL DEFAULT ''")
     con.executescript(_SCHEMA)
     return con
 
@@ -184,7 +189,7 @@ def origin_of(actor: str, session_id: str, fallback_owner: str = "") -> str:
 
 def requested(request_id: str, kind: str, *, session_id: str, tool: str = "", title: str = "",
               input_data=None, mode: str = "", secrets: dict[str, str] | None = None,
-              owner: str = "", agent_run: str = "") -> None:
+              owner: str = "", agent_run: str = "", model: str = "") -> None:
     """A session starts waiting for a person. Best-effort: never breaks the tool call."""
     try:
         project, board_owner = _session_facts(session_id)
@@ -192,11 +197,11 @@ def requested(request_id: str, kind: str, *, session_id: str, tool: str = "", ti
         con = _con()
         con.execute(
             "INSERT OR IGNORE INTO hitl(request_id, kind, session_id, project, owner, tool, title,"
-            " input_summary, input_sha256, mode, requested_at, agent_run)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            " input_summary, input_sha256, mode, requested_at, agent_run, model)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (request_id, kind, session_id, project, board_owner or (owner or "").lower().strip(),
              tool, str(mask(title or "", secrets))[:300], summary, digest, mode, time.time(),
-             agent_run or ""))
+             agent_run or "", (model or "")[:120]))
         con.commit()
         con.close()
     except Exception:  # noqa: BLE001
@@ -254,7 +259,7 @@ def decided(request_id: str, decision: str, *, actor: str = "", origin: str = ""
 def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_data=None,
               allowed: bool, reason: str, mode: str = "",
               secrets: dict[str, str] | None = None, owner: str = "",
-              agent_run: str = "") -> None:
+              agent_run: str = "", model: str = "") -> None:
     """An approval nobody clicked: auto-approved by the session's mode, or refused by an
     agent's policy / the sandbox. One row, asked and decided at the same instant."""
     try:
@@ -266,12 +271,12 @@ def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_d
         con.execute(
             "INSERT INTO hitl(request_id, kind, session_id, project, owner, actor, origin, tool,"
             " title, input_summary, input_sha256, mode, requested_at, decided_at, delay_ms,"
-            " decision, auto, auto_reason, agent_run)"
-            " VALUES(?,?,?,?,?,'','system',?,?,?,?,?,?,?,0,?,1,?,?)",
+            " decision, auto, auto_reason, agent_run, model)"
+            " VALUES(?,?,?,?,?,'','system',?,?,?,?,?,?,?,0,?,1,?,?,?)",
             (uuid.uuid4().hex, kind, session_id, project,
              board_owner or (owner or "").lower().strip(), tool,
              str(mask(title or "", secrets))[:300], summary, digest, mode, now, now,
-             "auto_allow" if allowed else "auto_deny", reason, agent_run or ""))
+             "auto_allow" if allowed else "auto_deny", reason, agent_run or "", (model or "")[:120]))
         con.commit()
         con.close()
     except Exception:  # noqa: BLE001
@@ -298,6 +303,30 @@ def mode_changed(session_id: str, old: str, new: str, actor: str = "",
     except Exception:  # noqa: BLE001
         return
     audit.log(a, "hitl.mode_change", f"session:{session_id}", f"{old} → {new}", project=project)
+
+
+def engine_chosen(session_id: str, *, actor: str, project: str, model: str,
+                  level: str = "", destination: str = "") -> None:
+    """3.6.5: a person chose « Write with Claude » for a work — an explicit gesture, journaled
+    as such (kind `engine`, decision `claude`): who, when, which model, the project's level and
+    where the requests go. Best-effort: never breaks the start."""
+    try:
+        import uuid
+        now = time.time()
+        a = (actor or "").lower().strip()
+        con = _con()
+        con.execute(
+            "INSERT INTO hitl(request_id, kind, session_id, project, owner, actor, origin, tool,"
+            " title, requested_at, decided_at, delay_ms, decision, message, model)"
+            " VALUES(?,'engine',?,?,?,?,'owner','claude',?,?,?,0,'claude',?,?)",
+            (uuid.uuid4().hex, session_id, project, a, a,
+             f"Rédiger avec Claude — {model}"[:300], now, now,
+             f"projet classé {level} · destination : {destination}"[:SUMMARY_MAX], (model or "")[:120]))
+        con.commit()
+        con.close()
+    except Exception:  # noqa: BLE001
+        return
+    audit.log(a, "hitl.engine_claude", f"session:{session_id}", f"{model} · {level}", project=project)
 
 
 def mark_interrupted(before: float | None = None) -> int:

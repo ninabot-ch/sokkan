@@ -8,6 +8,7 @@ import { fullDate, useT, useUI } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
 import Icon from "./icons";
 import Markdown from "./Markdown";
+import EngineBadge from "./EngineBadge";
 
 export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, onChanged }: {
   /** changes when the file changed on disk (a new version was saved): the preview reloads */
@@ -37,6 +38,7 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
       <div className="sk-panel-head">
         <div className="sk-grow">
           <div className="sk-xs sk-muted">{t("th.deliverable")}{d ? ` · ${t("dl.version", { n: d.version })}` : ""}</div>
+          {d?.engine && <EngineBadge engine={d.engine} />}
           <div className="sk-h3">{d?.title || "…"}</div>
         </div>
         <button className="sk-btn sk-btn-quiet sk-btn-icon" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>

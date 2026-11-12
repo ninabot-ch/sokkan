@@ -28,6 +28,18 @@ carry (reason `side_call`), and are not sent to Deep when it is down either. The
 holds the person's first message: with « /deep » in it, one question used to count two Deep
 escalations of the person's day on the gateway.
 
+« Write with Claude » (3.6.5, tier `claude`, backend/claudetier.py): a request goes to the
+Anthropic API ONLY when its session carries `x-sokkan-tier: claude` — the header the instance
+puts on the session of a work a person started with « Write with Claude ». Never by keyword,
+size, failure, or when the local model is down (`ship_down` goes to Deep or fails, never to
+Claude); side calls stay on the local model. Before each request the router asks the api
+(`GET /api/internal/claude-grant`, `SOKKAN_ROUTER_SECRET`) whether THIS project may still use
+Claude and with which models, and gets the organisation's key, kept in memory a few seconds.
+No key, project classified too high, model outside the list, api unreachable → a refusal a
+person can read (`llmerrors`, `x-should-retry: false`), and nothing is sent anywhere else.
+Towards Anthropic: the key as `x-api-key` with `anthropic-version`, no `authorization`, and no
+`x-sokkan-*` header (who typed the request, the project, the study stay on the box).
+
 Run: `uvicorn shiprouter:app --host 0.0.0.0 --port 8096 --app-dir /app/backend` (the `router`
 service of the appliance profile). It keeps no content: `/stats` and the log carry tier,
 reason, status and duration only.
@@ -78,6 +90,9 @@ def cfg() -> dict:
         "min_prompt_tokens": env_num("SOKKAN_ESCALATION_MIN_PROMPT_TOKENS", 0),
         "fallback": (e("SOKKAN_SHIP_FALLBACK_DEEP") or "1").strip().lower() not in ("0", "false", "no", "off"),
         "forward_user": (e("SOKKAN_DEEP_FORWARD_USER") or "0").strip() == "1",
+        "claude_url": (e("SOKKAN_CLAUDE_URL") or "https://api.anthropic.com").rstrip("/"),
+        "router_secret": (e("SOKKAN_ROUTER_SECRET") or "").strip(),
+        "api_url": (e("SOKKAN_ROUTER_API_URL") or "http://api:8097").rstrip("/"),
     }
 
 
@@ -167,8 +182,14 @@ def side_call(payload: dict, headers) -> bool:
 
 
 def decide(payload: dict, headers, c: dict | None = None) -> tuple[str, str]:
-    """(tier, reason) for this request. tier = "ship" | "deep"."""
+    """(tier, reason) for this request. tier = "ship" | "deep" | "claude"."""
     c = c or cfg()
+    if (headers.get("x-sokkan-tier") or "").strip().lower() == "claude":
+        # the explicit gesture « Write with Claude » — and nothing else ever leads there. The
+        # CLI's own side calls (title of the session…) stay on the box when it has a model.
+        if side_call(payload, headers) and c["ship_url"]:
+            return "ship", "side_call"
+        return "claude", "requested"
     if not deep_ready(c):
         return "ship", "deep_not_configured"
     if side_call(payload, headers):
@@ -197,7 +218,7 @@ def decide(payload: dict, headers, c: dict | None = None) -> tuple[str, str]:
 # ---- forwarding ----------------------------------------------------------------------
 _HOP = {"host", "content-length", "connection", "keep-alive", "transfer-encoding", "te", "upgrade",
         "proxy-authorization", "proxy-authenticate", "trailer", "authorization", "x-api-key",
-        "x-sokkan-tier", "accept-encoding", "cookie"}
+        "x-sokkan-tier", "accept-encoding", "cookie", "x-sokkan-project"}
 
 
 _PSEUDONYM_RE = re.compile(r"^(?:[a-z][a-z0-9_-]{0,23}:)?P[0-9]{1,6}$")
@@ -279,6 +300,110 @@ async def _open(client: httpx.AsyncClient, tier: str, payload: dict, c: dict, in
     return r, r.status_code, ""
 
 
+# ---- « Write with Claude » ----------------------------------------------------------------
+_grants: dict[tuple[str, str], tuple[float, dict]] = {}
+GRANT_TTL_S = 10.0
+
+
+async def claude_grant(c: dict, project: str, model: str) -> dict | None:
+    """The api's decision for (project, model), with the key when allowed. None = the api
+    could not be asked (no secret, unreachable, not the router's api). A few seconds of cache
+    so that a tool loop does not ask at every request; a refusal is never cached."""
+    if not c["router_secret"] or not project:
+        return None
+    now = time.time()
+    hit = _grants.get((project, model))
+    if hit and now - hit[0] < GRANT_TTL_S:
+        return hit[1]
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as cl:
+            r = await cl.get(c["api_url"] + "/api/internal/claude-grant",
+                             params={"project": project, "model": model},
+                             headers={"x-sokkan-router-secret": c["router_secret"]})
+    except (httpx.HTTPError, OSError):
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        g = r.json()
+    except ValueError:
+        return None
+    if not isinstance(g, dict):
+        return None
+    if g.get("allowed"):
+        _grants[(project, model)] = (now, g)
+    else:
+        _grants.pop((project, model), None)
+    return g
+
+
+_CLAUDE_REFUSAL = {"no_key": "claude_no_key", "model": "claude_model"}   # else claude_forbidden
+
+
+async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
+    project = (inbound.get("x-sokkan-project") or "").strip()
+    model = str(payload.get("model") or "")
+    g = await claude_grant(c, project, model)
+    reason = "requested"
+    if g is None:
+        code = "claude_unavailable"
+    elif not g.get("allowed"):
+        code = _CLAUDE_REFUSAL.get(str(g.get("code") or ""), "claude_forbidden")
+    elif model not in (g.get("models") or []) or not g.get("key"):
+        code = "claude_model" if g.get("key") else "claude_no_key"
+    else:
+        code = ""
+    if code:
+        _last.update(ts=int(time.time()), tier="claude", reason=code, status=None)
+        _stats["claude:refused"] += 1
+        log.info("tier=claude reason=%s status=refused ms=%d", code, (time.time() - t0) * 1000)
+        return _error(code, "claude", "refused")
+    h = {k: v for k, v in inbound.items()
+         if k.lower() not in _HOP and not k.lower().startswith("x-sokkan-")
+         and k.lower() != "anthropic-custom-headers"}
+    h["x-api-key"] = g["key"]
+    h.setdefault("anthropic-version", "2023-06-01")    # the CLI sends its own; a script may not
+    h["content-type"] = "application/json"
+    client = _client(c)
+    try:
+        req = client.build_request("POST", c["claude_url"] + "/v1/messages",
+                                   content=json.dumps(payload, ensure_ascii=False).encode(), headers=h)
+        r = await client.send(req, stream=True)
+    except (httpx.HTTPError, OSError):
+        await client.aclose()
+        _stats["claude:unreachable"] += 1
+        return _error("claude_unavailable", "claude", reason)
+    status = r.status_code
+    _last.update(ts=int(time.time()), tier="claude", reason=reason, status=status)
+    _stats[f"claude:{reason}"] += 1
+    log.info("tier=claude reason=%s status=%s ms=%d", reason, status, (time.time() - t0) * 1000)
+    if status >= 400:
+        raw = (await r.aread())[:4000].decode("utf-8", "replace")
+        await r.aclose()
+        await client.aclose()
+        if status in (401, 403):
+            return _error("claude_auth", "claude", reason)
+        code = llmerrors.classify(status, raw)
+        if code:
+            return _error(code, "claude", reason)
+        # the caller's own error (a bad request): handed back, never retried by the CLI
+        return Response(raw, status_code=status, media_type=r.headers.get("content-type", "application/json"),
+                        headers={"x-sokkan-tier": "claude", "x-sokkan-reason": reason,
+                                 "x-should-retry": "false"})
+
+    async def relay():
+        try:
+            async for chunk in r.aiter_raw():
+                yield chunk
+        finally:
+            await r.aclose()
+            await client.aclose()
+
+    keep = {k: v for k, v in r.headers.items() if k.lower() in ("content-type", "cache-control", "request-id")}
+    keep.update({"x-sokkan-tier": "claude", "x-sokkan-reason": reason})
+    return StreamingResponse(relay(), status_code=status, headers=keep)
+
+
 @app.post("/v1/messages")
 async def messages(request: Request):
     t0 = time.time()
@@ -289,9 +414,12 @@ async def messages(request: Request):
     except (ValueError, AssertionError):
         return JSONResponse({"type": "error", "error": {"type": "invalid_request_error",
                                                         "message": "body must be a JSON object"}}, 400)
-    if not c["ship_url"] and not deep_ready(c):
+    if not c["ship_url"] and not deep_ready(c) \
+            and (request.headers.get("x-sokkan-tier") or "").strip().lower() != "claude":
         return _error("unreachable", "none", "not_configured", "no SOKKAN_SHIP_URL, no Deep gateway")
     tier, reason = decide(payload, request.headers, c)
+    if tier == "claude":
+        return await _claude(payload, request.headers, c, t0)
     if tier == "ship" and not c["ship_url"]:
         tier, reason = "deep", "no_local_model"
     client = _client(c)
@@ -405,4 +533,5 @@ def stats():
     c = cfg()
     return {"uptime_s": int(time.time() - _BOOT), "counts": dict(_stats), "last": dict(_last),
             "ship_configured": bool(c["ship_url"]), "deep_configured": deep_ready(c),
-            "escalation": c["escalation"], "fallback": c["fallback"]}
+            "escalation": c["escalation"], "fallback": c["fallback"],
+            "claude_configured": bool(c["router_secret"])}
