@@ -177,7 +177,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {nina && <Nina onClose={() => setNina(false)} />}
       </main>
 
-      {settings && <Settings prefs={prefs} onPrefs={onPrefs} onClose={() => setSettings(false)} project={home?.project || currentProject()} />}
+      {settings && <Settings prefs={prefs} onPrefs={onPrefs} onClose={() => setSettings(false)} project={home?.project || currentProject()} projectName={home?.project_name} />}
     </div>
   );
 }

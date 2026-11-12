@@ -10,14 +10,14 @@ export type WorkState = "waiting" | "working" | "idle";
 /** 3.6.5 — the model that answered (the model of the API's response, never the one asked for) */
 export interface Engine { model: string; label: string; where: "local" | "anthropic" | "other"; place: string }
 /** May this project's work be written with Claude (backend/claudetier.gate) */
-export interface ClaudeGate { allowed: boolean; code: string; reason: string; level: string; level_label: string;
+export interface ClaudeGate { allowed: boolean; code: string; reason: string; project_name?: string; level: string; level_label: string;
   max_level: string; max_label: string; models: { id: string; label: string }[]; default_model: string; destination: string }
 export interface ClaudeSettings { key: { masked: string; test_ok: boolean | null; test_detail: string } | null;
   models: { id: string; label: string; available: boolean }[]; default_model: string; appliance: boolean; router: boolean;
   test?: { ok: boolean | null; detail: string } }
 export interface Recent { sid: string; title: string; state: WorkState; last_line: string; created_at: number;
   updated_at: number; deliverables: number; validated: boolean; to_validate: number; items?: Deliverable[] }
-export interface HomeData { first_name: string; project: string; can_start: boolean; playbooks: TaskTemplate[];
+export interface HomeData { first_name: string; project: string; project_name?: string; can_start: boolean; playbooks: TaskTemplate[];
   recents: Recent[]; works_total: number; usage: { pct: number | null; basis: string }; nina: boolean;
   limits: Limits | null; prefs: Prefs; claude?: ClaudeGate | null }
 export interface Doc { id: string; name: string; ext: string; size: number; owner: string; level: number;
@@ -108,7 +108,8 @@ export const fetchClaudeSettings = () => get<ClaudeSettings>("/api/claude/settin
 export const saveClaudeKey = (key: string) => send<ClaudeSettings>("/api/claude/key", "PUT", { key });
 export interface ProjectRow { slug: string; name: string; role: string; shared: boolean }
 export const fetchMyProjects = () => get<{ projects: ProjectRow[]; multi: boolean; default: string }>("/api/projects");
-export const fetchUsers = () => get<{ email: string; name: string; role: string }[]>("/api/iam/users");
+/** every account of the instance once — IAM users and local accounts (personal access code) */
+export const fetchPeople = () => get<{ people: { email: string; name: string; local: boolean }[] }>("/api/claude/people");
 export const createProject = (slug: string, name: string) =>
   send<{ slug: string; name: string }>("/api/admin/projects", "POST", { slug, name, access_source: "sso_group" });
 export const grantProject = (slug: string, email: string, role: string) =>

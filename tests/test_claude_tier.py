@@ -465,3 +465,65 @@ def test_saves_validations_and_export_carry_the_model(inst):
     assert idx[0]["model"] == "claude-opus-5-5" and idx[0]["engine"] == "claude"
     assert idx[0]["written_with"] == "Claude Opus 5.5"
     assert KEY.encode() not in out["zip"]
+
+
+# ---------------------------------------------------------------- 3.6.6
+
+def test_the_router_secret_comes_from_the_shared_file_when_the_variable_is_absent(inst, monkeypatch, tmp_path):
+    """An upgrade done by a 3.6.4 / 3.6.5 upgrade.sh never wrote SOKKAN_ROUTER_SECRET: the api's
+    entrypoint writes it in the volume shared with the router, both read it there."""
+    monkeypatch.delenv("SOKKAN_ROUTER_SECRET")
+    f = tmp_path / "secret"
+    monkeypatch.setattr(claudetier, "SECRET_FILE", str(f))
+    monkeypatch.setattr(shiprouter, "SECRET_FILE", str(f))
+    g = claudetier.gate("cours")
+    assert g["code"] == "router" and "SOKKAN" not in g["reason"] and "demandez à l'administrateur" in g["reason"]
+    assert "SOKKAN" not in claudetier.gate("cours", lang="en")["reason"]
+    assert shiprouter.cfg()["router_secret"] == ""
+    f.write_text("from-the-volume-0123456789\n")
+    assert claudetier.router_secret() == shiprouter.cfg()["router_secret"] == "from-the-volume-0123456789"
+    assert claudetier.gate("cours")["allowed"] is True
+    assert claudetier.grant("cours", "claude-opus-5-5", "from-the-volume-0123456789", False)[0] == 200
+    monkeypatch.setenv("SOKKAN_ROUTER_SECRET", "the-variable-wins")        # an explicit value wins
+    assert claudetier.router_secret() == shiprouter.cfg()["router_secret"] == "the-variable-wins"
+
+
+def test_the_entrypoint_creates_the_secret_once_and_never_prints_it():
+    import pathlib
+    s = (pathlib.Path(__file__).resolve().parent.parent / "scripts" / "api-entrypoint.sh").read_text()
+    root_block = s[: s.index("exec setpriv")]
+    assert "/run/sokkan-router" in root_block and 'umask 077' in root_block and "[ ! -s" in root_block
+    assert "echo" not in root_block[root_block.index("RS=/run/sokkan-router"):]
+    import yaml
+    svc = yaml.safe_load((pathlib.Path(__file__).resolve().parent.parent / "docker-compose.yml").read_text())["services"]
+    assert "router-secret:/run/sokkan-router" in svc["api"]["volumes"]
+    assert svc["router"]["volumes"] == ["router-secret:/run/sokkan-router:ro"]
+
+
+def test_new_project_offers_every_account_once_and_a_local_one_works_there(inst):
+    """Settings › New project › « Who works in it »: IAM users AND local accounts (access code),
+    without duplicates; a local account ticked there gets its role and writes with Claude."""
+    import localaccounts
+    localaccounts.add("contenus@x", "Contenus", project="default", project_role="dev", by="test")
+    localaccounts.add("bob@x", "Bob M", project="default", project_role="dev", by="test")    # also IAM
+    c = inst["as"]("admin@x")
+    people = c.get("/api/claude/people").json()["people"]
+    emails = [p["email"] for p in people]
+    assert "contenus@x" in emails and emails.count("bob@x") == 1 and len(emails) == len(set(emails))
+    assert next(p for p in people if p["email"] == "contenus@x")["local"] is True
+    assert inst["as"]("bob@x").get("/api/claude/people").status_code == 403
+    c = inst["as"]("admin@x")
+    assert c.post("/api/admin/projects", json={"slug": "contenus-de-cours", "name": "Contenus de cours"}).status_code == 200
+    assert c.post("/api/admin/projects/contenus-de-cours/grants",
+                  json={"principal_kind": "user", "principal": "contenus@x", "role": "dev"}).status_code == 200
+    assert c.put("/api/projects/contenus-de-cours/level", json={"level": "team", "reason": "cours"}).status_code == 200
+    u = inst["as"]("contenus@x")
+    mine = [p["slug"] for p in u.get("/api/projects").json()["projects"]]
+    assert "contenus-de-cours" in mine                                         # in its selector
+    u = inst["as"]("contenus@x", "contenus-de-cours")
+    h = u.get("/api/simple/home").json()
+    assert h["project_name"] == "Contenus de cours" and h["claude"]["allowed"] is True
+    assert h["claude"]["project_name"] == "Contenus de cours"
+    r = u.post("/api/simple/start", json={"ask": "Rédige le module 4", "tier": "claude"})
+    assert r.status_code == 200, r.text
+    assert claudetier.work_tier(r.json()["session_id"])[0] == "claude"

@@ -2,7 +2,7 @@
 // Simple profile — settings a person owns: language, appearance, and the profile itself
 // (simple / technical). The approval mode is deliberately NOT here.
 import { useEffect, useRef, useState } from "react";
-import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchUsers, grantProject, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
+import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchPeople, grantProject, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
   type ClaudeGate, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
@@ -12,8 +12,8 @@ import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
 
-export default function Settings({ prefs, onPrefs, onClose, project }: {
-  prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string;
+export default function Settings({ prefs, onPrefs, onClose, project, projectName }: {
+  prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
 }) {
   const t = useT();
   const { langPref, themePref, setLangPref, setThemePref } = useUI();
@@ -104,7 +104,7 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
         {claudeOn && instAdmin && <NewProject />}
         <div className="sk-small sk-muted">
           <div>{t("set.signed", { who: me?.email || "" })}</div>
-          <div>{t("set.project")} : {project}</div>
+          <div>{t("set.project")} : {projectName || project}</div>
         </div>
         <div><a className="sk-btn" href="/api/auth/logout"><Icon name="logout" />{t("set.signout")}</a></div>
       </div>
@@ -178,9 +178,9 @@ function ProjectLevel({ project }: { project: string }) {
   };
   return (
     <fieldset className="sk-claude-set">
-      <legend className="sk-legend">{t("set.level", { project })}</legend>
+      <legend className="sk-legend">{t("set.level", { project: g.project_name || project })}</legend>
       <p className="sk-small sk-muted">{t("set.level.hint", { max: g.max_label })}</p>
-      <select aria-label={t("set.level", { project })} value={lvl} onChange={(e) => setLvl(e.target.value)}>
+      <select aria-label={t("set.level", { project: g.project_name || project })} value={lvl} onChange={(e) => setLvl(e.target.value)}>
         {LEVELS.map((l) => <option key={l} value={l}>{t(`set.level.${l}` as Key)}</option>)}
       </select>
       {lower && <input type="text" value={reason} placeholder={t("set.level.reason")} aria-label={t("set.level.reason")}
@@ -210,7 +210,7 @@ function NewProject() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ slug: string; name: string } | null>(null);
   const [err, setErr] = useState("");
-  useEffect(() => { fetchUsers().then((u) => setPeople(u.filter((x) => x.email !== (me?.email || "").toLowerCase()))).catch(() => setPeople([])); }, [me?.email]);
+  useEffect(() => { fetchPeople().then((r) => setPeople(r.people.filter((x) => x.email !== (me?.email || "").toLowerCase()))).catch(() => setPeople([])); }, [me?.email]);
   const create = async () => {
     setBusy(true); setErr(""); setDone(null);
     const slug = slugOf(name);

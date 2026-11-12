@@ -75,8 +75,21 @@ def appliance() -> bool:
         return False
 
 
+SECRET_FILE = "/run/sokkan-router/secret"   # written by scripts/api-entrypoint.sh (3.6.6)
+
+
 def router_secret() -> str:
-    return (os.environ.get("SOKKAN_ROUTER_SECRET") or "").strip()
+    """The secret shared with the router: SOKKAN_ROUTER_SECRET when set, else the file the
+    api's entrypoint writes in the volume the two share — so that an upgrade by an older
+    upgrade.sh (which never wrote the variable) still connects them."""
+    v = (os.environ.get("SOKKAN_ROUTER_SECRET") or "").strip()
+    if v:
+        return v
+    try:
+        with open(SECRET_FILE, encoding="ascii") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 
 
 def models() -> list[str]:
@@ -186,7 +199,9 @@ def gate(project: str, model: str = "", lang: str = "fr") -> dict:
     from core import levels
     lvl, cap = project_level(project), max_level()
     av = available_models()
+    import projects
     out = {"allowed": False, "code": "", "reason": "", "project": project,
+           "project_name": (projects.get(project) or {}).get("name") or project,
            "level": levels.ident(lvl), "level_label": level_label(lvl, lang),
            "max_level": levels.ident(cap), "max_label": level_label(cap, lang),
            "models": [{"id": m, "label": label(m)} for m in av],
@@ -196,8 +211,9 @@ def gate(project: str, model: str = "", lang: str = "fr") -> dict:
         out.update(code="off", reason="Claude n'est pas proposé sur cette instance." if fr
                    else "Claude is not offered on this instance.")
     elif not router_secret():
-        out.update(code="router", reason="Le routeur de cette machine n'est pas relié (SOKKAN_ROUTER_SECRET)."
-                   if fr else "The router of this machine is not connected (SOKKAN_ROUTER_SECRET).")
+        # said to people: never a variable name (the operator reads the code `router`)
+        out.update(code="router", reason="Claude n'est pas encore activé sur cette machine — demandez à l'administrateur."
+                   if fr else "Claude is not activated on this machine yet — ask the administrator.")
     elif not key_present():
         out.update(code="no_key", reason="Aucune clé Anthropic n'est saisie : l'administrateur la saisit dans Réglages."
                    if fr else "No Anthropic key: the administrator enters it in Settings.")

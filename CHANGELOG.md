@@ -3,6 +3,17 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 3.6.6
+
+- « Write with Claude » after an upgrade by an older `upgrade.sh`: the choice stayed greyed out
+  (« the router is not connected ») — a 3.6.4 / 3.6.5 `upgrade.sh` runs its OWN steps and never
+  wrote `SOKKAN_ROUTER_SECRET`. The secret is now created once by the api's entrypoint in a
+  volume shared read-only with the router (`router-secret`); the variable still wins when set.
+- Settings › New project › « Who works in it » lists every account of the instance once: the
+  IAM users AND the local accounts (personal access code).
+- The unavailability of Claude is said without a variable name; Settings names the project
+  (« Atelier »), not its slug.
+
 ## 3.6.5 — 2026-11-12 — "Icebreaker"
 
 A person can choose to write course content with Claude on an appliance, and everyone sees which

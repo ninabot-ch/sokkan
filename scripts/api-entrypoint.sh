@@ -21,6 +21,18 @@ if [ "$(id -u)" = "0" ]; then
     echo "[sokkan] $D has files owned by root (volume of SOKKAN <= 0.1.0): chown to uid 1000" >&2
     chown -R sokkan:sokkan "$D" 2>/dev/null || true
   fi
+  # 3.6.6: the secret the local router presents to the api (« Write with Claude »), created
+  # once in the volume the two share — by the code of the release that runs, whatever script
+  # did the upgrade (a 3.6.4 or 3.6.5 upgrade.sh never wrote SOKKAN_ROUTER_SECRET to .env).
+  # Never printed; readable by uid 1000 only (the api and the router).
+  RS=/run/sokkan-router
+  if [ -d "$RS" ]; then
+    if [ ! -s "$RS/secret" ]; then
+      ( umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$RS/secret.tmp" && mv "$RS/secret.tmp" "$RS/secret" ) || true
+    fi
+    chown sokkan:sokkan "$RS" "$RS/secret" 2>/dev/null || true
+    chmod 700 "$RS" 2>/dev/null || true; chmod 600 "$RS/secret" 2>/dev/null || true
+  fi
   exec setpriv --reuid=sokkan --regid=sokkan --init-groups "$0" "$@"
 fi
 

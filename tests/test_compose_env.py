@@ -200,5 +200,7 @@ def test_router_service_receives_every_variable_shiprouter_reads():
     assert len(read) >= 15, read
     assert not sorted(read - env), f"declare in services.router.environment: {sorted(read - env)}"
     assert not sorted(env - read), f"declared for the router but read nowhere: {sorted(env - read)}"
-    assert svc["profiles"] == ["appliance"] and "ports" not in svc and "volumes" not in svc
+    # 3.6.6: one volume, read-only — the secret the api writes for « Write with Claude »
+    assert svc["profiles"] == ["appliance"] and "ports" not in svc
+    assert svc.get("volumes") == ["router-secret:/run/sokkan-router:ro"]
     assert svc["user"] == "1000:1000" and svc["read_only"] is True

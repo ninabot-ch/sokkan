@@ -47,6 +47,7 @@ import iam
 import plain
 import playbooks
 import projectgate
+import projects
 import simple
 import uiprefs
 
@@ -290,6 +291,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         except Exception:  # noqa: BLE001
             nina = False
         return {"first_name": first, "project": slug,
+                "project_name": (projects.get(slug) or {}).get("name") or slug,
                 "can_start": iam.rank(pu["role"]) >= iam.rank("dev"),
                 "playbooks": playbooks.catalog("simple", lang),
                 "recents": recents[:6], "works_total": len(mine),

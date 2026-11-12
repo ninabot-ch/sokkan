@@ -129,6 +129,34 @@ def key_delete(request: Request) -> dict:
     return _settings()
 
 
+@router.get("/api/claude/people")
+def people(request: Request) -> dict:
+    """Every account of the instance, once: the IAM users AND the local accounts (a personal
+    access code, backend/localaccounts.py — on an appliance most people are only that).
+    For Settings › New project › « Who works in it »."""
+    _admin(request)
+    import localaccounts
+    out: dict[str, dict] = {}
+    for u in iam.list_users():
+        e = (u.get("email") or "").lower().strip()
+        if e:
+            out[e] = {"email": e, "name": u.get("name") or "", "local": False}
+    try:
+        for a in localaccounts.accounts():
+            e = (a.get("email") or "").lower().strip()
+            if not e:
+                continue
+            name = a.get("name") if a.get("name") and a.get("name") != e else ""
+            if e in out:
+                out[e]["local"] = True
+                out[e]["name"] = out[e]["name"] or name
+            else:
+                out[e] = {"email": e, "name": name, "local": True}
+    except Exception:  # noqa: BLE001 — no local accounts on this instance
+        pass
+    return {"people": sorted(out.values(), key=lambda x: (x["name"] or x["email"]).lower())}
+
+
 @router.put("/api/projects/{slug}/level")
 def project_level(slug: str, body: LevelIn, request: Request) -> dict:
     """The project's classification. Lowering it takes a reason (it can open the project to

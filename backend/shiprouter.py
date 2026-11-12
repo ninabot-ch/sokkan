@@ -68,6 +68,17 @@ _last: dict = {"ts": None, "tier": None, "reason": None, "status": None}
 _BOOT = time.time()
 
 
+SECRET_FILE = "/run/sokkan-router/secret"   # the api's entrypoint writes it (3.6.6)
+
+
+def _secret_file() -> str:
+    try:
+        with open(SECRET_FILE, encoding="ascii") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def cfg() -> dict:
     """Read at every request: an operator edits .env and recreates the container, a test
     patches the environment."""
@@ -91,7 +102,7 @@ def cfg() -> dict:
         "fallback": (e("SOKKAN_SHIP_FALLBACK_DEEP") or "1").strip().lower() not in ("0", "false", "no", "off"),
         "forward_user": (e("SOKKAN_DEEP_FORWARD_USER") or "0").strip() == "1",
         "claude_url": (e("SOKKAN_CLAUDE_URL") or "https://api.anthropic.com").rstrip("/"),
-        "router_secret": (e("SOKKAN_ROUTER_SECRET") or "").strip(),
+        "router_secret": (e("SOKKAN_ROUTER_SECRET") or "").strip() or _secret_file(),
         "api_url": (e("SOKKAN_ROUTER_API_URL") or "http://api:8097").rstrip("/"),
     }
 
