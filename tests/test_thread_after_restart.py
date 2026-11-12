@@ -100,7 +100,10 @@ def test_thread_is_readable_after_a_restart_real_cli(env, monkeypatch, project):
     again = agentchat.get_or_create(sid, user="alice@x")
     shown = _plain(again.events)
     assert {"type": "user", "text": "Prépare un plan de cours.", "documents": []} in shown, shown
-    assert {"type": "text", "text": "Voici le plan en trois points."} in shown, shown
+    texts = [e for e in shown if e.get("type") == "text"]
+    assert [e["text"] for e in texts] == ["Voici le plan en trois points."], shown
+    # 3.6.5: the model that answered survives the restart too (read from the transcript)
+    assert texts[0].get("engine", {}).get("model"), shown
 
 
 def _write_transcript(config_dir, cwd: str, csid: str) -> None:
