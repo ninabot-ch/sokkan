@@ -175,12 +175,13 @@ def _note(name, description, body="", extra=""):
     (_note("procedure-de-devis", "x" * 200), "Procedure de devis"),
 ])
 def test_a_note_is_titled_by_its_own_words(tmp_path, text, title):
+    import notetitle
     from core import notes
     p = tmp_path / "n.md"
     p.write_text(text, encoding="utf-8")
     parsed = notes.parse_note(text, "n.md")
-    assert notes.title_of_file(p, parsed.name, parsed.description) == title
-    assert notes.title_of_file(tmp_path / "missing.md", "faq-clients", "FAQ clients : les questions") == "FAQ clients"
+    assert notetitle.of_file(p, parsed.name, parsed.description) == title
+    assert notetitle.of_file(tmp_path / "missing.md", "faq-clients", "FAQ clients : les questions") == "FAQ clients"
 
 
 def test_the_card_of_a_note_to_retain_says_its_title_from_the_description():

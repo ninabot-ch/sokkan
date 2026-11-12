@@ -190,8 +190,8 @@ class View:
             # the note's own title when its text opens with one (« # Procédure de devis »), else
             # one out of its description (3.6.4): the name is a slug, without accents
             # (« Procedure de devis ») — the last resort only. Same rule as the Memory page.
-            from core import notes as _notes
-            return {"kind": "save_memory", "subject": _notes.display_title(
+            import notetitle
+            return {"kind": "save_memory", "subject": notetitle.display_title(
                 str(inp.get("name") or ""), str(inp.get("description") or ""),
                 None, str(inp.get("body") or ""))[:90]}
         if tool == "WebSearch":
