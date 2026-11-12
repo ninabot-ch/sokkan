@@ -363,6 +363,10 @@ async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
          and k.lower() != "anthropic-custom-headers"}
     h["x-api-key"] = g["key"]
     h.setdefault("anthropic-version", "2023-06-01")    # the CLI sends its own; a script may not
+    # the stream is relayed byte for byte without its content-encoding: ask for it plain —
+    # httpx asks gzip by default, Anthropic honours it, and the CLI read « Unrecognized token
+    # '\x1f' » (the gzip magic) on its first answer (seen 12.11.2026)
+    h["accept-encoding"] = "identity"
     h["content-type"] = "application/json"
     client = _client(c)
     try:

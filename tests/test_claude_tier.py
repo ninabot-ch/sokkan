@@ -121,6 +121,7 @@ def test_the_gesture_sends_the_request_to_anthropic_with_the_key_and_nothing_of_
     assert "authorization" not in h                                        # no Bearer to Anthropic
     assert not [k for k in h if k.startswith("x-sokkan-")]                 # user, project, study stay home
     assert sent["body"]["model"] == "claude-opus-5-5"                      # the model asked, untouched
+    assert h["accept-encoding"] == "identity"                              # relayed raw: never gzip
     # the router asked the api for THIS project and model, with its secret
     (g,) = [x for x in api.seen if x["path"].startswith("/api/internal/claude-grant")]
     assert "project=cours" in g["path"] and "model=claude-opus-5-5" in g["path"]
