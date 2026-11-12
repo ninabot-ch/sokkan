@@ -53,7 +53,11 @@ instance budget), Nina (« your guide to SOKKAN » — when the `assistant` feat
 project's and the shared ones, up to their clearance), each with its own title, its description and
 the date it was last updated; a note opens as text. Nothing is written from this page. It reads the two
 routes of the cockpit's Memory tab (`GET /api/memory/notes`, `GET /api/memory/note/{name}`): the same
-rights, and a note whose text is shown is journaled as read, as it is from the cockpit.
+rights, and a note whose text is shown is journaled as read, as it is from the cockpit. The title
+(3.6.4) is the `title` the list carries: `title:` of the note's front matter, else its opening
+`# heading`, else a title out of its description (before the first « : » when that is short), the name
+made readable last — a name is a slug, without accents. The page reads a note's text before it is
+opened only for a note with no description to show (the first 40 of them).
 
 French and English: two dictionaries (`frontend/lib/simple/dict.ts`), the browser's language unless the
 person chose; `<html lang>` follows. The technical profile stays in English.
@@ -80,7 +84,7 @@ reading aid, **not** the memory ingestion (structure, chunks, notes), which is s
 
     GET/PUT /api/me/prefs                      PUT /api/admin/prefs/{email}
     GET /api/simple/home · /api/simple/works   POST /api/simple/start   (`request_id`: one work per id)
-    GET /api/simple/sessions/{sid}             POST …/message
+    GET /api/simple/sessions/{sid}             POST …/message   (`request_id`: taken once per work, 3.6.4)
     GET|POST …/deliverables                    GET …/deliverables/{name}[/download?format=md|docx]
     POST …/deliverables/{name}/validate
     GET|PUT /api/documents                     GET|DELETE /api/documents/{id}
