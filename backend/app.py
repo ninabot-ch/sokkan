@@ -2037,6 +2037,21 @@ async def require_auth(request: Request, call_next):
         projectgate.reset(token)
 
 
+def _sdk_transcript(s: dict) -> Path | None:
+    """The transcript of a SOKKAN chat session (3.6.4). The CLI files it under the session's
+    OWN working directory: for a project other than `default` that is its project's folder, not
+    the instance's (PROJECT_DIR) — the « active » flag and the transcript view looked only in the
+    instance's folder. Same rule as the thread's replay (agentchat._transcript_path): the
+    instance's folder, then the session's own folder only, never another project's."""
+    csid = s.get("claude_session_id") or ""
+    if not csid:
+        return None
+    p = PROJECT_DIR / f"{csid}.jsonl"
+    if p.exists():
+        return p
+    return agentchat._transcript_path(csid, agentchat.project_cwd(s["session_id"]))
+
+
 def _transcripts() -> list[Path]:
     return sorted(
         PROJECT_DIR.glob("*.jsonl"),
@@ -2162,8 +2177,7 @@ def sessions() -> list[dict]:
         if _clr is not None and (classification.session_level(s["session_id"]) or 0) > _clr:
             continue                  # 3.4 : au-dessus de l'habilitation = n'existe pas
         if s.get("kind") == "sdk":
-            csid = s.get("claude_session_id") or ""
-            p = PROJECT_DIR / f"{csid}.jsonl" if csid else None
+            p = _sdk_transcript(s)
             exists = bool(p and p.exists())
             mtime = p.stat().st_mtime if exists else s["created_at"]
             age = now - mtime
@@ -2367,8 +2381,7 @@ def session_detail(session_id: str) -> dict:
         # le live des panes SDK passe par le WebSocket agent — mais au refresh,
         # l'historique complet se réhydrate depuis le transcript persisté par
         # Claude Code (le ring buffer WS ne garde que les RING_MAX derniers events)
-        csid = s.get("claude_session_id") or ""
-        tpath = PROJECT_DIR / f"{csid}.jsonl" if csid else None
+        tpath = _sdk_transcript(s)
         if tpath and tpath.exists():
             d = T.parse_file(tpath)
             # 3.1.2 : an agent run's transcript (Crew → History) never shows its secrets

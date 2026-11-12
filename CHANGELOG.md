@@ -25,6 +25,11 @@ Notable changes, newest first. Versions: semver + release hash (see
   /api/simple/sessions/{sid}/message`), the server takes it once — also while the agent is
   already working on it — and the browser asks again with the same id before it shows a
   failure, which now says that the message was not sent. Without `request_id` nothing changes.
+- **The technical cockpit finds the transcript of a session of any project.** The list of
+  sessions (« active ») and the transcript view looked for the transcript of a chat session in
+  the instance's folder only; a session of a project other than `default` works in its project's
+  folder (fixed for the thread of a work in 3.6.3). They now look in the session's own folder
+  too — and only that one.
 
 ## 3.6.3 — 2026-11-11 — "Icebreaker"
 

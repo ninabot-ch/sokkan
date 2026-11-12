@@ -125,3 +125,33 @@ def test_a_follow_up_sent_twice_with_the_same_id_is_taken_once(world):
     # the id belongs to the work: the same one on another work is another message
     alice = world["as"]("alice@x", "radio")
     assert alice.post(f"/api/simple/sessions/{RADIO_SID}/message", json=body).json() == {"ok": True}
+
+
+def test_the_cockpit_finds_the_transcript_of_a_project_session(world, monkeypatch):
+    import board
+    board.set_claude_session_id(RADIO_SID, CSID)
+    d = _transcript_dir(world, monkeypatch, RADIO_SID)
+    (d / f"{CSID}.jsonl").write_text("".join(json.dumps(x) + "\n" for x in [
+        {"type": "user", "uuid": "u", "message": {"role": "user", "content": "Relance le devis de mars."}},
+        {"type": "assistant", "uuid": "a", "message": {"role": "assistant",
+                                                       "content": [{"type": "text", "text": "Brouillon prêt."}]}},
+    ]), encoding="utf-8")
+    c = world["as"]("alice@x", "radio")
+    row = next(s for s in c.get("/api/sessions").json() if s["session_id"] == RADIO_SID)
+    assert row["exists"] is True and row["active"] is True       # the transcript just changed
+    det = c.get(f"/api/sessions/{RADIO_SID}").json()
+    assert det["exists"] is True and [m["text"] for m in det["messages"]] == \
+        ["Relance le devis de mars.", "Brouillon prêt."]
+
+
+def test_the_cockpit_never_reads_the_transcript_of_another_project(world, monkeypatch):
+    """The default work names a transcript filed under the radio project's folder: not found."""
+    import board
+    board.set_claude_session_id(DEFAULT_SID, CSID)
+    d = _transcript_dir(world, monkeypatch, RADIO_SID)
+    (d / f"{CSID}.jsonl").write_text(json.dumps(
+        {"type": "user", "uuid": "u", "message": {"role": "user", "content": "secret radio"}}) + "\n")
+    c = world["as"]("bob@x")
+    assert c.get(f"/api/sessions/{DEFAULT_SID}").json()["messages"] == []
+    row = next(s for s in c.get("/api/sessions").json() if s["session_id"] == DEFAULT_SID)
+    assert row["exists"] is False
