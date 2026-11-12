@@ -106,6 +106,13 @@ export function startWork(ask: string, playbook: string, documents: string[], la
 }
 export const fetchClaudeSettings = () => get<ClaudeSettings>("/api/claude/settings");
 export const saveClaudeKey = (key: string) => send<ClaudeSettings>("/api/claude/key", "PUT", { key });
+export interface ProjectRow { slug: string; name: string; role: string; shared: boolean }
+export const fetchMyProjects = () => get<{ projects: ProjectRow[]; multi: boolean; default: string }>("/api/projects");
+export const fetchUsers = () => get<{ email: string; name: string; role: string }[]>("/api/iam/users");
+export const createProject = (slug: string, name: string) =>
+  send<{ slug: string; name: string }>("/api/admin/projects", "POST", { slug, name, access_source: "sso_group" });
+export const grantProject = (slug: string, email: string, role: string) =>
+  send<unknown>(`/api/admin/projects/${encodeURIComponent(slug)}/grants`, "POST", { principal_kind: "user", principal: email, role });
 export const fetchClaudeGate = (lang: string) => get<ClaudeGate>(`/api/claude/gate?lang=${lang}`);
 export const saveProjectLevel = (slug: string, level: string, reason: string) =>
   send<{ level: string; label: string; claude: ClaudeGate }>(`/api/projects/${encodeURIComponent(slug)}/level`, "PUT", { level, reason });

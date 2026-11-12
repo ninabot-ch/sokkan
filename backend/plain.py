@@ -367,11 +367,32 @@ class View:
         return sorted(self._used.values(), key=lambda s: s["name"].lower())
 
 
-def last_line(events: list[dict], limit: int = 140) -> str:
-    """The last sentence the agent wrote — the preview under a recent work."""
+def readable_line(line: str, lang: str = "fr") -> str:
+    """A preview that would show a router's code (« [sokkan:claude_forbidden] », or the same
+    after markdown cleaning: « [sokkan:claude forbidden] ») → the readable title, else ''.
+    Any other line is returned as is."""
+    m = re.search(r"sokkan:([a-z]+(?:[ _][a-z]+)*)", line or "")
+    if not m:
+        return line
+    code = m.group(1).replace(" ", "_")
+    try:
+        import llmerrors
+        return llmerrors.humanize(code, lang)["title"] if code in llmerrors.CODES else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def last_line(events: list[dict], limit: int = 140, lang: str = "fr") -> str:
+    """The last sentence the agent wrote — the preview under a recent work. A refusal of the
+    router is previewed as its readable title (3.6.5), never as its code."""
     for ev in reversed(events or []):
+        if ev.get("type") == "text" and "[sokkan:" in (ev.get("text") or ""):
+            said = readable_line(ev["text"], lang)
+            if said:
+                return said
+            continue
         if ev.get("type") == "text" and (ev.get("text") or "").strip() \
-                and not _ENGINE_ERROR.match(ev["text"]) and "[sokkan:" not in ev["text"]:
+                and not _ENGINE_ERROR.match(ev["text"]):
             text = re.sub(r"```.*?```", " ", ev["text"], flags=re.S)
             text = re.sub(r"[#*_`>|]+", " ", text)
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]

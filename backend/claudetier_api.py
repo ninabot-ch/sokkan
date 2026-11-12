@@ -137,10 +137,13 @@ def project_level(slug: str, body: LevelIn, request: Request) -> dict:
     from core import levels
     import projects
     u = auth.instance_user(request)
+    # the project's admins, and the instance's: the level is not the project's content (an
+    # instance admin creating « Course content » in Settings classifies it in the same gesture)
+    inst_admin = iam.rank(u.get("role") or "") >= iam.rank("admin")
     pu = projectgate.project_user(u, slug)
-    if pu is None:
+    if projects.get(slug) is None or (pu is None and not inst_admin):
         raise HTTPException(404, "not found")
-    if iam.rank(pu["role"]) < iam.rank("admin"):
+    if not inst_admin and iam.rank(pu["role"]) < iam.rank("admin"):
         raise HTTPException(403, "role 'admin' required in this project")
     new = levels.parse(body.level)
     if new is None:

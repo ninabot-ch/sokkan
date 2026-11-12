@@ -3,11 +3,11 @@
 // recent works with the last sentence + today's usage), the current view, Nina and Settings.
 // Structure borrowed from Nokker (drawer + thread + ONE composer); the brand is SOKKAN's.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, fetchHome, newRequestId, savePrefs, startWork, type ClaudeGate, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
+import { ApiError, fetchHome, fetchMyProjects, newRequestId, savePrefs, startWork, type ClaudeGate, type ProjectRow, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
 import { SimpleUIProvider, useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
-import { currentProject } from "@/lib/project";
+import { currentProject, switchProject } from "@/lib/project";
 import BannerSlot from "./BannerSlot";
 import IngestReview from "./IngestReview";
 import Memory from "./Memory";
@@ -114,6 +114,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           <Brand />
           <button className="sk-btn sk-btn-quiet sk-btn-icon sk-push sk-only-narrow" onClick={() => setDrawer(false)} aria-label={t("nav.close")}><Icon name="close" /></button>
         </div>
+        <ProjectPicker />
         <div className="sk-nav">
           {nav.map((n) => (
             <button key={n.id} className="sk-nav-item" aria-current={view.name === n.id ? "page" : undefined} onClick={() => go({ name: n.id })}>
@@ -291,11 +292,11 @@ function EngineChoice({ gate, engine, model, disabled, onEngine, onModel }: {
       <div className="sk-xs sk-muted">{t("eng.choose")}</div>
       <div className="sk-engine-opts">
         <button type="button" className="sk-engine-opt" aria-pressed={!claude} disabled={disabled} onClick={() => onEngine("local")}>
-          <Icon name="check" small /><span><b>{t("eng.local.opt")}</b><small>{t("eng.local.sub")}</small></span>
+          <Tick on={!claude} /><span><b>{t("eng.local.opt")}</b><small>{t("eng.local.sub")}</small></span>
         </button>
         <button type="button" className="sk-engine-opt" aria-pressed={claude} disabled={disabled || !gate.allowed}
           aria-describedby={!gate.allowed ? "sk-claude-why" : undefined} onClick={() => onEngine("claude")}>
-          <Icon name="send" small /><span><b>{t("eng.claude.opt")}</b>
+          <Tick on={claude} /><span><b>{t("eng.claude.opt")}</b>
             <small id={!gate.allowed ? "sk-claude-why" : undefined}>{gate.allowed ? t("eng.claude.sub") : t("eng.claude.off", { reason: gate.reason })}</small></span>
         </button>
       </div>
@@ -312,5 +313,34 @@ function EngineChoice({ gate, engine, model, disabled, onEngine, onModel }: {
         </>
       )}
     </div>
+  );
+}
+
+/** the mark of the chosen option: a tick in a ring when chosen, an empty ring otherwise */
+function Tick({ on }: { on: boolean }) {
+  return <span className={`sk-tick${on ? " is-on" : ""}`} aria-hidden>{on && <Icon name="check" small />}</span>;
+}
+
+/** 3.6.5 — the project the person works in, when they have more than one (the cockpit's
+ *  selector, in plain words): switching reloads the page in that project. */
+function ProjectPicker() {
+  const t = useT();
+  const [list, setList] = useState<ProjectRow[] | null>(null);
+  useEffect(() => {
+    fetchMyProjects().then((r) => {
+      const work = r.projects.filter((p) => !p.shared);
+      setList(work);
+      // a person who has no role in the project the browser remembers lands in one of theirs
+      if (work.length && !work.some((p) => p.slug === currentProject())) switchProject(work[0].slug);
+    }).catch(() => setList(null));
+  }, []);
+  if (!list || list.length < 2) return null;
+  return (
+    <label className="sk-project-pick">
+      <span className="sk-xs sk-muted">{t("nav.project")}</span>
+      <select value={currentProject()} onChange={(e) => switchProject(e.target.value)}>
+        {list.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+      </select>
+    </label>
   );
 }

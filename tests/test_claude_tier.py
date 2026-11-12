@@ -367,6 +367,27 @@ def test_project_level_route_needs_a_project_admin_and_a_reason_to_lower(inst):
     assert inst["audit"]("project.level")[0]["detail"].startswith("confidential → team")
 
 
+def test_an_instance_admin_creates_course_content_and_classifies_it_from_the_interface(inst):
+    """The path of Settings › New project: create (existing admin route), add the people,
+    classify — the instance admin needs no role in the project to classify it."""
+    import projects
+    c = inst["as"]("admin@x")
+    assert c.post("/api/admin/projects", json={"slug": "contenus-de-cours", "name": "Contenus de cours"}).status_code == 200
+    assert claudetier.gate("contenus-de-cours")["code"] == "level"                 # a new project: default, no Claude
+    r = c.post("/api/admin/projects/contenus-de-cours/grants",
+               json={"principal_kind": "user", "principal": "carol@x", "role": "dev"})
+    assert r.status_code == 200
+    r = c.put("/api/projects/contenus-de-cours/level", json={"level": "team", "reason": "contenus de cours"})
+    assert r.status_code == 200 and r.json()["claude"]["allowed"] is True
+    assert projects.effective_role({"email": "admin@x", "role": "admin"}, "contenus-de-cours") is None
+    # the person works there with Claude; « atelier »-like projects keep the default level
+    c = inst["as"]("carol@x", "contenus-de-cours")
+    r = c.post("/api/simple/start", json={"ask": "Rédige le module 3", "tier": "claude"})
+    assert r.status_code == 200, r.text
+    assert claudetier.gate("default")["code"] == "level"
+    assert c.put("/api/projects/contenus-de-cours/level", json={"level": "public", "reason": "x y z"}).status_code == 403
+
+
 def test_the_key_entered_for_claude_never_becomes_the_engine_of_every_session(inst):
     import llm
     c = inst["as"]("admin@x")
@@ -410,9 +431,14 @@ def test_a_refusal_of_the_router_is_one_notice_in_the_persons_words(prefix):
     (n2,) = plain.View(lang="en").feed({"type": "error", "code": "claude_no_key", "message": "x"})
     assert n2["code"] == "claude" and n2["title"] == "No Anthropic key on this instance"
     assert v.feed({"type": "text", "text": line}) == []
-    # nor is the raw line the preview of the work in « Recents »
-    assert plain.last_line([{"type": "text", "text": "Voici le module."}, {"type": "text", "text": line}]) \
-        == "Voici le module."
+    # the preview of the work in « Recents » is the readable title, never the code
+    evs = [{"type": "text", "text": "Voici le module."}, {"type": "text", "text": line}]
+    assert plain.last_line(evs) == "Claude n'est pas autorisé pour ce projet"
+    assert plain.last_line(evs, lang="en") == "Claude is not allowed for this project"
+    # and a preview stored before the fix (markdown-cleaned code) is said, or nothing
+    assert plain.readable_line("[sokkan:claude forbidden]") == "Claude n'est pas autorisé pour ce projet"
+    assert plain.readable_line("[sokkan:nothing known]") == ""
+    assert plain.readable_line("Voici le plan.") == "Voici le plan."
 
 
 def test_saves_validations_and_export_carry_the_model(inst):

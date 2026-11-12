@@ -650,3 +650,11 @@ html[data-sk-theme] body {
 .sk-engine-model select, .sk-claude-set select, .sk-claude-set input { font: inherit; padding: 6px 8px; border-radius: var(--sk-r-sm);
   border: 1px solid var(--sk-line-strong); background: transparent; color: inherit; min-height: 36px; }
 .sk-claude-set { display: flex; flex-direction: column; gap: var(--sk-s2); }
+.sk-tick { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1.5px solid var(--sk-line-strong);
+  display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.sk-tick.is-on { border-color: var(--sk-sea); color: var(--sk-sea); }
+.sk-project-pick { display: flex; flex-direction: column; gap: 4px; padding: 0 var(--sk-s4) var(--sk-s3); }
+.sk-project-pick select, .sk-newproj input[type="text"] { font: inherit; padding: 6px 8px; border-radius: var(--sk-r-sm);
+  border: 1px solid var(--sk-line-strong); background: var(--sk-surface); color: inherit; min-height: 36px; }
+.sk-newproj-people { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.sk-newproj-people label { display: flex; gap: var(--sk-s2); align-items: center; }

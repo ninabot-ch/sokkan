@@ -2,11 +2,12 @@
 // Simple profile — settings a person owns: language, appearance, and the profile itself
 // (simple / technical). The approval mode is deliberately NOT here.
 import { useEffect, useRef, useState } from "react";
-import { ApiError, fetchClaudeGate, fetchClaudeSettings, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
+import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchUsers, grantProject, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
   type ClaudeGate, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
+import { switchProject } from "@/lib/project";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
@@ -100,6 +101,7 @@ export default function Settings({ prefs, onPrefs, onClose, project }: {
         )}
         {claudeOn && instAdmin && <ClaudeAdmin />}
         {claudeOn && instAdmin && <ProjectLevel project={project} />}
+        {claudeOn && instAdmin && <NewProject />}
         <div className="sk-small sk-muted">
           <div>{t("set.signed", { who: me?.email || "" })}</div>
           <div>{t("set.project")} : {project}</div>
@@ -186,6 +188,71 @@ function ProjectLevel({ project }: { project: string }) {
       <div><button className="sk-btn" disabled={lvl === g.level || (lower && reason.trim().length < 3)} onClick={save}>
         <Icon name="check" />{t("set.level.save")}</button></div>
       {msg && <div className="sk-small" role="status">{msg}</div>}
+    </fieldset>
+  );
+}
+
+function slugOf(name: string): string {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "projet";
+}
+
+/** 3.6.5 — an administrator creates a project (« Course content »), says who works in it and
+ *  classifies it, in one gesture: the existing admin routes, one after the other. The admin
+ *  is added to it too (journaled), so the project shows in their own selector. */
+function NewProject() {
+  const t = useT();
+  const me = useMe();
+  const [name, setName] = useState("");
+  const [level, setLevel] = useState("team");
+  const [people, setPeople] = useState<{ email: string; name: string }[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ slug: string; name: string } | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { fetchUsers().then((u) => setPeople(u.filter((x) => x.email !== (me?.email || "").toLowerCase()))).catch(() => setPeople([])); }, [me?.email]);
+  const create = async () => {
+    setBusy(true); setErr(""); setDone(null);
+    const slug = slugOf(name);
+    try {
+      const p = await createProject(slug, name.trim());
+      if (me?.email) await grantProject(p.slug, me.email, "admin");
+      for (const e of Array.from(picked)) await grantProject(p.slug, e, "dev");
+      await saveProjectLevel(p.slug, level, t("set.newproj"));
+      setDone({ slug: p.slug, name: p.name }); setName(""); setPicked(new Set());
+    } catch (e) { setErr(t("set.newproj.failed", { why: e instanceof Error ? e.message : "" })); } finally { setBusy(false); }
+  };
+  return (
+    <fieldset className="sk-claude-set sk-newproj">
+      <legend className="sk-legend">{t("set.newproj")}</legend>
+      <p className="sk-small sk-muted">{t("set.newproj.hint")}</p>
+      <label className="sk-small" htmlFor="sk-newproj-name">{t("set.newproj.name")}</label>
+      <input id="sk-newproj-name" type="text" value={name} placeholder="Contenus de cours" onChange={(e) => setName(e.target.value)} />
+      <label className="sk-small" htmlFor="sk-newproj-level">{t("set.newproj.level")}</label>
+      <select id="sk-newproj-level" value={level} onChange={(e) => setLevel(e.target.value)}>
+        {LEVELS.map((l) => <option key={l} value={l}>{t(`set.level.${l}` as Key)}</option>)}
+      </select>
+      {people.length > 0 && (
+        <>
+          <div className="sk-small">{t("set.newproj.people")}</div>
+          <div className="sk-newproj-people">
+            {people.map((p) => (
+              <label key={p.email} className="sk-small">
+                <input type="checkbox" checked={picked.has(p.email)} onChange={(e) => {
+                  const n = new Set(picked); if (e.target.checked) n.add(p.email); else n.delete(p.email); setPicked(n);
+                }} />{p.name ? `${p.name} · ${p.email}` : p.email}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      <div><button className="sk-btn" disabled={busy || name.trim().length < 2} onClick={create}>
+        {busy ? <span className="sk-spin" aria-hidden /> : <Icon name="check" />}{t("set.newproj.create")}</button></div>
+      {done && (
+        <div className="sk-small" role="status">{t("set.newproj.done", { name: done.name, level: t(`set.level.${level}` as Key) })}{" "}
+          <button className="sk-btn sk-btn-quiet" onClick={() => switchProject(done.slug)}>{t("set.newproj.open")}</button></div>
+      )}
+      {err && <div className="sk-error"><Icon name="alert" small /><span>{err}</span></div>}
     </fieldset>
   );
 }

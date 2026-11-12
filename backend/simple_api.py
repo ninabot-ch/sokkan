@@ -186,12 +186,15 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
     def _row(s: dict, work: dict | None, with_deliverables: bool = False) -> dict:
         sid = s["session_id"]
         a = agentchat.peek(sid)
-        line = plain.last_line(a.events) if a is not None else ""
+        lang = (work or {}).get("lang") or "fr"
+        line = plain.last_line(a.events, lang=lang) if a is not None else ""
         if line and work:
             simple.note_last_line(sid, line)
+        # a preview stored before 3.6.5 may hold a router's code: its readable title, or nothing
+        stored = plain.readable_line((work or {}).get("last_line") or "", lang)
         dl = simple.list_deliverables(s.get("project") or "default", sid)
         out = {"sid": sid, "title": s.get("title") or "", "state": _state(sid),
-               "last_line": line or (work or {}).get("last_line") or "",
+               "last_line": line or stored,
                "created_at": s.get("created_at"),
                "updated_at": max([x["updated_at"] for x in dl]
                                  + [(work or {}).get("last_at") or 0, s.get("created_at") or 0]),
