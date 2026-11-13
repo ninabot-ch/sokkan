@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6.6
+## 3.6.6 — 2026-11-12 — "Icebreaker"
 
 - « Write with Claude » after an upgrade by an older `upgrade.sh`: the choice stayed greyed out
   (« the router is not connected ») — a 3.6.4 / 3.6.5 `upgrade.sh` runs its OWN steps and never
