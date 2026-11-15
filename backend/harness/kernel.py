@@ -220,6 +220,7 @@ class KernelHarness(Harness):
         self._turn_error: Error | None = None
         self._cancelled = False
         self._aliases: dict[str, str] = {}      # folder named by a hex id → its alias
+        self._model: str | None = None
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -631,6 +632,11 @@ class KernelHarness(Harness):
                 self._last_text = str(d["text"])
                 put(AssistantText(turn_id=self._turn, text=self._last_text))
         elif name == "turn.cost":
+            models = [str(m.get("model") or "") for m in d.get("models") or [] if m.get("model")]
+            if models and models[-1] != self._model:
+                # the model that really answered (the kernel may escalate): the cockpit's badge
+                self._model = models[-1]
+                put(RunInfo(model=self._model))
             for m in d.get("models") or []:
                 put(Usage(turn_id=self._turn, model=str(m.get("model") or "") or None,
                           input=int(m.get("input_tokens") or 0),
