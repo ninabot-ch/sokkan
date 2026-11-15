@@ -114,7 +114,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           <Brand />
           <button className="sk-btn sk-btn-quiet sk-btn-icon sk-push sk-only-narrow" onClick={() => setDrawer(false)} aria-label={t("nav.close")}><Icon name="close" /></button>
         </div>
-        <ProjectPicker />
+        <ProjectPicker last={prefs.project || ""} />
         <div className="sk-nav">
           {nav.map((n) => (
             <button key={n.id} className="sk-nav-item" aria-current={view.name === n.id ? "page" : undefined} onClick={() => go({ name: n.id })}>
@@ -323,22 +323,29 @@ function Tick({ on }: { on: boolean }) {
 
 /** 3.6.5 — the project the person works in, when they have more than one (the cockpit's
  *  selector, in plain words): switching reloads the page in that project. */
-function ProjectPicker() {
+function ProjectPicker({ last }: { last: string }) {
   const t = useT();
   const [list, setList] = useState<ProjectRow[] | null>(null);
   useEffect(() => {
     fetchMyProjects().then((r) => {
       const work = r.projects.filter((p) => !p.shared);
       setList(work);
+      // 3.6.7: the project THIS person last worked in, unless the address names one — the
+      // browser's memory is the last person's (a shared computer signed in someone else)
+      const named = new URLSearchParams(window.location.search).has("project");
+      if (!named && last && last !== currentProject() && work.some((p) => p.slug === last)) { switchProject(last); return; }
       // a person who has no role in the project the browser remembers lands in one of theirs
       if (work.length && !work.some((p) => p.slug === currentProject())) switchProject(work[0].slug);
     }).catch(() => setList(null));
-  }, []);
+  }, [last]);
   if (!list || list.length < 2) return null;
   return (
     <label className="sk-project-pick">
       <span className="sk-xs sk-muted">{t("nav.project")}</span>
-      <select value={currentProject()} onChange={(e) => switchProject(e.target.value)}>
+      <select value={currentProject()} onChange={(e) => {
+        const slug = e.target.value;
+        savePrefs({ project: slug }).catch(() => {}).finally(() => switchProject(slug));
+      }}>
         {list.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
       </select>
     </label>

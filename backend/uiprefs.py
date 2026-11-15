@@ -7,6 +7,8 @@
   the instance says its default.
 * ``lang``: ``auto`` (the browser's), ``fr`` or ``en`` — the simple profile's screens only.
 * ``theme``: ``light`` (default), ``dark`` or ``auto`` (the system's) — idem.
+* ``project``: the project the person last worked in (3.6.7), so that signing in on a
+  browser that another person used last does not land them in THAT person's project.
 
 A UI preference, not a right: what a person may do is still decided by roles and features.
 The one thing it gates is the approval mode, which a person on the simple profile cannot
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 
@@ -26,6 +29,7 @@ PROFILES = ("simple", "technical")
 LANGS = ("auto", "fr", "en")
 THEMES = ("light", "dark", "auto")
 _lock = threading.Lock()
+_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 
 
 def store_path() -> str:
@@ -72,23 +76,27 @@ def get(email: str) -> dict:
         "chosen": rec.get("profile") in PROFILES,
         "lang": rec.get("lang") if rec.get("lang") in LANGS else "auto",
         "theme": rec.get("theme") if rec.get("theme") in THEMES else "light",
+        "project": rec.get("project") if isinstance(rec.get("project"), str)
+        and _SLUG.fullmatch(rec["project"]) else "",
         "available": on,
         "locked": locked(),
     }
 
 
 def set_prefs(email: str, *, profile: str | None = None, lang: str | None = None,
-              theme: str | None = None) -> dict:
+              theme: str | None = None, project: str | None = None) -> dict:
     if profile is not None and profile not in PROFILES:
         raise ValueError(f"profile: one of {', '.join(PROFILES)}")
     if lang is not None and lang not in LANGS:
         raise ValueError(f"lang: one of {', '.join(LANGS)}")
     if theme is not None and theme not in THEMES:
         raise ValueError(f"theme: one of {', '.join(THEMES)}")
+    if project is not None and not _SLUG.fullmatch(project):
+        raise ValueError("project: a project slug")
     with _lock:
         d = _load()
         rec = dict(d.get(_key(email)) or {})
-        for k, v in (("profile", profile), ("lang", lang), ("theme", theme)):
+        for k, v in (("profile", profile), ("lang", lang), ("theme", theme), ("project", project)):
             if v is not None:
                 rec[k] = v
         rec["at"] = time.time()

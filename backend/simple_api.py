@@ -91,6 +91,7 @@ class PrefsIn(BaseModel):
     profile: str | None = None
     lang: str | None = None
     theme: str | None = None
+    project: str | None = None      # 3.6.7: the project the person works in, kept per person
 
 
 class StartIn(BaseModel):
@@ -250,9 +251,12 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if body.profile is not None and uiprefs.locked() \
                 and iam.rank(user.get("role") or "") < iam.rank("admin"):
             raise HTTPException(403, "the profile is set by an administrator on this instance")
+        if body.project is not None:
+            # only a project the person may enter is remembered (no way to probe others)
+            _in_project(request, body.project)
         try:
             out = uiprefs.set_prefs(user["email"], profile=body.profile, lang=body.lang,
-                                    theme=body.theme)
+                                    theme=body.theme, project=body.project)
         except ValueError as e:
             raise HTTPException(400, str(e))
         if body.profile is not None:
@@ -359,6 +363,10 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         s = board.add_sdk_session(sid, "docs", title=title, prompt=ask, project=slug, owner=email)
         simple.add_work(sid, slug, email, ask, body.playbook, lang,
                         tier="claude" if tier == "claude" else "", claude_model=cmodel)
+        try:
+            uiprefs.set_prefs(email, project=slug)   # 3.6.7: where this person works, next time
+        except (OSError, ValueError):
+            pass
         if tier == "claude":
             import hitl_journal
             hitl_journal.engine_chosen(sid, actor=email, project=slug, model=cmodel,
