@@ -38,7 +38,7 @@ two change behaviour by default, see below); no new feature switch.
 - « Recent » scrolls inside the drawer instead of running over the usage gauge and the account
   (1440×810, 1280×800).
 - **Export our work**: the screen and the README say how many of the exported projects hold any
-  work (« 4 projects, 2 with work in them »; header
+  work (header
   `X-Sokkan-Export-Projects-With-Content`, `projects_with_content` in the manifest); dates and
   times (`manifest.json`, `index.json`, file name) are in the instance's time zone
   (`SOKKAN_TZ`, else `TZ`) as ISO 8601 with their offset (`2026-11-14T10:25:00+01:00`, was
@@ -51,6 +51,16 @@ two change behaviour by default, see below); no new feature switch.
   agent's answer — a user message's text is no longer read as the agent speaking; and, without
   its reasoning pass, the model sometimes thinks aloud in English in its answer (« The user is
   asking me to… ») — such a paragraph is not shown in a work in another language.
+- **Memory dates on a new box**: while the memory's history was empty, every indexing pass
+  counted as the bootstrap of an existing corpus, so the first notes ever written on a fresh
+  install had no date (`mtime` null: the Memory page neither sorted them nor said « Updated … »).
+  A note whose file was written after the store began indexing is now dated when it is seen; a
+  corpus already there at the very first pass keeps its honest « unknown » date. (Older than 3.6.7.)
+- The English Atelier uses English quotes (“Write with Claude”), never French guillemets; a test
+  keeps the English dictionary that way.
+- « Export our work » counts a project only for its own work (notes, deliverables, agents and
+  what they delivered): « Projects with work in them: 1 » — an empty shared project is no
+  longer counted; the README names such projects apart. New `work` per project in the manifest.
 - A note the agent wants to retain no longer shows « · modified today » next to the document it
   comes from (the age warns about a stale source of a deliverable only).
 - **A memory note that directly matches a new work is applied from the first draft**: launched
