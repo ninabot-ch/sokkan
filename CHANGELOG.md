@@ -58,7 +58,7 @@ two change behaviour by default, see below); no new feature switch.
   full, as the team's convention to follow, instead of one line and a 320-character snippet (a
   quiz ignored the team's quiz charter whose rules came after the snippet, and the per-turn recall
   never offered them again). New variable `SOKKAN_RECALL_FULL_CHARS` (default 3000 per note,
-  6000 in all).
+  6000 in all; 0 = off).
 - **Atelier › Notes to review also lists the notes a work asked to keep** while it had been handed
   documents (quarantine): read, approve, or refuse with a reason kept in the journal. The entry
   shows for contributors even without document ingestion, and the agent names that screen.
@@ -75,6 +75,8 @@ two change behaviour by default, see below); no new feature switch.
   before) is closed after `SOKKAN_SESSION_IDLE_CLOSE_S` (new, default 1800 s, 0 = never) and
   resumed on the same conversation at its next message; the thread stays readable. A session that
   is working, or waits for an approval or an answer, is never closed.
+  If closing the client fails, its CLI process is stopped anyway (an orphan of ~0.3 GB was seen
+  on the end-to-end pass with the real CLI).
 
 ## 3.6.6 — 2026-11-12 — "Icebreaker"
 
