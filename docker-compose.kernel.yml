@@ -15,6 +15,20 @@
 #   a real instance needs the kernel's docker sandbox (a docker-socket proxy) — see the design
 #   note of lot 1. Nothing here publishes a port.
 services:
+  # one-shot: the two named volumes start root-owned; the kernel runs as 1000
+  kernel-init:
+    image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
+    profiles: ["kernel"]
+    user: "0"
+    entrypoint: ["sh", "-c", "chown 1000:1000 /opt/data /run/kernel && chmod 0750 /run/kernel"]
+    volumes:
+      - kernel-state:/opt/data
+      - kernel-token:/run/kernel
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+
   kernel:
     image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
     profiles: ["kernel"]
@@ -22,6 +36,9 @@ services:
     init: true
     user: "1000:1000"
     entrypoint: ["python3", "-m", "nokker", "--config", "/etc/kernel/config.yaml", "serve"]
+    depends_on:
+      kernel-init:
+        condition: service_completed_successfully
     environment:
       NOKKER_CONFIG: /etc/kernel/config.yaml
       NOKKER_HOME: /opt/data
