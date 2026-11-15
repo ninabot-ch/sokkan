@@ -52,6 +52,8 @@ today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature
   the person, the project and the session are handed as `usr-…`, `prj-…`, `run-…` handles
   (instance key `engine-identity.key`, mapping `engine_handles.db`); the SOKKAN MCP servers
   of such a run get their identity back when they start. Today's engine is not concerned.
+  `backup.sh` treats `engine-identity.key` as a key file (encrypted with the passphrase,
+  never in `data.tgz`); a set made before keeps the current one at restore.
 - **The journal of a run's events**, written by the cockpit whatever the engine
   (`run_events.db`): order, turns, tools, gates and decisions, recalls, errors — their shape,
   never what was written. New variable `SOKKAN_RUN_EVENTS_DAYS` (kept 90 days by default).
