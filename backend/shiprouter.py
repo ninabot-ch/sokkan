@@ -90,6 +90,10 @@ def cfg() -> dict:
         "ship_token": e("SOKKAN_SHIP_TOKEN") or "",
         "ship_timeout": env_num("SOKKAN_SHIP_TIMEOUT_S", 600.0, float),
         "ship_connect": env_num("SOKKAN_SHIP_CONNECT_TIMEOUT_S", 5.0, float),
+        # 3.6.7: the local model answers the everyday work WITHOUT its reasoning pass — a
+        # first work took 9 min 26 s on a shared 27B, ~10 k tokens of thinking before a word.
+        # Deep (the gateway) keeps its own reasoning; SOKKAN_SHIP_THINKING=1 turns it back on.
+        "ship_thinking": (e("SOKKAN_SHIP_THINKING") or "0").strip().lower() in ("1", "true", "yes", "on"),
         "deep_url": (e("SOKKAN_DEEP_URL") or "").rstrip("/"),
         "deep_token": e("SOKKAN_DEEP_TOKEN") or "",
         "deep_model": e("SOKKAN_DEEP_MODEL") or "sokkan-deep",
@@ -280,6 +284,13 @@ def _upstream(tier: str, c: dict, inbound) -> tuple[str, dict]:
 def _body(tier: str, payload: dict, c: dict) -> bytes:
     p = dict(payload)
     p["model"] = c["deep_model"] if tier == "deep" else (c["ship_model"] or p.get("model") or "")
+    if tier == "ship" and not c.get("ship_thinking", True):
+        # the chat template of the local model (Qwen-style `enable_thinking`, read by vLLM's
+        # /v1/messages) skips the reasoning pass; an Anthropic `thinking` budget asked by the
+        # CLI would only arm a budget for a pass that no longer happens — dropped
+        kw = p.get("chat_template_kwargs")
+        p["chat_template_kwargs"] = {**(kw if isinstance(kw, dict) else {}), "enable_thinking": False}
+        p.pop("thinking", None)
     return json.dumps(p, ensure_ascii=False).encode()
 
 

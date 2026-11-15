@@ -107,6 +107,9 @@ class H(BaseHTTPRequestHandler):
             SEEN_TEXT[0] = (SEEN_TEXT[0] + "\n" + shown)[-2_000_000:]
             STATE["count"] += 1
             STATE["models"] = (STATE["models"] + [req.get("model")])[-20:]
+            # 3.6.7: what the router asked of the chat template (SOKKAN_SHIP_THINKING)
+            ctk = req.get("chat_template_kwargs")
+            STATE["enable_thinking"] = (ctk or {}).get("enable_thinking") if isinstance(ctk, dict) else None
             STATE["last_user"] = user[-200:]
             STATE["auth"] = (self.headers.get("x-api-key") or "")[:12]
             STATE["concurrent"] += 1

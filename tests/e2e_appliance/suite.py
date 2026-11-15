@@ -817,6 +817,8 @@ def t14():
         "SOKKAN_PUBLIC_URL": "secure" in cookie.lower() and "sokkan_session=" in cookie,
         "SOKKAN_SHIP_URL": seen(SHIP)["count"] > 0,
         "SOKKAN_SHIP_MODEL": "qwen3.8-27b" in seen(SHIP)["models"],
+        # 3.6.7: 0 = the local model is asked to skip its reasoning pass
+        "SOKKAN_SHIP_THINKING": e.get("SOKKAN_SHIP_THINKING") == "0" and seen(SHIP).get("enable_thinking") is False,
         "SOKKAN_DEEP_URL": seen(DEEP)["count"] > 0,
         "SOKKAN_DEEP_TOKEN": seen(DEEP)["auth"] == "sik_e2e_inst",
         "SOKKAN_DEEP_MODEL": "sokkan-deep" in seen(DEEP)["models"],

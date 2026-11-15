@@ -109,6 +109,33 @@ def test_an_ordinary_request_stays_on_the_local_model(box):
     assert ship.seen[0]["body"]["stream"] is True
 
 
+def test_the_local_model_answers_without_its_reasoning_pass_deep_keeps_it(box):
+    """3.6.7: a first work took 9 min 26 s on a shared 27B (~10 k tokens of thinking). The
+    everyday request reaches the local model with `enable_thinking: false` (and without the
+    CLI's `thinking` budget); the escalation to Deep is sent as the CLI wrote it."""
+    c, ship, deep, _ = box
+    think = {"type": "enabled", "budget_tokens": 8000}
+    c.post("/v1/messages", json=msg(thinking=think, chat_template_kwargs={"x": 1}))
+    sent = ship.seen[-1]["body"]
+    assert sent["chat_template_kwargs"] == {"x": 1, "enable_thinking": False}
+    assert "thinking" not in sent
+    c.post("/v1/messages", json=msg("analyse ce contrat /deep", thinking=think))
+    up = deep.seen[-1]["body"]
+    assert up["thinking"] == think and "chat_template_kwargs" not in up
+    c.post("/v1/messages/count_tokens", json=msg())          # same template, same count
+    assert ship.seen[-1]["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+@pytest.mark.parametrize("value", ["1", "on"])
+def test_the_reasoning_pass_of_the_local_model_can_be_turned_back_on(box, value):
+    c, ship, _, mp = box
+    mp.setenv("SOKKAN_SHIP_THINKING", value)
+    think = {"type": "enabled", "budget_tokens": 8000}
+    c.post("/v1/messages", json=msg(thinking=think))
+    sent = ship.seen[-1]["body"]
+    assert "chat_template_kwargs" not in sent and sent["thinking"] == think
+
+
 @pytest.mark.parametrize("payload,headers,reason", [
     (msg(model="sokkan-deep"), {}, "requested"),
     (msg(), {"x-sokkan-tier": "deep"}, "requested"),
