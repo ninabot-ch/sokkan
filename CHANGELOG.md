@@ -6,8 +6,8 @@ Notable changes, newest first. Versions: semver + release hash (see
 ## Unreleased — 4.0 "Seven seas"
 
 Lot 0 of the change of engine: the session layer becomes a contract, today's engine is
-rewritten on it, nothing changes for a user. New variable `SOKKAN_ENGINE_RUNTIME` (empty =
-today's engine); no changed default, no new feature switch.
+rewritten on it, nothing changes for a user. New variables `SOKKAN_ENGINE_RUNTIME` (empty =
+today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature switch.
 
 ### Changed
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
@@ -25,6 +25,9 @@ today's engine); no changed default, no new feature switch.
   of import. [backend/harness/README.md](backend/harness/README.md).
 - `SOKKAN_ENGINE_RUNTIME` (compose) / `engine.runtime` (Helm chart) names the engine of new
   sessions; empty or unknown = `legacy`, the only engine declared.
+- **Operate › Costs and the budgets read each session from one source chosen by its engine**:
+  the transcripts for today's engine (unchanged), the usage ledger for an engine that writes
+  none. No session is counted twice.
 
 ### Added
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
@@ -43,6 +46,15 @@ today's engine); no changed default, no new feature switch.
   withheld. Green on the CLI adapter for real (the bundled CLI in front of a scripted model)
   and on a fake engine written from the contract alone (no SDK, gates born on the engine's
   side, no question, no plan) — where the cockpit can only restrict what the engine would do.
+- **Setup › Engines shows the engine that runs the sessions** (read-only: label, usable
+  here or not, what it cannot do); `GET /api/engines/session`.
+- **Opaque identity handles** for an engine that must not see who and what a run is for:
+  the person, the project and the session are handed as `usr-…`, `prj-…`, `run-…` handles
+  (instance key `engine-identity.key`, mapping `engine_handles.db`); the SOKKAN MCP servers
+  of such a run get their identity back when they start. Today's engine is not concerned.
+- **The journal of a run's events**, written by the cockpit whatever the engine
+  (`run_events.db`): order, turns, tools, gates and decisions, recalls, errors — their shape,
+  never what was written. New variable `SOKKAN_RUN_EVENTS_DAYS` (kept 90 days by default).
 - **A capability the engine lacks is greyed out, never emulated (C7).** The pane drops
   « plan » from its approval modes when the session's engine has none, and says why; a
   session refuses the mode without touching the engine. Today's engine has every capability:

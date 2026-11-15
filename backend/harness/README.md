@@ -107,9 +107,16 @@ What an adapter must get right (each line is a conformance scenario or a unit te
   stdio servers the engine launches inside whatever sandbox it has; each entry's `env`
   carries the caller's identity for that server.
 * **Identity.** An engine that treats what it is handed as a secret, logs it, or sends it
-  off the host must declare `Capabilities.identity = "opaque"` and be given opaque handles
-  for `run_id`, `user` and `project` — never a project name or an e-mail address. The
-  cockpit keeps the mapping. (Not built yet: see « Not done in this step ».)
+  off the host declares `Capabilities.identity = "opaque"`, and is handed handles
+  (`identity.py`): `run_id`, `user`, `project` and `Confinement.project` become
+  `run-…`, `usr-…`, `prj-…` (HMAC of the value with an instance key, 20 hex: stable on the
+  instance, meaningless elsewhere); the identity variables of the SOKKAN MCP servers become
+  one `SOKKAN_SESSION_HANDLE`, which each server expands back when it starts
+  (`identity.expand_env`, from the mapping in the data directory). The cockpit keeps the
+  mapping (`engine_handles.db`) and resolves a handle (`identity.resolve`). Not covered
+  yet, to look at with the first opaque engine: the run's working folder (it holds the
+  project's slug) and `RunSpec.env` (the model routing of « Write with Claude » names the
+  project) — both go to the run's tools, not to the model.
 * **Usage.** One `usage` event per model call, `scope="message"`. A repeated `message_id`
   supersedes (the largest of each field) — never an addition. An engine that first reports
   a call before its output is known settles it later with `revision=True`. An engine that
@@ -184,10 +191,13 @@ does: it is the figure the meter has settled on since 3.6.4), else the sum of it
 turn the engine ended without a result is recorded (`reported = 0`) and counts nothing.
 Every write is best-effort: a ledger that cannot be written never breaks a turn.
 
-Operate › Costs and the budgets still read the CLI's transcripts, unchanged.
-`usage.session_totals(sid, source="transcripts" | "events")` gives one session by either
-source, priced by the same code; tests prove they agree on a same run, including a real
-run of the CLI.
+Operate › Costs and the budgets read each session from ONE source, chosen by its engine:
+transcripts for an engine that declares `Capabilities.usage == "transcripts"` (the CLI),
+the ledger (`usage_calls`) for every other engine — aggregated and priced by the same code,
+so a CLI session, whose calls are in the ledger too, is never counted twice
+(`usage.transcript_engines()`). `usage.session_totals(sid, source="transcripts" |
+"events")` gives one session by either source; tests prove they agree on a same run,
+including a real run of the CLI.
 
 Two things were measured while proving it, and both matter to whoever reads events:
 
@@ -229,21 +239,30 @@ imported anywhere but `backend/harness/legacy.py` — by `import`, `from … imp
 `importlib.import_module("…")` or `__import__("…")`. The appliance router
 (`shiprouter.py`) speaks HTTP to the models it routes to; it imports no SDK.
 
+## The journal of a run
+
+Every event of a run is journalled by the cockpit, never by the adapter
+(`backend/run_journal.py`, `run_events.db`, kept `SOKKAN_RUN_EVENTS_DAYS` days, 90 by
+default): one row per event with its order, turn, engine and project — its SHAPE only.
+Tool names and classifications, gate kinds and decisions with who decided, note names of a
+recall, error codes, turn durations; never the text of the model, a prompt, a tool's input
+or output, an error message. `assistant.*` and `usage` are not journalled (the transcript
+and the usage ledger hold them). Rows are written when a turn ends, when a gate opens and
+when the run ends, one transaction each; `run_journal.events(sid)` reads them back.
+
 ## Selecting the engine
 
 `SOKKAN_ENGINE_RUNTIME` (compose; `engine.runtime` in the Helm chart) names the engine of
 new sessions and runs. Empty, or a name that is not declared, = the first declared engine,
-`legacy`. One engine is declared in this release.
+`legacy`. One engine is declared in this release. Setup › Engines shows it, read-only:
+`GET /api/engines/session` = `registry.describe()` (the detection note for an admin only),
+with what the engine cannot do.
 
 ## Not done in this step
 
 * The front still receives the historical flow (translated in `agentchat._consume`); only
   the `capabilities` event is new, and only an engine that lacks something sends it.
-* No second engine is declared. Setup › Engines does not show the session engine yet
-  (`registry.describe()` is ready for it): with one engine there is nothing to choose.
-* Opaque identity handles (`Capabilities.identity = "opaque"`) are specified, not minted.
-* Costs still read transcripts; switching an engine to the `events` source (and never
-  counting a session twice) is part of bringing that engine in.
-* Events are not journalled one by one by the cockpit; the journal of validations and the
-  audit log are written where they were.
+* No second engine is declared.
 * No `history()` on the interface: the replay of a session reads the CLI's transcript.
+* Four-eyes on a session's gate does not exist in the cockpit (C6 proves only what an
+  engine must allow for it).
