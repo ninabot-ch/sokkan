@@ -395,3 +395,44 @@ def test_a_draft_ledger_of_the_lot_is_migrated_in_place(world):
     cols = {r[1] for r in con.execute("PRAGMA table_info(usage_events)")}
     con.close()
     assert "turn_id" in cols and "message_id" not in cols
+
+
+# ---- Operate › Costs and the budgets read the ledger for an engine without transcripts ---
+
+def test_costs_and_budgets_read_the_ledger_of_an_engine_without_transcripts(world, monkeypatch):
+    """A session of an engine that writes no transcript is in Operate › Costs, in its
+    project's spend (budgets) and priced by the same table; a session of the CLI, whose
+    calls are ALSO in the ledger, is counted once — from its transcript."""
+    import board
+    import pricing
+    import usage
+    monkeypatch.setenv("SOKKAN_BILLING_BASIS", "api")
+    board.add_sdk_session(SID, "t")
+    board.set_claude_session_id(SID, CSID)
+    _write_transcript(world / "transcripts")
+    before = usage.summary(30)
+    # the CLI's own calls, recorded by the session as well: must not be counted twice
+    for mid, model, blocks in MESSAGES:
+        u = blocks[-1]
+        usage.record_call(session_id=SID, message_id=mid, model=model, harness="legacy",
+                          in_tokens=u.get("input_tokens", 0), out_tokens=u.get("output_tokens", 0))
+    assert usage.summary(30)["totals"] == before["totals"]
+    # a session of another engine (here: one that is not declared, as a future one)
+    board.add_sdk_session("sid-kern", "t", title="Relance du devis", project="radio")
+    usage.record_call(session_id="sid-kern", message_id="k1", model=OPUS, harness="kernel",
+                      project="radio", in_tokens=1000, out_tokens=200)
+    usage.record_call(session_id="sid-kern", message_id="k2", model=OPUS, harness="kernel",
+                      project="radio", in_tokens=500, out_tokens=100)
+    after = usage.summary(30)
+    cost = pricing.cost(OPUS, {"input_tokens": 1500, "output_tokens": 300})["total"]
+    assert after["totals"]["all"]["turns"] == before["totals"]["all"]["turns"] + 2
+    assert after["totals"]["all"]["api_equiv"] == pytest.approx(
+        before["totals"]["all"]["api_equiv"] + cost, abs=1e-4)
+    (line,) = [x for x in after["sessions"] if x["session_id"] == "sid-kern"]
+    assert line["turns"] == 2 and line["out_tokens"] == 300 and line["project"] == "radio"
+    assert line["title"] == "Relance du devis"
+    assert {p["project"] for p in after["by_project"]} >= {"radio"}
+    spend = usage.project_spend("radio")
+    assert spend["day"] == pytest.approx(cost, abs=1e-4) and spend["month"] >= spend["day"]
+    assert usage.summary(30, project="radio")["totals"]["all"]["turns"] == 2
+    assert usage.transcript_engines() == {"legacy"}

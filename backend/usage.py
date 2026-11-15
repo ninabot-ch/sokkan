@@ -41,11 +41,13 @@ transcript says what it consumed through the session contract (the `usage` event
 (`usage_events.db`): every model call (`usage_calls`, `record_call`, deduplicated by call
 like a transcript is) and ONE NORMALISED RECORD PER TURN (`usage_events`, `record_turn`:
 engine, model, tokens, cost, duration, project, session). The record of a turn is what the
-run's meter settles on, what the session's counters and the study journal read. Today's
-engine writes transcripts AND emits the events: Operate › Costs and the budgets still read
-the TRANSCRIPTS, unchanged; `session_totals(sid, source=…)` gives the same session by either
-source (tests prove the two agree on a same run). Costs switches to the events, engine by
-engine, when an engine without transcripts comes in.
+run's meter settles on, what the session's counters and the study journal read.
+Operate › Costs and the budgets read each session from ONE source, chosen by its engine: an
+engine that writes transcripts (`Capabilities.usage == "transcripts"`: today's CLI, whose
+transcripts also hold calls made after a turn's result) from its transcripts; every other
+engine from the ledger (`usage_calls`), aggregated and priced by the same code — no session
+is counted twice. `session_totals(sid, source=…)` gives the same session by either source
+(tests prove the two agree on a same run).
 """
 from __future__ import annotations
 
@@ -775,6 +777,54 @@ def _price_row(r: dict, basis: str, other: dict) -> dict:
     return {"api_equiv": api_eq, "billed": billed, "metered": metered, "priced_basis": priced}
 
 
+def transcript_engines() -> set[str]:
+    """The engines whose sessions Costs reads from their transcripts
+    (`Capabilities.usage == "transcripts"`): their calls are in the ledger too, and must
+    not be counted twice. Every other engine is read from the ledger (`usage_calls`)."""
+    try:
+        from harness import registry
+        out = set()
+        for name in registry.declared():
+            try:
+                if registry.get(name).capabilities().usage == "transcripts":
+                    out.add(name)
+            except Exception:  # noqa: BLE001 — an engine whose adapter cannot load
+                pass
+        return out or {"legacy"}
+    except Exception:  # noqa: BLE001
+        return {"legacy"}
+
+
+def _event_files(known: dict) -> tuple[dict, list[dict]]:
+    """The sessions of engines without transcripts, read from the ledger, in the shape
+    `_scan` reads transcripts: one pseudo-file `events:<session>` per session, rows per
+    (day, model). Same aggregation and same price table as a transcript."""
+    if not events_db().exists():
+        return {}, []
+    skip = transcript_engines()
+    con = _events_con()
+    try:
+        sids = [(r[0], r[1]) for r in con.execute(
+            "SELECT session_id, MIN(project) FROM usage_calls WHERE harness NOT IN"
+            f" ({', '.join('?' * len(skip))}) GROUP BY session_id", tuple(skip))]
+    finally:
+        con.close()
+    files, rows = {}, []
+    for sid, proj in sids:
+        tot, by = _aggregate({"messages": call_messages(sid)})
+        if not tot["turns"]:
+            continue
+        path = f"events:{sid}"
+        sess = known.get(sid)
+        files[path] = {"path": path, "session_id": sid, "first_prompt": "",
+                       "last_ts": tot["last_ts"], "first_ts": tot["first_ts"],
+                       "source": "sokkan", "proj": (sess or {}).get("project") or proj
+                       or "default", "session": sess}
+        for (day, model), r in by.items():
+            rows.append({"path": path, "day": day, "model": model, **r})
+    return files, rows
+
+
 def _scan(project: str | None) -> dict:
     refresh()
     con = _con()
@@ -784,6 +834,15 @@ def _scan(project: str | None) -> dict:
         rows = [dict(r) for r in con.execute("SELECT * FROM rows")]
     finally:
         con.close()
+    # 4.0: the sessions of an engine that writes no transcript come from the ledger
+    try:
+        ev_files, ev_rows = _event_files(known)
+    except Exception as e:  # noqa: BLE001 — Costs without them rather than no Costs
+        import sys
+        print(f"[sokkan] usage ledger not read ({e!r})", file=sys.stderr)
+        ev_files, ev_rows = {}, []
+    files.update(ev_files)
+    rows.extend(ev_rows)
     b = billing()
     local_ids = _local_model_ids()
     models = {r["model"] for r in rows}
