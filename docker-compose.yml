@@ -74,6 +74,9 @@ services:
       CORTHEXIS_MIGRATION_NORMALIZE: ${SOKKAN_MIGRATION_NORMALIZE:-auto}
       # memory recall injected at every message and into every sub-agent (0 = off)
       CORTHEXIS_RECALL: ${CORTHEXIS_RECALL:-1}
+      # 3.6.7 SOKKAN Atelier: a note that directly matches a new work is given in full (at most
+      # this many characters each, 2 notes) so its rules apply from the first draft
+      SOKKAN_RECALL_FULL_CHARS: ${SOKKAN_RECALL_FULL_CHARS:-}
       CORTHEXIS_LEXICAL_WEIGHT: ${CORTHEXIS_LEXICAL_WEIGHT:-}
       CORTHEXIS_HNSW_EF_SEARCH: ${CORTHEXIS_HNSW_EF_SEARCH:-}
       # optional model override for spawned sessions (default: CLI default)

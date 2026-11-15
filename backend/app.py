@@ -2273,7 +2273,16 @@ def _session_scope(session_id: str | None) -> tuple[str, ...]:
         return ()
 
 
-PRESEED_FULL_CHARS = int(os.environ.get("SOKKAN_RECALL_FULL_CHARS") or "3000")
+def _full_chars() -> int:
+    """SOKKAN_RECALL_FULL_CHARS: how much of a directly relevant note the Atelier's brief gives
+    in full (3.6.7). Unreadable = the default — never a crash at import (the 3.1.2 lesson)."""
+    try:
+        return max(0, int((os.environ.get("SOKKAN_RECALL_FULL_CHARS") or "3000").strip()))
+    except ValueError:
+        return 3000
+
+
+PRESEED_FULL_CHARS = _full_chars()
 PRESEED_FULL_TOTAL = 6000
 
 

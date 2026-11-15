@@ -5,8 +5,9 @@ Notable changes, newest first. Versions: semver + release hash (see
 
 ## Unreleased — 3.6.7 "Icebreaker"
 
-Finishes of the simple interface, from a filmed run of a real work. Two new variables (both with
-a default that changes behaviour, see below); no new feature switch.
+Finishes of the simple interface, from a filmed run of a real work. Three new variables
+(`SOKKAN_SHIP_THINKING`, `SOKKAN_SESSION_IDLE_CLOSE_S`, `SOKKAN_RECALL_FULL_CHARS`; the first
+two change behaviour by default, see below); no new feature switch.
 
 - **The two interfaces have names**: the simple interface is **SOKKAN Atelier**, the technical one
   **SOKKAN Cockpit**, in every label in French and English (Settings, the Cockpit's interface
@@ -43,6 +44,15 @@ a default that changes behaviour, see below); no new feature switch.
   (`SOKKAN_TZ`, else `TZ`) as ISO 8601 with their offset (`2026-11-14T10:25:00+01:00`, was
   `09:25:00Z`).
 - Settings › Claude in the Atelier no longer shows any part of the API key (« A key is saved »).
+- **A memory note that directly matches a new work is applied from the first draft**: launched
+  from the Atelier, the notes above the recall threshold (2 at most) are given to the agent in
+  full, as the team's convention to follow, instead of one line and a 320-character snippet (a
+  quiz ignored the team's quiz charter whose rules came after the snippet, and the per-turn recall
+  never offered them again). New variable `SOKKAN_RECALL_FULL_CHARS` (default 3000 per note,
+  6000 in all).
+- **Atelier › Notes to review also lists the notes a work asked to keep** while it had been handed
+  documents (quarantine): read, approve, or refuse with a reason kept in the journal. The entry
+  shows for contributors even without document ingestion, and the agent names that screen.
 - **The local model answers everyday work without its reasoning pass**: the router sends
   `chat_template_kwargs: {"enable_thinking": false}` to the model of the box and drops the CLI's
   thinking budget (a first work took 9 min 26 s on a shared 27B, ~10 k tokens of reasoning before
