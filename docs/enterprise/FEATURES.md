@@ -58,7 +58,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 | [`study_mode`](#study_mode) Study mode (audited use) | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_STUDY_MODE` |
 | [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
-| [`simple_profile`](#simple_profile) Simple profile | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
+| [`simple_profile`](#simple_profile) SOKKAN Atelier (simple interface) | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
 | [`work_export`](#work_export) Export our work | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_WORK_EXPORT` |
 | [`claude_tier`](#claude_tier) Write with Claude (appliance) | beta | toggle | off | off | `simple_profile` | — | `SOKKAN_FEATURE_CLAUDE_TIER` |
 
@@ -110,7 +110,7 @@ graph LR
   connect_ai["Connect your AI"]
   study_mode["Study mode (audited use)"]
   documents["Document drop"]
-  simple_profile["Simple profile"]
+  simple_profile["SOKKAN Atelier (simple interface)"]
   work_export["Export our work"]
   claude_tier["Write with Claude (appliance)"]
   preview_private_targets --> preview
@@ -600,9 +600,9 @@ People attach documents (PDF, docx, pptx, xlsx, txt, md) to a project or a sessi
 
 ### simple_profile
 
-**Simple profile** — beta, toggle.
+**SOKKAN Atelier (simple interface)** — beta, toggle.
 
-A second way into the same cockpit for people who never saw a terminal: a task-first home (« what are we working on? », attach documents, four business task templates), a plain-language thread (no tool names, technical detail folded), an approval card that says what the agent wants to save and from which sources, a deliverable to preview, download and validate; French and English; light theme by default. Chosen per person (simple / technical); the technical profile keeps every existing screen. From the simple profile the approval mode cannot be changed.
+A second way into the same cockpit for people who never saw a terminal: a task-first home (« what are we working on? », attach documents, four business task templates), a plain-language thread (no tool names, technical detail folded), an approval card that says what the agent wants to save and from which sources, a deliverable to preview, download and validate; French and English; light theme by default. Chosen per person (SOKKAN Atelier / SOKKAN Cockpit); the Cockpit keeps every existing screen. From the Atelier the approval mode cannot be changed.
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `documents`
