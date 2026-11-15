@@ -104,8 +104,9 @@ def test_a_run_spec_describes_itself_without_secret_nor_callable():
 
 # ---- the registry ------------------------------------------------------------------------
 
-def test_one_engine_is_declared_and_selected_by_configuration(monkeypatch, capsys):
-    assert registry.declared() == ["legacy"] and registry.default() == "legacy"
+def test_the_engines_are_declared_and_selected_by_configuration(monkeypatch, capsys):
+    assert registry.declared() == ["legacy", "kernel"] and registry.default() == "legacy"
+    monkeypatch.setenv("SOKKAN_KERNEL_URL", "http://127.0.0.1:9")   # nothing listens there
     monkeypatch.delenv(registry.ENV, raising=False)
     assert registry.selected() == "legacy"
     monkeypatch.setenv(registry.ENV, "Legacy ")
@@ -118,9 +119,13 @@ def test_one_engine_is_declared_and_selected_by_configuration(monkeypatch, capsy
     caps = registry.capabilities()
     assert caps == h.capabilities() and caps.gate_authority == "core"
     assert caps.question and caps.plan and caps.resume and caps.context == ("hook", "mcp")
-    (d,) = registry.describe()
+    d, k = registry.describe()
     assert d["name"] == "legacy" and d["selected"] and isinstance(d["available"], bool)
     assert d["available"] is False or d["capabilities"]["usage"] == "transcripts"
+    # the kernel is a service: unreachable, it is reported, never raised, never selected
+    assert k["name"] == "kernel" and not k["selected"] and k["available"] is False
+    monkeypatch.setenv(registry.ENV, "kernel")
+    assert registry.selected() == "kernel" and registry.create().name == "kernel"
 
 
 def test_an_engine_whose_dependency_is_missing_is_reported_not_raised(monkeypatch):

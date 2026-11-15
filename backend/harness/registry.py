@@ -55,6 +55,10 @@ def declare(engine: Engine) -> None:
 
 declare(Engine(name="legacy", label="Claude Code CLI (Claude Agent SDK)",
                module="harness.legacy", factory="LegacyHarness"))
+# the kernel engine: a service next to the api (compose profile `kernel`). Declared second, so
+# never the default; selected with SOKKAN_ENGINE_RUNTIME=kernel.
+declare(Engine(name="kernel", label="Kernel engine (service)",
+               module="harness.kernel", factory="KernelHarness"))
 
 ENV = "SOKKAN_ENGINE_RUNTIME"
 
