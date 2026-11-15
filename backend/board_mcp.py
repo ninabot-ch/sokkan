@@ -25,6 +25,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 4.0: an engine that must not see identities hands this server a run handle only
+try:
+    from harness.identity import expand_env as _expand_identity
+    _expand_identity()
+except Exception:  # noqa: BLE001 — no handle, no mapping: the environment is used as is
+    pass
 import audit  # noqa: E402
 import board  # noqa: E402
 import iam  # noqa: E402

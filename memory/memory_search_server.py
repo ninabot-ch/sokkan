@@ -32,6 +32,14 @@ from mcp.server.fastmcp import FastMCP
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# 4.0: an engine that must not see identities hands this server a run handle only (the
+# mapping lives with the backend; appended, so that nothing of the backend shadows this folder)
+try:
+    sys.path.append(str(Path(__file__).resolve().parent.parent / "backend"))
+    from harness.identity import expand_env as _expand_identity
+    _expand_identity()
+except Exception:  # noqa: BLE001 — memory server outside SOKKAN: nothing to expand
+    pass
 import embeddings
 import store_backend  # 3.0 store, behind CORTHEXIS_MEMORY_BACKEND=postgres
 

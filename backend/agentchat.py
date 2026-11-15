@@ -413,6 +413,10 @@ class AgentSession:
                 return
             spec = await self._run_spec()
             self.harness = registry.create()
+            if self.harness.capabilities().identity == "opaque":
+                # who and what the run is for never reaches such an engine: handles only
+                from harness import identity
+                spec = identity.opaque_spec(spec)
             self._stream = self.harness.start(spec)
             self._announce_capabilities()
             # the first event reaches the engine: `run.started`, or the engine's own error
