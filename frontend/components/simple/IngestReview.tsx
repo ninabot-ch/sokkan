@@ -10,7 +10,8 @@ import type { Key } from "@/lib/simple/dict";
 import { useT, useUI, when, type T } from "@/lib/simple/i18n";
 import {
   approveBatch, approveNote, batchFlagged, batchNote, batchSample, batchStats, ingestBatches, ingestStatus,
-  noteBody, noteHead, rejectBatch, rejectNote, type BatchNote, type BatchRow, type BatchStats, type IngestStatus,
+  noteBody, noteHead, quarantineApprove, quarantineList, quarantineNote, quarantineReject, rejectBatch, rejectNote,
+  type BatchNote, type BatchRow, type BatchStats, type IngestStatus, type QuarantinedNote,
 } from "@/lib/simple/ingest";
 import Icon from "./icons";
 import Markdown from "./Markdown";
@@ -32,7 +33,10 @@ function StatusPill({ status }: { status: BatchRow["status"] }) {
   return <span className={`sk-pill ${cls}`}><span className="sk-dot" />{t(`ing.status.${status}` as Key)}</span>;
 }
 
-export default function IngestReview({ onCount }: { onCount?: (pending: number) => void }) {
+/** 3.6.7 — the screen also lists the notes a work asked to keep (`quarantine`, SOKKAN Atelier):
+ *  without it a « Remember… » in a work that had documents waited where nobody could see it.
+ *  The batches part needs the feature `doc_ingest`; the notes part, a contributor role. */
+export default function IngestReview({ onCount, quarantine = false }: { onCount?: (pending: number) => void; quarantine?: boolean }) {
   const t = useT();
   const { lang } = useUI();
   const [status, setStatus] = useState<IngestStatus | null>(null);
@@ -40,12 +44,23 @@ export default function IngestReview({ onCount }: { onCount?: (pending: number) 
   const [state, setState] = useState<"loading" | "ok" | "denied" | "failed">("loading");
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  const [kept, setKept] = useState<QuarantinedNote[] | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([ingestStatus(), ingestBatches()])
-      .then(([s, b]) => { setStatus(s); setRows(b.batches); setState("ok"); onCount?.(b.batches.filter(todo).length); })
-      .catch((e) => setState(e instanceof ApiError && (e.status === 403 || e.status === 404) ? "denied" : "failed"));
-  }, [onCount]);
+    const batches = Promise.all([ingestStatus(), ingestBatches()]).then(([s, b]) => ({ s, b }));
+    const notes = quarantine ? quarantineList() : Promise.reject(new ApiError(404, "", "off"));
+    Promise.allSettled([batches, notes]).then(([b, q]) => {
+      const qn = q.status === "fulfilled" ? q.value : null;
+      setKept(qn);
+      if (b.status === "fulfilled") { setStatus(b.value.s); setRows(b.value.b.batches); }
+      else { setStatus(null); setRows(null); }
+      const denied = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && r.reason instanceof ApiError
+        && (r.reason.status === 403 || r.reason.status === 404);
+      if (b.status === "fulfilled" || qn) setState("ok");
+      else setState(denied(b) && (!quarantine || denied(q)) ? "denied" : "failed");
+      onCount?.((b.status === "fulfilled" ? b.value.b.batches.filter(todo).length : 0) + (qn?.length || 0));
+    });
+  }, [onCount, quarantine]);
   useEffect(load, [load]);
 
   if (open !== null) return <Batch id={open} onBack={() => { setOpen(null); load(); }} />;
@@ -54,15 +69,25 @@ export default function IngestReview({ onCount }: { onCount?: (pending: number) 
   const shown = all ? rows || [] : waiting;
   return (
     <div className="sk-scroll"><div className="sk-page sk-page-wide">
-      <div><h1 className="sk-h1">{t("ing.title")}</h1><p className="sk-lede">{t("ing.lede")}</p></div>
+      <div><h1 className="sk-h1">{t("ing.title")}</h1><p className="sk-lede">{t(rows || !kept ? "ing.lede" : "qn.lede.only")}</p></div>
       {state === "loading" && <div className="sk-list" aria-busy="true" aria-label={t("loading")}><div className="sk-skel" /><div className="sk-skel" /></div>}
       {state === "denied" && <div className="sk-empty"><Icon name="shield" /><p>{t("ing.denied")}</p></div>}
       {state === "failed" && <div className="sk-empty" role="alert"><Icon name="alert" /><p>{t("ing.failed")}</p><button className="sk-btn" onClick={load}>{t("retry")}</button></div>}
-      {state === "ok" && status?.model.not_ready && (
+      {state === "ok" && kept && (
+        <section aria-labelledby="sk-q-title" className="sk-list">
+          <div className="sk-section-head"><h2 className="sk-h3" id="sk-q-title">{t("qn.title", { n: kept.length })}</h2></div>
+          <p className="sk-muted">{t("qn.lede")}</p>
+          {kept.length === 0 ? <p className="sk-muted">{t("qn.empty")}</p>
+            : kept.map((n) => <KeptNote key={n.name} n={n} onDone={load} />)}
+          {!rows && <p className="sk-small sk-muted">{t("ing.journal")}</p>}
+        </section>
+      )}
+      {state === "ok" && rows && status?.model.not_ready && (
         <div className="sk-notice" role="status"><Icon name="info" /><span>{t("ing.model.missing", { why: status.model.not_ready })}</span></div>
       )}
-      {state === "ok" && (
+      {state === "ok" && rows && (
         <>
+          {kept && <div className="sk-section-head"><h2 className="sk-h3">{t("qn.batches")}</h2></div>}
           <div className="sk-seg" role="group" aria-label={t("ing.title")}>
             <button aria-pressed={!all} onClick={() => setAll(false)}>{t("ing.filter.todo", { n: waiting.length })}</button>
             <button aria-pressed={all} onClick={() => setAll(true)}>{t("ing.filter.all")}</button>
@@ -300,6 +325,65 @@ function Note({ batch, n, live, busy, onDecide, onOpened, error }: {
           <input id={`sk-why-${n.name}`} className="sk-input" value={reason} placeholder={t("ing.reason")} maxLength={300} autoFocus
             onChange={(e) => setReason(e.target.value)} />
           <button className="sk-btn sk-btn-danger" disabled={busy} onClick={() => { onDecide(n, "reject", reason.trim()); setAsking(false); }}>{t("ing.reason.confirm")}</button>
+          <button className="sk-btn sk-btn-quiet" disabled={busy} onClick={() => setAsking(false)}>{t("cancel")}</button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+// ---- 3.6.7: a note a work asked to keep ---------------------------------------------------------
+function KeptNote({ n, onDone }: { n: QuarantinedNote; onDone: () => void }) {
+  const t = useT();
+  const { lang } = useUI();
+  const [text, setText] = useState<string | null>(null);
+  const [shown, setShown] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<"approved" | "rejected" | null>(null);
+  const [error, setError] = useState("");
+  const read = async () => {
+    if (shown) { setShown(false); return; }
+    if (text === null) { try { setText((await quarantineNote(n.name)).text || ""); } catch { setText(""); } }
+    setShown(true);
+  };
+  const act = async (fn: () => Promise<unknown>, state: "approved" | "rejected") => {
+    setBusy(true); setError("");
+    try { await fn(); setDone(state); setAsking(false); window.setTimeout(onDone, 1200); }
+    catch (e) { setError(t("ing.error", { why: why(t, e) })); }
+    finally { setBusy(false); }
+  };
+  const at = n.provenance?.quarantined_at;
+  const from = n.work_title ? t("qn.from", { work: n.work_title }) : t("qn.from.none");
+  return (
+    <article className={`sk-note${done === "approved" ? " is-approved" : done === "rejected" ? " is-rejected" : ""}`} aria-label={n.title || n.name}>
+      <div className="sk-note-title">{n.title || n.name}</div>
+      {n.description && n.description !== n.title && <div className="sk-muted">{n.description}</div>}
+      <div className="sk-small sk-muted">{from}{at ? ` · ${t("qn.when", { when: when(t, at, lang) })}` : ""}{n.exists_in_memory ? ` · ${t("qn.replaces")}` : ""}</div>
+      {shown && text !== null && <div className="sk-note-body"><Markdown text={noteBody(text)} /></div>}
+      <div className="sk-actions">
+        <button className="sk-btn sk-btn-quiet" aria-expanded={shown} onClick={read}><Icon name="eye" />{t(shown ? "ing.read.hide" : "ing.read")}</button>
+        {done && (
+          <span className={done === "approved" ? "sk-validated" : "sk-muted"} role="status">
+            {done === "approved" && <Icon name="check" small />}{t(done === "approved" ? "ing.note.approved" : "ing.note.rejected")}
+          </span>
+        )}
+        {!done && !asking && (
+          <>
+            <button className="sk-btn" disabled={busy || !shown} title={shown ? undefined : t("ing.read")}
+              onClick={() => act(() => quarantineApprove(n.name), "approved")}><Icon name="check" />{t("ing.note.approve")}</button>
+            <button className="sk-btn sk-btn-danger" disabled={busy} onClick={() => setAsking(true)}>{t("ing.note.reject")}</button>
+          </>
+        )}
+      </div>
+      {error && <div className="sk-error" role="alert"><Icon name="alert" small /><span>{error}</span></div>}
+      {!done && asking && (
+        <div className="sk-reason">
+          <label className="sk-visually-hidden" htmlFor={`sk-qwhy-${n.name}`}>{t("ing.reason")}</label>
+          <input id={`sk-qwhy-${n.name}`} className="sk-input" value={reason} placeholder={t("ing.reason")} maxLength={300} autoFocus
+            onChange={(e) => setReason(e.target.value)} />
+          <button className="sk-btn sk-btn-danger" disabled={busy} onClick={() => act(() => quarantineReject(n.name, reason.trim()), "rejected")}>{t("ing.reason.confirm")}</button>
           <button className="sk-btn sk-btn-quiet" disabled={busy} onClick={() => setAsking(false)}>{t("cancel")}</button>
         </div>
       )}
