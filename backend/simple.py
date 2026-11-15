@@ -196,8 +196,11 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():
+        # 3.6.7: « use them when relevant » let the first draft of a quiz ignore the team's
+        # quiz charter — a note given in full is a rule of the team for this very task
         lines += ["", recall.strip(),
-                  "(Notes recalled from this project's memory: use them when relevant.)"]
+                  "(Notes from this project's memory. A note given in full matches this task: "
+                  "follow it in the first draft, and name it to the person in one sentence.)"]
     lines.append("</sokkan-brief>")
     # said again AFTER the request: an open model drifts to English mid-task when the
     # language rule is only at the top of a long brief (seen on the first timed journey)

@@ -372,7 +372,9 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         mission = ""
         if pb:
             mission = (playbooks.render(body.playbook, ask, project=slug) or ("", ""))[0]
-        recall = preseed(f"{title} {ask}".strip(), session_id=sid)
+        # 3.6.7: the notes that match the task directly are given IN FULL (a charter seen as a
+        # snippet was ignored by the first draft)
+        recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)
         session._emit({"type": "user_echo", "text": ask,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
         bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
