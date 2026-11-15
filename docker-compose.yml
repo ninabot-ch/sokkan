@@ -329,6 +329,9 @@ services:
       # to COMPOSE_FILE (it sets the variables below); kubernetes = the Helm chart.
       SOKKAN_FEATURE_KUBERNETES_RUNNER: ${SOKKAN_FEATURE_KUBERNETES_RUNNER:-}
       SOKKAN_RUNNER: ${SOKKAN_RUNNER:-local}
+      # 4.0 session layer (backend/harness): the engine of new sessions and runs. Empty = the
+      # first declared one, `legacy` (the Claude Code CLI) — the only engine of this release
+      SOKKAN_ENGINE_RUNTIME: ${SOKKAN_ENGINE_RUNTIME:-}
       # docker runner : valeurs posées par docker/runner/compose.docker-runner.yml (vide = défauts)
       SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
       SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}

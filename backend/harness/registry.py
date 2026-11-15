@@ -73,7 +73,7 @@ def get(name: str) -> Engine:
 
 def selected() -> str:
     """The engine of new runs on this instance."""
-    v = (os.environ.get(ENV) or "").strip().lower()
+    v = (os.environ.get("SOKKAN_ENGINE_RUNTIME") or "").strip().lower()
     if not v:
         return default()
     if v not in _DECLARED:
