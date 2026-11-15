@@ -137,6 +137,12 @@ the router sends `chat_template_kwargs: {"enable_thinking": false}` with every r
 On a shared 27B, a first work took 9 min 26 s with the reasoning pass (~10 k tokens of thinking
 before the first word). `SOKKAN_SHIP_THINKING=1` turns it back on; Deep keeps its own reasoning.
 
+An open session keeps its agent process (0.3-0.4 GB) while it is used. After
+`SOKKAN_SESSION_IDLE_CLOSE_S` seconds without activity (default 1800; 0 = never) that process
+is closed; the thread stays readable, and the next message starts it again on the same
+conversation (a few seconds more for that answer). A session that is working, or waits for an
+approval or an answer, is never closed.
+
 `SOKKAN_ESCALATION=0` keeps everything local unless asked. Who typed a request is **not** sent
 to the gateway (`SOKKAN_DEEP_FORWARD_USER=0`) — except in study mode, where the instance sends a
 **pseudonym** (P1, P2…) with the study: the router hands both to the gateway, which serves the

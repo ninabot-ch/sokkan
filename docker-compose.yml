@@ -78,6 +78,9 @@ services:
       CORTHEXIS_HNSW_EF_SEARCH: ${CORTHEXIS_HNSW_EF_SEARCH:-}
       # optional model override for spawned sessions (default: CLI default)
       SOKKAN_AGENT_MODEL: ${SOKKAN_AGENT_MODEL:-}
+      # 3.6.7: seconds without activity after which an open session's CLI process is closed
+      # (0.3-0.4 GB each), resumed on the same conversation at its next turn. 0 = never.
+      SOKKAN_SESSION_IDLE_CLOSE_S: ${SOKKAN_SESSION_IDLE_CLOSE_S:-}
       # included-inference mode (seeded at provisioning): route sessions through
       # the operator gateway instead of a client key. Empty = BYOK.
       SOKKAN_INFER_BASE_URL: ${SOKKAN_INFER_BASE_URL:-}

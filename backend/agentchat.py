@@ -282,6 +282,11 @@ class AgentSession:
         self.sandboxed: str | None = None
         self._bash_off_noted = False
         self._refusal_said: str | None = None
+        # 3.6.7: an idle session's CLI process is closed after SOKKAN_SESSION_IDLE_CLOSE_S
+        # (≈ 0.3-0.4 GB each, nothing closed them) and started again, resumed, at the next turn
+        self.last_active = time.monotonic()
+        self.parked = 0               # how many times its CLI was closed for idleness
+        self._sandbox_said = False
 
     # ---- diffusion ----------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -296,6 +301,7 @@ class AgentSession:
         if self.redact_values:
             import agents  # pure module (no SDK), imported late to keep this one light
             event = agents.redact_obj(event, self.redact_values)
+        self.last_active = time.monotonic()
         self.events.append(event)
         if len(self.events) > RING_MAX:
             del self.events[: len(self.events) - RING_MAX]
@@ -391,8 +397,10 @@ class AgentSession:
                 if "add_dirs" in _OPTION_FIELDS:
                     opts_kwargs["add_dirs"] = []
                 self.sandboxed = proj
-                if sandbox.mode() == sandbox.HOOKS:
-                    # say it up front in the pane (banner), not only when Bash is refused
+                if sandbox.mode() == sandbox.HOOKS and not self._sandbox_said:
+                    # say it up front in the pane (banner), not only when Bash is refused —
+                    # once: a CLI started again after idleness (3.6.7) does not repeat it
+                    self._sandbox_said = True
                     self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
                                 "message": sandbox.BASH_OFF})
             if hooks:
@@ -424,6 +432,37 @@ class AgentSession:
             self._cli_cost_seen = 0.0  # nouveau processus CLI : son compteur repart de 0
             # __aenter__ plutôt que `async with` : on garde le client ouvert
             await self.client.__aenter__()
+
+    def parkable(self, idle_s: float, now: float | None = None) -> bool:
+        """Its CLI can be closed without anyone noticing: started, no turn running, no
+        approval nor question waiting for a person, nothing emitted for `idle_s` seconds."""
+        now = time.monotonic() if now is None else now
+        return (self.client is not None and not self._busy and not self._perms
+                and not self._questions and now - self.last_active >= idle_s)
+
+    async def park(self, idle_s: float = 0.0) -> bool:
+        """3.6.7 — close the CLI process of an idle session and keep everything else: the
+        events (the thread is replayed as before), the mode, the person, the policy. The next
+        turn starts the CLI again on the same conversation (`resume` = its Claude session),
+        so the person sees no difference but a few seconds at the next answer. Under the
+        start lock: a turn that begins meanwhile waits, then finds the CLI closed and starts
+        it again. Returns True when the CLI was closed."""
+        async with self._start_lock:
+            if not self.parkable(idle_s):
+                return False
+            self.resume = self.claude_session_id or self.resume
+            client, self.client = self.client, None
+            try:
+                await client.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001 — a CLI already gone is closed too
+                pass
+            try:
+                from forge import gitcred
+                await gitcred.close_socket(self.sid)
+            except Exception:  # noqa: BLE001
+                pass
+            self.parked += 1
+            return True
 
     async def close(self) -> None:
         for fut in list(self._perms.values()) + list(self._questions.values()):
@@ -768,6 +807,7 @@ class AgentSession:
         if bstate == "warn" and not self._project_budget_warned:
             self._project_budget_warned = True
             self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
+        self.last_active = time.monotonic()
         await self.ensure_started()
         assert self.client is not None
         self._busy = True
@@ -1140,6 +1180,47 @@ def peek(sid: str) -> AgentSession | None:
 
 def new_sid() -> str:
     return uuid.uuid4().hex
+
+
+def idle_close_s() -> float:
+    """SOKKAN_SESSION_IDLE_CLOSE_S: seconds without any event after which an idle session's
+    CLI process is closed (resumed at the next turn). 0 = never (before 3.6.7)."""
+    try:
+        return max(0.0, float(os.environ.get("SOKKAN_SESSION_IDLE_CLOSE_S") or 1800))
+    except ValueError:
+        return 1800.0
+
+
+async def park_idle(idle_s: float | None = None) -> list[str]:
+    """Close the CLI of every idle session (see AgentSession.park). → the sids parked."""
+    idle_s = idle_close_s() if idle_s is None else idle_s
+    if idle_s <= 0:
+        return []
+    out = []
+    for sid, s in list(_registry.items()):
+        if s.parkable(idle_s):
+            try:
+                if await s.park(idle_s):
+                    out.append(sid)
+            except Exception as e:  # noqa: BLE001 — one session never stops the sweep
+                print(f"[sokkan] idle session {sid}: close failed: {e!r}", file=sys.stderr)
+    return out
+
+
+async def idle_loop(stop: asyncio.Event) -> None:
+    """The sweep, every minute at most (a quarter of the delay when it is short)."""
+    while not stop.is_set():
+        idle_s = idle_close_s()
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=max(5.0, min(60.0, (idle_s or 240) / 4)))
+            return
+        except asyncio.TimeoutError:
+            pass
+        parked = await park_idle(idle_s)
+        if parked:
+            print(f"[sokkan] closed the CLI of {len(parked)} idle session(s) "
+                  f"(SOKKAN_SESSION_IDLE_CLOSE_S={idle_s:g}); resumed at their next turn",
+                  file=sys.stderr)
 
 
 async def drop(sid: str) -> None:
