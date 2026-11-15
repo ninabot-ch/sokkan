@@ -79,6 +79,20 @@ v3.5.1 (`6f7fee5`) plus four lots, merged in this order, plus what holds between
 | z | The Memory page and the card « retain in memory » titled a note without a `# heading` from its name, a slug without accents (« Evaluation des acquis », « Faq clients ») | `title:` of the front matter, the opening `# heading`, a title out of the description, the name last; `GET /api/memory/notes` carries `title`, the page no longer reads up to 40 notes to find their titles (`tests/test_simple_364.py`, `tests/test_memory_api.py`) |
 | aa | The token cap and the budget of an agent run on a model the CLI does not price counted the usage each message announces when its call starts (one output token for a call that ends with hundreds) | The count is settled on the exact totals of each turn's result, added and never subtracted (`agentcost.Meter.settle_turn`; `tests/test_agents_hardening.py`) |
 
+**On top, in 3.6.7 (candidate, branch `polish-3.6.7`, not cut)** — seen while filming a real work in the simple interface (CHANGELOG, « Unreleased — 3.6.7 »):
+
+| | What was wrong | Now |
+|---|---|---|
+| ab | The two interfaces had no product name (« simple profile », « technical profile ») | **SOKKAN Atelier** and **SOKKAN Cockpit** in every label, French and English; internal names unchanged |
+| ac | The person's own « Refuse » read in orange « this step did not succeed », and so did a shell call the Atelier turns away by itself (`mkdir`) | « Refused by you — … » (neutral, kept on replay); a call turned away by a rule of the space is not shown; a real failure still is (`tests/test_simple_367.py`, `tests/nav/simple_thread_test.ts`) |
+| ad | After an approved save the agent offered a « v2 » nobody asked for: two cards for one deliverable | One approval per document per turn: a further save of an approved document in the same turn is turned away (journaled as automatic) and the agent sums up; the brief asks for one save, no unasked version |
+| ae | The deliverable's card stayed « Deliverable ready » after the validation; one document had two titles (file name / `# Title`); a dash was lost (« Module 4 Animer… »); « Keep as a deliverable » under a saved deliverable | The card says « Validated by you on … at … »; one title everywhere; the dash kept; « Keep » only under a turn that saved nothing |
+| af | « Export our work » said « 4 projects » for two with work; times in UTC (`09:25Z` against 10:25 on screen) | « 4 projects, 2 with work in them »; ISO 8601 in the instance's zone with its offset (`SOKKAN_TZ`) |
+| ag | A person signing in on a browser someone else used last landed in that person's project | The last project is kept per person |
+| ah | « Recent » ran over the drawer's foot at 1440×810 and 1280×800; a spinner kept turning next to a finished card | Recent scrolls in its own space; the end of a turn settles every step |
+| ai | A first work took 9 min 26 s on a shared 27B (reasoning before the first word); open sessions were never closed (0.3-0.4 GB each) | `SOKKAN_SHIP_THINKING=0` (default): no reasoning pass on the local model, Deep keeps it; `SOKKAN_SESSION_IDLE_CLOSE_S=1800` (default): an idle session's process is closed and resumed at its next message |
+| aj | The end of the Claude API key showed in the Atelier's Settings (it was filmed) | No part of the key on that screen |
+
 ## 2. Features and what each needs
 
 | Feature | Status | Default | Requires | Switch |
