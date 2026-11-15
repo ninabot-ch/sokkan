@@ -6,6 +6,9 @@
 # * The kernel is a CONTAINER IMAGE (SOKKAN_KERNEL_IMAGE, pinned by tag), never source in this
 #   repository. Its configuration: deploy/kernel/config.example.yaml, copied to
 #   deploy/kernel/config.yaml and filled by the operator (model endpoints, no secret inside).
+# * Its threads, cards and ledger live in SOKKAN's Postgres, schema `kernel`, roles kernel_owner
+#   (migrations) and kernel_app (the kernel): deploy/kernel/db-init.sql. Two passwords in .env:
+#   SOKKAN_KERNEL_DB_OWNER_PASSWORD, SOKKAN_KERNEL_DB_APP_PASSWORD.
 # * The api reads the kernel's local token from the shared volume kernel-token; both run under
 #   the same uid (1000, the api's), so the 0600 token is readable by the api only.
 # * The projects (/workspace for the default one, /data/projects for the others) are mounted at
@@ -29,6 +32,46 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # one-shot: the kernel's schema and roles in SOKKAN's Postgres (deploy/kernel/db-init.sql)
+  kernel-db:
+    image: pgvector/pgvector:pg16
+    profiles: ["kernel"]
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["psql", "-q", "-v", "owner_password=${SOKKAN_KERNEL_DB_OWNER_PASSWORD:?set SOKKAN_KERNEL_DB_OWNER_PASSWORD}",
+                 "-v", "app_password=${SOKKAN_KERNEL_DB_APP_PASSWORD:?set SOKKAN_KERNEL_DB_APP_PASSWORD}",
+                 "-f", "/sql/db-init.sql"]
+    environment:
+      PGHOST: db
+      PGUSER: sokkan
+      PGDATABASE: sokkan
+      PGPASSWORD: ${SOKKAN_DB_PASSWORD:-sokkan}
+    volumes:
+      - ./deploy/kernel/db-init.sql:/sql/db-init.sql:ro
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  # one-shot: the kernel's migrations, as the schema's owner
+  kernel-migrate:
+    image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
+    profiles: ["kernel"]
+    user: "1000:1000"
+    depends_on:
+      kernel-db:
+        condition: service_completed_successfully
+    entrypoint: ["python3", "-m", "nokker", "--config", "/etc/kernel/config.yaml", "migrate"]
+    environment:
+      NOKKER_PG_DSN: postgresql://kernel_owner:${SOKKAN_KERNEL_DB_OWNER_PASSWORD:?}@db:5432/sokkan
+    volumes:
+      - ./deploy/kernel/config.yaml:/etc/kernel/config.yaml:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
   kernel:
     image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
     profiles: ["kernel"]
@@ -39,11 +82,16 @@ services:
     depends_on:
       kernel-init:
         condition: service_completed_successfully
+      kernel-migrate:
+        condition: service_completed_successfully
     environment:
       NOKKER_CONFIG: /etc/kernel/config.yaml
       NOKKER_HOME: /opt/data
       NOKKER_ALLOWED_HOSTS: kernel:8742,127.0.0.1:8742   # the api, and the healthcheck
       SOKKAN_KERNEL_MODEL_KEY: ${SOKKAN_KERNEL_MODEL_KEY:-}
+      # threads, cards and ledger in SOKKAN's Postgres, schema `kernel` (a session survives a
+      # restart of the kernel); the role owns nothing and is subject to the kernel's row policies
+      NOKKER_PG_DSN: postgresql://kernel_app:${SOKKAN_KERNEL_DB_APP_PASSWORD:?}@db:5432/sokkan
     volumes:
       - ./deploy/kernel/config.yaml:/etc/kernel/config.yaml:ro
       - kernel-state:/opt/data

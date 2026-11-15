@@ -121,3 +121,57 @@ def test_kernel_refuses_what_it_cannot_honour(kernel_rig):
     spec.plan = True
     with pytest.raises(contract.Unsupported):
         kernel.KernelHarness().start(spec)
+
+
+def test_a_resume_the_kernel_does_not_have_is_refused(kernel_rig):
+    """The kernel would reopen an unknown thread as an empty one: the adapter refuses."""
+    from harness import kernel
+
+    async def go():
+        stream = kernel.KernelHarness().start(kernel_rig.spec(resume="th_0unknown0thread"))
+        with pytest.raises(contract.ContractError, match="unknown engine session"):
+            await stream.__anext__()
+
+    _play(lambda _rig: go(), kernel_rig)
+
+
+def test_a_run_resumes_after_a_restart_of_the_kernel(kernel_rig):
+    """C4 with the process really gone: the kernel is restarted between the two runs
+    (SOKKAN_KERNEL_TEST_RESTART_CMD, e.g. `docker restart <kernel>`; the kernel must keep its
+    threads in Postgres). The history is intact."""
+    import subprocess
+    import time
+    import urllib.request
+    cmd = os.environ.get("SOKKAN_KERNEL_TEST_RESTART_CMD")
+    if not cmd:
+        pytest.skip("SOKKAN_KERNEL_TEST_RESTART_CMD not set")
+    rig = kernel_rig
+    rig.script([driver.say("Noted.")], [driver.say("heron")])
+
+    async def first():
+        async with driver.Run(rig.harness(), rig.spec()) as run:
+            await run.turn("Remember this word: heron.")
+        return run.ended.engine_session
+
+    loop = asyncio.new_event_loop()
+    try:
+        session = loop.run_until_complete(first())
+    finally:
+        loop.close()
+    subprocess.run(cmd, shell=True, check=True, capture_output=True)   # noqa: S602 — operator's command
+    url = os.environ["SOKKAN_KERNEL_TEST_URL"] + "/healthz"
+    for _ in range(120):
+        try:
+            if urllib.request.urlopen(url, timeout=2).status == 200:     # noqa: S310 — the test's kernel
+                break
+        except OSError:
+            time.sleep(1)
+
+    async def again():
+        async with driver.Run(rig.harness(), rig.spec(resume=session)) as run:
+            assert run.started.resumed_from == session
+            t = await run.turn("Which word did I ask you to remember?")
+        assert t.ended.reported and not t.ended.is_error
+
+    _play(lambda _rig: again(), rig)
+    assert rig.last_request_saw("Remember this word: heron."), "the history was lost on restart"

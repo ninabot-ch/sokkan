@@ -316,7 +316,9 @@ What differs from the CLI adapter, and why the cockpit does not notice:
 * Refused rather than run wider: a run with `deny_tools` (the kernel has no per-session
   « never » list yet) and a run in plan mode (the kernel's plan mode is read-only, not « a plan
   submitted, then approved »).
-* Resume survives a kernel restart only when the kernel keeps its threads in Postgres.
+* Resume survives a restart of the kernel: its threads, cards and ledger are in SOKKAN's Postgres,
+  schema `kernel` (`deploy/kernel/db-init.sql`, services `kernel-db`, `kernel-migrate`). A resume
+  of a thread the kernel does not have is refused (the kernel would reopen it empty).
 
 Conformance: `tests/test_harness_kernel.py` plays C1–C8 against a running kernel whose model is
 a scripted OpenAI-compatible endpoint started by the test (`tests/kernel_upstream.py`); the

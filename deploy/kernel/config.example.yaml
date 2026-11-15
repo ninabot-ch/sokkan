@@ -8,6 +8,7 @@
 # * the kernel's OWN long memory OFF: the recall comes from SOKKAN (scope and clearance of the
 #   person applied by the cockpit), put in front of the prompt;
 # * every web feature off unless the instance wants it (web search reaches the internet).
+pg_dsn_env: NOKKER_PG_DSN                     # SOKKAN's Postgres, schema `kernel` (compose)
 memory_mcp_url: ""
 api_keys: []
 telegram_ids: {}

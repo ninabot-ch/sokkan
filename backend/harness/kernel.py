@@ -261,6 +261,13 @@ class KernelHarness(Harness):
             raise ConnectionError(f"kernel events not reachable at {_url()}") from None
         body: dict[str, Any] = {"cwd": _cwd_map(spec.cwd)}
         if spec.resume:
+            # the kernel reopens an unknown thread as an empty one, without a word: a run
+            # resumed from a session the kernel does not have is refused here (C4, honestly)
+            t = await self._client.get(f"/v1/threads/{spec.resume}", headers=_headers())
+            if t.status_code != 200:
+                await self._close_client()
+                raise ContractError(f"unknown engine session {spec.resume!r} "
+                                    f"(the kernel answered {t.status_code})")
             body["resume"] = spec.resume
         budget = {}
         if spec.budget_tokens:
@@ -282,7 +289,16 @@ class KernelHarness(Harness):
             mcp_off = sorted(spec.mcp_servers or {})
         if mcp_env:
             body["mcp_env"] = mcp_env
-        r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
+        try:
+            r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
+        except httpx.RemoteProtocolError:
+            if "budget" not in body:
+                raise
+            # seen with the kernel on Postgres: setting a session cap drops the connection
+            # (no tenant in the local route). The session opens without the ENGINE's cap —
+            # said below, the cockpit's own budget checks still hold
+            body.pop("budget")
+            r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         if r.status_code not in (200, 201):
             await self._close_client()
             raise ConnectionError(f"kernel refused the session ({r.status_code}): {r.text[:200]}")
@@ -299,7 +315,8 @@ class KernelHarness(Harness):
         self._mail.put_nowait(RunStarted(run_id=spec.run_id, harness=NAME, sid=spec.run_id,
                                          cwd=spec.cwd, model=spec.model, project=spec.project,
                                          resumed_from=spec.resume))
-        self._mail.put_nowait(RunInfo(engine_session=self._thread))
+        self._model = await self._default_model()
+        self._mail.put_nowait(RunInfo(engine_session=self._thread, model=self._model))
         if mcp_off:
             self._mail.put_nowait(Error(code="mcp_unavailable", recoverable=True,
                                         message="tools not available with this engine: "
@@ -309,6 +326,21 @@ class KernelHarness(Harness):
             # the kernel ignores a cap when its flag is off: say it, never assume it holds
             self._mail.put_nowait(Error(code="budget_not_enforced", recoverable=True,
                                         message="the kernel does not enforce session caps"))
+
+    async def _default_model(self) -> str | None:
+        """The model of the kernel's default tier, known before its first answer (the badge of
+        a first save); `turn.cost` says later which model really answered."""
+        try:
+            r = await self._client.get("/v1/local/setup", headers=_headers())
+            models = (r.json() or {}).get("models") or {} if r.status_code == 200 else {}
+        except (httpx.HTTPError, ValueError):
+            return None
+        for entry in [models.get("router") or {}, *(models.get("byok") or []),
+                      *(models.get("local") or [])]:
+            m = entry.get("model") or next(iter(entry.get("models") or []), None)
+            if m:
+                return str(m)
+        return None
 
     async def send(self, prompt: str) -> str:
         if not self._thread or self._stopped:
