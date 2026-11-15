@@ -456,6 +456,7 @@ class AgentSession:
                 await client.__aexit__(None, None, None)
             except Exception:  # noqa: BLE001 — a CLI already gone is closed too
                 pass
+            await _reap(client)
             try:
                 from forge import gitcred
                 await gitcred.close_socket(self.sid)
@@ -1223,6 +1224,32 @@ def idle_close_s() -> float:
         return max(0.0, float(os.environ.get("SOKKAN_SESSION_IDLE_CLOSE_S") or 1800))
     except ValueError:
         return 1800.0
+
+
+async def _reap(client) -> None:
+    """3.6.7 — make sure the CLI process of a closed client is gone. Seen on the end-to-end
+    pass: a session whose client was closed from the sweep's task kept its CLI alive (parent
+    1, ~0.3 GB) — the SDK's close raised before its terminate/kill escalation ran. SIGTERM,
+    then SIGKILL after 3 s; a process already gone is fine."""
+    import signal
+    proc = getattr(getattr(client, "_transport", None), "_process", None)
+    pid = getattr(proc, "pid", None)
+    if not pid or getattr(proc, "returncode", None) is not None:
+        return
+    for sig, wait in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 1.0)):
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            return
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            try:
+                done = os.waitpid(pid, os.WNOHANG)[0] == pid
+            except ChildProcessError:
+                done = True
+            if done:
+                return
+            await asyncio.sleep(0.1)
 
 
 async def park_idle(idle_s: float | None = None) -> list[str]:

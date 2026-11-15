@@ -104,3 +104,28 @@ def test_the_delay_is_a_setting(monkeypatch, value, expected):
     else:
         monkeypatch.setenv("SOKKAN_SESSION_IDLE_CLOSE_S", value)
     assert agentchat.idle_close_s() == expected
+
+
+def test_a_cli_left_running_by_a_failed_close_is_reaped(sess):
+    """Seen on the end-to-end pass (real CLI): one parked session kept its CLI alive, parent
+    1, ~0.3 GB — the client's close raised before the process was stopped."""
+    import subprocess
+    import types
+
+    class Broken(FakeCLI):
+        async def __aexit__(self, *a):
+            raise RuntimeError("Attempted to exit cancel scope in a different task")
+
+    proc = subprocess.Popen(["sleep", "60"])
+    try:
+        async def go():
+            sess.client = Broken()
+            sess.client._transport = types.SimpleNamespace(_process=proc)
+            sess.last_active -= 31 * 60
+            assert await agentchat.park_idle(1800) == ["idle-sid"]
+        run(go())
+        assert proc.poll() is not None          # gone, not orphaned
+        assert sess.client is None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
