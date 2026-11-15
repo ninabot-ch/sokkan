@@ -274,7 +274,7 @@ when the run ends, one transaction each; `run_journal.events(sid)` reads them ba
 
 `SOKKAN_ENGINE_RUNTIME` (compose; `engine.runtime` in the Helm chart) names the engine of
 new sessions and runs. Empty, or a name that is not declared, = the first declared engine,
-`legacy`. One engine is declared in this release. Setup › Engines shows it, read-only:
+`legacy`. Two engines are declared: `legacy` and `kernel` (below). Setup › Engines shows it, read-only:
 `GET /api/engines/session` = `registry.describe()` (the detection note for an admin only),
 with what the engine cannot do.
 
@@ -282,7 +282,42 @@ with what the engine cannot do.
 
 * The front still receives the historical flow (translated in `agentchat._consume`); only
   the `capabilities` event is new, and only an engine that lacks something sends it.
-* No second engine is declared.
 * No `history()` on the interface: the replay of a session reads the CLI's transcript.
 * Four-eyes on a session's gate does not exist in the cockpit (C6 proves only what an
   engine must allow for it).
+
+## The kernel engine (`kernel.py`, experimental)
+
+The second adapter drives a **kernel service** — Nokker's agent kernel, consumed as a pinned
+container image, never as source in this repository — through its local HTTP API
+(`docker-compose.kernel.yml`, profile `kernel`; `SOKKAN_ENGINE_RUNTIME=kernel`).
+
+| Contract | Kernel |
+|---|---|
+| `start` | `POST /v1/local/sessions {cwd, resume?, budget?, mcp_env?}`, then the session's mode set to `default` (every write and command is a card) |
+| `send` | `POST /v1/chat/completions` with `X-Session-Id`; the recall goes in front of the prompt (`preamble`) |
+| events | `GET /v1/events` (SSE, resumed by `Last-Event-ID`): `tool.call/result`, `approval.*`, `question.*`, `turn.delta/reasoning/cost/done` |
+| `decide` | cards: `POST /v1/local/approvals/{id}/decide` (`approve`/`reject`, scope `once` or `session` with a rule the kernel suggested); questions: `POST /v1/local/questions/{id}/answer` |
+| `interrupt` | `POST /v1/threads/{id}/cancel` |
+| `usage` | one event per (kernel turn, model) from `turn.cost`, `message_id = <kernel turn>:<model>` |
+
+What differs from the CLI adapter, and why the cockpit does not notice:
+
+* **The kernel's gate is the authority** (`gate_authority="engine"`). A gated call ends the
+  kernel's turn with a « waiting » placeholder; the kernel runs the tool and a continuation turn
+  once the card is decided. A cockpit turn spans all of them: `turn.ended` comes when the chat
+  call has returned, every kernel turn it caused is done and no gate of the turn waits.
+* The placeholder result of a gated call is not forwarded; after a refusal the kernel publishes
+  no result, so the adapter says the call failed.
+* **Who decided** is echoed from the cockpit's decision; the kernel records every local decision
+  under its machine owner.
+* The kernel confines its file tools to the run's folder by itself; a refusal becomes an
+  `error` `confined` (recognised by its message: the kernel has no stable code for it yet).
+* Refused rather than run wider: a run with `deny_tools` (the kernel has no per-session
+  « never » list yet) and a run in plan mode (the kernel's plan mode is read-only, not « a plan
+  submitted, then approved »).
+* Resume survives a kernel restart only when the kernel keeps its threads in Postgres.
+
+Conformance: `tests/test_harness_kernel.py` plays C1–C8 against a running kernel whose model is
+a scripted OpenAI-compatible endpoint started by the test (`tests/kernel_upstream.py`); the
+variables it needs are in its docstring, and it skips without them.

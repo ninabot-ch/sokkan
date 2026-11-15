@@ -1,0 +1,51 @@
+# Kernel engine configuration for a SOKKAN instance (docker-compose.kernel.yml). Copy to
+# deploy/kernel/config.yaml and set the model endpoints. No secret in this file: the model key
+# is read from SOKKAN_KERNEL_MODEL_KEY.
+#
+# What SOKKAN relies on (backend/harness/kernel.py):
+# * the local API on, with its token where the api reads it (local.token_path);
+# * the question with choices and the session cap on (host_clarify_options, host_session_budget);
+# * the kernel's OWN long memory OFF: the recall comes from SOKKAN (scope and clearance of the
+#   person applied by the cockpit), put in front of the prompt;
+# * every web feature off unless the instance wants it (web search reaches the internet).
+memory_mcp_url: ""
+api_keys: []
+telegram_ids: {}
+extra_go_senders: [local-owner]
+tiers:
+  ship:
+    base_url: http://router:8096/v1          # the appliance's router, or a local OpenAI-compatible model
+    model: ship
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+  deep:
+    base_url: http://router:8096/v1
+    model: deep
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+route:
+  policy: v0
+  classifier: rules
+  code_to_deep: false
+judge_enabled: false
+judge_review: false
+web_search_enabled: false
+context_enabled: true                         # « never clear » window of the kernel
+guide: false
+approvals_enabled: true
+bubbles_enabled: true
+host_clarify_options: true
+host_session_budget: true
+host_reasoning_stream: true
+host: 0.0.0.0
+port: 8742
+local:
+  reasoning: false
+  state_dir: /opt/data
+  token_path: /run/kernel/local-token
+  settings_path: /opt/data/settings.json
+  allowed_hosts_env: NOKKER_ALLOWED_HOSTS
+  max_calls: 60
+  code:
+    roots: [/data/projects]
+    backend: local                            # lab only — a real instance: docker (see the compose file)
