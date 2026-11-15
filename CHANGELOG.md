@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6.7 "Icebreaker"
+## 3.6.7 — 2026-11-15 — "Icebreaker"
 
 Finishes of the simple interface, from a filmed run of a real work. Three new variables
 (`SOKKAN_SHIP_THINKING`, `SOKKAN_SESSION_IDLE_CLOSE_S`, `SOKKAN_RECALL_FULL_CHARS`; the first
