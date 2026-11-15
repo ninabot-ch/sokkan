@@ -5,36 +5,55 @@ Notable changes, newest first. Versions: semver + release hash (see
 
 ## Unreleased — 4.0 "Seven seas"
 
+Lot 0 of the change of engine: the session layer becomes a contract, today's engine is
+rewritten on it, nothing changes for a user. New variable `SOKKAN_ENGINE_RUNTIME` (empty =
+today's engine); no changed default, no new feature switch.
+
 ### Changed
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
-  changes for a user: same pane, same approval cards, same costs. Underneath, the cockpit no
-  longer knows the SDK of the engine it drives. `backend/harness/` holds the contract
-  (`contract.py`: the events of a run, `Gate`, `Decision`, `Capabilities`, `RunSpec`), the
-  interface every engine implements (`base.py`: `Harness` — start, send, decide, interrupt,
-  stop, capabilities), the registry of declared engines (`registry.py`, selected with
-  `SOKKAN_ENGINE_RUNTIME`; one engine is declared) and the adapter of the Claude Code CLI
-  driven through the Claude Agent SDK (`legacy.py`) — the only file of the backend that
-  imports that SDK (its permission callback, its hooks, its transport over the session
-  runner moved there). `agentchat.py` consumes the contract's events and translates them into
-  the WebSocket flow the front already reads; the memory recall of a turn and the approval
-  gate reach it as `context.injected`, `gate.requested` and `gate.resolved`. Moving the front
-  onto the contract's events, and any other engine, come later.
-  [backend/harness/README.md](backend/harness/README.md).
+  changes for a user: same pane, same approval cards, same costs, same « Write with Claude ».
+  Underneath, the cockpit no longer knows the SDK of the engine it drives.
+  `backend/harness/` holds the contract (`contract.py`: the events of a run, `Gate`,
+  `Decision`, `Capabilities`, `RunSpec`), the interface every engine implements (`base.py`:
+  `Harness` — start, send, decide, interrupt, stop, capabilities), the registry of declared
+  engines (`registry.py`) and the adapter of the Claude Code CLI driven through the Claude
+  Agent SDK (`legacy.py`) — the only file that imports that SDK (its permission callback,
+  its hooks, its transport over the session runner, the CLI pinned for a Claude work moved
+  there). `agentchat.py` consumes the contract's events and translates them into the
+  WebSocket flow the front already reads. A test fails when an engine SDK
+  (`claude_agent_sdk`, `claude_code_sdk`, `anthropic`) is imported anywhere else, by any form
+  of import. [backend/harness/README.md](backend/harness/README.md).
+- `SOKKAN_ENGINE_RUNTIME` (compose) / `engine.runtime` (Helm chart) names the engine of new
+  sessions; empty or unknown = `legacy`, the only engine declared.
 
 ### Added
-- **Conformance scenarios C1–C8 for an engine** (`backend/harness/conformance/`): a denied
-  shell command has not run, the recall is announced and seen by the model, a write outside
-  the run's space is refused and the run goes on, a stopped run resumes with its history,
-  every turn reports its usage, a decision is held, attributed and applied once, a declared
-  capability is honest, the engine injects nothing the cockpit withheld. Played against the
-  CLI adapter for real (the bundled CLI in front of a scripted model) and against a small
-  reference engine whose approval gates are born on the engine's side — where the cockpit can
-  only restrict what the engine would do.
-- **A second source for Costs, not used yet: `usage_events`.** Each model call an engine
-  reports through the contract is recorded in its own ledger (`usage_events.db`, in the data
-  directory). Operate › Costs and the budgets still read the transcripts, unchanged;
+- **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
+  directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
+  cost from the price table, duration, project, session — whatever the engine. The meter of
+  an agent run settles each turn on it, the session's token counters and the study journal
+  read it; what they show did not change. The model calls of a turn are kept beside it
+  (`usage_calls`). Operate › Costs and the budgets still read the transcripts, unchanged;
   `usage.session_totals(sid, source=…)` gives a session by either source and tests prove both
-  agree on a same run.
+  agree on a same run of the real CLI.
+- **Conformance scenarios C1–C8 for an engine** (`backend/harness/conformance/`), played
+  against every engine: a denied shell command has not run, the recall is announced and seen
+  by the model, a write outside the run's space is refused and the run goes on, a stopped run
+  resumes with its history, every turn reports its usage, a decision is held, attributed and
+  applied once, a declared capability is honest, the engine injects nothing the cockpit
+  withheld. Green on the CLI adapter for real (the bundled CLI in front of a scripted model)
+  and on a fake engine written from the contract alone (no SDK, gates born on the engine's
+  side, no question, no plan) — where the cockpit can only restrict what the engine would do.
+- **A capability the engine lacks is greyed out, never emulated (C7).** The pane drops
+  « plan » from its approval modes when the session's engine has none, and says why; a
+  session refuses the mode without touching the engine. Today's engine has every capability:
+  its flow is unchanged.
+
+### Fixed
+- **A wrong passphrase is always refused at restore.** An encrypted key of a backup set
+  (`vault.key.enc`…) is AES-CBC: about one wrong passphrase in 256 passed the padding check,
+  and `restore.sh` installed the garbage as the vault key. `backup.sh` now writes the key
+  behind a known first line (MANIFEST `key_tag: sokkan-key/1`) and `restore.sh` checks it
+  before anything is touched. Sets made by an older `backup.sh` restore as before.
 
 ## 3.6.7 — 2026-11-15 — "Icebreaker"
 
