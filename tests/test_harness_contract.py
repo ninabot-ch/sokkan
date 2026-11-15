@@ -132,24 +132,60 @@ def test_an_engine_whose_dependency_is_missing_is_reported_not_raised(monkeypatc
 
 # ---- no SDK outside the adapter ----------------------------------------------------------
 
-def test_the_sdk_is_imported_by_the_adapter_only():
-    """The point of the lot: nothing of the engine's SDK outside backend/harness/legacy.py."""
-    allowed = {"harness/legacy.py"}
+# the Python packages that ARE an engine's SDK: Claude Code driven through its SDK (today's
+# engine, and the name it had before), and the Anthropic API client
+ENGINE_SDKS = {"claude_agent_sdk", "claude_code_sdk", "anthropic"}
+
+
+def _sdk_imports(tree) -> set[str]:
+    """The engine SDKs a module imports — by `import`, `from … import`, or by name through
+    `importlib.import_module("…")` / `__import__("…")`."""
     found = set()
-    for path in BACKEND.rglob("*.py"):
-        rel = path.relative_to(BACKEND).as_posix()
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            mods = []
-            if isinstance(node, ast.Import):
-                mods = [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                mods = [node.module or ""]
-            if any(m.split(".")[0] == "claude_agent_sdk" for m in mods):
-                found.add(rel)
-    assert found <= allowed, f"the SDK is imported outside the adapter: {found - allowed}"
-    assert "harness/legacy.py" in found
+    for node in ast.walk(tree):
+        mods = []
+        if isinstance(node, ast.Import):
+            mods = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            mods = [node.module or ""] if not node.level else []
+        elif isinstance(node, ast.Call) and node.args \
+                and isinstance(node.args[0], ast.Constant) \
+                and isinstance(node.args[0].value, str):
+            f = node.func
+            fname = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if fname in ("import_module", "__import__"):
+                mods = [node.args[0].value]
+        found |= {m.split(".")[0] for m in mods} & ENGINE_SDKS
+    return found
+
+
+def test_the_sdk_is_imported_by_the_adapter_only():
+    """The point of the lot: nothing of the engine's SDK outside backend/harness/legacy.py —
+    in the backend, the memory service and the scripts that ship with SOKKAN."""
+    allowed = {"backend/harness/legacy.py"}
+    found: dict[str, set[str]] = {}
+    root = BACKEND.parent
+    for top in ("backend", "memory", "scripts", "cli", "magnitude"):
+        for path in (root / top).rglob("*.py"):
+            if "node_modules" in path.parts or "__pycache__" in path.parts:
+                continue
+            mods = _sdk_imports(ast.parse(path.read_text(encoding="utf-8")))
+            if mods:
+                found[path.relative_to(root).as_posix()] = mods
+    assert set(found) <= allowed, f"an engine SDK is imported outside the adapter: " \
+        f"{ {k: v for k, v in found.items() if k not in allowed} }"
+    assert found.get("backend/harness/legacy.py") == {"claude_agent_sdk"}
     import agentchat
     assert not [n for n in vars(agentchat) if "SDK" in n or n.startswith("PermissionResult")]
+
+
+def test_the_sdk_guard_sees_every_way_of_importing(tmp_path):
+    """The guard above would pass on a backend that cheats if it only read `import`."""
+    for src in ("import anthropic", "from claude_agent_sdk import query",
+                "import claude_code_sdk.types as t", "import importlib\n"
+                "m = importlib.import_module('anthropic')", "x = __import__('claude_agent_sdk')"):
+        assert _sdk_imports(ast.parse(src)), src
+    for src in ("import anthropicish", "from .anthropic import x", "import json"):
+        assert not _sdk_imports(ast.parse(src)), src
 
 
 # ---- the adapter, with a scripted SDK client ---------------------------------------------
@@ -231,7 +267,8 @@ def test_sdk_messages_become_contract_events():
                      "usage", "usage", "turn.ended"], types
     turn = first[1].turn_id
     assert first[1].prompt_ref == contract.prompt_ref("list") and "list" not in first[1].prompt_ref
-    assert (first[2].engine_session, first[2].model) == ("cs-1", "m-1")
+    assert (first[2].engine_session, first[2].requested_model) == ("cs-1", "m-1")
+    assert first[2].model is None      # an alias the CLI was given is not an answer
     msg = first[4]
     assert (msg.scope, msg.message_id, msg.model, msg.input, msg.output) == (
         "message", "msg_1", "m-1", 50, 4)
@@ -632,11 +669,14 @@ def test_a_mode_the_engine_does_not_have_is_not_engaged(world):
 
     s, h = _run(go(False))
     assert s.mode == "default" and h.mode == "default"
-    assert [e["type"] for e in s.events] == ["error", "perm_mode"]
-    assert "no plan mode" in s.events[0]["message"] and s.events[1]["mode"] == "default"
+    # the pane was told first (it greys the mode out), then the attempt is refused
+    assert [e["type"] for e in s.events] == ["capabilities", "error", "perm_mode"]
+    assert s.events[0] == {"type": "capabilities", "plan": False, "question": False}
+    assert "no plan mode" in s.events[1]["message"] and s.events[2]["mode"] == "default"
     s, h = _run(go(True))
     assert s.mode == "plan" and h.mode == "plan"
-    assert s.events == [{"type": "perm_mode", "mode": "plan"}]
+    assert s.events == [{"type": "capabilities", "plan": True, "question": False},
+                        {"type": "perm_mode", "mode": "plan"}]
 
 
 def test_the_scope_of_the_recall_is_the_cockpits(world, monkeypatch):
@@ -662,3 +702,14 @@ def test_the_scope_of_the_recall_is_the_cockpits(world, monkeypatch):
     assert spec.plan is False and spec.options == {"legacy": {"setting_sources": [
         "user", "project", "local"]}}
     assert set(spec.mcp_servers) == set(agentchat.MCP_SERVERS)
+
+
+def test_an_engine_with_every_capability_adds_nothing_to_the_flow(world):
+    """C7, the other way round: today's engine has plan and question — the pane receives
+    exactly the flow it received before the contract (no `capabilities` event)."""
+    import agentchat
+    from harness import legacy
+    s = agentchat.AgentSession("sid-full", cwd=str(world))
+    s.attach(legacy.LegacyHarness(client=object()))
+    assert legacy.CAPABILITIES.plan and legacy.CAPABILITIES.question
+    assert [e for e in s.events if e["type"] == "capabilities"] == []

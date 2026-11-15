@@ -533,7 +533,8 @@ class LegacyHarness(Harness):
                 turn_id=turn, stop_reason=getattr(msg, "subtype", "") or "",
                 text=getattr(msg, "result", "") or "",
                 is_error=bool(getattr(msg, "is_error", False)),
-                num_turns=getattr(msg, "num_turns", None), cost_usd=cost, reported=True))
+                num_turns=getattr(msg, "num_turns", None), cost_usd=cost, reported=True,
+                duration_ms=getattr(msg, "duration_ms", None)))
             return out
 
         # AssistantMessage (and UserMessage carrying tool results)

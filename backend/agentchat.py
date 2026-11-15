@@ -23,6 +23,7 @@ on refresh). See CHANTIER-B.md for the WS protocol.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import re
 import sys
@@ -215,6 +216,12 @@ class AgentSession:
         self._gate_tasks: set[asyncio.Task] = set()
         self._decided_by: dict[str, tuple[str, str]] = {}   # gate id → (who, through what)
         self._turn_usage: contract.Usage | None = None      # the engine's own turn total
+        # the model calls of the running turn, final figures ({call key: usage event}), and
+        # when it started: the turn's record in the ledger (usage.turn_record) is built
+        # from them at `turn.ended`; the last record is what the study journal reads
+        self._turn_calls: dict[str, contract.Usage] = {}
+        self._turn_started: float | None = None
+        self.last_turn: dict | None = None
         self.context_log: list[dict] = []     # what was injected in this session (names, size)
         # the engine's own reference to the run (persisted: resume after a restart)
         self.claude_session_id: str | None = None
@@ -299,6 +306,19 @@ class AgentSession:
         consumes its stream as it would the instance's engine."""
         self.harness = harness
         self._stream = harness.start(spec)
+        self._announce_capabilities()
+
+    def _announce_capabilities(self) -> None:
+        """C7: what the engine cannot do is greyed out in the pane, never emulated. Said
+        only when something the pane offers is absent (today's engine has everything: the
+        flow it sends is unchanged)."""
+        try:
+            caps = self.harness.capabilities()
+        except Exception:  # noqa: BLE001
+            return
+        if not (caps.plan and caps.question):
+            self._emit({"type": "capabilities", "plan": bool(caps.plan),
+                        "question": bool(caps.question)})
 
     async def _run_spec(self) -> contract.RunSpec:
         """What the engine needs to start this session's run: where, for whom, with which
@@ -394,6 +414,7 @@ class AgentSession:
             spec = await self._run_spec()
             self.harness = registry.create()
             self._stream = self.harness.start(spec)
+            self._announce_capabilities()
             # the first event reaches the engine: `run.started`, or the engine's own error
             self._consume(await self._stream.__anext__())
 
@@ -856,7 +877,7 @@ class AgentSession:
         self._emit({"type": "status", "state": "working"})
         # study mode: duration and tier of the turn of a consenting participant (never its text)
         turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)
-        t_in, t_out, before = self.tokens_in, self.tokens_out, self.last_result
+        before, self.last_turn = self.last_result, None
         failed = False
         try:
             turn_id = await self.harness.send(text)
@@ -873,8 +894,13 @@ class AgentSession:
             self._explain_refusal(str(e))
         finally:
             self._busy = False
-            study.turn_end(turn, model=self._model_seen or "",
-                           tokens_in=self.tokens_in - t_in, tokens_out=self.tokens_out - t_out,
+            # the journal of the study reads the turn's record (usage_events): a turn the
+            # engine ended without a result counts no token there
+            rec = self.last_turn if (self.last_turn or {}).get("reported") else None
+            study.turn_end(turn, model=self._model_seen or (rec or {}).get("model") or "",
+                           tokens_in=(rec["in_tokens"] + rec["cache_read"] + rec["cache_write"]
+                                      if rec else 0),
+                           tokens_out=rec["out_tokens"] if rec else 0,
                            is_error=failed or bool(self.last_result is not before and (
                                self.last_result or {}).get("is_error")))
             self._emit({"type": "status", "state": "idle"})
@@ -974,6 +1000,9 @@ class AgentSession:
             self._emit({"type": "tool_result", "tool_use_id": ev.call_id,
                         "text": ev.output[:8000], "is_error": not ev.ok,
                         "truncated": len(ev.output) > 8000})
+        elif isinstance(ev, contract.TurnStarted):
+            self._turn_calls, self._turn_usage = {}, None
+            self._turn_started = time.time()
         elif isinstance(ev, contract.Usage):
             self._on_usage(ev)
         elif isinstance(ev, contract.TurnEnded):
@@ -1002,6 +1031,12 @@ class AgentSession:
             self._turn_usage = ev       # the engine's own total: read at turn.ended
             return
         self._record_usage(ev)
+        key = ev.message_id or f"_call{len(self._turn_calls)}"
+        prev = self._turn_calls.get(key)
+        self._turn_calls[key] = ev if prev is None else dataclasses.replace(
+            ev, **{k: max(getattr(prev, k), getattr(ev, k))
+                   for k in ("input", "output", "cache_read", "cache_write",
+                             "cache_write_long")}, model=prev.model or ev.model)
         if ev.revision:
             # the final figures of a call already counted: for the ledger only. The meter
             # of a run counts a call as it is first reported — unchanged in this lot.
@@ -1026,7 +1061,7 @@ class AgentSession:
         breaks a turn."""
         try:
             import usage
-            usage.record_event(
+            usage.record_call(
                 session_id=self.sid, message_id=ev.message_id, model=ev.model,
                 in_tokens=ev.input, out_tokens=ev.output, cache_read=ev.cache_read,
                 cache_write=ev.cache_write, cache_write_long=ev.cache_write_long,
@@ -1036,6 +1071,31 @@ class AgentSession:
         except Exception as e:  # noqa: BLE001
             print(f"[sokkan] usage event of {self.sid} not recorded ({e!r})", file=sys.stderr)
 
+    def _turn_record(self, ev: contract.TurnEnded, calls: dict, total: contract.Usage | None,
+                     started: float | None) -> dict:
+        """The normalised record of the turn (usage.turn_record): what the engine reported,
+        whatever the engine."""
+        import usage
+        return usage.turn_record(
+            session_id=self.sid, turn_id=ev.turn_id, engine=getattr(self.harness, "name", "")
+            or "", calls=[{"model": c.model or "", "usage": _usage_dict(c)}
+                          for c in calls.values()],
+            turn_total=_usage_dict(total) if total is not None else None,
+            model=self._turn_model or self._model_seen, engine_session=self.claude_session_id,
+            project=self._usage_project(),
+            basis=next((c.basis for c in calls.values() if c.basis), None),
+            started_at=started, duration_ms=ev.duration_ms, reported=ev.reported,
+            is_error=ev.is_error, stop_reason=ev.stop_reason)
+
+    def _store_turn(self, rec: dict) -> None:
+        """Best-effort, like every write of the ledger: it never breaks a turn."""
+        self.last_turn = rec
+        try:
+            import usage
+            usage.record_turn(rec)
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] usage record of {self.sid} not written ({e!r})", file=sys.stderr)
+
     def _usage_project(self) -> str:
         p = getattr(self, "_usage_proj", None)
         if p is None:
@@ -1044,21 +1104,34 @@ class AgentSession:
 
     def _on_turn_ended(self, ev: contract.TurnEnded) -> None:
         usage, self._turn_usage = self._turn_usage, None
-        if not ev.reported:
-            return                      # no result of the engine: the error was said
+        calls, self._turn_calls = self._turn_calls, {}
+        started, self._turn_started = self._turn_started, None
         turn_cost = ev.cost_usd
+        cost_source = "engine" if ev.cost_usd is not None else ""
+        rec = self._turn_record(ev, calls, usage, started)
+        if not ev.reported:
+            # no result of the engine: the error was said; what its calls used is in the
+            # ledger, nothing is counted against the session
+            self._store_turn(rec)
+            return
+        tokens = {"input_tokens": rec["in_tokens"], "output_tokens": rec["out_tokens"],
+                  "cache_read_input_tokens": rec["cache_read"],
+                  "cache_creation_input_tokens": rec["cache_write"]}
         if self.meter is not None and self.meter.active:
             # the engine's figure is at another model's tariff: use SOKKAN's own count
             # exact totals of the turn: the calls were counted as first reported, and an
             # engine reports a call before its output is known (3.6.4)
-            self.meter.settle_turn(_usage_dict(usage) if usage is not None else None)
+            self.meter.settle_turn(tokens if (calls or usage is not None) else None)
             turn_cost = max(0.0, self.meter.cost_usd - self.cost_usd)
             self.cost_usd = self.meter.cost_usd
+            cost_source = "meter"
         elif turn_cost:
             self.cost_usd += turn_cost
-        if usage is not None:
-            self.tokens_in += usage.input + usage.cache_read + usage.cache_write
-            self.tokens_out += usage.output
+        if calls or usage is not None:
+            self.tokens_in += rec["in_tokens"] + rec["cache_read"] + rec["cache_write"]
+            self.tokens_out += rec["out_tokens"]
+        rec["cost_usd"], rec["cost_source"] = turn_cost, cost_source
+        self._store_turn(rec)
         self.num_turns += int(ev.num_turns or 0)
         self.last_result = {"text": ev.text, "is_error": ev.is_error, "subtype": ev.stop_reason}
         if ev.is_error:

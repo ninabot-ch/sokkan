@@ -482,7 +482,9 @@ class Usage(Event):
 class TurnEnded(Event):
     """The turn is over. ``reported`` is False when the engine ended it without a result
     of its own (the stream stopped, the call failed: an ``error`` event came before).
-    ``cost_usd`` is what the ENGINE says this turn cost, when it prices its model."""
+    ``cost_usd`` is what the ENGINE says this turn cost, when it prices its model;
+    ``duration_ms`` how long it took by the engine's clock (the cockpit times the turn
+    itself when it is absent)."""
     type: ClassVar[str] = "turn.ended"
     turn_id: str
     stop_reason: str = ""
@@ -491,6 +493,7 @@ class TurnEnded(Event):
     num_turns: int | None = None
     cost_usd: float | None = None
     reported: bool = True
+    duration_ms: int | None = None   # how long the turn took, as the engine measured it
 
 
 @_event

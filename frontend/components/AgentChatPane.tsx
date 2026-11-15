@@ -49,6 +49,8 @@ export default function AgentChatPane({
   const [text, setText] = useState("");
   const [model, setModel] = useState<string>("");
   const [pmode, setPmode] = useState<PermMode>("default");
+  // the engine of this session has no plan mode: the mode is greyed out, not emulated
+  const [noPlan, setNoPlan] = useState(false);
   // hooks-only sandbox: known up front from the features, confirmed by the session
   const bashOffHere = useBashOff();
   const [sandboxMsg, setSandboxMsg] = useState<string | null>(null);
@@ -75,6 +77,9 @@ export default function AgentChatPane({
         break;
       case "perm_mode":
         setPmode(e.mode);
+        break;
+      case "capabilities":
+        setNoPlan(!e.plan);
         break;
       case "status":
         setWorking(e.state === "working");
@@ -161,8 +166,9 @@ export default function AgentChatPane({
   // cycle de mode (optimiste ; le serveur reconfirme via l'event perm_mode)
   const cycleMode = () => {
     if (!canWrite || !sock.current) return;
-    const i = PERM_MODES.findIndex((m) => m.id === pmode);
-    const next = PERM_MODES[(i + 1) % PERM_MODES.length];
+    const modes = noPlan ? PERM_MODES.filter((m) => m.id !== "plan") : PERM_MODES;
+    const i = modes.findIndex((m) => m.id === pmode);
+    const next = modes[(i + 1) % modes.length];
     setPmode(next.id);
     sock.current.setMode(next.id);
   };
@@ -215,7 +221,8 @@ export default function AgentChatPane({
               ⇪ share</button>
           )}
           <button onClick={cycleMode} disabled={!canWrite}
-            title={`${curMode.title} · click or Shift+Tab to change mode`}
+            title={`${curMode.title} · click or Shift+Tab to change mode${
+              noPlan ? " · plan: not available with this engine" : ""}`}
             className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] hover:bg-panel2 disabled:opacity-40 ${curMode.cls}`}>
             {curMode.label}
           </button>

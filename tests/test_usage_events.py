@@ -90,7 +90,7 @@ def test_events_replayed_from_a_transcript_give_the_same_session(world):
     for mid, model, blocks in MESSAGES:
         for u in blocks:        # every block repeats the message: the last figure supersedes
             det = u.get("cache_creation") or {}
-            usage.record_event(session_id=SID, message_id=mid, model=model,
+            usage.record_call(session_id=SID, message_id=mid, model=model,
                                in_tokens=u.get("input_tokens", 0),
                                out_tokens=u.get("output_tokens", 0),
                                cache_read=u.get("cache_read_input_tokens", 0),
@@ -118,11 +118,11 @@ def test_events_replayed_from_a_transcript_give_the_same_session(world):
 def test_an_event_without_id_counts_as_it_comes_and_another_session_is_apart(world):
     import usage
     for _ in range(2):
-        usage.record_event(session_id="s-a", message_id=None, model=OPUS, in_tokens=10,
+        usage.record_call(session_id="s-a", message_id=None, model=OPUS, in_tokens=10,
                            out_tokens=1)
-    usage.record_event(session_id="s-b", message_id="msg_1", model=OPUS, in_tokens=7,
+    usage.record_call(session_id="s-b", message_id="msg_1", model=OPUS, in_tokens=7,
                        out_tokens=1)
-    usage.record_event(session_id="s-a", message_id="msg_1", model=OPUS, in_tokens=5,
+    usage.record_call(session_id="s-a", message_id="msg_1", model=OPUS, in_tokens=5,
                        out_tokens=1)                    # same id, other session: not merged
     assert usage.session_totals("s-a", "events")["in_tokens"] == 25
     assert usage.session_totals("s-a", "events")["turns"] == 3
@@ -153,7 +153,7 @@ def test_a_session_records_what_its_engine_reports_and_costs_did_not_move(world)
     assert after["totals"] == before["totals"] and after["by_model"] == before["by_model"]
     assert after["sessions"] == before["sessions"] and after["sources"] == before["sources"]
     con = usage._events_con()
-    rows = [dict(r) for r in con.execute("SELECT * FROM usage_events ORDER BY id")]
+    rows = [dict(r) for r in con.execute("SELECT * FROM usage_calls ORDER BY id")]
     con.close()
     assert [r["message_id"] for r in rows] == ["msg_1", "msg_2", "msg_3"]
     assert {(r["session_id"], r["harness"], r["project"]) for r in rows} == {
@@ -169,11 +169,12 @@ def test_a_ledger_that_cannot_be_written_never_breaks_a_turn(world, monkeypatch,
 
     def boom(**kw):
         raise OSError("disk full")
-    monkeypatch.setattr(usage, "record_event", boom)
+    monkeypatch.setattr(usage, "record_call", boom)
     s = agentchat.AgentSession("sid-usage-2", cwd="/tmp")
     feed(s, AssistantMessage(content=[TextBlock(text="still here")], model=OPUS,
                              usage={"input_tokens": 1, "output_tokens": 1}, message_id="m"))
-    assert [e for e in s.events if e["type"] == "text"] == [{"type": "text", "text": "still here"}]
+    assert [e for e in s.events if e["type"] == "text"] == [
+        {"type": "text", "text": "still here", "model": OPUS}]
     assert "usage event of sid-usage-2 not recorded" in capsys.readouterr().err
 
 
@@ -249,3 +250,148 @@ def test_a_real_run_gives_the_same_total_by_both_sources(world, monkeypatch):
     assert line["source"] == "sokkan" and line["turns"] == by_events["turns"]
     assert line["out_tokens"] == by_events["out_tokens"]
     assert shown["totals"]["all"]["api_equiv"] == pytest.approx(by_events["cost"])
+    # one record per turn, what the pane said of each turn
+    recs = usage.turns(sid)
+    results = [e for e in s.events if e["type"] == "result"]
+    assert len(recs) == 3 == len(results)
+    assert {r["engine"] for r in recs} == {"legacy"} and {r["project"] for r in recs} == {
+        "default"}
+    assert all(r["reported"] and r["duration_ms"] is not None and r["model"] for r in recs)
+    assert [r["cost_usd"] for r in recs] == [e["cost_usd"] for e in results]
+    assert sum(r["in_tokens"] + r["cache_read"] + r["cache_write"] for r in recs) == s.tokens_in
+    assert sum(r["out_tokens"] for r in recs) == s.tokens_out
+    assert sum(r["calls"] for r in recs) == by_events["turns"]
+
+
+# ---- one normalised record per turn (usage_events) ----------------------------------------
+
+def test_a_turn_of_the_cli_adapter_is_one_record(world):
+    """Through the adapter: two calls, the engine's result → one record, with the engine's
+    total for the turn, its duration, its cost as the pane showed it, the list price of
+    its calls."""
+    pytest.importorskip("claude_agent_sdk")
+    import agentchat
+    import board
+    import usage
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+    board.add_sdk_session(SID, "t")
+    s = agentchat.AgentSession(SID, cwd="/tmp", user="alice@x")
+    feed(s, AssistantMessage(content=[TextBlock(text="…")], model=OPUS, message_id="m1",
+                             usage={"input_tokens": 100, "output_tokens": 1,
+                                    "cache_read_input_tokens": 2000}))
+    feed(s, AssistantMessage(content=[TextBlock(text="done")], model=OPUS, message_id="m2",
+                             usage={"input_tokens": 50, "output_tokens": 1}))
+    feed(s, ResultMessage(subtype="success", duration_ms=4321, duration_api_ms=4000,
+                          is_error=False, num_turns=2, session_id=CSID, total_cost_usd=0.12,
+                          result="done", usage={"input_tokens": 150, "output_tokens": 90,
+                                                "cache_read_input_tokens": 2000},
+                          model_usage={OPUS: {"inputTokens": 150, "outputTokens": 90,
+                                              "cacheReadInputTokens": 2000}}))
+    (rec,) = usage.turns(SID)
+    assert rec == s.last_turn | {"ended_at": rec["ended_at"]}
+    assert (rec["engine"], rec["model"], rec["models"], rec["project"]) == (
+        "legacy", OPUS, [OPUS], "default")
+    assert (rec["in_tokens"], rec["out_tokens"], rec["cache_read"], rec["cache_write"]) == (
+        150, 90, 2000, 0)
+    assert rec["calls"] == 2 and rec["duration_ms"] == 4321
+    assert rec["cost_usd"] == pytest.approx(0.12) and rec["cost_source"] == "engine"
+    import pricing
+    assert rec["list_cost_usd"] == pytest.approx(pricing.cost(OPUS, {
+        "input_tokens": 150, "output_tokens": 90, "cache_read_input_tokens": 2000})["total"],
+        abs=1e-6)
+    assert rec["unpriced_calls"] == 0 and rec["reported"] and not rec["is_error"]
+    (shown,) = [e for e in s.events if e["type"] == "result"]
+    assert shown["cost_usd"] == rec["cost_usd"]
+    assert (s.tokens_in, s.tokens_out) == (2150, 90)
+
+
+def test_the_fake_engine_through_the_cockpit_gives_one_record_per_turn(world, monkeypatch):
+    """The reference engine (no transcript, no turn total, an unpriced local model, no
+    clock of its own): three turns → three records, summed from its calls, timed by the
+    cockpit; the study journal reads them."""
+    import agentchat
+    import board
+    import study
+    import usage
+    from harness import contract
+    from harness.conformance import driver, reference
+    seen = []
+    monkeypatch.setattr(study, "turn_start", lambda *a, **k: len(seen) + 1)
+    monkeypatch.setattr(study, "turn_end", lambda t, **kw: seen.append((t, kw)))
+
+    async def go():
+        model = reference.ReferenceModel()
+        for n in range(3):
+            model.script.append([driver.say(f"answer {n}")])
+        board.add_sdk_session("sid-ref", "t")
+        s = agentchat.AgentSession("sid-ref", cwd=str(world), user="alice@x")
+        s.attach(reference.ReferenceHarness(model),
+                 contract.RunSpec(run_id="sid-ref", cwd=str(world)))
+        for n in range(3):
+            await asyncio.wait_for(s.handle_user(f"question {n}"), 10)
+        return s
+
+    s = asyncio.new_event_loop().run_until_complete(go())
+    recs = usage.turns("sid-ref")
+    assert len(recs) == 3
+    assert {(r["engine"], r["model"], r["basis"]) for r in recs} == {
+        ("reference", reference.MODEL, "local")}
+    assert all(r["calls"] == 1 and r["in_tokens"] > 0 and r["out_tokens"] > 0 for r in recs)
+    assert all(r["duration_ms"] is not None and r["duration_ms"] >= 0 for r in recs)
+    assert all(r["list_cost_usd"] is None and r["unpriced_calls"] == 1 for r in recs)
+    assert s.tokens_out == sum(r["out_tokens"] for r in recs)
+    assert [kw["tokens_out"] for _t, kw in seen] == [r["out_tokens"] for r in recs]
+    assert [kw["tokens_in"] for _t, kw in seen] == [r["in_tokens"] for r in recs]
+    assert {kw["model"] for _t, kw in seen} == {reference.MODEL}
+    # the pane was told what this engine cannot do (C7), once
+    assert [e for e in s.events if e["type"] == "capabilities"] == [
+        {"type": "capabilities", "plan": False, "question": False}]
+
+
+def test_a_turn_without_result_is_in_the_ledger_but_counts_nothing(world):
+    pytest.importorskip("claude_agent_sdk")
+    import agentchat
+    import usage
+    from harness import contract
+    s = agentchat.AgentSession("sid-lost", cwd="/tmp")
+    s._consume(contract.TurnStarted(turn_id="t1"))
+    s._consume(contract.Usage(turn_id="t1", model=OPUS, input=10, output=3, message_id="m"))
+    s._consume(contract.TurnEnded(turn_id="t1", stop_reason="error", is_error=True,
+                                  reported=False))
+    (rec,) = usage.turns("sid-lost")
+    assert not rec["reported"] and rec["is_error"] and rec["in_tokens"] == 10
+    assert rec["cost_usd"] is None and (s.tokens_in, s.tokens_out, s.cost_usd) == (0, 0, 0)
+
+
+def test_a_draft_ledger_of_the_lot_is_migrated_in_place(world):
+    """The first draft of the lot kept the CALLS in `usage_events`: opened by this code,
+    they become `usage_calls` and the table of turns is created."""
+    import sqlite3
+    import usage
+    path = usage.events_db()
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE usage_events (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL, message_id TEXT NOT NULL DEFAULT '',
+            turn_id TEXT NOT NULL DEFAULT '', harness TEXT NOT NULL DEFAULT '',
+            engine_session TEXT NOT NULL DEFAULT '', project TEXT NOT NULL DEFAULT 'default',
+            model TEXT NOT NULL DEFAULT '', basis TEXT NOT NULL DEFAULT '', ts REAL NOT NULL,
+            in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL DEFAULT 0,
+            cw_5m INTEGER NOT NULL DEFAULT 0, cw_1h INTEGER NOT NULL DEFAULT 0);
+        CREATE UNIQUE INDEX ux_usage_events_msg ON usage_events(session_id, message_id)
+            WHERE message_id != '';
+        INSERT INTO usage_events(session_id, message_id, model, ts, in_tokens, out_tokens)
+            VALUES('s-old', 'msg_1', 'claude-opus-5-5', 1.0, 40, 2);
+    """)
+    con.commit()
+    con.close()
+    assert usage.session_totals("s-old", "events")["in_tokens"] == 40
+    usage.record_call(session_id="s-old", message_id="msg_1", model=OPUS, in_tokens=41)
+    assert usage.session_totals("s-old", "events")["in_tokens"] == 41     # still one call
+    assert usage.turns("s-old") == []
+    con = sqlite3.connect(path)
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+    cols = {r[1] for r in con.execute("PRAGMA table_info(usage_events)")}
+    con.close()
+    assert "turn_id" in cols and "message_id" not in cols

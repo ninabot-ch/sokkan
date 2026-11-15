@@ -30,7 +30,10 @@ export type AgentEvent =
   | { type: "perm_mode"; mode: PermMode }
   | { type: "error"; message: string }
   // 3.2 lot 8: the project's sandbox is hooks-only (banner) / Bash was just refused (denied)
-  | { type: "sandbox"; mode: string; message: string; denied?: string };
+  | { type: "sandbox"; mode: string; message: string; denied?: string }
+  // 4.0: what the session's engine cannot do — sent only when something is absent (an
+  // absent capability is greyed out, never emulated)
+  | { type: "capabilities"; plan: boolean; question: boolean };
 
 export async function createAgentSession(): Promise<string> {
   const r = await fetch("/api/agent/session", { method: "POST" });
