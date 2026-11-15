@@ -38,7 +38,7 @@ two change behaviour by default, see below); no new feature switch.
 - « Recent » scrolls inside the drawer instead of running over the usage gauge and the account
   (1440×810, 1280×800).
 - **Export our work**: the screen and the README say how many of the exported projects hold any
-  work (« 4 projects, 2 with work in them; the others are empty »; header
+  work (« 4 projects, 2 with work in them »; header
   `X-Sokkan-Export-Projects-With-Content`, `projects_with_content` in the manifest); dates and
   times (`manifest.json`, `index.json`, file name) are in the instance's time zone
   (`SOKKAN_TZ`, else `TZ`) as ISO 8601 with their offset (`2026-11-14T10:25:00+01:00`, was

@@ -36,7 +36,11 @@ function StatusPill({ status }: { status: BatchRow["status"] }) {
 /** 3.6.7 — the screen also lists the notes a work asked to keep (`quarantine`, SOKKAN Atelier):
  *  without it a « Remember… » in a work that had documents waited where nobody could see it.
  *  The batches part needs the feature `doc_ingest`; the notes part, a contributor role. */
-export default function IngestReview({ onCount, quarantine = false }: { onCount?: (pending: number) => void; quarantine?: boolean }) {
+export default function IngestReview({ onCount, quarantine = false, batchesOn = true }: {
+  onCount?: (pending: number) => void; quarantine?: boolean;
+  /** false when the feature `doc_ingest` is off: its routes are not asked (each 404 was a console error) */
+  batchesOn?: boolean;
+}) {
   const t = useT();
   const { lang } = useUI();
   const [status, setStatus] = useState<IngestStatus | null>(null);
@@ -47,7 +51,8 @@ export default function IngestReview({ onCount, quarantine = false }: { onCount?
   const [kept, setKept] = useState<QuarantinedNote[] | null>(null);
 
   const load = useCallback(() => {
-    const batches = Promise.all([ingestStatus(), ingestBatches()]).then(([s, b]) => ({ s, b }));
+    const batches = batchesOn ? Promise.all([ingestStatus(), ingestBatches()]).then(([s, b]) => ({ s, b }))
+      : Promise.reject(new ApiError(404, "", "off"));
     const notes = quarantine ? quarantineList() : Promise.reject(new ApiError(404, "", "off"));
     Promise.allSettled([batches, notes]).then(([b, q]) => {
       const qn = q.status === "fulfilled" ? q.value : null;
@@ -60,7 +65,7 @@ export default function IngestReview({ onCount, quarantine = false }: { onCount?
       else setState(denied(b) && (!quarantine || denied(q)) ? "denied" : "failed");
       onCount?.((b.status === "fulfilled" ? b.value.b.batches.filter(todo).length : 0) + (qn?.length || 0));
     });
-  }, [onCount, quarantine]);
+  }, [onCount, quarantine, batchesOn]);
   useEffect(load, [load]);
 
   if (open !== null) return <Batch id={open} onBack={() => { setOpen(null); load(); }} />;

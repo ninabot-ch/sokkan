@@ -176,7 +176,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
         {view.name === "team" && <Team enabled={!!feats.agents} />}
-        {view.name === "review" && <IngestReview quarantine onCount={setReview} />}
+        {view.name === "review" && <IngestReview quarantine batchesOn={ingestOn} onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}
           onBack={() => go({ name: "works" })} onChanged={loadHome} />}
         {nina && <Nina onClose={() => setNina(false)} />}
