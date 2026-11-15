@@ -8,8 +8,8 @@
 #   deploy/kernel/config.yaml and filled by the operator (model endpoints, no secret inside).
 # * The api reads the kernel's local token from the shared volume kernel-token; both run under
 #   the same uid (1000, the api's), so the 0600 token is readable by the api only.
-# * The projects (/data/projects of the volume sokkan-data) are mounted at the SAME path in the
-#   kernel: the folder the api hands to a run is the folder the kernel works in.
+# * The projects (/workspace for the default one, /data/projects for the others) are mounted at
+#   the SAME paths in the kernel: the folder the api hands to a run is the folder the kernel works in.
 # * NOT FOR A REAL INSTANCE YET: this file runs the kernel's tools in its own container
 #   (`local.code.backend: local`). The kernel's local token is then a file its model could read;
 #   a real instance needs the kernel's docker sandbox (a docker-socket proxy) — see the design
@@ -42,12 +42,13 @@ services:
     environment:
       NOKKER_CONFIG: /etc/kernel/config.yaml
       NOKKER_HOME: /opt/data
-      NOKKER_ALLOWED_HOSTS: kernel:8742
+      NOKKER_ALLOWED_HOSTS: kernel:8742,127.0.0.1:8742   # the api, and the healthcheck
       SOKKAN_KERNEL_MODEL_KEY: ${SOKKAN_KERNEL_MODEL_KEY:-}
     volumes:
       - ./deploy/kernel/config.yaml:/etc/kernel/config.yaml:ro
       - kernel-state:/opt/data
       - kernel-token:/run/kernel
+      - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
       - sokkan-data:/data
     read_only: true
     tmpfs: ["/tmp"]

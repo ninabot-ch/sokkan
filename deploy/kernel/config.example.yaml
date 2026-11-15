@@ -31,6 +31,10 @@ judge_enabled: false
 judge_review: false
 web_search_enabled: false
 context_enabled: true                         # « never clear » window of the kernel
+context_corthexis:                            # its episodes stay lexical (no second memory store)
+  enabled: false
+  root_dir: /opt/data/session-memory          # every path of the kernel under its state volume
+previews_cache_dir: /opt/data/previews        # (the container's file system is read-only)
 guide: false
 approvals_enabled: true
 bubbles_enabled: true
@@ -47,5 +51,5 @@ local:
   allowed_hosts_env: NOKKER_ALLOWED_HOSTS
   max_calls: 60
   code:
-    roots: [/data/projects]
+    roots: [/workspace, /data/projects]   # the default project, the others
     backend: local                            # lab only — a real instance: docker (see the compose file)

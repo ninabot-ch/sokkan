@@ -39,8 +39,10 @@ Configuration (environment of the api): ``SOKKAN_KERNEL_URL`` (default
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, AsyncIterator
@@ -93,6 +95,17 @@ def gate_kind(name: str) -> str:
 # carries no stable code yet: see the design note, « what the kernel lacks »)
 _OUTSIDE = ("outside", "hors du dossier", "hors de la racine", "hors du projet", "not under",
             "en dehors")
+
+
+# an absolute path up to (and including) a segment that is a hex run the kernel would scrub
+_HEX_DIR = re.compile(r"/(?:[^\s/«»\"'`<>]+/)*?(?=[0-9a-fA-F]*[0-9])(?=[0-9a-fA-F]*[a-fA-F])"
+                      r"[0-9a-fA-F]{16,}(?![A-Za-z0-9])")
+
+
+def _letters(run_id: str) -> str:
+    """A short, stable folder name for a run, with no hex run in it."""
+    h = hashlib.sha256((run_id or "").encode()).digest()
+    return "run-" + "".join(chr(ord("g") + b % 20) for b in h[:8])
 
 
 # ---- configuration -----------------------------------------------------------------------
@@ -206,6 +219,7 @@ class KernelHarness(Harness):
         self._last_text = ""
         self._turn_error: Error | None = None
         self._cancelled = False
+        self._aliases: dict[str, str] = {}      # folder named by a hex id → its alias
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -317,8 +331,39 @@ class KernelHarness(Harness):
                 self._mail.put_nowait(ContextInjected(
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
+        text = self._alias_paths(text)
         self._chat = asyncio.create_task(self._post_chat(turn, text))
         return turn
+
+    def _alias_paths(self, text: str) -> str:
+        """The kernel scrubs every hexadecimal run of 16 characters or more from what its
+        model reads (it may be a secret). The cockpit names folders by such ids (a document,
+        a session's deliverables): the model would read a placeholder instead of the path and
+        fail to open the file. Until the kernel lets a host declare its identifiers, each such
+        folder INSIDE the run's folder is given an alias without hex (a symbolic link under
+        `<cwd>/.sokkan-kernel/`), and the prompt names the alias. Nothing outside the run's
+        folder is aliased: the kernel would refuse it anyway, and must."""
+        cwd = os.path.realpath(self._spec.cwd)
+        base = os.path.join(cwd, ".sokkan-kernel", _letters(self._spec.run_id))
+
+        def sub(m: re.Match) -> str:
+            real = m.group(0)
+            if real in self._aliases:
+                return self._aliases[real]
+            target = os.path.realpath(real)
+            if not os.path.isdir(target) or not (target + os.sep).startswith(cwd + os.sep):
+                return real
+            alias = os.path.join(base, f"f{len(self._aliases) + 1}")
+            try:
+                os.makedirs(base, exist_ok=True)
+                if not os.path.islink(alias):
+                    os.symlink(target, alias)
+            except OSError:
+                return real
+            self._aliases[real] = alias
+            return alias
+
+        return _HEX_DIR.sub(sub, text)
 
     async def _post_chat(self, turn: str, text: str) -> None:
         try:
@@ -414,9 +459,20 @@ class KernelHarness(Harness):
 
     def _resolve(self, gate_id: str, d: Decision) -> None:
         g = self._gates.get(gate_id)
-        if g is None or g.get("announced"):
+        if g is None or g.get("announced") or g.get("held"):
             return
-        g["resolved"] = g["announced"] = True
+        g["resolved"] = True
+        if g.get("kturn") and g["kturn"] in self._kturns:
+            # the kernel turn that raised the gate is still writing: what it writes was
+            # written BEFORE the decision (the kernel runs the tool after that turn), so the
+            # decision is announced when that turn is done — never ahead of its text
+            g["held"] = d
+            return
+        self._announce(gate_id, d)
+
+    def _announce(self, gate_id: str, d: Decision) -> None:
+        g = self._gates[gate_id]
+        g["announced"], g["held"] = True, None
         self._mail.put_nowait(GateResolved(gate_id=gate_id, decision=d.kind, by=d.by, via=d.via,
                                            message=d.message if d.denied else ""))
         call = g.get("call_id")
@@ -586,6 +642,9 @@ class KernelHarness(Harness):
             if err and not d.get("cancelled"):
                 self._fail(str(err.get("code") or "kernel_error"), str(err.get("message") or ""))
             self._kturns.discard(kturn)
+            for gid, g in list(self._gates.items()):
+                if g.get("held") and g.get("kturn") == kturn:
+                    self._announce(gid, g["held"])
             self._expect_done = max(0, self._expect_done - 1)
             self._maybe_end()
 
@@ -607,7 +666,8 @@ class KernelHarness(Harness):
         call = a.get("call_id")
         self._gates[gid] = {"id": gid, "type": "card", "resolved": False, "options": options,
                             "rules": rules, "call_id": call, "turn": self._turn,
-                            "turn_id": self._turn}
+                            "turn_id": self._turn,
+                            "kturn": f"{self._thread}:{a.get('turn_index')}"}
         if call:
             self._held_calls[call] = gid
         self._mail.put_nowait(GateRequested(gate=Gate(

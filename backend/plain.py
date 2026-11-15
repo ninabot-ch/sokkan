@@ -173,7 +173,8 @@ class View:
         if not p or not isinstance(p, str):
             return None
         try:
-            return Path(os.path.abspath(os.path.expanduser(p)))
+            # realpath: the kernel engine names some folders by an alias (a link, harness/kernel.py)
+            return Path(os.path.realpath(os.path.expanduser(p)))
         except (OSError, ValueError):
             return None
 
