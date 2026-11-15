@@ -58,6 +58,10 @@ two change behaviour by default, see below); no new feature switch.
   thinking budget (a first work took 9 min 26 s on a shared 27B, ~10 k tokens of reasoning before
   the first word). Deep keeps its reasoning. New variable `SOKKAN_SHIP_THINKING` (default 0;
   1 = reasoning back on).
+- **A wrong passphrase is always refused at restore**: AES-CBC let about one wrong passphrase in
+  256 through its padding check and `restore.sh` then installed garbage as the vault key.
+  `backup.sh` writes each key behind a known first line (`key_tag: sokkan-key/1` in the
+  MANIFEST), checked before anything is touched; sets made before the tag restore as before.
 - **Idle sessions are closed**: the agent process of a session (0.3-0.4 GB each, never closed
   before) is closed after `SOKKAN_SESSION_IDLE_CLOSE_S` (new, default 1800 s, 0 = never) and
   resumed on the same conversation at its next message; the thread stays readable. A session that
