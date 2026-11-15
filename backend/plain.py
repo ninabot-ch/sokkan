@@ -59,6 +59,16 @@ _ENGINE_ERROR = re.compile(r"\s*(API Error\b|Credit balance is too low|Invalid A
 _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _DETAIL_MAX = 4000
 DRAFT_MAX = 120_000
+# 3.6.7 — a tool call that did not run because SOMEONE said no is not a failure. The person's
+# own « No » (the card's Refuse) and a rule of the space that turned a call away (no shell in
+# an Atelier work, a memory file written directly, a second save of a document already
+# approved in this turn…) were both shown in orange as « this step did not succeed ». They
+# are told apart from a real failure by what the session wrote back to the agent.
+PERSON_DENIED = ("Denied by the user", "The user doesn't want to proceed",
+                 "The user declined", "user rejected")
+POLICY_DENIED = ("No shell in this conversation", "does not write memory files directly",
+                 "is not in this agent's allowed tools", "This is an unattended agent run",
+                 "already approved this document in this turn")
 
 
 def strip_brief(text: str) -> str:
@@ -67,10 +77,14 @@ def strip_brief(text: str) -> str:
 
 
 def human_title(name: str) -> str:
-    """« plan-de-formation_excel.md » → « Plan de formation excel »."""
+    """« plan-de-formation_excel.md » → « Plan de formation excel ». A dash written between
+    two spaces is a dash of the title (« Module 4 - Animer un atelier » → « Module 4 — Animer
+    un atelier »), not a word joiner: 3.6.6 lost it."""
     stem = Path(name or "").name
     stem = re.sub(r"\.(md|markdown|txt|docx|html?)$", "", stem, flags=re.I)
+    stem = re.sub(r"\s+[-–—]+\s+", " \x00 ", stem)
     stem = re.sub(r"\s+", " ", re.sub(r"[_\-]+", " ", stem)).strip()
+    stem = stem.replace("\x00", "—")
     stem = re.sub(r"\s+v(?:ersion)?\s*\d+$", "", stem, flags=re.I).strip() or stem
     return (stem[:1].upper() + stem[1:]) if stem else "Document"
 
@@ -125,6 +139,8 @@ class View:
         self._used: dict[str, dict] = {}        # doc id → source (documents the agent opened)
         self._writes: dict[str, int] = {}       # deliverable name → version seen in this view
         self._refused: str | None = None        # study refusal already said in this turn
+        self._asked: dict[str, str] = {}        # permission id → tool_use id it gates
+        self._denied: set[str] = set()          # tool_use ids the person said no to
 
     # ---- paths ---------------------------------------------------------------------------
     def _resolve(self, p: str) -> Path | None:
@@ -159,6 +175,20 @@ class View:
         if rp is None or self.deliv_dir is None:
             return None
         return rp.name if rp.parent == self.deliv_dir else None
+
+    def _deliverable_title(self, name: str) -> str:
+        """The title the person reads on every card of a document: its own `# Title` line,
+        as on the approval card and in the list (3.6.7 — the card in the thread used the file
+        name, so one document had two titles), else the readable file name."""
+        if self.deliv_dir is not None:
+            try:
+                with open(self.deliv_dir / name, encoding="utf-8", errors="replace") as f:
+                    t = title_from_markdown(f.read(4000))
+                if t:
+                    return t
+            except OSError:
+                pass
+        return human_title(name)
 
     def _source(self, doc: dict) -> dict:
         return {"id": doc["id"], "name": doc["name"], "ext": doc["ext"],
@@ -224,6 +254,13 @@ class View:
             return {"kind": "monitoring"}
         return {"kind": "other"}
 
+    def _gated(self, tool: str, inp) -> str:
+        """The tool call a permission is about: the latest call of that tool still without a
+        result (same input when it can be told)."""
+        cands = [tid for tid, c in self._tools.items() if c.get("tool") == tool and not c.get("done")]
+        same = [tid for tid in cands if self._tools[tid].get("input") == inp]
+        return (same or cands or [""])[-1]
+
     def _detail(self, ev: dict) -> dict:
         return {"tool": ev.get("tool") or "", "title": _short(ev.get("title") or "", 400),
                 "input": _short(ev.get("input") or {})}
@@ -286,15 +323,24 @@ class View:
             c = self.classify(tool, inp)
             tid = ev.get("id") or ""
             if tid:
-                self._tools[tid] = {**c, "model": ev.get("model") or ""}
+                self._tools[tid] = {**c, "model": ev.get("model") or "", "tool": tool, "input": inp}
             return [{"type": "activity", "id": tid, "kind": c["kind"],
                      "subject": c.get("subject") or "", "detail": self._detail(ev)}]
         if t == "tool_result":
             tid = ev.get("tool_use_id") or ""
             c = self._tools.get(tid) or {}
+            if c:
+                c["done"] = True
             ok = not ev.get("is_error")
-            out = [{"type": "activity_done", "id": tid, "ok": ok,
-                    "detail": {"result": _short(ev.get("text") or "", 2000)}}]
+            done = {"type": "activity_done", "id": tid, "ok": ok,
+                    "detail": {"result": _short(ev.get("text") or "", 2000)}}
+            if not ok:
+                said = str(ev.get("text") or "")
+                if tid in self._denied or any(m in said for m in PERSON_DENIED):
+                    done["reason"] = "denied"       # the person's own « No »
+                elif any(m in said for m in POLICY_DENIED):
+                    done["reason"] = "policy"       # a rule of the space: the agent goes on
+            out = [done]
             if ok and c.get("deliverable"):
                 name = c["deliverable"]
                 model = c.get("model") or ""
@@ -304,7 +350,7 @@ class View:
                     version = int(self.on_write(name, tid) or 1)
                 self._writes[name] = version
                 card = {"type": "deliverable", "name": name,
-                        "title": human_title(name), "version": version}
+                        "title": self._deliverable_title(name), "version": version}
                 eng = _engine(model, self.lang)
                 if eng:
                     card["engine"] = eng
@@ -320,7 +366,11 @@ class View:
             version = 0
             if c.get("deliverable"):
                 version = self._writes.get(c["deliverable"], 0) + 1
+            tid = self._gated(tool, inp)
+            if tid and ev.get("id"):
+                self._asked[ev["id"]] = tid
             return [{"type": "approval", "id": ev.get("id") or "", "kind": c["kind"],
+                     "tool_id": tid,
                      "title": title, "version": version,
                      "sources": sorted(self._used.values(), key=lambda s: s["name"].lower()),
                      "attached": self.attached,
@@ -328,7 +378,12 @@ class View:
                      "stays_inside": c["kind"] in ("write_draft", "write_file", "save_memory"),
                      "draft": draft, "detail": self._detail(ev)}]
         if t == "permission_resolved":
-            return [{"type": "approval_resolved", "id": ev.get("id") or ""}]
+            out = {"type": "approval_resolved", "id": ev.get("id") or ""}
+            if ev.get("decision") in ("allow", "deny"):
+                out["decision"] = ev["decision"]    # 3.6.7: a replayed thread says who decided
+                if ev["decision"] == "deny" and self._asked.get(out["id"]):
+                    self._denied.add(self._asked[out["id"]])
+            return [out]
         if t == "error":
             msg = str(ev.get("message") or "")
             if str(ev.get("code") or "").startswith("claude_") or \

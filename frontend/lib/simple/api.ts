@@ -3,7 +3,9 @@
 import type { AgentQuestion } from "@/lib/agent";
 
 export interface Prefs { profile: "simple" | "technical"; chosen: boolean; lang: "auto" | "fr" | "en";
-  theme: "light" | "dark" | "auto"; available: boolean; locked: boolean }
+  theme: "light" | "dark" | "auto"; available: boolean; locked: boolean;
+  /** 3.6.7 — the project this person last worked in ('' = none yet) */
+  project?: string }
 export interface Limits { max_bytes: number; extensions: string[]; max_per_project: number }
 export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string }
 export type WorkState = "waiting" | "working" | "idle";
@@ -36,10 +38,13 @@ export type PlainEvent =
   | { type: "user"; text: string; documents: { id: string; name: string }[] }
   | { type: "text"; text: string; engine?: Engine }
   | { type: "activity"; id: string; kind: string; subject: string; detail: TechDetail }
-  | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail }
+  /** 3.6.7 — `reason` tells a refusal from a failure: « denied » = the person said no,
+   *  « policy » = a rule of the space turned the call away (the agent goes on otherwise) */
+  | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail; reason?: "denied" | "policy" }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
-      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail }
-  | { type: "approval_resolved"; id: string }
+      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail;
+      tool_id?: string }
+  | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }
   | { type: "error"; message: string }
@@ -71,7 +76,7 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 }
 
 export const fetchPrefs = () => get<Prefs>("/api/me/prefs");
-export const savePrefs = (p: Partial<Pick<Prefs, "profile" | "lang" | "theme">>) => send<Prefs>("/api/me/prefs", "PUT", p);
+export const savePrefs = (p: Partial<Pick<Prefs, "profile" | "lang" | "theme" | "project">>) => send<Prefs>("/api/me/prefs", "PUT", p);
 export const fetchHome = (lang: string) => get<HomeData>(`/api/simple/home?lang=${lang}`);
 export const fetchWorks = () => get<{ works: Recent[] }>("/api/simple/works");
 /** One id per click on « Start »: the server opens ONE work per id, so the same id can be

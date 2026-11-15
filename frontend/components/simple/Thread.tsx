@@ -8,7 +8,8 @@ import {
   type Doc, type Limits, type Source, type TechDetail, type Work,
 } from "@/lib/simple/api";
 import type { AgentQuestion } from "@/lib/agent";
-import { age, useT } from "@/lib/simple/i18n";
+import { age, fullDate, useT, useUI } from "@/lib/simple/i18n";
+import { useMe } from "@/lib/me";
 import { reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
@@ -26,6 +27,8 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   sid: string; limits: Limits | null; onBack: () => void; onChanged: () => void;
 }) {
   const t = useT();
+  const { lang } = useUI();
+  const me = useMe();
   const [work, setWork] = useState<Work | null>(null);
   const [missing, setMissing] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -45,7 +48,11 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   useEffect(() => {
     setItems([]); setWorking(false);
     const s = new PlainSocket(sid, () => setItems([]), (e) => {
-      if (e.type === "status") { setWorking(e.state === "working"); if (e.state === "idle") { reload(); onChanged(); } return; }
+      if (e.type === "status") {
+        setWorking(e.state === "working");
+        if (e.state === "idle") { reload(); onChanged(); setItems((cur) => reduce(cur, e)); }
+        return;
+      }
       if (e.type === "deliverable") { reload(); onChanged(); }
       if (e.type === "approval" || e.type === "approval_resolved") onChanged();
       setItems((cur) => reduce(cur, e));
@@ -72,6 +79,18 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   // study mode: the work is tagged by its first turn, the two questions come with the
   // validation — the tag is asked again when either can have changed
   const study = useStudy(sid, `${working ? 1 : 0}${lastDeliverable?.validated ? 1 : 0}${work?.deliverables.length || 0}`);
+  // 3.6.7: « Keep as a deliverable » is offered under a long answer only when that turn saved
+  // no document — under a deliverable already saved it was a second, redundant way to do it
+  const turnSaved = useMemo(() => {
+    const out = new Set<number>();
+    let start = 0;
+    const close = (end: number) => {
+      if (items.slice(start, end).some((x) => x.k === "deliverable")) for (let j = start; j < end; j++) out.add(j);
+    };
+    items.forEach((it, i) => { if (it.k === "user") { close(i); start = i; } });
+    close(items.length);
+    return out;
+  }, [items]);
   const liveAct = useMemo(() => {
     const last = items[items.length - 1];
     return last?.k === "acts" && last.acts.some((a) => a.state === "live");
@@ -139,7 +158,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                     <span className="sk-visually-hidden">{t("th.agent")} : </span>
                     <Markdown text={it.text} />
                     {it.engine && <EngineBadge engine={it.engine} />}
-                    {canDrive && it.text.length >= KEEP_FROM && <Keep sid={sid} text={it.text} onKept={(name) => { reload(); onChanged(); setSide({ kind: "deliverable", name }); }} />}
+                    {canDrive && it.text.length >= KEEP_FROM && !turnSaved.has(i) && <Keep sid={sid} text={it.text} onKept={(name) => { reload(); onChanged(); setSide({ kind: "deliverable", name }); }} />}
                   </div>
                 );
                 if (it.k === "acts") return <Activities key={i} acts={it.acts} />;
@@ -147,19 +166,29 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   ? <div key={i} className="sk-act is-done"><span className="sk-act-ico"><Icon name={it.decided === "allow" ? "check" : "close"} small /></span><span>{t(it.decided === "allow" ? "ap.allowed" : "ap.denied", { what: headline(t, it.ev) })}</span></div>
                   : <ApprovalCard key={i} ev={it.ev} canDrive={canDrive} onDecide={(d) => decide(it.ev, d)}
                       onDraft={() => setSide({ kind: "draft", ev: it.ev })} />;
-                if (it.k === "deliverable") return (
-                  <div key={i} className="sk-deliv-card">
-                    <span className="sk-deliv-ico"><Icon name="page" /></span>
+                if (it.k === "deliverable") {
+                  // 3.6.7: the card says what the deliverable IS now — validated (by whom, when),
+                  // changed since, or ready — as the header does; it stayed « ready » forever
+                  const d = work?.deliverables.find((x) => x.name === it.name);
+                  const latest = !d || d.version <= it.version;
+                  const when = d?.validated_at ? fullDate(d.validated_at, lang) : "";
+                  const state = d?.validated && latest
+                    ? (d.validated_by === (me?.email || "").toLowerCase() ? t("dl.validated", { date: when }) : t("dl.validated.by", { who: d.validated_by, date: when }))
+                    : d?.changed_since_validation && latest ? t("dl.changed.short") : t("dl.ready");
+                  return (
+                  <div key={i} className={`sk-deliv-card${d?.validated && latest ? " is-validated" : ""}`}>
+                    <span className="sk-deliv-ico"><Icon name={d?.validated && latest ? "seal" : "page"} /></span>
                     <div className="sk-grow">
-                      <div className="sk-card-title">{it.title}</div>
-                      <div className="sk-small sk-muted">{t("dl.ready")} · {t("dl.version", { n: it.version })}
+                      <div className="sk-card-title">{d?.title || it.title}</div>
+                      <div className="sk-small sk-muted"><span className={d?.validated && latest ? "sk-validated-inline" : ""}>{state}</span> · {t("dl.version", { n: it.version })}
                         {it.engine && <> · <span className={`sk-eng-inline sk-eng-${it.engine.where}`}>{t("eng.wrote", { label: engineText(t, it.engine) })}</span></>}</div>
                     </div>
-                    <button className="sk-btn sk-btn-primary" onClick={() => setSide({ kind: "deliverable", name: it.name })}>
+                    <button className={`sk-btn${d?.validated && latest ? "" : " sk-btn-primary"}`} onClick={() => setSide({ kind: "deliverable", name: it.name })}>
                       <Icon name="eye" />{t("dl.open")}
                     </button>
                   </div>
-                );
+                  );
+                }
                 if (it.k === "notice" && it.code === "claude") return (
                   <div key={i} className="sk-notice sk-notice-claude" role="alert">
                     <Icon name="alert" />
@@ -362,22 +391,26 @@ function Activities({ acts }: { acts: Act[] }) {
   const t = useT();
   const sentence = (a: Act) => {
     if (a.state === "fail") return t("act.failed");
+    if (a.state === "denied") return t("act.denied");
     const base = `act.${a.kind}${a.state === "done" ? ".done" : ""}`;
     const text = t(base as Key, { subject: a.subject });
     return text === base ? t((`act.other${a.state === "done" ? ".done" : ""}`) as Key) : text;
   };
   // the same sentence several times in a row (three searches) is said once
   const rows: (Act & { n: number })[] = [];
-  for (const a of acts) {
+  // a call turned away by a rule of the space is not the person's business: the agent went on
+  // otherwise (3.6.7 — a refused `mkdir` showed an orange « did not succeed » line)
+  for (const a of acts.filter((x) => x.state !== "skipped")) {
     const last = rows[rows.length - 1];
     if (last && last.state === a.state && sentence(last) === sentence(a)) last.n += 1;
     else rows.push({ ...a, n: 1 });
   }
+  if (!rows.length) return null;
   return (
     <div className="sk-activity">
       {rows.map((a) => (
         <div key={a.id} className={`sk-act is-${a.state}`}>
-          {a.state === "live" ? <span className="sk-spin" aria-hidden /> : <span className="sk-act-ico"><Icon name={a.state === "fail" ? "alert" : activityIcon(a.kind)} small /></span>}
+          {a.state === "live" ? <span className="sk-spin" aria-hidden /> : <span className="sk-act-ico"><Icon name={a.state === "fail" ? "alert" : a.state === "denied" ? "close" : activityIcon(a.kind)} small /></span>}
           <span>{sentence(a)}{a.n > 1 ? ` (×${a.n})` : ""}</span>
         </div>
       ))}

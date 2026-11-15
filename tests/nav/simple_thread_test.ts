@@ -32,3 +32,64 @@ test("a card per document when a work saves two", () => {
   assert.deepEqual(items.filter((it) => it.k === "deliverable").map((it) => it.k === "deliverable" && [it.name, it.version]),
     [["Quiz.md", 1], ["Plan.md", 2]]);
 });
+
+// ---- 3.6.7 « Icebreaker » finishes -------------------------------------------------------
+const acts = (items: Item[]) => items.flatMap((it) => it.k === "acts" ? it.acts : []);
+
+test("the person's « No » is not a failure: the card says it once, the step says nothing more", () => {
+  const items = run([
+    { type: "activity", id: "t1", kind: "write_draft", subject: "Quiz", detail: {} },
+    { type: "approval", id: "p1", kind: "write_draft", title: "Quiz", version: 1, sources: [], attached: 0,
+      stays_inside: true, draft: null, detail: {}, tool_id: "t1" },
+    { type: "approval_resolved", id: "p1", decision: "deny" },
+    { type: "activity_done", id: "t1", ok: false, detail: {}, reason: "denied" },
+  ]);
+  const card = items.find((it) => it.k === "approval");
+  assert.equal(card && card.k === "approval" && card.decided, "deny");          // « Refused by you — … »
+  assert.deepEqual(acts(items).map((a) => a.state), ["skipped"]);              // no orange line
+});
+
+test("a refusal replayed without its card is « refused by you », never « did not succeed »", () => {
+  const items = run([
+    { type: "activity", id: "t1", kind: "write_draft", subject: "Quiz", detail: {} },
+    { type: "activity_done", id: "t1", ok: false, detail: {}, reason: "denied" },
+  ]);
+  assert.deepEqual(acts(items).map((a) => a.state), ["denied"]);
+});
+
+test("a call a rule of the space turned away (a refused mkdir) is skipped, a real failure stays one", () => {
+  const items = run([
+    { type: "activity", id: "t1", kind: "run_command", subject: "", detail: {} },
+    { type: "activity_done", id: "t1", ok: false, detail: {}, reason: "policy" },
+    { type: "activity", id: "t2", kind: "read_file", subject: "x", detail: {} },
+    { type: "activity_done", id: "t2", ok: false, detail: {} },
+  ]);
+  assert.deepEqual(acts(items).map((a) => a.state), ["skipped", "fail"]);
+});
+
+test("a replayed decision keeps the line « Authorised / Refused by you » instead of dropping the card", () => {
+  const items = run([
+    { type: "approval", id: "p1", kind: "write_draft", title: "Quiz", version: 1, sources: [], attached: 0,
+      stays_inside: true, draft: null, detail: {} },
+    { type: "approval_resolved", id: "p1", decision: "allow" },
+  ]);
+  const card = items.find((it) => it.k === "approval");
+  assert.equal(card && card.k === "approval" && card.decided, "allow");
+  // an older server (no decision): the card goes, as before
+  assert.equal(run([
+    { type: "approval", id: "p1", kind: "write_draft", title: "Quiz", version: 1, sources: [], attached: 0,
+      stays_inside: true, draft: null, detail: {} },
+    { type: "approval_resolved", id: "p1" },
+  ]).length, 0);
+});
+
+test("the end of a turn settles every step still « in progress » (no spinner next to a finished card)", () => {
+  const items = run([
+    { type: "activity", id: "t1", kind: "write_draft", subject: "Quiz", detail: {} },
+    { type: "deliverable", name: "Quiz.md", title: "Quiz", version: 1 },
+    { type: "status", state: "idle" },
+  ]);
+  assert.deepEqual(acts(items).map((a) => a.state), ["done"]);
+  assert.deepEqual(run([{ type: "activity", id: "t1", kind: "x", subject: "", detail: {} }, { type: "status", state: "working" }])
+    .flatMap((it) => it.k === "acts" ? it.acts.map((a) => a.state) : []), ["live"]);
+});

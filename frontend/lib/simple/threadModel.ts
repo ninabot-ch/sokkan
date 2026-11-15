@@ -4,7 +4,9 @@
 import type { AgentQuestion } from "@/lib/agent";
 import type { Engine, PlainEvent, TechDetail } from "@/lib/simple/api";
 
-export interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail"; detail: TechDetail }
+/** `denied` = the person said no (neutral, never orange); `skipped` = a rule of the space
+ *  turned the call away and the agent went on otherwise (not shown in the thread) — 3.6.7 */
+export interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail" | "denied" | "skipped"; detail: TechDetail }
 export type Approval = Extract<PlainEvent, { type: "approval" }>;
 export type Item =
   | { k: "user"; text: string; docs: { id: string; name: string }[] }
@@ -25,13 +27,32 @@ export function reduce(items: Item[], e: PlainEvent): Item[] {
       if (last?.k === "acts") return [...items.slice(0, -1), { k: "acts", acts: [...last.acts, act] }];
       return [...items, { k: "acts", acts: [act] }];
     }
-    case "activity_done":
+    case "activity_done": {
+      const state: Act["state"] = e.ok ? "done" : e.reason === "denied" ? "denied" : e.reason === "policy" ? "skipped" : "fail";
+      // the person's « No » is already said by the line of the approval card: the step itself
+      // then says nothing more (one sentence, not two)
+      const said = state === "denied" && items.some((it) => it.k === "approval" && it.decided === "deny" && it.ev.tool_id === e.id);
       return items.map((it) => it.k !== "acts" ? it : {
         k: "acts", acts: it.acts.map((a) => a.id === e.id
-          ? { ...a, state: e.ok ? "done" : "fail", detail: { ...a.detail, result: e.detail?.result } } : a),
+          ? { ...a, state: said ? "skipped" : state, detail: { ...a.detail, result: e.detail?.result } } : a),
       });
+    }
     case "approval": return [...items.filter((it) => !(it.k === "approval" && it.ev.id === e.id)), { k: "approval", ev: e }];
-    case "approval_resolved": return items.filter((it) => !(it.k === "approval" && it.ev.id === e.id && !it.decided));
+    // 3.6.7: a replayed thread knows who decided — the card becomes the line « Authorised /
+    // Refused by you » instead of vanishing (before: only a card decided in this tab kept it)
+    case "approval_resolved":
+      if (e.decision) {
+        const decision = e.decision;
+        return items.map((it) => it.k === "approval" && it.ev.id === e.id && !it.decided ? { ...it, decided: decision } : it);
+      }
+      return items.filter((it) => !(it.k === "approval" && it.ev.id === e.id && !it.decided));
+    // the turn is over: no step of it is still « in progress » (a step whose result never came
+    // — interrupted, replayed — kept its spinner next to a finished card)
+    case "status":
+      if (e.state !== "idle") return items;
+      return items.map((it) => it.k !== "acts" || !it.acts.some((a) => a.state === "live") ? it : {
+        k: "acts", acts: it.acts.map((a) => a.state === "live" ? { ...a, state: "done" } : a),
+      });
     // ONE card per document, where it was last saved, with that save's version: an agent that
     // saves the same plan five times in a turn (a section at a time) showed five cards
     // « version 2…5 » (3.6.4). A card for another document stays.

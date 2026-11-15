@@ -190,8 +190,10 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "it with a `# Title` line. The person is asked to approve the save, then previews, "
         "downloads and validates it: do not paste the whole document in the chat. When they "
         "ask for a change, update that same file.",
-        "- After saving, tell them in two or three sentences what the document contains and "
-        "what remains to confirm.",
+        "- Write the whole document in ONE save (the complete file at once, not a section at a "
+        "time). After saving, tell them in two or three sentences what the document contains and "
+        "what remains to confirm. Do NOT save another version they did not ask for and do not "
+        "offer a « v2 »: each save asks for their approval.",
     ]
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]

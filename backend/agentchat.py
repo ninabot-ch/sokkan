@@ -600,6 +600,21 @@ class AgentSession:
                 "the document already exists — save the document with the Write tool (and "
                 "change it with Edit), read files with Read. Do not mention this to the person."))
 
+        # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
+        # of a document in this turn, the agent does not save it again on its own (a « v2 »
+        # nobody asked for meant a second card for one deliverable). A change they ask for
+        # comes with their next message, which opens a new turn.
+        if tool_name in _EDIT_TOOLS and not self.policy and self._is_simple_work():
+            path = str(input_data.get("file_path") or input_data.get("notebook_path") or "")
+            if path and os.path.abspath(path) in getattr(self, "_approved_saves", set()):
+                self._journal_auto(tool_name, input_data, False, "policy:simple_one_approval_per_turn")
+                return PermissionResultDeny(message=(
+                    "The person already approved this document in this turn: it is saved. Do "
+                    "not save it again and do not offer another version. Tell them in two or "
+                    "three sentences what it contains and what remains to confirm (if a part is "
+                    "still missing, say which one and ask whether to add it); they will ask for "
+                    "a change if they want one. Do not mention this message."))
+
         # AskUserQuestion : on rend les choix en boutons, on injecte la réponse
         if tool_name == "AskUserQuestion":
             qid = uuid.uuid4().hex
@@ -663,6 +678,11 @@ class AgentSession:
                                         project=self.sandboxed, cwd=self.cwd)
                 if isinstance(final, str):
                     return PermissionResultDeny(message=final)
+            if tool_name in _EDIT_TOOLS and self._is_simple_work() and not self.policy \
+                    and _is_deliverable_path(str(final.get("file_path") or "")):
+                if not hasattr(self, "_approved_saves"):
+                    self._approved_saves = set()
+                self._approved_saves.add(os.path.abspath(str(final.get("file_path"))))
             return PermissionResultAllow(updated_input=final)
         return PermissionResultDeny(
             message=decision.get("message") or "Denied by the user"
@@ -729,7 +749,8 @@ class AgentSession:
                 secrets=self.redact_values, fallback_owner=self.user)
             # évent de réconciliation : au replay (refresh), les cartes déjà
             # résolues ne doivent pas se ré-afficher comme actionnables
-            self._emit({"type": "permission_resolved", "id": pid, "ts": time.time()})
+            self._emit({"type": "permission_resolved", "id": pid, "ts": time.time(),
+                        "decision": "allow" if allow else "deny"})
 
     def resolve_question(self, qid: str, answers: dict) -> None:
         fut = self._questions.get(qid)
@@ -772,6 +793,7 @@ class AgentSession:
         assert self.client is not None
         self._busy = True
         self._refusal_said = None
+        self._approved_saves = set()     # 3.6.7: documents the person approved in this turn
         self._emit({"type": "status", "state": "working"})
         # study mode: duration and tier of the turn of a consenting participant (never its text)
         turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)
@@ -972,6 +994,12 @@ try:  # champs d'options du SDK installé (max_budget_usd n'existe pas partout)
     _OPTION_FIELDS = {f.name for f in _dc.fields(ClaudeAgentOptions)}
 except Exception:  # noqa: BLE001
     _OPTION_FIELDS = set()
+
+
+def _is_deliverable_path(path: str) -> bool:
+    """A file of a work's deliverables folder (``…/deliverables/<session id>/<name>``)."""
+    parts = Path(os.path.abspath(path)).parts if path else ()
+    return len(parts) >= 3 and parts[-3] == "deliverables"
 
 
 def _is_memory_path(path: str) -> bool:
