@@ -228,6 +228,42 @@ def test_a_wrong_passphrase_that_passes_the_padding_is_still_refused(tmp_path):
     assert (data / "vault.key").read_bytes() == key
 
 
+def test_the_engine_identity_key_travels_encrypted_like_the_vault_key(tmp_path):
+    """4.0: engine-identity.key (the key of the identity handles handed to an opaque engine)
+    is a key file: encrypted with the passphrase in the set, never in data.tgz, restored
+    byte for byte; a set without it keeps the current one."""
+    data, out = tmp_path / "data", tmp_path / "out"
+    _populate(data)
+    idk = secrets.token_bytes(32)
+    (data / "engine-identity.key").write_bytes(idk)
+    os.chmod(data / "engine-identity.key", 0o600)
+    _run(BACKUP, out, env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    (s,) = _sets(out)
+    assert (s / "engine-identity.key.enc").exists() and not (s / "engine-identity.key").exists()
+    assert "engine-identity.key" in (s / "MANIFEST").read_text()
+    with tarfile.open(s / "data.tgz") as t:
+        assert "engine-identity.key" not in {Path(m.name).name for m in t.getmembers()}
+        for m in t.getmembers():
+            if m.isfile():
+                assert idk not in t.extractfile(m).read()
+    assert idk not in (s / "engine-identity.key.enc").read_bytes()
+    shutil.rmtree(data)
+    _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    assert (data / "engine-identity.key").read_bytes() == idk
+    assert (data / "engine-identity.key").stat().st_mode & 0o777 == 0o600
+    # a wrong passphrase touches neither key
+    (data / "engine-identity.key").write_bytes(b"x" * 32)
+    r = _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE="wrong"), check=False)
+    assert r.returncode != 0 and (data / "engine-identity.key").read_bytes() == b"x" * 32
+    # a set made before 4.0 (no such key in it) keeps the current one
+    (s / "engine-identity.key.enc").unlink()
+    m = s / "MANIFEST"
+    m.write_text("\n".join(ln for ln in m.read_text().splitlines()
+                           if not ln.endswith("  engine-identity.key.enc")) + "\n")
+    _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    assert (data / "engine-identity.key").read_bytes() == b"x" * 32
+
+
 def test_a_set_made_before_the_key_tag_still_restores(tmp_path):
     """Sets written by an older backup.sh hold the bare key: no tag to check, same as before."""
     data, out = tmp_path / "data", tmp_path / "out"
