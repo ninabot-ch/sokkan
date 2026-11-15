@@ -1230,8 +1230,28 @@ def _require_store_or_409(project: str, level: int | None = None) -> None:
 @app.get("/api/memory/quarantine")
 def memory_quarantine(_u: dict = Depends(require("dev"))) -> list[dict]:
     """Notes écrites par des runs d'agent, en attente de relecture humaine. Elles ne
-    sont PAS dans le dossier mémoire : aucun rappel (spawn, recherche, hooks)."""
-    return quarantine.list_notes(_ctx_project(), classification.ctx_clearance())
+    sont PAS dans le dossier mémoire : aucun rappel (spawn, recherche, hooks).
+    3.6.7 : chaque note porte son titre lisible (`title`, même règle que la page Mémoire) et
+    le titre du travail qui l'a écrite (`work_title`) — l'écran « Notes à relire » de
+    SOKKAN Atelier les montre à côté des lots d'ingestion."""
+    import notetitle
+
+    out = quarantine.list_notes(_ctx_project(), classification.ctx_clearance())
+    titles: dict[str, str] | None = None
+    for n in out:
+        q = quarantine.get(n["name"], _ctx_project(), classification.ctx_clearance()) or {}
+        body = re.sub(r"^---\n.*?\n---\n?", "", q.get("text") or "", count=1, flags=re.S)
+        n["title"] = notetitle.display_title(n["name"], n.get("description") or "", None, body)
+        sid = str((n.get("provenance") or {}).get("session") or "")
+        n["work_title"] = ""
+        if sid:
+            if titles is None:
+                try:
+                    titles = {x["session_id"]: x.get("title") or "" for x in board.list_sessions()}
+                except Exception:  # noqa: BLE001 — a title is a nicety
+                    titles = {}
+            n["work_title"] = titles.get(sid, "")
+    return out
 
 
 @app.get("/api/memory/quarantine/{name}")
@@ -1244,6 +1264,7 @@ def memory_quarantine_get(name: str, _u: dict = Depends(require("dev"))) -> dict
 
 class QuarantineDecision(BaseModel):
     delete: bool = False
+    reason: str = ""      # 3.6.7: why a person refused it (SOKKAN Atelier), kept in the journal
 
 
 @app.post("/api/memory/quarantine/{name}/approve")
@@ -1277,8 +1298,9 @@ def memory_quarantine_reject(name: str, body: QuarantineDecision | None = None,
                                 project=_ctx_project())
     except KeyError:
         raise HTTPException(404, "not in quarantine")
+    why = " ".join((body.reason if body else "").split())[:300]
     audit.log(u["email"], "memory.quarantine.reject", name,
-              "deleted" if body and body.delete else "archived")
+              ("deleted" if body and body.delete else "archived") + (f" · {why}" if why else ""))
     return out
 
 

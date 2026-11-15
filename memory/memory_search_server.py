@@ -368,11 +368,18 @@ def memory_write(name: str, description: str, body: str,
         # qu'elle en tire attend en quarantaine, comme la note d'un run d'agent, jamais rappelé
         # tant qu'une personne ne l'a pas relu (l'ingestion `doc_ingest` reste la voie des lots)
         import quarantine
-        return quarantine.write(name, description, body, {
+        out = quarantine.write(name, description, body, {
             "agent": "", "run": "", "session": os.environ.get("SOKKAN_SESSION_ID", ""),
             "user": os.environ.get("SOKKAN_SESSION_USER", ""),
             "via": "memory_write", "reason": "session_documents"},
             project=project or "default", level=level)
+        if out.get("ok"):
+            # 3.6.7: what the agent tells the person must match a screen that exists
+            out["info"] = ("written to QUARANTINE: it is not used until a person approves it. "
+                           "Tell the person, in their words: the note waits on the screen "
+                           "« Notes to review » (in French « Notes à relire ») until someone "
+                           "of the project approves it.")
+        return out
     if not NAME_RE.match(name):
         return {"ok": False, "error": "invalid name: lowercase kebab-case slug, "
                                       "2-64 chars, no path separator (e.g. 'decision-delete-404')"}

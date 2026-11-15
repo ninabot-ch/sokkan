@@ -12,7 +12,7 @@ import BannerSlot from "./BannerSlot";
 import IngestReview from "./IngestReview";
 import Memory from "./Memory";
 import { openStudyConsent } from "./StudyConsent";
-import { ingestStatus } from "@/lib/simple/ingest";
+import { ingestStatus, quarantineList } from "@/lib/simple/ingest";
 import Composer from "./Composer";
 import Icon, { templateIcon, type IconName } from "./icons";
 import Nina from "./Nina";
@@ -64,10 +64,15 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   // batches of this project — the API says so (403 / 404 otherwise), with how many wait
   const ingestOn = !!feats.registry?.items.find((i) => i.id === "doc_ingest")?.enabled;
   const [review, setReview] = useState<number | null>(null);
+  // 3.6.7: the screen also holds the notes a work asked to keep (quarantine) — there for a
+  // contributor even when the ingestion is off; the count adds both
   useEffect(() => {
-    if (!ingestOn) { setReview(null); return; }
-    ingestStatus().then((s) => setReview(s.pending_batches)).catch(() => setReview(null));
-  }, [ingestOn]);
+    const batches = ingestOn ? ingestStatus().then((s) => s.pending_batches) : Promise.reject(new Error("off"));
+    Promise.allSettled([batches, quarantineList()]).then(([b, q]) => {
+      if (b.status === "rejected" && q.status === "rejected") { setReview(null); return; }
+      setReview((b.status === "fulfilled" ? b.value : 0) + (q.status === "fulfilled" ? q.value.length : 0));
+    });
+  }, [ingestOn, home?.project]);
 
   const loadHome = useCallback(() => {
     fetchHome(lang).then((h) => { setHome(h); setHomeFailed(false); }).catch(() => setHomeFailed(true));
@@ -171,7 +176,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
         {view.name === "team" && <Team enabled={!!feats.agents} />}
-        {view.name === "review" && <IngestReview onCount={setReview} />}
+        {view.name === "review" && <IngestReview quarantine onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}
           onBack={() => go({ name: "works" })} onChanged={loadHome} />}
         {nina && <Nina onClose={() => setNina(false)} />}

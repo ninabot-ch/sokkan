@@ -435,6 +435,16 @@ export const fr = {
   "login.invalid": "Ce code n'est pas reconnu. Vérifiez-le et réessayez.",
   "login.throttled": "Trop d'essais. Réessayez dans une minute.",
   "login.failed": "La connexion n'a pas abouti. Réessayez dans un instant.",
+  // 3.6.7 — notes a work asked to keep, waiting for a person (components/simple/IngestReview.tsx)
+  "qn.title": "Notes demandées dans un travail ({n})",
+  "qn.lede": "Un travail qui a reçu des documents ne peut pas écrire seul dans la mémoire : ce que vous lui avez demandé de retenir attend ici. Lisez la note, puis approuvez-la ou refusez-la.",
+  "qn.lede.only": "Ce que vous avez demandé à l'agent de retenir, dans un travail qui avait reçu des documents, attend ici qu'une personne le relise. Rien n'entre dans la mémoire avant.",
+  "qn.empty": "Aucune note n'attend votre relecture.",
+  "qn.batches": "Lots tirés des documents de l'organisation",
+  "qn.from": "Demandée dans « {work} »",
+  "qn.from.none": "Demandée dans un travail",
+  "qn.when": "reçue {when}",
+  "qn.replaces": "remplacera la note du même nom",
 };
 
 export type Key = keyof typeof fr;
@@ -852,4 +862,14 @@ export const en: Record<Key, string> = {
   "login.invalid": "This code is not recognised. Check it and try again.",
   "login.throttled": "Too many attempts. Try again in a minute.",
   "login.failed": "Sign-in did not go through. Try again in a moment.",
+  // 3.6.7 — notes a work asked to keep, waiting for a person (components/simple/IngestReview.tsx)
+  "qn.title": "Notes asked for in a work ({n})",
+  "qn.lede": "A work that was handed documents cannot write to the memory on its own: what you asked it to remember waits here. Read the note, then approve or refuse it.",
+  "qn.lede.only": "What you asked the agent to remember, in a work that had been handed documents, waits here until a person reads it. Nothing enters the memory before.",
+  "qn.empty": "No note is waiting for your review.",
+  "qn.batches": "Batches drawn from the organisation's documents",
+  "qn.from": "Asked for in « {work} »",
+  "qn.from.none": "Asked for in a work",
+  "qn.when": "received {when}",
+  "qn.replaces": "will replace the note of the same name",
 };

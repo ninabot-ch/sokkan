@@ -60,3 +60,16 @@ export function noteHead(n: Pick<BatchNote, "title" | "description">): { title: 
   if (cut && d.startsWith(cut)) return { title: d, more: "" };
   return { title: n.title, more: d };
 }
+
+// 3.6.7 — notes a work asked to keep (« Retiens… ») while it had been handed documents: they wait
+// in the project's quarantine (backend/app.py /api/memory/quarantine) until a person approves
+// them. Same screen as the batches, its own section.
+export interface QuarantinedNote { name: string; title: string; description: string; level: string;
+  work_title: string; exists_in_memory: boolean;
+  provenance: { quarantined_at?: number; session?: string; user?: string; reason?: string; agent?: string } }
+const Q = "/api/memory/quarantine";
+export const quarantineList = () => call<QuarantinedNote[]>(Q);
+export const quarantineNote = (name: string) => call<{ name: string; text: string }>(`${Q}/${encodeURIComponent(name)}`);
+export const quarantineApprove = (name: string) => call<{ ok: boolean }>(`${Q}/${encodeURIComponent(name)}/approve`, "POST");
+export const quarantineReject = (name: string, reason: string) =>
+  call<{ ok: boolean }>(`${Q}/${encodeURIComponent(name)}/reject`, "POST", { delete: false, reason });

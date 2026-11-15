@@ -635,6 +635,41 @@ def test_what_a_session_learnt_from_a_dropped_document_waits_in_quarantine(box, 
     assert (mdir / "client-lemania-brief.md").exists()
 
 
+def test_a_note_a_work_asked_to_keep_is_reviewed_in_the_simple_profile(box, monkeypatch):
+    """3.6.7 — « Remember… » in a work that had a document: the note waits in quarantine, the
+    agent tells the person the screen where it waits (« Notes to review »), and that screen's
+    API gives it a readable title and the work it came from; a refusal keeps its reason."""
+    import audit
+    import memory_search_server as mem
+    import quarantine
+    owner = box["owner"]()
+    _consent(owner)
+    doc = _drop(owner)
+    sid = _start(owner, ask="Un quiz sur le module 3", docs=[doc["id"]])
+    monkeypatch.setenv("SOKKAN_SESSION_USER", OWNER)
+    monkeypatch.setenv("SOKKAN_SESSION_PROJECT", "default")
+    monkeypatch.setenv("SOKKAN_SESSION_ID", sid)
+    out = mem.memory_write("charte-des-quiz", "Règles de nos quiz",
+                           "# Charte des quiz\n\n- Pas de vrai/faux.\n- Chaque question a son corrigé.")
+    assert out["ok"] and out["quarantined"], out
+    assert "Notes to review" in out["info"] and "Notes à relire" in out["info"]
+    out = mem.memory_write("autre-regle", "Une autre règle", "Texte.")
+    assert out["ok"], out
+
+    rows = {n["name"]: n for n in owner.get("/api/memory/quarantine").json()}
+    assert rows["charte-des-quiz"]["title"] == "Charte des quiz"
+    assert rows["charte-des-quiz"]["work_title"].startswith("Un quiz sur le module 3")
+    assert owner.get("/api/memory/quarantine/charte-des-quiz").json()["text"].count("vrai/faux") == 1
+
+    r = owner.post("/api/memory/quarantine/autre-regle/reject", json={"reason": "  doublon  "})
+    assert r.status_code == 200, r.text
+    logged = [e for e in audit.recent(50) if e.get("action") == "memory.quarantine.reject"]
+    assert logged and logged[0]["detail"] == "archived · doublon"
+    assert owner.post("/api/memory/quarantine/charte-des-quiz/approve").status_code == 200
+    assert (quarantine.memory_dir() / "charte-des-quiz.md").exists()
+    assert owner.get("/api/memory/quarantine").json() == []
+
+
 def test_a_work_with_documents_still_saves_its_deliverable_in_any_project(box):
     """The rule above is about the MEMORY directories. A project's own space — where its
     documents and deliverables live, `<data>/projects/<slug>/work` — is not one: the save of
