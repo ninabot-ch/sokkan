@@ -1,0 +1,182 @@
+"""3.6.7 « Icebreaker » finishes of SOKKAN Atelier (the simple interface): a refusal is not a
+failure, one approval per document asked for, one title per document, the dash of a title,
+the project a person last worked in. The UI half is tests/nav/simple_thread_test.ts."""
+import asyncio
+import json
+import os
+
+import plain
+import pytest
+import simple
+import uiprefs
+
+
+def _view(tmp_path):
+    deliv = tmp_path / "deliverables" / ("c" * 32)
+    deliv.mkdir(parents=True)
+    return plain.View(docs_dir=tmp_path / "documents", deliv_dir=deliv,
+                      on_write=lambda name, tool_id, model="": 1), deliv
+
+
+def _feed(v, evs):
+    out = []
+    for e in evs:
+        out += v.feed(e)
+    return out
+
+
+# ---- 2. a refusal is not a failure -----------------------------------------------------------
+def test_the_person_s_no_is_told_apart_from_a_failure(tmp_path):
+    v, deliv = _view(tmp_path)
+    path = str(deliv / "Quiz.md")
+    inp = {"file_path": path, "content": "# Quiz\n"}
+    out = _feed(v, [
+        {"type": "tool_use", "id": "t1", "tool": "Write", "input": inp},
+        {"type": "permission", "id": "p1", "tool": "Write", "input": inp},
+        {"type": "permission_resolved", "id": "p1", "decision": "deny"},
+        # whatever the CLI writes back: the View knows the person said no to THIS call
+        {"type": "tool_result", "tool_use_id": "t1", "text": "Refusé", "is_error": True},
+    ])
+    ap = next(e for e in out if e["type"] == "approval")
+    assert ap["tool_id"] == "t1"
+    assert next(e for e in out if e["type"] == "approval_resolved")["decision"] == "deny"
+    done = next(e for e in out if e["type"] == "activity_done")
+    assert done["ok"] is False and done["reason"] == "denied"
+
+
+def test_a_replayed_refusal_is_recognised_by_what_the_agent_was_told(tmp_path):
+    v, _ = _view(tmp_path)
+    out = _feed(v, [
+        {"type": "tool_use", "id": "t1", "tool": "Write", "input": {"file_path": "/x/y.md"}},
+        {"type": "tool_result", "tool_use_id": "t1", "text": "Denied by the user", "is_error": True},
+    ])
+    assert out[-1]["reason"] == "denied"
+
+
+@pytest.mark.parametrize("said", [
+    "No shell in this conversation: the person is not a developer. The folder …",
+    "The person already approved this document in this turn: it is saved. …",
+])
+def test_a_rule_of_the_space_is_a_policy_refusal_not_an_orange_failure(tmp_path, said):
+    v, _ = _view(tmp_path)
+    out = _feed(v, [
+        {"type": "tool_use", "id": "t1", "tool": "Bash", "input": {"command": "mkdir -p x"}},
+        {"type": "tool_result", "tool_use_id": "t1", "text": said, "is_error": True},
+    ])
+    assert out[-1]["reason"] == "policy"
+
+
+def test_a_real_failure_stays_a_failure(tmp_path):
+    v, _ = _view(tmp_path)
+    out = _feed(v, [
+        {"type": "tool_use", "id": "t1", "tool": "Read", "input": {"file_path": "/nope"}},
+        {"type": "tool_result", "tool_use_id": "t1", "text": "File does not exist.", "is_error": True},
+    ])
+    assert out[-1]["ok"] is False and "reason" not in out[-1]
+
+
+# ---- 5. one title per document, its dash kept -------------------------------------------------
+def test_the_card_in_the_thread_has_the_document_s_own_title(tmp_path):
+    v, deliv = _view(tmp_path)
+    (deliv / "quiz-positionnement.md").write_text("# Quiz de positionnement — Module 1\n\nQ1…\n")
+    inp = {"file_path": str(deliv / "quiz-positionnement.md"), "content": "x"}
+    out = _feed(v, [{"type": "tool_use", "id": "t1", "tool": "Write", "input": inp},
+                    {"type": "tool_result", "tool_use_id": "t1", "text": "ok", "is_error": False}])
+    card = next(e for e in out if e["type"] == "deliverable")
+    assert card["title"] == "Quiz de positionnement — Module 1"
+    # the same title as the list of deliverables (simple.list_deliverables)
+    assert card["title"] == plain.title_from_markdown((deliv / "quiz-positionnement.md").read_text())
+
+
+def test_a_spaced_dash_in_a_file_name_stays_a_dash():
+    assert plain.human_title("Module 4 - Animer un atelier.md") == "Module 4 — Animer un atelier"
+    assert plain.human_title("plan-de-formation_excel.md") == "Plan de formation excel"
+    assert plain.human_title("Quiz – Module 2 v2.md") == "Quiz — Module 2"
+
+
+# ---- 3. one approval per document asked for ---------------------------------------------------
+def test_the_brief_asks_for_one_save_and_no_unasked_version(tmp_path, monkeypatch):
+    import documents
+    monkeypatch.setattr(documents, "project_root", lambda project: tmp_path)
+    b = simple.brief(ask="Prépare un quiz.", lang="fr", project="p", sid="d" * 32)
+    assert "ONE save" in b and "« v2 »" in b
+
+
+def _session(monkeypatch, tmp_path):
+    import agentchat
+    s = agentchat.AgentSession.__new__(agentchat.AgentSession)
+    s.sid, s.user, s.mode, s.policy, s.sandboxed, s.cwd = "e" * 32, "a@x", "default", None, None, str(tmp_path)
+    s._perms, s._questions, s.redact_values, s._turn_model = {}, {}, [], ""
+    s._simple_work = True
+    s._emit = lambda ev: s.events.append(ev)
+    s.events = []
+    monkeypatch.setattr(agentchat.hitl_journal, "requested", lambda *a, **k: None)
+    monkeypatch.setattr(agentchat.hitl_journal, "decided", lambda *a, **k: None)
+    monkeypatch.setattr(agentchat.hitl_journal, "automatic", lambda *a, **k: None)
+    monkeypatch.setattr(s, "_arm_hitl_notify", lambda *a: None, raising=False)
+    monkeypatch.setattr(s, "_set_waiting", lambda *a: None, raising=False)
+    monkeypatch.setattr(s, "_has_documents", lambda: False, raising=False)
+    return s
+
+
+def test_a_document_approved_in_this_turn_is_not_saved_again_on_the_agent_s_own(monkeypatch, tmp_path):
+    s = _session(monkeypatch, tmp_path)
+    s._approved_saves = set()
+    path = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
+
+    async def turn():
+        async def approve_first():
+            while not s._perms:
+                await asyncio.sleep(0)
+            s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
+        first = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# Quiz"}, None))
+        await approve_first()
+        r1 = await first
+        r2 = await s._can_use_tool("Write", {"file_path": path, "content": "# Quiz v2"}, None)
+        return r1, r2
+
+    r1, r2 = asyncio.run(turn())
+    assert type(r1).__name__ == "PermissionResultAllow"
+    assert type(r2).__name__ == "PermissionResultDeny" and "already approved this document" in r2.message
+    # a single card was asked; the second save never reached the person
+    assert [e["type"] for e in s.events].count("permission") == 1
+    # the event of the decision says who decided what (a replayed thread keeps « Authorised »)
+    assert {"type": "permission_resolved", "decision": "allow"}.items() <= next(
+        e for e in s.events if e["type"] == "permission_resolved").items()
+
+
+def test_a_refused_save_does_not_close_the_document(monkeypatch, tmp_path):
+    s = _session(monkeypatch, tmp_path)
+    s._approved_saves = set()
+    path = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
+
+    async def turn():
+        fut = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# A"}, None))
+        while not s._perms:
+            await asyncio.sleep(0)
+        s.resolve_permission(next(iter(s._perms)), {"decision": "deny"})
+        await fut
+        fut2 = asyncio.ensure_future(s._can_use_tool("Write", {"file_path": path, "content": "# B"}, None))
+        while not s._perms:
+            await asyncio.sleep(0)
+        return fut2
+
+    async def main():
+        fut2 = await turn()
+        s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
+        return await fut2
+    assert type(asyncio.run(main())).__name__ == "PermissionResultAllow"
+
+
+# ---- 8. the project a person last worked in --------------------------------------------------
+def test_the_last_project_is_kept_per_person(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOKKAN_UIPREFS_STORE", str(tmp_path / "uiprefs.json"))
+    assert uiprefs.get("a@x")["project"] == ""
+    uiprefs.set_prefs("a@x", project="contenus")
+    uiprefs.set_prefs("b@x", project="atelier")
+    assert uiprefs.get("A@x ")["project"] == "contenus"
+    assert uiprefs.get("b@x")["project"] == "atelier"
+    with pytest.raises(ValueError):
+        uiprefs.set_prefs("a@x", project="../etc")
+    assert json.loads((tmp_path / "uiprefs.json").read_text())["a@x"]["project"] == "contenus"
+    assert os.stat(tmp_path / "uiprefs.json").st_size > 0
