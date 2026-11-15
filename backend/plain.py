@@ -61,6 +61,10 @@ _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _KNOWN = _EDIT | {"Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch", "ToolSearch", "Task",
                   "Agent", "TodoWrite"}
 _BY_KIND = {"file_write": "Write", "file_read": "Read", "shell": "Bash", "subagent": "Task"}
+# the kernel engine's tools, read as their CLI equivalents (same kinds, same drafts)
+_KERNEL_TOOLS = {"read_file": "Read", "search_files": "Grep", "write_file": "Write",
+                 "patch": "Edit", "terminal": "Bash", "process_start": "Bash",
+                 "delegate": "Task", "todo": "TodoWrite"}
 _DETAIL_MAX = 4000
 DRAFT_MAX = 120_000
 # 3.6.7 — a tool call that did not run because SOMEONE said no is not a failure. The person's
@@ -222,6 +226,7 @@ class View:
         ``kind`` is the contract's classification of the call (`tool.called`): it decides
         for a tool whose name this view does not know (another engine's vocabulary)."""
         inp = inp if isinstance(inp, dict) else {}
+        tool = _KERNEL_TOOLS.get(tool, tool)
         path = str(inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or "")
         tool = _BY_KIND.get(kind, tool) if tool not in _KNOWN else tool
         if tool == "Read":
@@ -295,6 +300,7 @@ class View:
                 "input": _short(ev.get("input") or {})}
 
     def _draft(self, tool: str, inp: dict, kind: str = "") -> dict | None:
+        tool = _KERNEL_TOOLS.get(tool, tool)
         if tool not in _KNOWN and kind == "file_write":
             tool = "Write"
         if tool == "Write" and isinstance(inp.get("content"), str):
@@ -339,6 +345,8 @@ class View:
             if reasoning_aloud(text, self.lang):
                 return []           # the model thinking aloud, in English: not for this thread
             out = {"type": "text", "text": text}
+            if ev.get("pending"):
+                out["pending"] = True   # written while a decision is awaited: a discreet note
             eng = _engine(ev.get("model"), self.lang)
             if eng:
                 out["engine"] = eng     # 3.6.5: the model that answered, on every answer
@@ -420,6 +428,8 @@ class View:
             return [out]
         if t == "error":
             msg = str(ev.get("message") or "")
+            if ev.get("code") == "mcp_unavailable":
+                return [{"type": "notice", "code": "tools_off", "detail": _short(msg, 1000)}]
             if str(ev.get("code") or "").startswith("claude_") or \
                     (self._refused == "claude" and not ev.get("code")):
                 if self._refused == "claude":

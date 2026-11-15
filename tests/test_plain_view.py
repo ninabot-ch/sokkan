@@ -236,3 +236,43 @@ def test_word_export_is_a_real_package(tmp_path):
     assert state == "ok" and "Plan de formation Excel" in text and "Formules | 3 h" in text
     import documents
     documents.check_content(p, "docx")
+
+
+def test_the_kernel_engines_tools_read_like_the_cli_ones(tmp_path):
+    """4.0: the kernel engine's tools (read_file, write_file, patch, terminal) give the same
+    kinds, drafts and deliverable cards as the CLI's — never a raw tool name in the thread."""
+    v, docs, deliv = _view(tmp_path)
+    src = docs / "aaaaaaaaaaaaaaaa" / "text.md"
+    out = v.feed({"type": "tool_use", "id": "k1", "tool": "read_file", "input": {"path": str(src)}})
+    assert out[0]["kind"] == "read_document" and out[0]["subject"] == "Brief client.docx"
+    target = str(deliv / "Relance.md")
+    card = v.feed({"type": "permission", "id": "g1", "tool": "write_file",
+                   "input": {"path": target, "content": "# Relance du devis\n\nBonjour,"}})[0]
+    assert card["kind"] == "write_draft" and card["title"] == "Relance du devis"
+    assert card["draft"]["text"].startswith("# Relance") and card["stays_inside"]
+    v.feed({"type": "tool_use", "id": "k2", "tool": "write_file",
+            "input": {"path": target, "content": "# Relance du devis"}})
+    done = v.feed({"type": "tool_result", "tool_use_id": "k2", "text": "{}", "is_error": False})
+    assert [e["type"] for e in done] == ["activity_done", "deliverable"]
+    patch = v.feed({"type": "permission", "id": "g2", "tool": "patch",
+                    "input": {"path": target, "old_string": "a", "new_string": "Madame,"}})[0]
+    assert patch["kind"] == "write_draft" and patch["draft"]["partial"]
+    assert v.feed({"type": "tool_use", "id": "k3", "tool": "terminal",
+                   "input": {"command": "ls"}})[0]["kind"] == "run_command"
+    for ev in (card, patch):
+        assert "write_file" not in _visible(ev) and "patch" not in _visible(ev)
+
+
+def test_text_written_while_a_decision_is_awaited_is_a_note(tmp_path):
+    v, _docs, _deliv = _view(tmp_path)
+    (note,) = v.feed({"type": "text", "text": "J'ai demandé votre accord.", "pending": True})
+    assert note == {"type": "text", "text": "J'ai demandé votre accord.", "pending": True}
+    (answer,) = v.feed({"type": "text", "text": "Le mail est prêt."})
+    assert "pending" not in answer
+
+
+def test_an_engine_without_the_cockpits_tools_says_so_once(tmp_path):
+    v, _docs, _deliv = _view(tmp_path)
+    (n,) = v.feed({"type": "error", "code": "mcp_unavailable",
+                   "message": "tools not available with this engine: sokkan-board"})
+    assert n["type"] == "notice" and n["code"] == "tools_off"

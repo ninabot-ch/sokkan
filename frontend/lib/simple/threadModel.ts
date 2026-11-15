@@ -10,7 +10,7 @@ export interface Act { id: string; kind: string; subject: string; state: "live" 
 export type Approval = Extract<PlainEvent, { type: "approval" }>;
 export type Item =
   | { k: "user"; text: string; docs: { id: string; name: string }[] }
-  | { k: "text"; text: string; engine?: Engine }
+  | { k: "text"; text: string; engine?: Engine; pending?: boolean }
   | { k: "acts"; acts: Act[] }
   | { k: "approval"; ev: Approval; decided?: "allow" | "deny" }
   | { k: "deliverable"; name: string; title: string; version: number; engine?: Engine }
@@ -20,7 +20,9 @@ export type Item =
 export function reduce(items: Item[], e: PlainEvent): Item[] {
   switch (e.type) {
     case "user": return [...items, { k: "user", text: e.text, docs: e.documents || [] }];
-    case "text": return [...items, { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}) }];
+    // `pending`: written while a decision is awaited (an engine whose approval ends its turn):
+    // a discreet note, the answer comes after the decision
+    case "text": return [...items, { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}), ...(e.pending ? { pending: true } : {}) }];
     case "activity": {
       const act: Act = { id: e.id, kind: e.kind, subject: e.subject, state: "live", detail: e.detail };
       const last = items[items.length - 1];

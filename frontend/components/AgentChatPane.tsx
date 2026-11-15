@@ -94,7 +94,9 @@ export default function AgentChatPane({
         if (!e.available) push({ role: "system", kind: "note", text: "The earlier conversation cannot be read back with this engine." });
         break;
       case "text":
-        push({ role: "assistant", kind: "text", text: e.text });
+        // written while a decision is awaited (kernel engine): a discreet note
+        if (e.pending) push({ role: "system", kind: "note", text: e.text });
+        else push({ role: "assistant", kind: "text", text: e.text });
         break;
       case "thinking":
         push({ role: "assistant", kind: "thinking", text: e.text });

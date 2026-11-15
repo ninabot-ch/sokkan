@@ -184,6 +184,9 @@ _TOOL_TITLE_FIELD = {
     "mcp__sokkan-memory__memory_write": "name",
     "mcp__sokkan-memory__memory_get": "note_name",
     "mcp__sokkan-memory__memory_search": "query",
+    # the kernel engine's tools (harness/kernel.py)
+    "terminal": "command", "read_file": "path", "write_file": "path", "patch": "path",
+    "search_files": "pattern", "delegate": "goal",
 }
 
 
@@ -213,6 +216,9 @@ class AgentSession:
         self.harness: Any = None
         self._stream: Any = None
         self._gate_tasks: set[asyncio.Task] = set()
+        # gates requested by the engine and not resolved yet: an engine whose gate ends its
+        # turn (the kernel) writes to the person BEFORE the decision — that text is a note
+        self._open_gates: set[str] = set()
         self._turn_usage: contract.Usage | None = None      # the engine's own turn total
         # the model calls of the running turn, final figures ({call key: usage event}), and
         # when it started: the turn's record in the ledger (usage.turn_record) is built
@@ -1110,7 +1116,12 @@ class AgentSession:
                 self._turn_model = ev.model
         elif isinstance(ev, contract.AssistantText):
             if ev.text.strip():
-                self._emit(_ws_text(ev.text, self._turn_model))
+                out = _ws_text(ev.text, self._turn_model)
+                if self._open_gates:
+                    # written while a decision is awaited: shown as a discreet note, the
+                    # answer comes after the decision (4.0 decision: shown, not hidden)
+                    out["pending"] = True
+                self._emit(out)
                 if ev.text.lstrip().startswith("API Error"):   # the engine's line for a refusal
                     self._explain_refusal(ev.text)
         elif isinstance(ev, contract.AssistantThink):
@@ -1128,8 +1139,10 @@ class AgentSession:
         elif isinstance(ev, contract.TurnEnded):
             self._on_turn_ended(ev)
         elif isinstance(ev, contract.GateRequested):
+            self._open_gates.add(ev.gate.gate_id)
             self._on_gate(ev.gate)
         elif isinstance(ev, contract.GateResolved):
+            self._open_gates.discard(ev.gate_id)
             self._gate_resolved(ev)
         elif isinstance(ev, contract.ContextInjected):
             self.context_log.append({"turn_id": ev.turn_id, "source": ev.source,
@@ -1141,6 +1154,9 @@ class AgentSession:
                 # told once when it is the shell that is off (hooks-only sandbox)
                 if ev.data.get("shell_off"):
                     self._sandbox_bash_off()
+            elif ev.code == "mcp_unavailable":
+                # the engine runs without the cockpit's tool servers: said once, as what it is
+                self._emit({"type": "error", "code": ev.code, "message": ev.message})
             else:
                 self._emit({"type": "error", "message": f"{ev.code}: {ev.message}"})
                 self._explain_refusal(ev.message)

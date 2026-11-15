@@ -338,6 +338,8 @@ html[data-sk-theme] body {
   padding: var(--sk-s3) var(--sk-s4); border-radius: var(--sk-r-md); white-space: pre-wrap; overflow-wrap: anywhere; }
 .sk-msg-docs { display: flex; flex-wrap: wrap; gap: var(--sk-s1); margin-top: var(--sk-s2); }
 .sk-msg-agent { display: flex; flex-direction: column; gap: var(--sk-s2); align-items: flex-start; max-width: 100%; }
+/* written while a decision is awaited (4.0 kernel engine): shown, but quieter than an answer */
+.sk-msg-note { color: var(--sk-text-muted); font-size: var(--sk-fs-sm); border-left: 2px solid var(--sk-line); padding-left: var(--sk-s3); }
 .sk-compose-dock { border-top: 1px solid var(--sk-line); background: var(--sk-bg); padding: var(--sk-s3) var(--sk-s5) var(--sk-s4); }
 .sk-compose-dock > div { max-width: var(--sk-measure); margin: 0 auto; }
 

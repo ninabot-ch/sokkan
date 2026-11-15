@@ -93,3 +93,14 @@ test("the end of a turn settles every step still « in progress » (no spinner n
   assert.deepEqual(run([{ type: "activity", id: "t1", kind: "x", subject: "", detail: {} }, { type: "status", state: "working" }])
     .flatMap((it) => it.k === "acts" ? it.acts.map((a) => a.state) : []), ["live"]);
 });
+
+test("a text written while a decision is awaited stays a note, the answer does not", () => {
+  const items = run([
+    { type: "text", text: "J'attends votre accord pour enregistrer.", pending: true },
+    { type: "text", text: "Le mail est enregistré." },
+  ]);
+  assert.deepEqual(items, [
+    { k: "text", text: "J'attends votre accord pour enregistrer.", pending: true },
+    { k: "text", text: "Le mail est enregistré." },
+  ]);
+});

@@ -254,9 +254,17 @@ class KernelHarness(Harness):
             budget["max_cost_usd"] = float(spec.budget_usd)
         if budget:
             body["budget"] = budget
-        mcp_env = {}
-        for server in (spec.mcp_servers or {}).values():
-            mcp_env.update({k: str(v) for k, v in (server.get("env") or {}).items()})
+        mcp_env, mcp_off = {}, []
+        if spec.mcp_servers and os.environ.get("SOKKAN_KERNEL_MCP_STDIO") == "1":
+            # the kernel launches the servers declared in ITS configuration inside its
+            # sandbox; the run's identity goes as their variables (opaque values only)
+            for server in spec.mcp_servers.values():
+                mcp_env.update({k: str(v) for k, v in (server.get("env") or {}).items()})
+        else:
+            # the kernel cannot reach the cockpit's servers with this run's identity (stdio
+            # needs its docker sandbox; HTTP has no per-session headers yet): the run goes
+            # without them, and says so — never with servers that would not know who asks
+            mcp_off = sorted(spec.mcp_servers or {})
         if mcp_env:
             body["mcp_env"] = mcp_env
         r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
@@ -277,6 +285,11 @@ class KernelHarness(Harness):
                                          cwd=spec.cwd, model=spec.model, project=spec.project,
                                          resumed_from=spec.resume))
         self._mail.put_nowait(RunInfo(engine_session=self._thread))
+        if mcp_off:
+            self._mail.put_nowait(Error(code="mcp_unavailable", recoverable=True,
+                                        message="tools not available with this engine: "
+                                                + ", ".join(mcp_off),
+                                        data={"servers": mcp_off}))
         if budget and "budget" not in out:
             # the kernel ignores a cap when its flag is off: say it, never assume it holds
             self._mail.put_nowait(Error(code="budget_not_enforced", recoverable=True,

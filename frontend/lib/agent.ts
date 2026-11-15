@@ -17,7 +17,7 @@ export type AgentEvent =
   | { type: "session"; claude_session_id: string }
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string }
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; pending?: boolean }
   | { type: "thinking"; text: string }
   // `kind`: the contract's classification of the call (shell, file_write, …), 4.0
   | { type: "tool_use"; id?: string; tool: string; title: string; input: Record<string, unknown>; kind?: string }
