@@ -117,7 +117,8 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
           <h1 className="sk-thread-title" title={work?.title}>{work?.title || "…"}</h1>
           {!open && <div className="sk-xs sk-muted" role="status">{items.length ? t("th.offline") : t("th.connecting")}</div>}
         </div>
-        {pill}
+        {/* 3.6.7: on a phone the title kept two letters (« Pr é.. »): the state stays on the cards */}
+        {pill && <span className="sk-hide-narrow">{pill}</span>}
         {work && (
           <button className="sk-btn sk-btn-quiet" aria-pressed={side?.kind === "docs"} aria-label={t("th.docs", { n: work.documents.length })}
             onClick={() => setSide(side?.kind === "docs" ? null : { kind: "docs" })}>
