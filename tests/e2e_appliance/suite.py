@@ -789,6 +789,16 @@ def t14():
     def feat_off(fid: str, var: str) -> bool:
         return reg[fid]["enabled"] is False and var in reg[fid]["reason"]
 
+    # « Write with Claude » (3.6.5): read where the api applies them — the router's secret
+    # opens the grant route (a wrong one finds no route), the models, the default, the cap
+    ct = sh("docker compose exec -T -w /app/backend api python3 -c \"import os, claudetier; "
+            "from core import levels; s = os.environ.get('SOKKAN_ROUTER_SECRET', ''); "
+            "print(claudetier.grant('', '', s, False)[0], claudetier.grant('', '', s + 'x', False)[0], "
+            "','.join(claudetier.models()), claudetier.default_model(), "
+            "claudetier.max_level() == levels.parse(os.environ['SOKKAN_CLAUDE_MAX_LEVEL']))\"",
+            cwd=BOX).stdout.split()
+    ct = ct if len(ct) == 5 else ["", "", "", "", ""]
+
     checks = {
         "SOKKAN_VERSION": ver["dist"] == e["SOKKAN_VERSION"],
         "SOKKAN_COMMIT": ver["commit"] == e["SOKKAN_COMMIT"],
@@ -861,6 +871,12 @@ def t14():
         "SOKKAN_HEARTBEAT_INTERVAL_S": hb["state"]["interval_s"] == int(e["SOKKAN_HEARTBEAT_INTERVAL_S"]),
         "SOKKAN_INSTANCE_ID": hb["payload"]["instance"] == e["SOKKAN_INSTANCE_ID"],
         "SOKKAN_SUPPORT_MAX_HOURS": sup[0] == 400,
+        "SOKKAN_FEATURE_CLAUDE_TIER": reg.get("claude_tier", {}).get("enabled") is True
+                                      and "SOKKAN_FEATURE_CLAUDE_TIER" in reg["claude_tier"]["reason"],
+        "SOKKAN_ROUTER_SECRET": ct[0] == "200" and ct[1] == "404",
+        "SOKKAN_CLAUDE_MODELS": ct[2] == e.get("SOKKAN_CLAUDE_MODELS"),
+        "SOKKAN_CLAUDE_MODEL": ct[3] == e.get("SOKKAN_CLAUDE_MODEL"),
+        "SOKKAN_CLAUDE_MAX_LEVEL": ct[4] == "True",
     }
     if e.get("SOKKAN_MEMORY_PROFILE"):
         checks["SOKKAN_MEMORY_PROFILE"] = "corthexis-embed" in " ".join(psv) or e["SOKKAN_MEMORY_PROFILE"] == "leger"
