@@ -185,3 +185,32 @@ def test_the_last_project_is_kept_per_person(tmp_path, monkeypatch):
         uiprefs.set_prefs("a@x", project="../etc")
     assert json.loads((tmp_path / "uiprefs.json").read_text())["a@x"]["project"] == "contenus"
     assert os.stat(tmp_path / "uiprefs.json").st_size > 0
+
+
+# ---- seen on the real 27B (3.6.7 end-to-end pass) ---------------------------------------------
+def test_a_loaded_skill_s_page_is_not_the_agent_speaking(tmp_path, monkeypatch):
+    """The CLI hands a loaded skill's body back as a USER message: it read as the answer."""
+    pytest.importorskip("claude_agent_sdk")
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    import agentchat
+    from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, UserMessage
+    s = agentchat.AgentSession("f" * 32)
+    s._translate(UserMessage(content=[TextBlock(text="Base directory for this skill: /tmp/x\n# Data"),
+                                      ToolResultBlock(tool_use_id="t1", content="ok", is_error=False)]))
+    s._translate(AssistantMessage(content=[TextBlock(text="Voici le plan.")], model="m"))
+    texts = [e["text"] for e in s.events if e["type"] == "text"]
+    assert texts == ["Voici le plan."]
+    assert any(e["type"] == "tool_result" for e in s.events)
+
+
+def test_the_model_thinking_aloud_in_english_is_not_shown_to_a_french_person(tmp_path):
+    aloud = ("The user is asking me to write a training plan in three parts. This contradicts the "
+             "sokkan-brief which says to write the whole document in one save. I should explain that.")
+    assert plain.reasoning_aloud(aloud, "fr")
+    assert not plain.reasoning_aloud(aloud, "en")
+    assert not plain.reasoning_aloud("Le plan est enregistré. Il contient les trois parties.", "fr")
+    assert not plain.reasoning_aloud("OK, c'est fait : la partie 2 est ajoutée au document.", "fr")
+    v, _ = _view(tmp_path)
+    v.lang = "fr"
+    assert v.feed({"type": "text", "text": aloud}) == []
+    assert v.feed({"type": "text", "text": "Voici le plan."})[0]["text"] == "Voici le plan."

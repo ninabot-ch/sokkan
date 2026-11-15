@@ -997,7 +997,13 @@ class AgentSession:
         content = getattr(msg, "content", None)
         if not isinstance(content, list):
             return
+        # 3.6.7: a text block of a USER message is not the agent speaking — the CLI hands a
+        # loaded skill's body (« Base directory for this skill: … ») back that way, and the
+        # Atelier showed that page as the agent's answer. Only its tool results are read.
+        from_user = type(msg).__name__ == "UserMessage"
         for b in content:
+            if from_user and isinstance(b, TextBlock):
+                continue
             self._translate_block(b)
 
     def _translate_block(self, b: Any) -> None:

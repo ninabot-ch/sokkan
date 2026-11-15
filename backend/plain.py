@@ -71,6 +71,24 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  "already approved this document in this turn")
 
 
+_ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"
+                    r"now[,]|hmm|so the user|first[,] i|wait[,.])", re.I)
+_FR_WORDS = re.compile(r"\b(le|la|les|des|une|est|pour|vous|dans|que|qui|avec|sur|pas)\b", re.I)
+_EN_WORDS = re.compile(r"\b(the|is|to|and|of|this|that|with|should|user|they|which)\b", re.I)
+
+
+def reasoning_aloud(text: str, lang: str) -> bool:
+    """3.6.7 — the local model without its reasoning pass sometimes THINKS IN THE ANSWER: an
+    English paragraph « The user is asking me to … the sokkan-brief says … » reached a French
+    person's thread (seen on the real 27B when the request contradicted the brief). In a work
+    whose language is not English, such a paragraph is the model's reasoning, not an answer."""
+    if lang == "en" or not _ALOUD.match(text or ""):
+        return False
+    words = len((text or "").split()) or 1
+    en, fr = len(_EN_WORDS.findall(text)), len(_FR_WORDS.findall(text))
+    return en >= 3 and en > 2 * fr and en / words > 0.08
+
+
 def strip_brief(text: str) -> str:
     """What the person typed, without what SOKKAN added around it for the agent."""
     return _REMINDER_RX.sub("", BRIEF_RX.sub("", text or "")).strip()
@@ -309,6 +327,8 @@ class View:
                     # (« the agent ran into a technical problem, send it again » would be false)
                     return self._refusal(code, text)
                 return [{"type": "notice", "code": "engine", "detail": _short(text, 1000)}]
+            if reasoning_aloud(text, self.lang):
+                return []           # the model thinking aloud, in English: not for this thread
             out = {"type": "text", "text": text}
             eng = _engine(ev.get("model"), self.lang)
             if eng:

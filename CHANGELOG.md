@@ -46,6 +46,11 @@ two change behaviour by default, see below); no new feature switch.
 - Settings › Claude in the Atelier no longer shows any part of the API key (« A key is saved »).
 - The README of « Export our work » opens in the language of the screen that asked for it (else
   `SOKKAN_ERROR_LANG`): French first on a French screen, English below; `?lang=fr|en` on the route.
+- Seen on the real local model (3.6.7 end-to-end pass): a loaded skill's page (« Base directory
+  for this skill: … », handed back by the CLI as a user message) showed in the thread as the
+  agent's answer — a user message's text is no longer read as the agent speaking; and, without
+  its reasoning pass, the model sometimes thinks aloud in English in its answer (« The user is
+  asking me to… ») — such a paragraph is not shown in a work in another language.
 - A note the agent wants to retain no longer shows « · modified today » next to the document it
   comes from (the age warns about a stale source of a deliverable only).
 - **A memory note that directly matches a new work is applied from the first draft**: launched
