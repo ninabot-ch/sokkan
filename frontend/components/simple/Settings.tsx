@@ -16,7 +16,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
   prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
 }) {
   const t = useT();
-  const { langPref, themePref, setLangPref, setThemePref } = useUI();
+  const { lang, langPref, themePref, setLangPref, setThemePref } = useUI();
   const me = useMe();
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -47,7 +47,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
   const [exp, setExp] = useState<"idle" | "busy" | "failed" | WorkExportResult>("idle");
   const runExport = async () => {
     setExp("busy");
-    try { setExp(await downloadWorkExport()); } catch { setExp("failed"); }
+    try { setExp(await downloadWorkExport(lang)); } catch { setExp("failed"); }
   };
 
   return (

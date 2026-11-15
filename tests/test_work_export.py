@@ -288,6 +288,20 @@ def test_times_are_the_instance_s_with_their_offset(org, monkeypatch):
                 assert row["updated_at"].endswith(("+01:00", "+02:00"))
 
 
+def test_the_readme_opens_in_the_language_asked_for(org, monkeypatch):
+    """3.6.7: a French screen gets a README that opens in French; English stays, below."""
+    _z, f = _zip(org["as"]("admin@x").get(URL + "?lang=fr"))
+    fr = f["README.md"].decode()
+    assert fr.startswith("# Votre travail, hors de SOKKAN") and "*(English version below.)*" in fr
+    assert fr.index("# Votre travail") < fr.index("# Your work, out of SOKKAN")
+    assert "Version française plus bas" not in fr
+    _z, f = _zip(org["as"]("admin@x").get(URL))
+    assert f["README.md"].decode().startswith("# Your work, out of SOKKAN")
+    monkeypatch.setenv("SOKKAN_ERROR_LANG", "fr")
+    _z, f = _zip(org["as"]("admin@x").get(URL))
+    assert f["README.md"].decode().startswith("# Votre travail")
+
+
 def test_a_project_the_admin_joins_is_exported(org):
     import projects
     projects.grant("radio", "user", "admin@x", "admin")

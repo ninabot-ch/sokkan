@@ -369,7 +369,9 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
             return (
               <li key={s.id} className="sk-source"><Icon name="page" small />
                 <span className="sk-chip-name">{s.name}</span>
-                <span className={`sk-source-age sk-muted${a.old ? " is-old" : ""}`}>· {a.text}</span>
+                {/* 3.6.7: the age warns about a stale source of a DOCUMENT; on a note to retain
+                    it read « · modified today » for a file just dropped — noise, not a warning */}
+                {isDoc && <span className={`sk-source-age sk-muted${a.old ? " is-old" : ""}`}>· {a.text}</span>}
               </li>
             );
           })}

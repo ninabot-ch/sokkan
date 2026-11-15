@@ -13,9 +13,10 @@ export interface WorkExportResult { filename: string; projects: number; notInclu
 /** Fetch the archive, hand it to the browser as a download, and say what it holds: the
  *  screen can then tell the person that something happened (a plain link said nothing, and a
  *  refusal opened a page of JSON). Throws the HTTP status (0 = no answer). */
-export async function downloadWorkExport(): Promise<WorkExportResult> {
+/** `lang` (3.6.7): the README opens in the language of the screen that asked for it */
+export async function downloadWorkExport(lang?: Lang): Promise<WorkExportResult> {
   let r: Response;
-  try { r = await fetch(WORK_EXPORT_URL, { cache: "no-store" }); } catch { throw new Error("0"); }
+  try { r = await fetch(lang ? `${WORK_EXPORT_URL}?lang=${lang}` : WORK_EXPORT_URL, { cache: "no-store" }); } catch { throw new Error("0"); }
   if (!r.ok) throw new Error(String(r.status));
   const blob = await r.blob();
   const filename = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "")?.[1] || "sokkan-work-export.zip";

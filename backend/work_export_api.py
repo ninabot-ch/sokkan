@@ -38,9 +38,9 @@ def _admin(u: dict = Depends(auth.current_user)) -> dict:
 
 
 @router.get(PATH)
-def export(_f=Depends(_on), u: dict = Depends(_admin)):
+def export(lang: str = "", _f=Depends(_on), u: dict = Depends(_admin)):
     try:
-        out = work_export.build(u)
+        out = work_export.build(u, lang)
     except work_export.ExportUnavailable as e:
         audit.log(u["email"], "work.export.refused", "", str(e), project="")
         raise HTTPException(503, str(e)) from e

@@ -44,6 +44,10 @@ two change behaviour by default, see below); no new feature switch.
   (`SOKKAN_TZ`, else `TZ`) as ISO 8601 with their offset (`2026-11-14T10:25:00+01:00`, was
   `09:25:00Z`).
 - Settings › Claude in the Atelier no longer shows any part of the API key (« A key is saved »).
+- The README of « Export our work » opens in the language of the screen that asked for it (else
+  `SOKKAN_ERROR_LANG`): French first on a French screen, English below; `?lang=fr|en` on the route.
+- A note the agent wants to retain no longer shows « · modified today » next to the document it
+  comes from (the age warns about a stale source of a deliverable only).
 - **A memory note that directly matches a new work is applied from the first draft**: launched
   from the Atelier, the notes above the recall threshold (2 at most) are given to the agent in
   full, as the team's convention to follow, instead of one line and a 320-character snippet (a

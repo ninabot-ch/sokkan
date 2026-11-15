@@ -543,7 +543,7 @@ def _counts(meta: list[dict]) -> dict:
     return out
 
 
-def build(user: dict) -> dict:
+def build(user: dict, lang: str = "") -> dict:
     """Build the archive for `user` (a person with their INSTANCE role). Returns
     {"zip": bytes, "manifest": dict, "sha256": str}. Raises ExportLeak / ExportUnavailable."""
     import iam
@@ -593,7 +593,7 @@ def build(user: dict) -> dict:
     }
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("README.md", readme(manifest))
+        z.writestr("README.md", readme(manifest, lang))
         z.writestr("manifest.json", _json(manifest))
         for path in sorted(arc.files):
             z.writestr(path, arc.files[path])
@@ -606,7 +606,32 @@ def filename(manifest: dict) -> str:
 
 
 # ---- README -------------------------------------------------------------------------------
-def readme(manifest: dict) -> str:
+def readme_lang(lang: str = "") -> str:
+    """The language the README opens with (3.6.7): the one asked for (the screen's), else the
+    instance's (`SOKKAN_ERROR_LANG`), else English. Both languages stay in the file."""
+    for v in (lang, os.environ.get("SOKKAN_ERROR_LANG")):
+        v = (v or "").strip().lower()[:2]
+        if v in ("fr", "en"):
+            return v
+    return "en"
+
+
+def readme(manifest: dict, lang: str = "") -> str:
+    text = _readme(manifest)
+    if readme_lang(lang) != "fr":
+        return text
+    en, fr = text.split("\n---\n\n", 1)
+    en = en.replace(" *(Version française plus bas.)*", "")
+    head, rest = fr.split("\n\n", 1)
+    return f"{head}\n\n{manifest_head(manifest)}\n\n*(English version below.)*\n\n{rest.rstrip()}\n\n---\n\n{en.rstrip()}\n"
+
+
+def manifest_head(manifest: dict) -> str:
+    return (f"SOKKAN {manifest['sokkan_version']} · {manifest['generated_at']} · "
+            f"{manifest['files_total']} fichiers")
+
+
+def _readme(manifest: dict) -> str:
     c = manifest["counts"]
     full = [p for p in manifest["projects"] if p["files"]]
     empty = [p for p in manifest["projects"] if not p["files"]]

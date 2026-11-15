@@ -63,7 +63,7 @@ function WorkExport() {
   const [st, setSt] = useState<"idle" | "busy" | "failed" | WorkExportResult>("idle");
   const run = async () => {
     setSt("busy");
-    try { setSt(await downloadWorkExport()); } catch { setSt("failed"); }
+    try { setSt(await downloadWorkExport(lang)); } catch { setSt("failed"); }
   };
   return (
     <section aria-label={t.title} lang={lang} className="rounded-lg border border-line bg-panel2/40 p-3">
