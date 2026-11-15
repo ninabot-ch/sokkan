@@ -339,6 +339,16 @@ REGISTRY: tuple[Feature, ...] = (
             status="beta", requires=("demo_banner", "multi_project"),
             vars=_t("demo_captains", Var("SOKKAN_DEMO_CAPTAINS", parse_bool, True)),
             doc="docs/enterprise/UI-FEATURES.md"),
+    Feature("demo_atelier", "Atelier demo",
+            "Public demo only: the anonymous visitor (a viewer) tries SOKKAN Atelier on finished, "
+            "fictional work — a « read-only demo » band with the operator's call to action "
+            "(SOKKAN_DEMO_BOOK_URL, SOKKAN_DEMO_INSTALL_URL), actions that would write replaced by "
+            "a sentence, language / theme / interface kept in the visitor's browser; every write "
+            "under /api answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_atelier.py.",
+            status="beta", requires=("demo_banner", "simple_profile", "multi_project"),
+            vars=_t("demo_atelier", Var("SOKKAN_DEMO_ATELIER", parse_bool, True)),
+            config=("SOKKAN_DEMO_BOOK_URL", "SOKKAN_DEMO_INSTALL_URL"),
+            doc="docs/enterprise/SIMPLE-PROFILE.md"),
     # -- multi-user (3.2)
     Feature("sso", "Single sign-on",
             "OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.",

@@ -52,6 +52,7 @@ import board
 import budgets
 import cfaccess  # noqa: F401 — utilisé via auth.py (mode cf-access)
 import demo_captains  # 3.2.2 public demo « Captains » (write guard, org view)
+import demo_atelier  # 3.6.7 public demo: SOKKAN Atelier read-only (write guard, call to action)
 import iam
 import infra
 import oidc
@@ -1659,6 +1660,11 @@ def features_flags() -> dict:
         # 3.6 : dépôt de documents, profil simple (réglage par personne : /api/me/prefs)
         "documents": on("documents"),
         "simple_profile": on("simple_profile"),
+        # 3.6.7 : la démo publique de SOKKAN Atelier (lecture seule) et son appel à l'action
+        # (réserver une démo / installer — URLs de l'opérateur, jamais codées en dur)
+        "demo_atelier": demo_atelier.enabled(),
+        "demo_cta": demo_atelier.cta() if on("demo_banner") else None,
+        "demo_atelier_projects": demo_atelier.project_slugs() if demo_atelier.enabled() else [],
         "registry": features.as_api(),
     }
 
@@ -2049,7 +2055,9 @@ async def require_auth(request: Request, call_next):
             # 3.2 lot 3 : de quel projet parle la requête, avec quel rôle (projectgate)
             token = projectgate.resolve(request, user)
             # 3.2.2 Captains demo: nothing is written by a visitor (403 before any route)
-            ro = demo_captains.guard(request.method, p, user)
+            # 3.6.7 Atelier demo: the same rule when the visitor tries SOKKAN Atelier
+            ro = (demo_captains.guard(request.method, p, user)
+                  or demo_atelier.guard(request.method, p, user))
             if ro:
                 projectgate.reset(token)
                 return JSONResponse({"detail": ro}, status_code=403)

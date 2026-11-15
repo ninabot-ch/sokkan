@@ -67,11 +67,16 @@ def fictional(email: str) -> bool:
 # ---- the write guard (called by app.require_auth) -------------------------------------
 def guard(method: str, path: str, user: dict) -> str | None:
     """None = let it through; otherwise the 403 detail."""
+    ro = write_refusal(method, path, user)
+    return ro if ro and enabled() else None
+
+
+def write_refusal(method: str, path: str, user: dict) -> str | None:
+    """The read-only rule of a public demo (Captains, and the Atelier demo of 3.6.7): a write
+    under /api by someone below instance admin → the 403 detail; anything else → None."""
     if method.upper() in SAFE_METHODS or not path.startswith("/api/"):
         return None
     if path.startswith(WRITE_ALLOWED):
-        return None
-    if not enabled():
         return None
     import iam
     if iam.rank(user.get("role") or "") >= iam.rank("admin"):

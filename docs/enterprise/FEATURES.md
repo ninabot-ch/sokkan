@@ -34,6 +34,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`demo_banner`](#demo_banner) Public demo mode | stable | toggle | off | off | — | — | `SOKKAN_FEATURE_DEMO_BANNER`<br>`SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on) |
 | [`demo_crew`](#demo_crew) Simulated demo Crew | stable | toggle | off | off | `agents`, `demo_banner` | — | `SOKKAN_FEATURE_DEMO_CREW`<br>`SOKKAN_DEMO_CREW` (legacy) |
 | [`demo_captains`](#demo_captains) Captains demo | beta | toggle | off | off | `demo_banner`, `multi_project` | — | `SOKKAN_FEATURE_DEMO_CAPTAINS`<br>`SOKKAN_DEMO_CAPTAINS` (legacy) |
+| [`demo_atelier`](#demo_atelier) Atelier demo | beta | toggle | off | off | `demo_banner`, `simple_profile`, `multi_project` | — | `SOKKAN_FEATURE_DEMO_ATELIER`<br>`SOKKAN_DEMO_ATELIER` (legacy) |
 | [`sso`](#sso) Single sign-on | stable | integration | if configured | if configured | — | — | `SOKKAN_AUTH_MODE`, `SOKKAN_OIDC_ISSUER`, `SOKKAN_OIDC_CLIENT_ID` |
 | [`multi_project`](#multi_project) Projects | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_MULTI_PROJECT` |
 | [`sso_teams`](#sso_teams) SSO teams | beta | toggle | on | on | `sso` | — | `SOKKAN_FEATURE_SSO_TEAMS` |
@@ -86,6 +87,7 @@ graph LR
   demo_banner["Public demo mode"]
   demo_crew["Simulated demo Crew"]
   demo_captains["Captains demo"]
+  demo_atelier["Atelier demo"]
   sso["Single sign-on"]
   multi_project["Projects"]
   sso_teams["SSO teams"]
@@ -123,6 +125,9 @@ graph LR
   demo_crew --> demo_banner
   demo_captains --> demo_banner
   demo_captains --> multi_project
+  demo_atelier --> demo_banner
+  demo_atelier --> simple_profile
+  demo_atelier --> multi_project
   sso_teams --> sso
   ops_team --> sso_teams
   project_vault_budgets --> multi_project
@@ -319,7 +324,7 @@ A viewer sees the whole Crew read-only (secret names, never values). Public demo
 Guided-tour banner of the public read-only demo instance.
 
 - Defaults: community **off**, enterprise **off**
-- Required by: `demo_crew`, `demo_captains`
+- Required by: `demo_crew`, `demo_captains`, `demo_atelier`
 - Switch: `SOKKAN_FEATURE_DEMO_BANNER`, `SOKKAN_DEMO_BANNER` (legacy: 0 = off, anything else = on)
 
 ### demo_crew
@@ -344,6 +349,17 @@ Public demo only: the visitor (a viewer) sees Control › Helm and the board rea
 - Switch: `SOKKAN_FEATURE_DEMO_CAPTAINS`, `SOKKAN_DEMO_CAPTAINS` (legacy)
 - Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
 
+### demo_atelier
+
+**Atelier demo** — beta, toggle.
+
+Public demo only: the anonymous visitor (a viewer) tries SOKKAN Atelier on finished, fictional work — a « read-only demo » band with the operator's call to action (SOKKAN_DEMO_BOOK_URL, SOKKAN_DEMO_INSTALL_URL), actions that would write replaced by a sentence, language / theme / interface kept in the visitor's browser; every write under /api answers 403 « read-only demo » (Nina excepted). Seed: backend/demo_atelier.py.
+
+- Defaults: community **off**, enterprise **off**
+- Requires: `demo_banner`, `simple_profile`, `multi_project`
+- Switch: `SOKKAN_FEATURE_DEMO_ATELIER`, `SOKKAN_DEMO_ATELIER` (legacy)
+- Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)
+
 ### sso
 
 **Single sign-on** — stable, integration.
@@ -362,7 +378,7 @@ OIDC / LDAPS login (SOKKAN_AUTH_MODE). Configure it to turn it on.
 Several isolated projects on one instance (sessions, board, agents, memory, workspace), roles per project. Off: no NEW project can be created; projects that exist keep their isolation (turning it off never opens data).
 
 - Defaults: community **off**, enterprise **on**
-- Required by: `demo_captains`, `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
+- Required by: `demo_captains`, `demo_atelier`, `project_vault_budgets`, `gitlab`, `byok_admin`, `sandbox`, `shared_review`, `helm`, `classification`
 - Switch: `SOKKAN_FEATURE_MULTI_PROJECT`
 - Doc: [docs/MULTIUSER.md](../../docs/MULTIUSER.md)
 
@@ -606,7 +622,7 @@ A second way into the same cockpit for people who never saw a terminal: a task-f
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `documents`
-- Required by: `claude_tier`
+- Required by: `demo_atelier`, `claude_tier`
 - Switch: `SOKKAN_FEATURE_SIMPLE_PROFILE`
 - Doc: [docs/enterprise/SIMPLE-PROFILE.md](../../docs/enterprise/SIMPLE-PROFILE.md)
 

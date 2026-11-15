@@ -195,6 +195,11 @@ services:
       SOKKAN_DEMO_CREW: ${SOKKAN_DEMO_CREW:-0}
       # 3.2.2 : démo publique « Captains » — Helm, projets, Setup en lecture seule (exige DEMO_BANNER + projets)
       SOKKAN_DEMO_CAPTAINS: ${SOKKAN_DEMO_CAPTAINS:-0}
+      # 3.6.7 : démo publique de SOKKAN Atelier en lecture seule (exige DEMO_BANNER, profil simple, projets)
+      SOKKAN_DEMO_ATELIER: ${SOKKAN_DEMO_ATELIER:-0}
+      # appel à l'action du bandeau de démo (vide = bouton absent) : réserver une démo, installer
+      SOKKAN_DEMO_BOOK_URL: ${SOKKAN_DEMO_BOOK_URL:-}
+      SOKKAN_DEMO_INSTALL_URL: ${SOKKAN_DEMO_INSTALL_URL:-}
       # 3.2 feature registry (backend/features.py, docs/enterprise/FEATURES.md):
       # community (default) | enterprise — empty switches = the edition's default
       SOKKAN_EDITION: ${SOKKAN_EDITION:-}
@@ -216,6 +221,7 @@ services:
       SOKKAN_FEATURE_DEMO_BANNER: ${SOKKAN_FEATURE_DEMO_BANNER:-}
       SOKKAN_FEATURE_DEMO_CREW: ${SOKKAN_FEATURE_DEMO_CREW:-}
       SOKKAN_FEATURE_DEMO_CAPTAINS: ${SOKKAN_FEATURE_DEMO_CAPTAINS:-}
+      SOKKAN_FEATURE_DEMO_ATELIER: ${SOKKAN_FEATURE_DEMO_ATELIER:-}
       SOKKAN_FEATURE_MULTI_PROJECT: ${SOKKAN_FEATURE_MULTI_PROJECT:-}
       SOKKAN_FEATURE_SSO_TEAMS: ${SOKKAN_FEATURE_SSO_TEAMS:-}
       SOKKAN_FEATURE_OPS_TEAM: ${SOKKAN_FEATURE_OPS_TEAM:-}

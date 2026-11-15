@@ -41,6 +41,7 @@ import auth
 import board
 import budgets
 import claudetier
+import demo_atelier
 import documents
 import features
 import iam
@@ -285,6 +286,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         email = (pu.get("email") or "").lower()
         name = (shown_name(request, pu) or "").strip()
         first = "" if "@" in name else name.split(" ")[0]
+        if demo_atelier.enabled():
+            first = ""     # the public demo's one identity is nobody's name (« Bonjour Owner »)
         mine = _mine(slug, email)
         works = simple.works_by_sid([s["session_id"] for s in mine[:40]])
         recents = [_row(s, works.get(s["session_id"])) for s in mine[:40]]
