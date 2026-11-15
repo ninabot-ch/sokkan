@@ -158,20 +158,20 @@ export function Documents({ canAdd }: { canAdd: boolean }) {
 }
 
 // ---- My agent crew ----------------------------------------------------------------------------
-export function Team({ enabled, demo = false }: { enabled: boolean; demo?: boolean }) {
+export function Team({ enabled, demo = false, hiddenForRole = false }: { enabled: boolean; demo?: boolean; hiddenForRole?: boolean }) {
   const t = useT();
   const { lang } = useUI();
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [failed, setFailed] = useState(false);
   // 3.6.7: a person whose role does not show the crew read « the work could not start, try again »
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(hiddenForRole);
   const load = useCallback(() => {
-    if (!enabled) return;
+    if (!enabled || hiddenForRole) return;   // a viewer without the read-only crew: not even asked
     setFailed(false);
     agentsList().then((r) => setAgents(r.agents)).catch((e) => {
       if (e instanceof Error && /\b403\b/.test(e.message)) setHidden(true); else setFailed(true);
     });
-  }, [enabled]);
+  }, [enabled, hiddenForRole]);
   useEffect(load, [load]);
   const word = (a: Agent): { key: Key; cls: string } =>
     a.status === "draft" || a.status === "pending" || a.needs_approval ? { key: "team.state.draft", cls: "sk-pill-wait" }

@@ -227,3 +227,8 @@ def test_the_call_to_action_takes_http_links_only(monkeypatch, value, kept):
     import demo_atelier
     monkeypatch.setenv("SOKKAN_DEMO_INSTALL_URL", value)
     assert demo_atelier.cta()["install_url"] == (value if kept else "")
+
+
+def test_english_content_uses_english_quotes():
+    en = json.dumps([p for p in CONTENT["projects"] if p["lang"] == "en"], ensure_ascii=False)
+    assert "«" not in en and "»" not in en

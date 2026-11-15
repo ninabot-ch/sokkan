@@ -306,7 +306,7 @@
      "name": "support-tone-of-voice",
      "ago_days": 70,
      "description": "Support tone of voice: answer first, plain words, name the next step, never promise an unconfirmed date.",
-     "body": "# Support tone of voice\n\n- Start with the answer, then the explanation. No « We apologise for any inconvenience ».\n- Short sentences, plain words; one action per paragraph.\n- Name the next step and when the customer will hear from us.\n- Never promise a date the logistics team has not confirmed.\n- Sign as « The support team ».\n"
+     "body": "# Support tone of voice\n\n- Start with the answer, then the explanation. No “We apologise for any inconvenience”.\n- Short sentences, plain words; one action per paragraph.\n- Name the next step and when the customer will hear from us.\n- Never promise a date the logistics team has not confirmed.\n- Sign as “The support team”.\n"
     },
     {
      "name": "escalation-rules",
@@ -325,7 +325,7 @@
     {
      "key": "release-notes",
      "name": "Release notes invoicing portal 2.0.md",
-     "text": "Release notes — invoicing portal 2.0 (fictional)\n\n- Customers sign in with their email address and a one-time code (no password any more).\n- All invoices of the last 24 months can be downloaded as PDF.\n- New: export of several invoices at once as a CSV file, for accounting software.\n- Payment by bank transfer with a QR code printed on each invoice.\n- Change of billing address: from the « Account » page; it applies to the next invoice, not to invoices already issued.\n- The old portal closes at the end of the quarter; links to it redirect to the new one.\n",
+     "text": "Release notes — invoicing portal 2.0 (fictional)\n\n- Customers sign in with their email address and a one-time code (no password any more).\n- All invoices of the last 24 months can be downloaded as PDF.\n- New: export of several invoices at once as a CSV file, for accounting software.\n- Payment by bank transfer with a QR code printed on each invoice.\n- Change of billing address: from the “Account” page; it applies to the next invoice, not to invoices already issued.\n- The old portal closes at the end of the quarter; links to it redirect to the new one.\n",
      "ago_days": 9
     }
    ],
@@ -354,7 +354,7 @@
          "write": "v1"
         },
         {
-         "say": "The FAQ is saved: five questions customers will ask first, each answered in one or two sentences, in your support tone of voice. Everything comes from « Release notes invoicing portal 2.0 »; nothing about prices or dates was added."
+         "say": "The FAQ is saved: five questions customers will ask first, each answered in one or two sentences, in your support tone of voice. Everything comes from “Release notes invoicing portal 2.0”; nothing about prices or dates was added."
         }
        ]
       },
@@ -374,8 +374,8 @@
      "deliverable": {
       "file": "FAQ invoicing portal.md",
       "versions": {
-       "v1": "# FAQ — the new invoicing portal\n\n**How do I sign in?**\nWith your email address. We send you a one-time code; there is no password any more.\n\n**Where are my old invoices?**\nAll invoices of the last 24 months are on the portal and can be downloaded as PDF.\n\n**How do I pay an invoice?**\nBy bank transfer, with the QR code printed on each invoice.\n\n**I moved. How do I change my billing address?**\nOn the « Account » page. The new address applies to your next invoice; invoices already issued keep the old one.\n\n**What happens to the old portal?**\nIt closes at the end of the quarter. Links to it take you to the new portal.\n\nThe support team\n",
-       "v2": "# FAQ — the new invoicing portal\n\n**How do I sign in?**\nWith your email address. We send you a one-time code; there is no password any more.\n\n**Where are my old invoices?**\nAll invoices of the last 24 months are on the portal and can be downloaded as PDF.\n\n**Can I export my invoices to my accounting software?**\nYes. Select the invoices you need, then « Export as CSV »: one file for all of them, ready to import.\n\n**How do I pay an invoice?**\nBy bank transfer, with the QR code printed on each invoice.\n\n**I moved. How do I change my billing address?**\nOn the « Account » page. The new address applies to your next invoice; invoices already issued keep the old one.\n\n**What happens to the old portal?**\nIt closes at the end of the quarter. Links to it take you to the new portal.\n\nThe support team\n"
+       "v1": "# FAQ — the new invoicing portal\n\n**How do I sign in?**\nWith your email address. We send you a one-time code; there is no password any more.\n\n**Where are my old invoices?**\nAll invoices of the last 24 months are on the portal and can be downloaded as PDF.\n\n**How do I pay an invoice?**\nBy bank transfer, with the QR code printed on each invoice.\n\n**I moved. How do I change my billing address?**\nOn the “Account” page. The new address applies to your next invoice; invoices already issued keep the old one.\n\n**What happens to the old portal?**\nIt closes at the end of the quarter. Links to it take you to the new portal.\n\nThe support team\n",
+       "v2": "# FAQ — the new invoicing portal\n\n**How do I sign in?**\nWith your email address. We send you a one-time code; there is no password any more.\n\n**Where are my old invoices?**\nAll invoices of the last 24 months are on the portal and can be downloaded as PDF.\n\n**Can I export my invoices to my accounting software?**\nYes. Select the invoices you need, then “Export as CSV”: one file for all of them, ready to import.\n\n**How do I pay an invoice?**\nBy bank transfer, with the QR code printed on each invoice.\n\n**I moved. How do I change my billing address?**\nOn the “Account” page. The new address applies to your next invoice; invoices already issued keep the old one.\n\n**What happens to the old portal?**\nIt closes at the end of the quarter. Links to it take you to the new portal.\n\nThe support team\n"
       }
      },
      "documents": [

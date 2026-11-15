@@ -188,7 +188,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
-        {view.name === "team" && <Team enabled={!!feats.agents} demo={demo} />}
+        {view.name === "team" && <Team enabled={!!feats.agents} demo={demo} hiddenForRole={reader && !feats.agents_viewer_readonly} />}
         {view.name === "review" && <IngestReview quarantine batchesOn={ingestOn} onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}
           onBack={() => go({ name: "works" })} onChanged={loadHome} />}
