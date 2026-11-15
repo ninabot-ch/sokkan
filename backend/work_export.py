@@ -80,9 +80,26 @@ class ExportUnavailable(Exception):
 
 
 # ---- small helpers ------------------------------------------------------------------------
+def _tz():
+    """The instance's time zone (`SOKKAN_TZ`, else `TZ`, else UTC): 3.6.7 — the archive said
+    09:25Z where the screen had said 10:25, and nobody reading index.json converts UTC."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    for name in (os.environ.get("SOKKAN_TZ"), os.environ.get("TZ")):
+        name = (name or "").strip().lstrip(":")
+        if name:
+            try:
+                return ZoneInfo(name)
+            except (ZoneInfoNotFoundError, ValueError):
+                continue
+    return datetime.timezone.utc
+
+
 def _iso(ts=None) -> str:
-    d = (datetime.datetime.now(datetime.timezone.utc) if ts is None else
-         datetime.datetime.fromtimestamp(float(ts), datetime.timezone.utc))
+    """ISO 8601 in the instance's time zone, WITH its offset (« 2026-11-14T10:25:00+01:00 »):
+    the hour people saw on screen, and still one exact instant for a program."""
+    tz = _tz()
+    d = (datetime.datetime.now(tz) if ts is None else
+         datetime.datetime.fromtimestamp(float(ts), tz))
     return d.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
@@ -564,6 +581,8 @@ def build(user: dict) -> dict:
         "format": FORMAT, "sokkan_version": version(), "generated_at": _iso(),
         "generated_by": user.get("email") or "",
         "projects": exported,
+        # 3.6.7: « 4 projects » for two that hold anything read as two missing — say both
+        "projects_with_content": sum(1 for p in exported if p["files"]),
         "projects_not_included": len(every) - len(exported),
         "counts": _counts(files), "files_total": len(files),
         "bytes_total": sum(m["bytes"] for m in files),
@@ -589,7 +608,14 @@ def filename(manifest: dict) -> str:
 # ---- README -------------------------------------------------------------------------------
 def readme(manifest: dict) -> str:
     c = manifest["counts"]
-    prj = ", ".join(f"`{p['slug']}`" for p in manifest["projects"]) or "—"
+    full = [p for p in manifest["projects"] if p["files"]]
+    empty = [p for p in manifest["projects"] if not p["files"]]
+    prj = ", ".join(f"`{p['slug']}`" for p in full) or "—"
+    prj_en = prj + (f" (and {len(empty)} without any content: "
+                    + ", ".join(f"`{p['slug']}`" for p in empty) + ")" if empty else "")
+    prj_fr = prj + (f" (et {len(empty)} sans contenu : "
+                    + ", ".join(f"`{p['slug']}`" for p in empty) + ")" if empty else "")
+    tzname = manifest["generated_at"][19:] or "Z"
     head = (f"SOKKAN {manifest['sokkan_version']} · {manifest['generated_at']} · "
             f"{manifest['files_total']} files")
     return f"""# Your work, out of SOKKAN
@@ -599,7 +625,9 @@ def readme(manifest: dict) -> str:
 This archive holds what your organisation built in SOKKAN, in plain files. Nothing in it
 needs SOKKAN to be read. *(Version française plus bas.)*
 
-Projects in this archive: {prj}
+Projects in this archive: {prj_en}
+
+Dates and times are those of the instance (UTC offset `{tzname}`), written ISO 8601.
 
 | Folder | What it is | Count |
 |---|---|---|
@@ -609,7 +637,7 @@ Projects in this archive: {prj}
 | `tools/<project>/skills/` | Agent skills found in the project workspace | {c['skills']} |
 | `tools/<project>/commands/`, `subagents/` | Slash commands and sub-agents of the workspace | {c['commands'] + c['subagents']} |
 | `tools/…/connectors/` | Declared MCP servers, alert channels, document sources | {c['connectors']} |
-| `deliverables/<project>/` | Deliverables of the simple profile, one folder per piece of work | {c['deliverables']} |
+| `deliverables/<project>/` | Deliverables of SOKKAN Atelier, one folder per piece of work | {c['deliverables']} |
 | `deliverables/<project>/crew/` | What the agents' runs delivered | {c['agent_deliverables']} |
 
 ## How to reuse it
@@ -659,7 +687,9 @@ Projects in this archive: {prj}
 Cette archive contient ce que votre organisation a construit dans SOKKAN, en fichiers
 ordinaires. Rien n'y demande SOKKAN pour être lu.
 
-Projets dans cette archive : {prj}
+Projets dans cette archive : {prj_fr}
+
+Les dates et heures sont celles de l'instance (décalage UTC `{tzname}`), au format ISO 8601.
 
 | Dossier | Contenu | Nombre |
 |---|---|---|
@@ -669,7 +699,7 @@ Projets dans cette archive : {prj}
 | `tools/<projet>/skills/` | Les skills d'agent trouvés dans l'espace de travail du projet | {c['skills']} |
 | `tools/<projet>/commands/`, `subagents/` | Commandes et sous-agents de l'espace de travail | {c['commands'] + c['subagents']} |
 | `tools/…/connectors/` | Serveurs MCP, canaux d'alerte et sources de documents déclarés | {c['connectors']} |
-| `deliverables/<projet>/` | Les livrables du profil simple, un dossier par travail | {c['deliverables']} |
+| `deliverables/<projet>/` | Les livrables de SOKKAN Atelier, un dossier par travail | {c['deliverables']} |
 | `deliverables/<projet>/crew/` | Ce que les exécutions des agents ont livré | {c['agent_deliverables']} |
 
 ## Comment le réutiliser

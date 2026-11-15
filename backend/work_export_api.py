@@ -58,5 +58,6 @@ def export(_f=Depends(_on), u: dict = Depends(_admin)):
         # 3.6.3: what the screen says after the click — how many projects are in the archive and
         # how many are not (the caller has no role in them); the manifest holds the same numbers
         "X-Sokkan-Export-Projects": str(len(m["projects"])),
+        "X-Sokkan-Export-Projects-With-Content": str(m["projects_with_content"]),
         "X-Sokkan-Export-Projects-Not-Included": str(m["projects_not_included"]),
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})

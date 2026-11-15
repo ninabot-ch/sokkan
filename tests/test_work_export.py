@@ -252,6 +252,42 @@ def test_only_the_projects_the_admin_has_a_role_in(org):
     assert b"Radio" not in b"".join(f.values())
 
 
+def test_projects_with_content_are_told_apart(org):
+    """3.6.7: « (4 projects) » for two that hold anything — the empty ones are named apart."""
+    _z, f = _zip(org["as"]("admin@x").get(URL))
+    m = json.loads(f["manifest.json"])
+    full = [p for p in m["projects"] if p["files"]]
+    assert m["projects_with_content"] == len(full)
+    r = org["as"]("admin@x").get(URL)
+    assert r.headers["x-sokkan-export-projects-with-content"] == str(len(full))
+    readme = f["README.md"].decode()
+    line = next(ln for ln in readme.splitlines() if ln.startswith("Projects in this archive:"))
+    for p in m["projects"]:
+        assert f"`{p['slug']}`" in line
+        if not p["files"]:
+            assert "without any content" in line
+
+
+def test_times_are_the_instance_s_with_their_offset(org, monkeypatch):
+    """3.6.7: index.json said 09:25Z where the screen said 10:25 — the instance's zone now."""
+    import datetime
+    import work_export
+    monkeypatch.setenv("SOKKAN_TZ", "Europe/Zurich")
+    ts = datetime.datetime(2026, 11, 14, 9, 25, tzinfo=datetime.timezone.utc).timestamp()
+    assert work_export._iso(ts) == "2026-11-14T10:25:00+01:00"
+    monkeypatch.setenv("SOKKAN_TZ", "Not/AZone")
+    monkeypatch.delenv("TZ", raising=False)
+    assert work_export._iso(ts) == "2026-11-14T09:25:00Z"
+    monkeypatch.setenv("SOKKAN_TZ", "Europe/Zurich")
+    _z, f = _zip(org["as"]("admin@x").get(URL))
+    m = json.loads(f["manifest.json"])
+    assert m["generated_at"].endswith(("+01:00", "+02:00"))
+    for name, data in f.items():
+        if name.endswith("index.json"):
+            for row in json.loads(data):
+                assert row["updated_at"].endswith(("+01:00", "+02:00"))
+
+
 def test_a_project_the_admin_joins_is_exported(org):
     import projects
     projects.grant("radio", "user", "admin@x", "admin")
@@ -295,7 +331,8 @@ def test_manifest_matches_the_archive(org):
     assert m["format"] == "sokkan-work-export/1" and m["generated_by"] == "admin@x"
     from pathlib import Path
     assert m["sokkan_version"] == (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
-    assert m["generated_at"].endswith("Z")
+    import datetime
+    assert datetime.datetime.fromisoformat(m["generated_at"].replace("Z", "+00:00")).tzinfo is not None
     listed = {x["path"]: x for x in m["files"]}
     assert set(listed) == set(f) - {"README.md", "manifest.json"}
     for path, x in listed.items():

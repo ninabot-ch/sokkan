@@ -73,7 +73,7 @@ function WorkExport() {
         className="ui-focus mt-2 inline-block rounded-lg border border-sea/60 bg-sea/15 px-3 py-1.5 text-[12.5px] font-medium text-slate-100 hover:bg-sea/25 disabled:opacity-60">
         ↓ {st === "busy" ? t.preparing : t.button}</button>
       <div role="status" aria-live="polite" className="max-w-[72ch] text-[12px]">
-        {typeof st === "object" && <p className="mt-2 text-emerald-300">✓ {t.done(st.filename, st.projects)}</p>}
+        {typeof st === "object" && <p className="mt-2 text-emerald-300">✓ {t.done(st.filename, st.projects, st.withContent)}</p>}
         {typeof st === "object" && st.notIncluded > 0 && <p className="mt-1 text-amber-300">{t.missing(st.notIncluded)}</p>}
         {st === "failed" && <p className="mt-2 text-red-300">{t.failed}</p>}
       </div>

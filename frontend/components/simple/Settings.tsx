@@ -89,7 +89,9 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
             <div role="status" aria-live="polite" className="sk-list">
               {typeof exp === "object" && (
                 <div className="sk-export-done"><Icon name="check" small />
-                  <span>{t(exp.projects === 1 ? "set.export.done" : "set.export.done.n", { file: exp.filename, n: exp.projects })}</span></div>
+                  <span>{exp.withContent < exp.projects
+                    ? t("set.export.done.some", { file: exp.filename, n: exp.projects, k: exp.withContent })
+                    : t(exp.projects === 1 ? "set.export.done" : "set.export.done.n", { file: exp.filename, n: exp.projects })}</span></div>
               )}
               {typeof exp === "object" && exp.notIncluded > 0 && (
                 <div className="sk-notice"><Icon name="info" />
@@ -113,7 +115,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
 }
 
 /** 3.6.5 — the organisation's Anthropic key and the model offered first (« Write with Claude »).
- *  The key is never shown back: only its last four characters and the result of its test. */
+ *  The key is never shown back, not even its end (3.6.7): only that one is saved and its test. */
 function ClaudeAdmin() {
   const t = useT();
   const [st, setSt] = useState<ClaudeSettings | null>(null);
@@ -127,14 +129,16 @@ function ClaudeAdmin() {
     try {
       const r = await saveClaudeKey(key.trim());
       setSt(r); setKey("");
-      setMsg(t("set.claude.saved", { masked: r.key?.masked || "", detail: r.test?.ok ? t("set.claude.valid") : r.test?.detail || "" }));
+      setMsg(t("set.claude.saved", { detail: r.test?.ok ? t("set.claude.valid") : r.test?.detail || "" }));
     } catch { setMsg(t("set.claude.failed")); } finally { setBusy(false); }
   };
   return (
     <fieldset className="sk-claude-set">
       <legend className="sk-legend">{t("set.claude")}</legend>
       <p className="sk-small sk-muted">{t("set.claude.hint")}</p>
-      {st.key && <div className="sk-small">{t("set.claude.current", { masked: st.key.masked })}{st.key.test_ok ? ` · ${t("set.claude.valid")}` : st.key.test_detail ? ` · ${st.key.test_detail}` : ""}</div>}
+      {/* 3.6.7: no part of the key on this screen (it was filmed, shared on a projector) — only
+          that one is saved and whether it works; the masked end stays an admin's API detail */}
+      {st.key && <div className="sk-small">{t("set.claude.current")}{st.key.test_ok ? ` · ${t("set.claude.valid")}` : st.key.test_detail ? ` · ${st.key.test_detail}` : ""}</div>}
       <label className="sk-small" htmlFor="sk-claude-key">{t("set.claude.key")}</label>
       <input id="sk-claude-key" type="password" autoComplete="off" spellCheck={false} value={key}
         placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />
