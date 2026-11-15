@@ -564,14 +564,14 @@ REGISTRY: tuple[Feature, ...] = (
             status="beta", defaults=_both(False), vars=_t("documents"),
             config=("SOKKAN_DOCUMENTS_MAX_MB", "SOKKAN_DOCUMENTS_MAX_PER_PROJECT"),
             doc="docs/enterprise/SIMPLE-PROFILE.md"),
-    Feature("simple_profile", "Simple profile",
+    Feature("simple_profile", "SOKKAN Atelier (simple interface)",
             "A second way into the same cockpit for people who never saw a terminal: a "
             "task-first home (« what are we working on? », attach documents, four business "
             "task templates), a plain-language thread (no tool names, technical detail folded), "
             "an approval card that says what the agent wants to save and from which sources, a "
             "deliverable to preview, download and validate; French and English; light theme by "
-            "default. Chosen per person (simple / technical); the technical profile keeps every "
-            "existing screen. From the simple profile the approval mode cannot be changed.",
+            "default. Chosen per person (SOKKAN Atelier / SOKKAN Cockpit); the Cockpit keeps every "
+            "existing screen. From the Atelier the approval mode cannot be changed.",
             status="beta", defaults=_both(False), requires=("documents",),
             vars=_t("simple_profile"),
             config=("SOKKAN_PROFILE_DEFAULT", "SOKKAN_PROFILE_LOCKED"),

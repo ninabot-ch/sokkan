@@ -12,12 +12,12 @@ export default function ProfileSwitch() {
   if (!p || !p.available) return null;
   return (
     <section className="rounded-xl border border-line bg-panel p-4">
-      <div className="text-[13px] font-semibold text-slate-100">Interface profile</div>
+      <div className="text-[13px] font-semibold text-slate-100">Interface: SOKKAN Cockpit or SOKKAN Atelier</div>
       <p className="mt-1 max-w-prose text-[12.5px] leading-relaxed text-mut">
-        The <span className="text-slate-200">simple profile</span> is a task-first home for people who are not
+        <span className="text-slate-200">SOKKAN Atelier</span> is a task-first home for people who are not
         developers: say what you want, attach documents, approve what the agent wants to save, validate the
-        deliverable — in French or English, light theme. The technical profile is this cockpit. You can come back
-        here at any time from the simple profile&apos;s Settings.
+        deliverable — in French or English, light theme. <span className="text-slate-200">SOKKAN Cockpit</span> is
+        this screen. You can come back here at any time from the Settings of SOKKAN Atelier.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
@@ -25,10 +25,10 @@ export default function ProfileSwitch() {
           onClick={async () => {
             setErr("");
             try { await savePrefs({ profile: "simple" }); window.location.assign("/"); }
-            catch { setErr("The profile is set by an administrator on this instance."); }
+            catch { setErr("The interface is set by an administrator on this instance."); }
           }}
           className="ui-focus rounded-lg border border-brass/60 bg-brass/10 px-3 py-1.5 text-[12.5px] font-medium text-brass hover:bg-brass/20 disabled:opacity-40">
-          Switch to the simple profile
+          Switch to SOKKAN Atelier
         </button>
         {err && <span role="alert" className="text-[12px] text-red-300">{err}</span>}
       </div>

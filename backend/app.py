@@ -1888,7 +1888,7 @@ async def agent_ws(websocket: WebSocket, sid: str):
                 # 3.6 : depuis le profil simple, le mode d'approbation ne se change pas
                 if not uiprefs.may_change_mode(wsu["email"]):
                     await emit({"type": "error", "message":
-                                "The approval mode cannot be changed from the simple profile."})
+                                "The approval mode cannot be changed from SOKKAN Atelier."})
                 else:
                     await session.set_mode(msg.get("mode", "default"), actor=wsu["email"])
     except WebSocketDisconnect:
