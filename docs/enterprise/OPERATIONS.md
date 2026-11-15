@@ -373,7 +373,7 @@ as a hidden `.partial` directory and renamed at the end, so a failed run leaves 
 |---|---|
 | `pg.dump` | `pg_dump -Fc` of the CortHeXis store (absent on a SQLite-only install) |
 | `data.tgz` | the whole data directory (`/data`) **except the key files** (`vault.key`, and since 3.3 `forge.key`, `teams.key`) |
-| `vault.key.enc`, `forge.key.enc`, `teams.key.enc` | each key file present, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase (file provider) |
+| `vault.key.enc`, `forge.key.enc`, `teams.key.enc` | each key file present, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase (file provider). Since 4.0 the key is preceded by a first line `sokkan-key/1` (MANIFEST `key_tag`): restore checks it, so a wrong passphrase is always refused (CBC padding alone lets about one in 256 through). By hand: `openssl enc -d -aes-256-cbc -pbkdf2 -in vault.key.enc \| tail -n +2` |
 | `VAULT_KEY_NOT_INCLUDED.txt` | instead of the above when no passphrase is given: back the key files up separately |
 | `secrets.openbao.json`, `OPENBAO_REQUIRED.txt` | openbao provider: the KV secrets, each encrypted by transit — **no key in the set**; restoring needs the same OpenBao ([SECRETS.md § 8](SECRETS.md#8-backups)) |
 | `MANIFEST` | SOKKAN version, UTC date, mode, SQLite databases found, sha256 of every file |

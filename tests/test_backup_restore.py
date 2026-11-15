@@ -190,6 +190,64 @@ def test_wrong_passphrase_touches_nothing(tmp_path):
     assert (data / "new.txt").exists()
 
 
+def test_a_wrong_passphrase_that_passes_the_padding_is_still_refused(tmp_path):
+    """The cause of a test that failed about once in 256 runs: AES-CBC with a wrong
+    passphrase « decrypts » without error whenever the last block happens to end in valid
+    padding, and restore installed that garbage as vault.key. The key now travels behind a
+    known first line, checked before anything is touched. Here the unlucky case is made on
+    purpose: a wrong passphrase searched until openssl accepts it (one in 256 on average;
+    4096 tries fail to find one about once in ten million runs)."""
+    data, out = tmp_path / "data", tmp_path / "out"
+    _populate(data)
+    _run(BACKUP, out, env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    (s,) = _sets(out)
+    assert "key_tag: sokkan-key/1" in (s / "MANIFEST").read_text()
+    enc = s / "vault.key.enc"
+    plain = subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-in", str(enc),
+                            "-pass", "env:P"], env={**os.environ, "P": PASS},
+                           capture_output=True, check=True).stdout
+    assert plain.startswith(b"sokkan-key/1\n")
+    assert plain.split(b"\n", 1)[1] == (data / "vault.key").read_bytes()
+    lucky = None
+    for i in range(4096):
+        r = subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-in", str(enc),
+                            "-pass", f"pass:wrong-{i}"], capture_output=True)
+        if r.returncode == 0:
+            lucky = f"wrong-{i}"
+            break
+    assert lucky, "no wrong passphrase passed the padding check in 4096 tries"
+    (data / "new.txt").write_text("after the backup")
+    key = (data / "vault.key").read_bytes()
+    r = _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=lucky),
+             check=False)
+    assert r.returncode != 0 and "wrong passphrase" in r.stderr, r.stderr
+    assert (data / "new.txt").exists() and (data / "vault.key").read_bytes() == key
+    # and the right one still restores the key, byte for byte
+    shutil.rmtree(data)
+    _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    assert (data / "vault.key").read_bytes() == key
+
+
+def test_a_set_made_before_the_key_tag_still_restores(tmp_path):
+    """Sets written by an older backup.sh hold the bare key: no tag to check, same as before."""
+    data, out = tmp_path / "data", tmp_path / "out"
+    _populate(data)
+    _run(BACKUP, out, env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    (s,) = _sets(out)
+    key = (data / "vault.key").read_bytes()
+    enc = s / "vault.key.enc"
+    subprocess.run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-salt", "-out", str(enc),
+                    "-pass", "env:P"], input=key, env={**os.environ, "P": PASS}, check=True)
+    m = s / "MANIFEST"
+    text = "\n".join(ln for ln in m.read_text().splitlines() if not ln.startswith("key_tag:"))
+    old = [ln for ln in text.splitlines() if ln.endswith("  vault.key.enc")][0]
+    m.write_text(text.replace(
+        old, f"{hashlib.sha256(enc.read_bytes()).hexdigest()}  vault.key.enc") + "\n")
+    shutil.rmtree(data)
+    _run(RESTORE, s, "--yes", env=_env(data, SOKKAN_BACKUP_KEY_PASSPHRASE=PASS))
+    assert (data / "vault.key").read_bytes() == key
+
+
 def test_without_passphrase_key_not_included(tmp_path):
     data, out = tmp_path / "data", tmp_path / "out"
     _populate(data)

@@ -126,6 +126,7 @@ SECRETS="$(field secrets_provider)"
 SECRETS="${SECRETS:-file}"
 PY="${SOKKAN_PYTHON:-python3}"
 KEYFILES="vault.key forge.key teams.key"
+KEY_TAG="$(field key_tag)"
 KEYS_OK=""
 mkdir "$WORK/keys" "$WORK/wrapped"
 passarg() {
@@ -144,8 +145,18 @@ case "$SECRETS" in
       elif [ -f "$SETDIR/$k.enc" ]; then
         PASSARG="$(passarg)"
         [ -n "$PASSARG" ] || die "the set has $k.enc: set SOKKAN_BACKUP_KEY_PASSPHRASE (or _PASSFILE), or give --vault-key / --keys-dir"
-        openssl enc -d -aes-256-cbc -pbkdf2 -in "$SETDIR/$k.enc" -out "$WORK/keys/$k" -pass "$PASSARG" 2>/dev/null ||
+        openssl enc -d -aes-256-cbc -pbkdf2 -in "$SETDIR/$k.enc" -out "$WORK/keys/$k.dec" -pass "$PASSARG" 2>/dev/null ||
           die "cannot decrypt $k.enc (wrong passphrase?) — nothing was changed"
+        if [ -n "$KEY_TAG" ]; then
+          # a wrong passphrase passes the CBC padding check about once in 256: the first
+          # line written by backup.sh is what proves the passphrase
+          [ "$(head -n 1 "$WORK/keys/$k.dec")" = "$KEY_TAG" ] ||
+            die "cannot decrypt $k.enc (wrong passphrase) — nothing was changed"
+          tail -n +2 "$WORK/keys/$k.dec" > "$WORK/keys/$k"
+        else  # a set made before the tag: nothing to check against
+          cp "$WORK/keys/$k.dec" "$WORK/keys/$k"
+        fi
+        rm -f "$WORK/keys/$k.dec"
       elif [ -f "$SETDIR/$k" ]; then
         cp "$SETDIR/$k" "$WORK/keys/$k"
       else

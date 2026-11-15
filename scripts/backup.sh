@@ -265,11 +265,15 @@ EOF
   fi
 else
   KEY=absent
+  KEY_TAG="sokkan-key/1"
   for k in $KEYFILES; do
     [ -s "$TMP/$k" ] || continue
     KEYS_IN="$KEYS_IN $k"
     if [ -n "$PASSARG" ]; then
-      openssl enc -aes-256-cbc -pbkdf2 -salt -in "$TMP/$k" -out "$SET/$k.enc" -pass "$PASSARG" ||
+      # the key behind a known first line: CBC padding alone lets about one wrong passphrase
+      # in 256 « decrypt » into garbage that restore would then install (KEY_TAG below)
+      { printf '%s\n' "$KEY_TAG"; cat "$TMP/$k"; } |
+        openssl enc -aes-256-cbc -pbkdf2 -salt -out "$SET/$k.enc" -pass "$PASSARG" ||
         die "$k encryption failed"
       [ "$k" = vault.key ] && KEY=encrypted
     elif [ "$PLAIN_KEY" = 1 ]; then
@@ -312,6 +316,7 @@ VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
   echo "vault_key: $KEY"
   echo "secrets_provider: $SECRETS"
   echo "keys: $KEYS_IN"
+  [ "$KEY" != encrypted ] || echo "key_tag: $KEY_TAG"
   echo "sqlite: $SQLITE_LIST"
   echo "sha256:"
   for f in "$SET"/*; do
