@@ -68,3 +68,19 @@ def test_a_seed_never_names_tools_the_engine_does_not_have(monkeypatch):
         assert (recall in seed) and "propose a short plan" in seed
     monkeypatch.setattr(registry, "selected", lambda: "legacy")
     assert "mcp__sokkan-memory__memory_search" in board._seed_text("Write the follow-up mail.")
+
+
+def test_kernel_usage_counts_the_cached_part_once():
+    """The kernel's input includes the cached tokens (OpenAI way); the contract's `input` is the
+    uncached part (Messages way). Seen on the lab: a turn of 29k tokens recorded as 52k."""
+    from harness import kernel
+    h = kernel.KernelHarness()
+    h._thread, h._turn = "th_x", "t1"
+    h._on_event("turn.cost", {"thread_id": "th_x", "turn_id": "th_x:0", "models": [
+        {"model": "m27", "input_tokens": 21299, "cached_tokens": 16000, "output_tokens": 700}]})
+    evs = []
+    while not h._mail.empty():
+        evs.append(h._mail.get_nowait())
+    (u,) = [e for e in evs if isinstance(e, contract.Usage)]
+    assert (u.input, u.cache_read, u.output) == (5299, 16000, 700)
+    assert u.message_id == "th_x:0:m27"

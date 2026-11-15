@@ -670,10 +670,13 @@ class KernelHarness(Harness):
                 self._model = models[-1]
                 put(RunInfo(model=self._model))
             for m in d.get("models") or []:
+                # the kernel counts like an OpenAI upstream: its input INCLUDES the cached part;
+                # the contract counts like the Messages API: `input` is the uncached part only
+                cached = int(m.get("cached_tokens") or 0)
                 put(Usage(turn_id=self._turn, model=str(m.get("model") or "") or None,
-                          input=int(m.get("input_tokens") or 0),
+                          input=max(0, int(m.get("input_tokens") or 0) - cached),
                           output=int(m.get("output_tokens") or 0),
-                          cache_read=int(m.get("cached_tokens") or 0),
+                          cache_read=cached,
                           message_id=f"{kturn}:{m.get('model')}"))
         elif name == "turn.done":
             err = d.get("error")
