@@ -458,6 +458,8 @@ class AgentSession:
             return True
 
     async def close(self) -> None:
+        if getattr(self, "_run_journal", None) is not None:
+            self._run_journal.flush()
         for fut in list(self._perms.values()) + list(self._questions.values()):
             if not fut.done():
                 fut.cancel()
@@ -970,6 +972,7 @@ class AgentSession:
     def _consume(self, ev: contract.Event) -> None:
         """One event of the run's stream. The flow sent to the front keeps its format: this
         is where the contract is translated into it."""
+        self._journal(ev)
         if isinstance(ev, contract.RunInfo):
             sid = ev.engine_session
             if sid and sid != self.claude_session_id:
@@ -1074,6 +1077,16 @@ class AgentSession:
                 basis=ev.basis)
         except Exception as e:  # noqa: BLE001
             print(f"[sokkan] usage event of {self.sid} not recorded ({e!r})", file=sys.stderr)
+
+    def _journal(self, ev: contract.Event) -> None:
+        """Every event of the run, journalled by the cockpit (its shape only: run_journal)."""
+        try:
+            j = self._run_journal
+        except AttributeError:
+            import run_journal
+            j = self._run_journal = run_journal.Journal(
+                self.sid, self._usage_project(), getattr(self.harness, "name", "") or "")
+        j.add(ev)
 
     def _turn_record(self, ev: contract.TurnEnded, calls: dict, total: contract.Usage | None,
                      started: float | None) -> dict:

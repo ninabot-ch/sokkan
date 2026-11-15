@@ -332,6 +332,8 @@ services:
       # 4.0 session layer (backend/harness): the engine of new sessions and runs. Empty = the
       # first declared one, `legacy` (the Claude Code CLI) — the only engine of this release
       SOKKAN_ENGINE_RUNTIME: ${SOKKAN_ENGINE_RUNTIME:-}
+      # days the cockpit keeps the journal of each run's events (run_events.db); 0 = forever
+      SOKKAN_RUN_EVENTS_DAYS: ${SOKKAN_RUN_EVENTS_DAYS:-}
       # docker runner : valeurs posées par docker/runner/compose.docker-runner.yml (vide = défauts)
       SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
       SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}

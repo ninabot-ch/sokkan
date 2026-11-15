@@ -102,3 +102,54 @@ def test_the_cockpit_hands_handles_to_an_opaque_engine_and_names_to_the_cli(worl
     assert [e for e in s.events if e["type"] == "result"]
     # the CLI is a local engine that declares plain identity: it keeps the names
     assert legacy.CAPABILITIES.identity == "plain"
+
+
+# ---- the journal of a run's events, written by the cockpit (backend/run_journal.py) ------
+
+def test_every_event_of_a_run_is_journalled_by_the_cockpit_shape_only(world):
+    """The fake engine through the cockpit: a shell gate denied, an answer — the journal
+    has run → turn → tool → gate → result → end in order, with names and decisions, and
+    none of what was written (prompt, command, answer)."""
+    import agentchat
+    import board
+    import run_journal
+    from harness.conformance import driver, reference
+
+    async def go():
+        model = reference.ReferenceModel()
+        model.script.append([driver.shell("rm secret-plan.txt"), driver.say("Left it alone.")])
+        board.add_sdk_session("sid-j", "t")
+        s = agentchat.AgentSession("sid-j", cwd=str(world), user="alice@x")
+        s.attach(reference.ReferenceHarness(model),
+                 contract.RunSpec(run_id="sid-j", cwd=str(world)))
+        turn = asyncio.ensure_future(s.handle_user("tidy the private folder"))
+        for _ in range(300):
+            if s._perms:
+                break
+            await asyncio.sleep(0.01)
+        (pid,) = s._perms
+        # the gate is in the journal while it waits (written when it opened)
+        assert [e["type"] for e in run_journal.events("sid-j")][-1] == "gate.requested"
+        import hitl_journal
+        hitl_journal.attribute(pid, "alice@x", "rail")
+        s.resolve_permission(pid, {"decision": "deny", "message": "no"})
+        await asyncio.wait_for(turn, 10)
+        await s.close()
+        return s
+
+    asyncio.new_event_loop().run_until_complete(go())
+    evs = run_journal.events("sid-j")
+    types = [e["type"] for e in evs]
+    for t in ("turn.started", "tool.called", "gate.requested", "gate.resolved", "turn.ended"):
+        assert t in types, (t, types)
+    assert types.index("gate.requested") < types.index("gate.resolved") < types.index("turn.ended")
+    assert [e["seq"] for e in evs] == list(range(1, len(evs) + 1))
+    assert {e["engine"] for e in evs} == {"reference"} and {e["project"] for e in evs} == {"default"}
+    (res,) = [e for e in evs if e["type"] == "gate.resolved"]
+    assert res["decision"] == "deny" and res["by"] == "alice@x"
+    (call,) = [e for e in evs if e["type"] == "tool.called"]
+    assert call["name"] == "shell" and call["classification"] == "shell"
+    raw = (world / "run_events.db").read_bytes()
+    for word in (b"secret-plan", b"private folder", b"Left it alone"):
+        assert word not in raw, word
+    assert not [e for e in evs if e["type"] in ("assistant.text", "usage")]
