@@ -257,6 +257,13 @@ export const fleetGrantsSet = (emails: string[]) =>
 
 // mémoire / KB
 export const memoryStats = () => getJSON<MemStats>("/api/memory/stats");
+// 4.0: the session engines declared on this instance (backend/harness/registry.py)
+export interface SessionEngine {
+  name: string; label: string; selected: boolean; available: boolean; note: string;
+  capabilities: Record<string, unknown> | null;
+}
+export const sessionEngines = () =>
+  getJSON<{ engines: SessionEngine[]; variable: string }>("/api/engines/session");
 export const memoryNotes = () => getJSON<MemNote[]>("/api/memory/notes");
 export const memorySearch = (q: string, k = 8) =>
   getJSON<MemSearchResult[]>(`/api/memory/search?q=${encodeURIComponent(q)}&k=${k}`);

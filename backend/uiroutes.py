@@ -332,6 +332,22 @@ def model_key_test(provider: str, scope: str = "instance", u: dict = Depends(_ad
 
 
 # =========================================================================================
+# session engine (4.0, backend/harness): which engine runs the sessions, what it can do
+# =========================================================================================
+@router.get("/api/engines/session")
+def session_engines(u: dict = Depends(auth.current_user)) -> dict:
+    """Every declared session engine — selected or not, usable here or not, its
+    capabilities (Setup › Engines). Read-only: the engine is chosen with
+    SOKKAN_ENGINE_RUNTIME, not from the cockpit."""
+    from harness import registry
+    admin = iam.rank(u.get("role") or "") >= iam.rank("admin")
+    engines = registry.describe()
+    if not admin:   # how the engine was detected (paths, versions) is the admin's business
+        engines = [{**e, "note": ""} for e in engines]
+    return {"engines": engines, "variable": "SOKKAN_ENGINE_RUNTIME"}
+
+
+# =========================================================================================
 # connect_ai
 # =========================================================================================
 _connect = _feature("connect_ai")

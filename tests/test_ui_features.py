@@ -504,3 +504,18 @@ def test_custom_endpoint_key_test_sends_the_key(world, monkeypatch):
     assert modelkeys.test_key("instance", "custom")["ok"] is True
     _, url, headers, _ = http.calls[-1]
     assert url == "http://litellm:4000/v1/models" and headers["x-api-key"] == "custom-key-123456"
+
+
+def test_setup_engines_shows_the_session_engine(world):
+    """4.0: Setup › Engines reads which engine runs the sessions and what it can do
+    (backend/harness/registry.describe), read-only; the detection note is the admin's."""
+    r = world["as"]("bob@x").get("/api/engines/session")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["variable"] == "SOKKAN_ENGINE_RUNTIME"
+    (cur,) = [e for e in body["engines"] if e["selected"]]
+    assert cur["name"] == "legacy" and cur["note"] == ""
+    if cur["available"]:
+        assert cur["capabilities"]["plan"] is True and cur["capabilities"]["identity"] == "plain"
+    admin = world["as"]("admin@x").get("/api/engines/session").json()
+    assert [e["name"] for e in admin["engines"]] == [e["name"] for e in body["engines"]]

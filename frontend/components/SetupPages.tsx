@@ -6,7 +6,7 @@ import {
   instanceBudgets, instanceInfo, instanceRename, iamUsers, iamUpsert, iamDelete,
   adminRevocation, adminRevokeNow, adminReinstate, type RevocationState,
   llmCredit, llmStatus, llmUsage, llmSetApiKey, llmSetSubscription, llmSetCustom, llmTiers, llmSetTier, type LlmTier,
-  memoryStats,
+  memoryStats, sessionEngines, type SessionEngine,
   notifyStatus, notifySet, notifyTest,
   vaultList, vaultSet, vaultDelete,
   type InstanceInfo, type LlmStatus, type LlmUsage, type NotifyStatus,
@@ -607,6 +607,34 @@ export function MemoryStoreState() {
   );
 }
 
+/** The engine that runs the sessions (4.0 session layer): read-only, chosen with
+ *  SOKKAN_ENGINE_RUNTIME. What it cannot do is listed — the cockpit greys it out. */
+const CAPS_SHOWN: [string, string][] = [
+  ["question", "questions with choices"], ["plan", "plan mode"], ["resume", "resume after a restart"],
+  ["subagents", "sub-agents visible"], ["thinking", "reasoning shown apart"],
+];
+export function SessionEngineState() {
+  const [engines, setEngines] = useState<SessionEngine[] | null>(null);
+  useEffect(() => { sessionEngines().then((r) => setEngines(r.engines)).catch(() => setEngines(null)); }, []);
+  const cur = engines?.find((e) => e.selected);
+  if (!cur) return null;
+  const caps = (cur.capabilities ?? {}) as Record<string, unknown>;
+  const missing = CAPS_SHOWN.filter(([k]) => caps[k] === false).map(([, label]) => label);
+  return (
+    <section aria-label="Session engine" className="rounded-lg border border-line bg-panel2/50 p-3 text-[12.5px]">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${cur.available ? "bg-emerald-500" : "bg-amber-400"}`} />
+        <span className="text-slate-200">Session engine: {cur.label}</span>
+      </div>
+      <div className="mt-1.5 text-[11.5px] text-mut">
+        {cur.available ? "Runs every session and agent run of this instance." : `Not usable here: ${cur.note}`}
+        {missing.length > 0 && <> Not available with this engine (greyed out): {missing.join(", ")}.</>}
+        {engines && engines.length > 1 && <> Chosen with <code>SOKKAN_ENGINE_RUNTIME</code>.</>}
+      </div>
+    </section>
+  );
+}
+
 /** Setup › Engines — « Connect your AI » and the instance model keys on ONE page: with
  *  `connect_ai` on, each engine card carries its instance key for the admin (ConnectAI);
  *  without it, the model setup and, for the admin with `byok_admin`, the keys list. */
@@ -620,12 +648,14 @@ export function EnginesPage() {
     <>
       {demo && <ReadOnlyNote>The engines this instance allows. Keys are never shown — not even their last characters.</ReadOnlyNote>}
       <ConnectAI legacy={<Model />} />
+      <div className="mt-4"><SessionEngineState /></div>
       <div className="mt-4"><MemoryStoreState /></div>
     </>
   );
   return (
     <div className="space-y-4">
       <Model />
+      <SessionEngineState />
       <MemoryStoreState />
       {instAdmin && byokOn && (
         <section aria-label="Instance model keys" className="border-t border-line pt-3">
