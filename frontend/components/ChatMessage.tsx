@@ -61,6 +61,13 @@ function ChatMessage({ m }: { m: Message }) {
       </div>
     );
 
+  if (m.pending)
+    return (
+      <div className="my-2 md border-l-2 border-line pl-3 text-[12.5px] text-mut" title="written while an approval was waiting">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text || ""}</ReactMarkdown>
+      </div>
+    );
+
   return (
     <div className="my-2 md text-slate-200">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text || ""}</ReactMarkdown>

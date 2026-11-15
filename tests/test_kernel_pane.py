@@ -53,3 +53,18 @@ def test_folders_named_by_a_hex_id_get_an_alias_inside_the_run(tmp_path):
     assert h._alias_paths(f"{doc}/Devis.txt") == f"{alias}/Devis.txt"     # stable in a run
     import re
     assert not re.search(r"[0-9a-f]{16,}", alias)
+
+
+def test_a_seed_never_names_tools_the_engine_does_not_have(monkeypatch):
+    """Seen on the kernel engine: the seed told the model to call the memory MCP tools, which
+    the kernel cannot reach yet; the model looked for them and asked the person what to do."""
+    import board
+    from harness import registry
+    monkeypatch.setattr(registry, "selected", lambda: "kernel")
+    monkeypatch.setattr(registry, "capabilities", lambda name=None: contract.Capabilities(mcp_stdio=False))
+    for recall in ("", "<memory>[note delivery-days] Deliveries are on Tuesdays.</memory>"):
+        seed = board._seed_text("Write the follow-up mail.", recall)
+        assert "mcp__" not in seed and seed.startswith("Write the follow-up mail.")
+        assert (recall in seed) and "propose a short plan" in seed
+    monkeypatch.setattr(registry, "selected", lambda: "legacy")
+    assert "mcp__sokkan-memory__memory_search" in board._seed_text("Write the follow-up mail.")

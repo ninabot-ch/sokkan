@@ -95,8 +95,7 @@ export default function AgentChatPane({
         break;
       case "text":
         // written while a decision is awaited (kernel engine): a discreet note
-        if (e.pending) push({ role: "system", kind: "note", text: e.text });
-        else push({ role: "assistant", kind: "text", text: e.text });
+        push({ role: "assistant", kind: "text", text: e.text, ...(e.pending ? { pending: true } : {}) });
         break;
       case "thinking":
         push({ role: "assistant", kind: "thinking", text: e.text });
@@ -213,13 +212,13 @@ export default function AgentChatPane({
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
           working ? "animate-pulse bg-emerald-400" : open ? "bg-emerald-500" : "bg-slate-600"
-        }`} title={working ? "Claude is working…" : open ? "connected" : "disconnected"} />
+        }`} title={working ? "working…" : open ? "connected" : "disconnected"} />
         {tag && <span className="shrink-0 rounded bg-brass/15 px-1.5 text-[10px] text-brass">{tag}</span>}
         {model && <span className="shrink-0 rounded bg-sea/15 px-1.5 text-[10px] text-sea" title="session model">{model}</span>}
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-slate-100">{title || "Session"}</div>
           <div className="truncate text-[10.5px] text-mut">
-            {open ? "connected" : "connecting…"}{working && <span className="text-brass"> · Claude is working…</span>}
+            {open ? "connected" : "connecting…"}{working && <span className="text-brass"> · working…</span>}
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
