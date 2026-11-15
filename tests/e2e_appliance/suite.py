@@ -790,13 +790,16 @@ def t14():
         return reg[fid]["enabled"] is False and var in reg[fid]["reason"]
 
     # « Write with Claude » (3.6.5): read where the api applies them — the router's secret
-    # opens the grant route (a wrong one finds no route), the models, the default, the cap
-    ct = sh("docker compose exec -T -w /app/backend api python3 -c \"import os, claudetier; "
+    # is the one the api checks (a wrong one finds no route), the models, the default, the cap
+    # (core.levels lives in /app/memory: the api puts it on its path at start, a bare python does not)
+    ct = sh("docker compose exec -T -w /app/backend api python3 -c \"import os, sys; "
+            "sys.path.insert(0, '/app/memory'); import claudetier; "
             "from core import levels; s = os.environ.get('SOKKAN_ROUTER_SECRET', ''); "
-            "print(claudetier.grant('', '', s, False)[0], claudetier.grant('', '', s + 'x', False)[0], "
+            "print(bool(s) and claudetier.router_secret() == s, claudetier.grant('', '', s + 'x', False)[0], "
             "','.join(claudetier.models()), claudetier.default_model(), "
             "claudetier.max_level() == levels.parse(os.environ['SOKKAN_CLAUDE_MAX_LEVEL']))\"",
-            cwd=BOX).stdout.split()
+            cwd=BOX).stdout.strip().splitlines()
+    ct = ct[-1].split() if ct else []
     ct = ct if len(ct) == 5 else ["", "", "", "", ""]
 
     checks = {
@@ -873,7 +876,7 @@ def t14():
         "SOKKAN_SUPPORT_MAX_HOURS": sup[0] == 400,
         "SOKKAN_FEATURE_CLAUDE_TIER": reg.get("claude_tier", {}).get("enabled") is True
                                       and "SOKKAN_FEATURE_CLAUDE_TIER" in reg["claude_tier"]["reason"],
-        "SOKKAN_ROUTER_SECRET": ct[0] == "200" and ct[1] == "404",
+        "SOKKAN_ROUTER_SECRET": ct[0] == "True" and ct[1] == "404",
         "SOKKAN_CLAUDE_MODELS": ct[2] == e.get("SOKKAN_CLAUDE_MODELS"),
         "SOKKAN_CLAUDE_MODEL": ct[3] == e.get("SOKKAN_CLAUDE_MODEL"),
         "SOKKAN_CLAUDE_MAX_LEVEL": ct[4] == "True",
