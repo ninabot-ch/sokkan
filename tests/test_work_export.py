@@ -256,16 +256,18 @@ def test_projects_with_content_are_told_apart(org):
     """3.6.7: « (4 projects) » for two that hold anything — the empty ones are named apart."""
     _z, f = _zip(org["as"]("admin@x").get(URL))
     m = json.loads(f["manifest.json"])
-    full = [p for p in m["projects"] if p["files"]]
+    full = [p for p in m["projects"] if p["work"]]
     assert m["projects_with_content"] == len(full)
+    # a project with declarations only (no note, deliverable or agent) is not « with work »
+    assert all(p["work"] <= p["files"] for p in m["projects"])
     r = org["as"]("admin@x").get(URL)
     assert r.headers["x-sokkan-export-projects-with-content"] == str(len(full))
     readme = f["README.md"].decode()
     line = next(ln for ln in readme.splitlines() if ln.startswith("Projects in this archive:"))
     for p in m["projects"]:
         assert f"`{p['slug']}`" in line
-        if not p["files"]:
-            assert "without any content" in line
+        if not p["work"]:
+            assert "with no work of its own" in line
 
 
 def test_times_are_the_instance_s_with_their_offset(org, monkeypatch):

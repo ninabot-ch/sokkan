@@ -222,8 +222,8 @@ def gate(project: str, model: str = "", lang: str = "fr") -> dict:
             f"Ce projet est classé « {level_label(lvl)} » : ses travaux restent sur le modèle de la "
             f"machine. Claude n'est possible que sur un projet classé « {level_label(cap)} » ou moins."
             if fr else
-            f"This project is classified « {levels.label(lvl)} »: its work stays on the model of this "
-            f"machine. Claude is possible on a project classified « {levels.label(cap)} » or lower."))
+            f"This project is classified “{levels.label(lvl)}”: its work stays on the model of this "
+            f"machine. Claude is possible on a project classified “{levels.label(cap)}” or lower."))
     elif model and model not in av:
         out.update(code="model", reason=f"Modèle non proposé : {model}." if fr
                    else f"Model not offered: {model}.")

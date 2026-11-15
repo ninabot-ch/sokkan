@@ -527,6 +527,7 @@ def _export_deliverables(arc: _Archive, pu: dict, project: str) -> None:
 
 
 # ---- the archive --------------------------------------------------------------------------
+WORK_KINDS = ("note", "deliverable", "agent_deliverable", "agent")
 COUNTED = (("notes", "note"), ("agents", "agent"), ("skills", None), ("instructions", "instructions"),
            ("commands", "command"), ("subagents", "subagent"), ("connectors", "connector"),
            ("deliverables", "deliverable"), ("agent_deliverables", "agent_deliverable"))
@@ -563,6 +564,7 @@ def build(user: dict, lang: str = "") -> dict:
         if pu is None:
             continue
         before = len(arc.files)
+        seen = set(arc.meta)
         _export_notes(arc, user, slug)
         _export_agents(arc, pu, slug)
         _export_workspace(arc, slug)
@@ -570,6 +572,10 @@ def build(user: dict, lang: str = "") -> dict:
         _export_deliverables(arc, pu, slug)
         exported.append({"slug": slug, "name": (projects.get(slug) or {}).get("name") or slug,
                          "role": pu.get("project_role"), "files": len(arc.files) - before,
+                         # 3.6.7: its OWN work — notes, deliverables, agents and what they
+                         # delivered; declarations alone (connectors, instructions) are not work
+                         "work": sum(1 for p in set(arc.meta) - seen
+                                     if arc.meta[p]["type"] in WORK_KINDS),
                          "read_up_to": levels.ident(pu["clearance"]) if pu.get("clearance")
                          is not None else levels.ident(levels.DEFAULT)})
     if instance_admin:
@@ -582,7 +588,7 @@ def build(user: dict, lang: str = "") -> dict:
         "generated_by": user.get("email") or "",
         "projects": exported,
         # 3.6.7: « 4 projects » for two that hold anything read as two missing — say both
-        "projects_with_content": sum(1 for p in exported if p["files"]),
+        "projects_with_content": sum(1 for p in exported if p["work"]),
         "projects_not_included": len(every) - len(exported),
         "counts": _counts(files), "files_total": len(files),
         "bytes_total": sum(m["bytes"] for m in files),
@@ -633,12 +639,12 @@ def manifest_head(manifest: dict) -> str:
 
 def _readme(manifest: dict) -> str:
     c = manifest["counts"]
-    full = [p for p in manifest["projects"] if p["files"]]
-    empty = [p for p in manifest["projects"] if not p["files"]]
+    full = [p for p in manifest["projects"] if p.get("work", p["files"])]
+    empty = [p for p in manifest["projects"] if not p.get("work", p["files"])]
     prj = ", ".join(f"`{p['slug']}`" for p in full) or "—"
-    prj_en = prj + (f" (and {len(empty)} without any content: "
+    prj_en = prj + (f" (and {len(empty)} with no work of its own: "
                     + ", ".join(f"`{p['slug']}`" for p in empty) + ")" if empty else "")
-    prj_fr = prj + (f" (et {len(empty)} sans contenu : "
+    prj_fr = prj + (f" (et {len(empty)} sans travail propre : "
                     + ", ".join(f"`{p['slug']}`" for p in empty) + ")" if empty else "")
     tzname = manifest["generated_at"][19:] or "Z"
     head = (f"SOKKAN {manifest['sokkan_version']} · {manifest['generated_at']} · "

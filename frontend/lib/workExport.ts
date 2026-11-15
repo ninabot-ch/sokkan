@@ -44,8 +44,8 @@ export const WORK_EXPORT_TEXT: Record<Lang, Text> = {
     note: "It holds what you may read: the projects you have a role in, notes up to your clearance. No secret is in it — "
       + "the vault and every credential stay here. Each export is written to the journal.",
     preparing: "Preparing the archive…",
-    done: (file, projects, wc = projects) => `Archive downloaded: ${file} (${projects} ${projects === 1 ? "project" : "projects"}`
-      + `${wc < projects ? `, ${wc} with work in ${wc === 1 ? "it" : "them"}` : ""}).`,
+    done: (file, projects, wc = projects) => (wc < projects ? `Archive downloaded: ${file}. Projects with work in them: ${wc}.`
+      : `Archive downloaded: ${file} (${projects} ${projects === 1 ? "project" : "projects"}).`),
     missing: (n) => `${n} ${n === 1 ? "project is" : "projects are"} not in the archive: you have no role in ${n === 1 ? "it" : "them"}. `
       + `To include ${n === 1 ? "it" : "them"}, give yourself a role there (Setup › Projects & teams), then export again.`,
     failed: "The export did not go through and nothing was downloaded. Try again in a moment.",
@@ -58,8 +58,8 @@ export const WORK_EXPORT_TEXT: Record<Lang, Text> = {
     note: "Elle contient ce que vous avez le droit de lire : les projets où vous avez un rôle, les notes jusqu'à votre niveau d'habilitation. "
       + "Aucun secret n'y figure — le coffre et tous les identifiants restent ici. Chaque export est inscrit au journal.",
     preparing: "Préparation de l'archive…",
-    done: (file, projects, wc = projects) => `Archive téléchargée : ${file} (${projects} ${projects === 1 ? "projet" : "projets"}`
-      + `${wc < projects ? `, dont ${wc} avec du travail` : ""}).`,
+    done: (file, projects, wc = projects) => (wc < projects ? `Archive téléchargée : ${file}. Projets avec du travail : ${wc}.`
+      : `Archive téléchargée : ${file} (${projects} ${projects === 1 ? "projet" : "projets"}).`),
     missing: (n) => (n === 1
       ? "1 projet ne figure pas dans l'archive : vous n'y avez pas de rôle. Pour l'inclure, donnez-vous un rôle dans ce projet (Setup › Projects & teams), puis exportez à nouveau."
       : `${n} projets ne figurent pas dans l'archive : vous n'y avez pas de rôle. Pour les inclure, donnez-vous un rôle dans ces projets (Setup › Projects & teams), puis exportez à nouveau.`),

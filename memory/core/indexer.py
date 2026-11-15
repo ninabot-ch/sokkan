@@ -388,6 +388,21 @@ class IndexReport:
     index_written: bool = False
 
 
+def _since(store) -> float | None:
+    """When this store first started indexing (its oldest generation), as a timestamp; None
+    before the first pass ever."""
+    try:
+        gens = list(store.generations())
+    except Exception:  # noqa: BLE001 — unknown = the bootstrap rule as before
+        return None
+    stamps = []
+    for g in gens:
+        d = dates.parse_dt(getattr(g, "created_at", None))
+        if d is not None:
+            stamps.append(d.timestamp())
+    return min(stamps) if stamps else None
+
+
 class Indexer:
     def __init__(self, store, embedder, config: IndexConfig, *, clock=dates.utcnow,
                  log=None) -> None:
@@ -451,6 +466,12 @@ class Indexer:
             except Exception as exc:  # noqa: BLE001 — a failed repair never blocks indexing
                 rep.warnings.append(f"normalize failed: {exc!r}")
 
+        # 3.6.7 — since when has this store been indexing? A note whose file was written
+        # AFTER that is born now, even while the history is still empty: on a new box with an
+        # empty memory, the first notes ever written were dated « inconnue » (no date, no sort,
+        # no « Updated … » on the Memory page) because every pass before the first note
+        # counted as the bootstrap of an existing corpus.
+        watching = _since(self.store)
         gen, building = self._target_generation(rebuild)
         rep.generation, rep.built_generation = gen.id, building
         rep.bootstrap = store.seen_count() == 0
@@ -472,8 +493,10 @@ class Indexer:
             if path.name != filename_for(note.name) or note.fm is None:
                 rep.out_of_convention.append(path.name)
 
+            mtime = path.stat().st_mtime
             eff = dates.effective_modified(
-                store, note, bootstrap=rep.bootstrap, now=now, mtime=path.stat().st_mtime,
+                store, note, now=now, mtime=mtime,
+                bootstrap=rep.bootstrap and not (watching is not None and mtime > watching),
                 migrate_mtime=cfg.migrate_mtime, hash_aliases=aliases)
             rep.date_sources[eff.source] += 1
             if eff.changed:

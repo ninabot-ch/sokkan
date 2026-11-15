@@ -214,3 +214,13 @@ def test_the_model_thinking_aloud_in_english_is_not_shown_to_a_french_person(tmp
     v.lang = "fr"
     assert v.feed({"type": "text", "text": aloud}) == []
     assert v.feed({"type": "text", "text": "Voici le plan."})[0]["text"] == "Voici le plan."
+
+
+def test_the_english_dictionary_uses_english_quotes():
+    """3.6.7: « Write with Claude » showed in English Settings — French guillemets belong to
+    the French dictionary only."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "frontend/lib/simple/dict.ts").read_text(encoding="utf-8")
+    en = src[src.index("export const en"):]
+    bad = [ln.strip()[:80] for ln in en.splitlines() if "«" in ln or "»" in ln]
+    assert not bad, bad

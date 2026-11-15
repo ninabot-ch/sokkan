@@ -47,6 +47,28 @@ def test_first_pass_creates_and_activates_a_generation(tmp_path):
     assert rep.date_sources == {"inconnue": 3}
 
 
+def test_a_note_written_after_indexing_began_is_dated_even_while_the_history_is_empty(tmp_path):
+    """3.6.7: a new box starts with an EMPTY memory. Every pass before the first note counted
+    as the bootstrap of an existing corpus, so the first notes ever written were « inconnue »:
+    no date, no sort and no « Updated … » on the Memory page."""
+    import os
+    import time
+    ind, st = make(tmp_path)
+    first = ind.run()                                  # nothing yet: the store starts watching
+    assert first.bootstrap and first.reindexed == 0
+    write(tmp_path, "charte_des_quiz.md", fm("charte-des-quiz", "Our quiz charter") + "No true/false.\n")
+    later = time.time() + 5
+    os.utime(tmp_path / "charte_des_quiz.md", (later, later))
+    rep = ind.run()
+    assert rep.date_sources == {"indexed": 1}
+    # a corpus that was already there at the very first pass keeps the honest « inconnue »
+    other = tmp_path / "old"
+    other.mkdir()
+    clean_corpus(other)
+    rep2 = make(other)[0].run()
+    assert rep2.date_sources == {"inconnue": 3}
+
+
 def test_second_pass_is_incremental(tmp_path):
     clean_corpus(tmp_path)
     clock = Clock()
