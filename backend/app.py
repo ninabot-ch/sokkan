@@ -291,11 +291,14 @@ async def _lifespan(_app: FastAPI):
     from teams import proactive as teams_proactive
     teams_task = (asyncio.create_task(teams_proactive.loop(helm_stop))
                   if features.enabled("teams") else None)
+    # 3.6.7: the CLI of an idle session is closed after SOKKAN_SESSION_IDLE_CLOSE_S, resumed
+    # at its next turn (each open session held 0.3-0.4 GB until the api restarted)
+    idle_task = asyncio.create_task(agentchat.idle_loop(helm_stop))
     yield
     alerting_scheduler.stop()
     docingest_scheduler.stop_all()   # running passes end their document, stay resumable
     helm_stop.set()
-    for t in (helm_task, teams_task):
+    for t in (helm_task, teams_task, idle_task):
         if t:
             t.cancel()
     if rt:
