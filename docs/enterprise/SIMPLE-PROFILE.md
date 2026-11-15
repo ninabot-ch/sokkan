@@ -99,6 +99,59 @@ attribute that exists only while the simple profile is on screen. `scripts/check
 fails when a rule or a component writes a literal colour or pixel font size, when a text / surface pair
 falls under 4.5:1 in either theme, or when the two dictionaries differ.
 
+## Public demo: SOKKAN Atelier read-only (3.6.7)
+
+Feature `demo_atelier` (beta, off by default), for a public demo instance only — it requires
+`demo_banner`, `simple_profile` (so `documents`) and `multi_project`; asked for anywhere else it
+stays off. An anonymous visitor is the instance's one identity, a viewer; with the feature on:
+
+* every write under `/api` by someone below instance admin answers **403 « read-only demo »**
+  (the rule of the Captains demo; Nina's chat excepted, capped by `SOKKAN_ASSISTANT_DAILY_LIMIT`);
+* the Atelier shows a **« Read-only demo » band** with « See SOKKAN Cockpit » and the operator's
+  call to action — « Book a demo » (`SOKKAN_DEMO_BOOK_URL`) and « Install SOKKAN »
+  (`SOKKAN_DEMO_INSTALL_URL`), http(s) links only, a button only when its variable is set;
+* the home lists the work already done in the project (no composer, the task templates as plain
+  text); a work says it can be read, opened and downloaded, not answered; a deliverable still to
+  validate says where the validation happens; « Sign out » is gone;
+* language, theme (the device's by default) and interface stay **in the visitor's browser** —
+  never `PUT /api/me/prefs`: one visitor choosing English or the Cockpit would have chosen it for
+  every next visitor. `?ui=atelier` / `?ui=cockpit` opens one or the other (the link of a site's
+  button); the Cockpit's demo band links to the Atelier;
+* the project picker lists the seeded projects only.
+
+**Turn it on** (the instance's `.env`, then `docker compose up -d`):
+
+    SOKKAN_LOCAL_TOKEN=                  # open access: every visitor is the owner identity…
+    SOKKAN_OWNER_EMAIL=demo@your-domain  # …which is made a viewer below
+    SOKKAN_DEFAULT_ROLE=viewer
+    SOKKAN_DEMO_BANNER=1
+    SOKKAN_DEMO_ATELIER=1
+    SOKKAN_FEATURE_DOCUMENTS=1
+    SOKKAN_FEATURE_SIMPLE_PROFILE=1
+    SOKKAN_FEATURE_MULTI_PROJECT=1
+    SOKKAN_PROFILE_DEFAULT=simple        # optional: the Atelier first (else ?ui=atelier)
+    SOKKAN_DEMO_BOOK_URL=https://…       # optional, the call to action
+    SOKKAN_DEMO_INSTALL_URL=https://…
+
+then make the visitor a viewer and seed the content, as the app's user:
+
+    docker compose exec -T -u sokkan api python3 -c \
+      "import sys; sys.path.insert(0, '/app/backend'); import iam; iam.upsert_user('demo@your-domain', 'viewer')"
+    docker compose exec -T -u sokkan api python3 /app/backend/demo_atelier.py seed
+
+The seed (`backend/demo_atelier.py`, content `backend/demo_atelier.json`; `check` validates a file
+without writing; another file can be given) writes three fictional projects — « Formation
+interne » and « Offres et clients » in French, « Customer support » in English — each with memory
+notes (a quiz charter, a proposal template, a tone of voice…), documents, and works already done:
+the request, what the agent read in the memory and the documents, the saved versions of the
+deliverable, and its validation by a fictional `@example.com` person (one deliverable is left to
+validate). No model runs: the thread is written as the transcript a session leaves, and replayed
+as any finished work. It grants the visitor `viewer` on each project, opens the Atelier on the
+first one, and warns when the visitor is not a viewer. Run again, it rewrites what it wrote
+(table `demo_atelier` of simple.db) and refuses a project of the same name it did not make. The
+notes are indexed by the api within a minute. An English visitor lands on the English project
+with `?ui=atelier&project=demo-support`.
+
 ## Known limits (beta)
 
 * A classified document cannot go to an agent session (transcripts do not carry a level yet).

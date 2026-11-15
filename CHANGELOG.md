@@ -9,6 +9,19 @@ Finishes of the simple interface, from a filmed run of a real work. Three new va
 (`SOKKAN_SHIP_THINKING`, `SOKKAN_SESSION_IDLE_CLOSE_S`, `SOKKAN_RECALL_FULL_CHARS`; the first
 two change behaviour by default, see below); no new feature switch.
 
+- **Try SOKKAN Atelier on the public demo** (feature `demo_atelier`, beta, off by default; needs
+  `demo_banner`, `simple_profile`, `multi_project`). The anonymous visitor (a viewer) opens the Atelier
+  on finished, fictional work: a « Read-only demo » band with the operator's call to action
+  (`SOKKAN_DEMO_BOOK_URL`, `SOKKAN_DEMO_INSTALL_URL`; a button only when set), a home that lists the
+  work already done instead of a greyed-out composer, a polite sentence where an action would write
+  (reply, validate), no « Sign out ». Language, theme and interface (`?ui=atelier|cockpit`) stay in the
+  visitor's browser: the demo has one identity, and a visitor who switched to English or to the
+  Cockpit switched every next visitor too. Every write under /api answers 403 « read-only demo »
+  (the Captains rule, Nina excepted). Seed: `python3 backend/demo_atelier.py seed` — three fictional
+  projects (two in French, one in English) with memory notes, documents, threads, deliverables in
+  their versions and their validation; idempotent. docs/enterprise/SIMPLE-PROFILE.md § Public demo.
+- A viewer of the Atelier no longer asks for « Notes to review » (a 403 on every screen), and « My
+  agent crew » says the role does not show the crew instead of « the work could not start ».
 - **The two interfaces have names**: the simple interface is **SOKKAN Atelier**, the technical one
   **SOKKAN Cockpit**, in every label in French and English (Settings, the Cockpit's interface
   switch, the feature list, Nina's guide, the export README). The internal profile names
