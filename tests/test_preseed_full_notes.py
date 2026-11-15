@@ -68,6 +68,15 @@ def test_the_atelier_spawn_gives_the_matching_notes_in_full(monkeypatch):
     assert seed.count("charte-des-quiz") == 2      # opening and closing markers
 
 
+def test_zero_turns_the_full_notes_off(monkeypatch):
+    """SOKKAN_RECALL_FULL_CHARS=0: one line per note, as before 3.6.7 (it gave an empty body
+    and a « cut here » marker)."""
+    _wire(monkeypatch)
+    monkeypatch.setattr(app, "PRESEED_FULL_CHARS", 0)
+    seed = app._memory_preseed("Prépare un quiz de positionnement", session_id="s1", full=2)
+    assert "Jamais de vrai/faux" not in seed and "note cut here" not in seed and "[charte-des-quiz]" in seed
+
+
 def test_a_long_note_is_cut_and_nothing_passes_the_threshold(monkeypatch):
     _wire(monkeypatch, threshold=0.9)
     seed = app._memory_preseed("Prépare un quiz", session_id="s1", full=2)

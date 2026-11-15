@@ -2304,9 +2304,9 @@ def _full_bodies(hits: list[dict], scope, n: int, per_note: int = 0,
     snippet of a team rule (« our quiz charter ») is not the rule — the first draft of a quiz
     ignored a charter it had only seen the opening lines of, and never opened the note. Read
     in the caller's scope (a note of another project or above the clearance is never read)."""
-    if n <= 0 or not store_backend.enabled():
-        return {}
     per_note = per_note or PRESEED_FULL_CHARS
+    if n <= 0 or per_note <= 0 or not store_backend.enabled():
+        return {}       # SOKKAN_RECALL_FULL_CHARS=0: off (one line per note, as before 3.6.7)
     thr = _recall_threshold()
     out: dict[str, str] = {}
     used = 0
