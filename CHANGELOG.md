@@ -3,6 +3,56 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 3.6.7 "Icebreaker"
+
+Finishes of the simple interface, from a filmed run of a real work. Two new variables (both with
+a default that changes behaviour, see below); no new feature switch.
+
+- **The two interfaces have names**: the simple interface is **SOKKAN Atelier**, the technical one
+  **SOKKAN Cockpit**, in every label in French and English (Settings, the Cockpit's interface
+  switch, the feature list, Nina's guide, the export README). The internal profile names
+  (`simple` / `technical`, feature `simple_profile`) do not change.
+- **A refusal is not a failure.** The person's own « Refuse » on an approval card read in orange
+  « this step did not succeed »; it is now the neutral line « Refused by you — … », kept when the
+  thread is replayed (`permission_resolved` carries the decision). A call a rule of the space turns
+  away by itself (no shell in an Atelier work — the `mkdir` of the filmed run —, a memory file
+  written directly, a second save of an approved document) is no longer shown at all: the agent
+  goes on another way. A real failure still reads as one.
+- **One approval per document asked for.** Once the person approved the save of a document in a
+  turn, a further save of the same document in that turn is turned away (journaled as automatic,
+  `policy:simple_one_approval_per_turn`) and the agent is told to sum up instead; the brief asks
+  for the whole document in one save and no « v2 » nobody asked for. A change the person asks for
+  opens a new turn and a new card.
+- The deliverable's card in the thread follows its state: « Validated by you on … at … » (seal,
+  green) after the validation, « Changed since your validation » after a later save; it stayed
+  « Deliverable ready ».
+- **One title per document**: the card in the thread uses the document's own `# Title`, like the
+  approval card and the deliverable panel (it used the file name: « Quiz … — Module 1 » here,
+  « Quiz … Module 1 » there). A dash between spaces in a file name is kept (« Module 4 — Animer… »).
+  « Keep as a deliverable » is no longer offered under an answer of a turn that saved a document.
+- A step still « in progress » when the turn ends is settled: no spinner next to a finished card.
+- **The project a person last worked in is remembered per person** (`project` in the person's
+  preferences, set when they start a work or pick a project): signing in on a browser someone else
+  used last no longer lands them in that person's project.
+- « Recent » scrolls inside the drawer instead of running over the usage gauge and the account
+  (1440×810, 1280×800).
+- **Export our work**: the screen and the README say how many of the exported projects hold any
+  work (« 4 projects, 2 with work in them; the others are empty »; header
+  `X-Sokkan-Export-Projects-With-Content`, `projects_with_content` in the manifest); dates and
+  times (`manifest.json`, `index.json`, file name) are in the instance's time zone
+  (`SOKKAN_TZ`, else `TZ`) as ISO 8601 with their offset (`2026-11-14T10:25:00+01:00`, was
+  `09:25:00Z`).
+- Settings › Claude in the Atelier no longer shows any part of the API key (« A key is saved »).
+- **The local model answers everyday work without its reasoning pass**: the router sends
+  `chat_template_kwargs: {"enable_thinking": false}` to the model of the box and drops the CLI's
+  thinking budget (a first work took 9 min 26 s on a shared 27B, ~10 k tokens of reasoning before
+  the first word). Deep keeps its reasoning. New variable `SOKKAN_SHIP_THINKING` (default 0;
+  1 = reasoning back on).
+- **Idle sessions are closed**: the agent process of a session (0.3-0.4 GB each, never closed
+  before) is closed after `SOKKAN_SESSION_IDLE_CLOSE_S` (new, default 1800 s, 0 = never) and
+  resumed on the same conversation at its next message; the thread stays readable. A session that
+  is working, or waits for an approval or an answer, is never closed.
+
 ## 3.6.6 — 2026-11-12 — "Icebreaker"
 
 - « Write with Claude » after an upgrade by an older `upgrade.sh`: the choice stayed greyed out
