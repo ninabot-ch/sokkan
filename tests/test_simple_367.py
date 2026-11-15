@@ -84,6 +84,11 @@ def test_the_card_in_the_thread_has_the_document_s_own_title(tmp_path):
                     {"type": "tool_result", "tool_use_id": "t1", "text": "ok", "is_error": False}])
     card = next(e for e in out if e["type"] == "deliverable")
     assert card["title"] == "Quiz de positionnement — Module 1"
+    # « Saved … » says the same title (Write carrying the content, else the file's own title)
+    out2 = _feed(v, [{"type": "tool_use", "id": "t2", "tool": "Write",
+                      "input": {**inp, "content": "# Quiz de positionnement — Module 1\n"}},
+                     {"type": "tool_use", "id": "t3", "tool": "Edit", "input": {"file_path": inp["file_path"]}}])
+    assert [e["subject"] for e in out2] == ["Quiz de positionnement — Module 1"] * 2
     # the same title as the list of deliverables (simple.list_deliverables)
     assert card["title"] == plain.title_from_markdown((deliv / "quiz-positionnement.md").read_text())
 

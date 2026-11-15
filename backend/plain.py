@@ -220,7 +220,11 @@ class View:
         if tool in _EDIT:
             name = self._deliverable_of(path)
             if name:
-                return {"kind": "write_draft", "subject": human_title(name), "deliverable": name}
+                # the document's own title when the save carries it (3.6.7: one title per
+                # document — « A enregistré » said the file name, the card its # Title)
+                said = title_from_markdown(str(inp.get("content") or "")) if tool == "Write" else ""
+                return {"kind": "write_draft", "subject": said or self._deliverable_title(name),
+                        "deliverable": name}
             return {"kind": "write_file", "subject": Path(path).name if path else ""}
         if tool == "mcp__sokkan-memory__memory_search":
             return {"kind": "search_memory", "subject": str(inp.get("query") or "")[:120]}
