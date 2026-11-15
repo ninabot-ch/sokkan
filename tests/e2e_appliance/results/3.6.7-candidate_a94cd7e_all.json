@@ -1,0 +1,254 @@
+[
+ {
+  "id": "T0",
+  "name": "publisher side: release signed, images built from the tarball, pushed and signed",
+  "pass": true,
+  "measures": {
+   "build_sign_s": 209,
+   "images": [
+    "api=localhost:5000/sokkan/sokkan-api@sha256:83c8427c401f63d40a1be39efa0f029c01d885ccfec30778f50b675681b9d95f",
+    "web=localhost:5000/sokkan/sokkan-web@sha256:168813e2401c5943540712aedf4e33929d6bc132bac8cca99ce03d074d99e8c6"
+   ]
+  },
+  "detail": "",
+  "ts": 1794744991
+ },
+ {
+  "id": "T1",
+  "name": "blank machine → appliance install, pinned + signed release, prebuilt images",
+  "pass": true,
+  "measures": {
+   "install_s": 18,
+   "ram_after_install_mb": 588,
+   "listeners": [
+    "0.0.0.0:443",
+    "127.0.0.1:3009"
+   ],
+   "test_s": 18.9
+  },
+  "detail": "",
+  "ts": 1794745012
+ },
+ {
+  "id": "T2",
+  "name": "first launch: HTTPS, 3 named people, local engine ready, no dead screen",
+  "pass": true,
+  "measures": {
+   "first_answer_s": 3.1,
+   "https": "200 with exported CA",
+   "people": 3,
+   "test_s": 3.6
+  },
+  "detail": "",
+  "ts": 1794745016
+ },
+ {
+  "id": "T2b",
+  "name": "support tunnel: opened by the client for a bounded time, journaled, closes alone",
+  "pass": true,
+  "measures": {
+   "journal": [
+    "support.tunnel.expired",
+    "support.tunnel.opened",
+    "support.tunnel.request"
+   ],
+   "note": "tunnel command = a stub (no Tailscale on the test machine)",
+   "test_s": 1.2
+  },
+  "detail": "",
+  "ts": 1794745017
+ },
+ {
+  "id": "T3",
+  "name": "3 people, 3 simultaneous sessions, isolated, each under their own name",
+  "pass": true,
+  "measures": {
+   "wall_s": 3.5,
+   "slowest_s": 3.1,
+   "ram_before_mb": 1077,
+   "ram_peak_3_sessions_mb": 2275,
+   "ship_max_concurrent": 3,
+   "test_s": 3.8
+  },
+  "detail": "",
+  "ts": 1794745021
+ },
+ {
+  "id": "T4",
+  "name": "forced escalation: only the request that asks for it leaves for Deep",
+  "pass": true,
+  "measures": {
+   "deep_s": 2.1,
+   "local_s": 2.1,
+   "router_counts": {
+    "ship:side_call": 6,
+    "ship:default": 5,
+    "deep:keyword": 1
+   },
+   "test_s": 4.3
+  },
+  "detail": "",
+  "ts": 1794745025
+ },
+ {
+  "id": "T5",
+  "name": "quota reached: 402 and 429 from the gateway read as sentences, in French",
+  "pass": true,
+  "measures": {
+   "402": {
+    "s": 1.9,
+    "title": "Crédit d'inférence épuisé"
+   },
+   "429": {
+    "s": 1.8,
+    "title": "Trop de requêtes pour l'instant"
+   },
+   "test_s": 5.8
+  },
+  "detail": "",
+  "ts": 1794745031
+ },
+ {
+  "id": "T6",
+  "name": "local model down: answered from Deep, then a readable message when both are down",
+  "pass": true,
+  "measures": {
+   "fallback_s": 2.1,
+   "both_down_message_s": 1.9,
+   "code": "overloaded",
+   "recovered_s": 2.2,
+   "test_s": 7.8
+  },
+  "detail": "",
+  "ts": 1794745039
+ },
+ {
+  "id": "T7",
+  "name": "network cut: work on the box goes on, a Deep request says why it cannot",
+  "pass": true,
+  "measures": {
+   "local_s": 5.8,
+   "deep_refusal_s": 10.5,
+   "after_s": 2.2,
+   "test_s": 20.5
+  },
+  "detail": "",
+  "ts": 1794745059
+ },
+ {
+  "id": "T12",
+  "name": "memory with documents: notes are indexed and found, by the person and by the session",
+  "pass": true,
+  "measures": {
+   "indexed_within_s": 5,
+   "search_ms": [
+    36,
+    37,
+    36
+   ],
+   "recall_in_session": true,
+   "store": "store",
+   "profile": "leger",
+   "test_s": 8.5
+  },
+  "detail": "",
+  "ts": 1794745068
+ },
+ {
+  "id": "T14",
+  "name": "every line of the appliance .env has an effect one can observe",
+  "pass": true,
+  "measures": {
+   "variables_checked": 65,
+   "flipped": [
+    "SOKKAN_ESCALATION",
+    "SOKKAN_SHIP_FALLBACK_DEEP"
+   ],
+   "template_lines": 66,
+   "work_export": {
+    "admin": 200,
+    "files_in_zip": 5,
+    "not_admin": 403
+   },
+   "test_s": 36.8
+  },
+  "detail": "",
+  "ts": 1794745105
+ },
+ {
+  "id": "T11",
+  "name": "encrypted backup to S3, restored on a NEW machine with the client's key only",
+  "pass": true,
+  "measures": {
+   "backup_s": 4,
+   "backup_bytes": 156306,
+   "reinstall_s": 18,
+   "restore_s": 8,
+   "sessions": 16,
+   "audit_events": 56,
+   "test_s": 38.4
+  },
+  "detail": "",
+  "ts": 1794745143
+ },
+ {
+  "id": "T13",
+  "name": "reboot: everything comes back alone, nobody types a command",
+  "pass": true,
+  "measures": {
+   "healthy_after_engine_start_s": 2,
+   "reboot_to_healthy_s": 19,
+   "thread_after_reboot": {
+    "own_messages": 1,
+    "agent_sentences": 1
+   },
+   "note": "engine restart of the test machine; the systemd units (model, tunnel closed at boot, backup timer) need a real machine — not played here",
+   "test_s": 9.8
+  },
+  "detail": "",
+  "ts": 1794745177
+ },
+ {
+  "id": "T8",
+  "name": "in-place upgrade 3.4.6+3ea74f5 → 3.6.6+a94cd7e by the installer (entry A)",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 18,
+   "interruption_s": 3.1,
+   "ram_after_upgrade_mb": 604,
+   "source_install_s": 137,
+   "test_s": 159.3
+  },
+  "detail": "",
+  "ts": 1794745338
+ },
+ {
+  "id": "T10",
+  "name": "rollback 3.6.6+a94cd7e → 3.4.6+3ea74f5, then forward again: one command each way",
+  "pass": true,
+  "measures": {
+   "rollback_s": 15,
+   "interruption_s": 3.1,
+   "newer_only_files_checked": 332,
+   "left_at_top_level": [],
+   "test_s": 18.6
+  },
+  "detail": "",
+  "ts": 1794745357
+ },
+ {
+  "id": "T9",
+  "name": "in-place upgrade 3.4.6+3ea74f5 → 3.6.6+a94cd7e by scripts/upgrade.sh (entry B) — same result as entry A",
+  "pass": true,
+  "measures": {
+   "upgrade_s": 4,
+   "interruption_s": 3.1,
+   "files": 851,
+   "dist": "3.6.6+a94cd7e",
+   "note": "a 3.4.6 tree runs ITS upgrade.sh (no verification, no health gate); from 3.6 on both entries are the same script",
+   "test_s": 6.3
+  },
+  "detail": "",
+  "ts": 1794745363
+ }
+]
