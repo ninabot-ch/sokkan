@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
+import { switchDemoInterface } from "@/lib/simple/demo";
 import { llmStatus } from "@/lib/api";
 import Wordmark from "./Wordmark";
 import ProjectSelector from "./ProjectSelector";
@@ -38,7 +39,7 @@ export default function Tabs({
   const cur = planes.find((p) => p.id === plane);
   return (
     <>
-    {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} captains={!!feats.demo_captains} />}
+    {feats.demo && <DemoBanner onGo={onGo} crew={!!(feats.agents && feats.agents_viewer_readonly)} captains={!!feats.demo_captains} atelier={!!feats.demo_atelier} />}
     {/* feature `study_mode`: standalone, renders nothing unless a study is active */}
     <StudyBanner onOpen={(section) => onGo("study", section)} />
     {me?.secrets_warning && (
@@ -104,7 +105,7 @@ export default function Tabs({
 /** Guided banner for the public read-only demo (SOKKAN_DEMO_BANNER=1) : says
  *  where the visitor is, walks the 4 signature moves, links out. Dismissable
  *  per browser (localStorage) — never shown on regular instances. */
-function DemoBanner({ onGo, crew, captains }: { onGo: (t: SubTab) => void; crew: boolean; captains: boolean }) {
+function DemoBanner({ onGo, crew, captains, atelier }: { onGo: (t: SubTab) => void; crew: boolean; captains: boolean; atelier: boolean }) {
   const [hidden, setHidden] = useState(true);
   useEffect(() => {
     try { setHidden(localStorage.getItem("sokkan_demo_banner") === "off"); } catch { setHidden(false); }
@@ -128,6 +129,8 @@ function DemoBanner({ onGo, crew, captains }: { onGo: (t: SubTab) => void; crew:
       <span className="hidden md:inline">Try the tour: {tour}</span>
       <details className="my-0.5 md:hidden"><summary className="ui-focus cursor-pointer underline decoration-amber-400/60">Take the tour (Sessions, Board, memory, costs, agents{captains ? ", projects" : ""})</summary>
         {tour}</details>
+      {/* 3.6.7: the same demo in SOKKAN Atelier, the interface for people who are not developers */}
+      {atelier && <><button onClick={() => switchDemoInterface("simple")} className="ui-focus font-semibold underline decoration-amber-400 hover:text-white">Try SOKKAN Atelier</button>{" "}(the simple interface, in French or English) ·{" "}</>}
       Want yours? <a href="https://app.sokkan.ch" target="_blank" rel="noopener" className="font-semibold underline decoration-amber-400 hover:text-white">14-day trial</a> ·{" "}
       <a href="https://sokkan.ch/install.sh" className="underline decoration-amber-400/60 hover:text-white">self-host free</a>
       <button onClick={() => { try { localStorage.setItem("sokkan_demo_banner", "off"); } catch { /* private mode */ } setHidden(true); }}

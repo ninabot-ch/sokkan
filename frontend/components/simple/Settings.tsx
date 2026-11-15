@@ -7,6 +7,8 @@ import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchPeo
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
+import { useFeatures } from "@/lib/features";
+import { switchDemoInterface } from "@/lib/simple/demo";
 import { switchProject } from "@/lib/project";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
@@ -18,6 +20,8 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
   const t = useT();
   const { lang, langPref, themePref, setLangPref, setThemePref } = useUI();
   const me = useMe();
+  // 3.6.7 public demo: the visitor's choices stay in their browser; no account to leave
+  const demo = !!useFeatures().demo_atelier;
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -69,12 +73,13 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
           <legend className="sk-legend">{t("set.profile")}</legend>
           <div className="sk-seg">
             <button aria-pressed>{t("set.profile.simple")}</button>
-            <button aria-pressed={false} disabled={!canSwitch || busy} onClick={async () => {
+            <button aria-pressed={false} disabled={(!canSwitch && !demo) || busy} onClick={async () => {
+              if (demo) { switchDemoInterface("technical"); return; }
               setBusy(true);
               try { onPrefs(await savePrefs({ profile: "technical" })); } catch { setBusy(false); }
             }}>{t("set.profile.technical")}</button>
           </div>
-          <p className="sk-small sk-muted">{canSwitch ? t("set.profile.hint") : t("set.profile.locked")}</p>
+          <p className="sk-small sk-muted">{canSwitch || demo ? t("set.profile.hint") : t("set.profile.locked")}</p>
         </fieldset>
         {exportOn && instAdmin && (
           <fieldset>
@@ -105,10 +110,10 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
         {claudeOn && instAdmin && <ProjectLevel project={project} />}
         {claudeOn && instAdmin && <NewProject />}
         <div className="sk-small sk-muted">
-          <div>{t("set.signed", { who: me?.email || "" })}</div>
+          <div>{demo ? t("demo.set.who") : t("set.signed", { who: me?.email || "" })}</div>
           <div>{t("set.project")} : {projectName || project}</div>
         </div>
-        <div><a className="sk-btn" href="/api/auth/logout"><Icon name="logout" />{t("set.signout")}</a></div>
+        {!demo && <div><a className="sk-btn" href="/api/auth/logout"><Icon name="logout" />{t("set.signout")}</a></div>}
       </div>
     </div>
   );

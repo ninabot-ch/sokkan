@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { downloadUrl, fetchDeliverable, validateDeliverable, type Deliverable } from "@/lib/simple/api";
 import { fullDate, useT, useUI } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
+import { useFeatures } from "@/lib/features";
 import Icon from "./icons";
 import Markdown from "./Markdown";
 import EngineBadge from "./EngineBadge";
@@ -17,6 +18,7 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
   const t = useT();
   const { lang } = useUI();
   const me = useMe();
+  const demo = !!useFeatures().demo_atelier;
   const [d, setD] = useState<Deliverable | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,6 +60,8 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
             <button className="sk-btn sk-btn-primary" disabled={busy} onClick={validate}>
               {busy ? <><span className="sk-spin" aria-hidden />{t("dl.validating")}</> : <><Icon name="seal" />{t("dl.validate")}</>}
             </button>
+          ) : demo ? (
+            <p className="sk-small sk-demo-pending" role="status" style={{ flexBasis: "100%" }}><Icon name="info" small />{t("demo.dl.pending")}</p>
           ) : null}
           {d.previewable && <a className="sk-btn" href={downloadUrl(sid, name, "docx")} download><Icon name="download" />{t("dl.download.word")}</a>}
           <a className="sk-btn sk-btn-quiet" href={downloadUrl(sid, name, "md")} download><Icon name="download" />{t("dl.download.md")}</a>

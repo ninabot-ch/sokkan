@@ -27,6 +27,7 @@ import { helmAccess } from "@/lib/helm";
 import { navLast, navRemember } from "@/lib/nav";
 import dynamic from "next/dynamic";
 import { fetchPrefs, type Prefs } from "@/lib/simple/api";
+import { demoInterface, demoPrefs } from "@/lib/simple/demo";
 
 // 3.6 — the simple profile is its own bundle: the technical cockpit does not load it
 const SimpleApp = dynamic(() => import("@/components/simple/SimpleApp"), { ssr: false });
@@ -100,8 +101,12 @@ function Cockpit() {
   useEffect(() => {
     if (!feats.loaded) return;
     if (!simpleOn) { setPrefs(null); return; }
-    fetchPrefs().then((p) => setPrefs(p.profile === "simple" ? p : null)).catch(() => setPrefs(null));
-  }, [feats.loaded, simpleOn]);
+    // 3.6.7 public demo: the visitor's interface, language and theme are theirs (this browser),
+    // never the shared demo identity's
+    const demo = !!feats.demo_atelier;
+    fetchPrefs().then((p) => demo ? demoPrefs(p, demoInterface()) : p)
+      .then((p) => setPrefs(p.profile === "simple" ? p : null)).catch(() => setPrefs(null));
+  }, [feats.loaded, simpleOn, feats.demo_atelier]);
   useEffect(() => {
     if (prefs !== null) return;
     // the technical cockpit: nothing of the simple profile stays on the page (a cookie left by

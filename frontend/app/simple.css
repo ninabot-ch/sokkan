@@ -585,6 +585,24 @@ html[data-sk-theme] body {
 .sk-band .sk-dot { color: var(--sk-ok); }
 .sk-band.is-ask .sk-dot { color: var(--sk-warn); }
 .sk-band-strong { font-weight: 600; color: var(--sk-text-strong); }
+/* 3.6.7 the public read-only demo of SOKKAN Atelier (components/simple/DemoBand.tsx) */
+.sk-band.is-demo { background: var(--sk-sea-soft); border-bottom-color: var(--sk-sea); color: var(--sk-text-strong); }
+.sk-band.is-demo .sk-icon { color: var(--sk-sea); }
+.sk-demo-cta { display: inline-flex; flex-wrap: wrap; gap: var(--sk-s2); align-items: center; }
+.sk-demo-cta.is-compact { margin-left: auto; }
+.sk .sk-demo-cta.is-compact .sk-btn { min-height: 32px; padding: 0 var(--sk-s3); }
+.sk-demo-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sk-s3); }
+.sk-demo-points li { display: flex; gap: var(--sk-s3); align-items: flex-start; color: var(--sk-text); }
+.sk-demo-points .sk-icon { color: var(--sk-brass); flex: none; margin-top: 2px; }
+.sk-demo-points b { color: var(--sk-text-strong); font-weight: 600; }
+.sk .sk-task.is-static:hover { border-color: var(--sk-line); box-shadow: none; transform: none; }
+.sk-demo-foot { display: flex; justify-content: flex-start; }
+.sk-demo-readonly { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sk-s2) var(--sk-s3); color: var(--sk-text-soft); }
+.sk-demo-readonly p { margin: 0; flex: 1 1 280px; }
+.sk-demo-pending { display: flex; gap: var(--sk-s2); align-items: flex-start; margin: 0; color: var(--sk-text-soft); }
+.sk-demo-pending .sk-icon { color: var(--sk-sea); margin-top: 2px; flex: none; }
+.sk-notice.is-info { background: var(--sk-sea-soft); border-color: var(--sk-sea); }
+.sk-notice.is-info .sk-icon { color: var(--sk-sea); }
 .sk .sk-band-link { min-height: 28px; padding: 0 var(--sk-s2); border-radius: var(--sk-r-sm); color: var(--sk-sea);
   font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .sk .sk-band-link:hover { background: var(--sk-sea-soft); }
@@ -638,7 +656,7 @@ html[data-sk-theme] body {
 
 /* 3.6.5 « Rédiger avec Claude » — the model that answered, on every answer and deliverable */
 .sk-eng-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px var(--sk-s2); border-radius: var(--sk-r-pill);
-  font-size: 12px; line-height: 18px; border: 1px solid var(--sk-line-strong); color: var(--sk-text-muted); background: transparent; }
+  font-size: var(--sk-fs-xs); line-height: 18px; border: 1px solid var(--sk-line-strong); color: var(--sk-text-muted); background: transparent; }
 .sk-eng-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .sk-eng-local { color: var(--sk-ok); border-color: var(--sk-ok); background: var(--sk-ok-soft); }
 .sk-eng-anthropic { color: var(--sk-warn); border-color: var(--sk-warn); background: var(--sk-warn-soft); }

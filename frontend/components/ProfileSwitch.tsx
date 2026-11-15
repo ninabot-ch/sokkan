@@ -4,10 +4,14 @@
 // switch in its own Settings.
 import { useEffect, useState } from "react";
 import { fetchPrefs, savePrefs, type Prefs } from "@/lib/simple/api";
+import { useFeatures } from "@/lib/features";
+import { switchDemoInterface } from "@/lib/simple/demo";
 
 export default function ProfileSwitch() {
   const [p, setP] = useState<Prefs | null>(null);
   const [err, setErr] = useState("");
+  // 3.6.7 public demo: the visitor's interface is kept in their browser (one shared identity)
+  const demo = !!useFeatures().demo_atelier;
   useEffect(() => { fetchPrefs().then(setP).catch(() => {}); }, []);
   if (!p || !p.available) return null;
   return (
@@ -21,8 +25,9 @@ export default function ProfileSwitch() {
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
-          disabled={p.locked && p.profile !== "simple"}
+          disabled={p.locked && p.profile !== "simple" && !demo}
           onClick={async () => {
+            if (demo) { switchDemoInterface("simple"); return; }
             setErr("");
             try { await savePrefs({ profile: "simple" }); window.location.assign("/"); }
             catch { setErr("The interface is set by an administrator on this instance."); }

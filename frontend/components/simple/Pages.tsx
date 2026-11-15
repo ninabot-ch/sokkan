@@ -158,15 +158,19 @@ export function Documents({ canAdd }: { canAdd: boolean }) {
 }
 
 // ---- My agent crew ----------------------------------------------------------------------------
-export function Team({ enabled }: { enabled: boolean }) {
+export function Team({ enabled, demo = false }: { enabled: boolean; demo?: boolean }) {
   const t = useT();
   const { lang } = useUI();
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // 3.6.7: a person whose role does not show the crew read « the work could not start, try again »
+  const [hidden, setHidden] = useState(false);
   const load = useCallback(() => {
     if (!enabled) return;
     setFailed(false);
-    agentsList().then((r) => setAgents(r.agents)).catch(() => setFailed(true));
+    agentsList().then((r) => setAgents(r.agents)).catch((e) => {
+      if (e instanceof Error && /\b403\b/.test(e.message)) setHidden(true); else setFailed(true);
+    });
   }, [enabled]);
   useEffect(load, [load]);
   const word = (a: Agent): { key: Key; cls: string } =>
@@ -179,7 +183,8 @@ export function Team({ enabled }: { enabled: boolean }) {
   return (
     <div className="sk-scroll"><div className="sk-page sk-page-wide">
       <div><h1 className="sk-h1">{t("team.title")}</h1><p className="sk-lede">{t("team.lede")}</p></div>
-      {!enabled ? <div className="sk-empty"><Icon name="crew" /><p>{t("team.off")}</p></div>
+      {!enabled || ((hidden || failed) && demo) ? <div className="sk-empty"><Icon name="crew" /><p>{t(demo ? "demo.team" : "team.off")}</p></div>
+        : hidden ? <div className="sk-empty"><Icon name="crew" /><p>{t("team.hidden")}</p></div>
         : failed ? <Failed retry={load} /> : agents === null ? <Loading />
         : agents.length === 0 ? <div className="sk-empty"><Icon name="crew" /><p>{t("team.empty")}</p><p className="sk-small sk-muted">{t("team.empty.hint")}</p></div>
         : (

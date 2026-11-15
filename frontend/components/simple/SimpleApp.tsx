@@ -8,7 +8,9 @@ import { SimpleUIProvider, useT, useUI, type LangPref, type ThemePref } from "@/
 import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
 import { currentProject, switchProject } from "@/lib/project";
+import { saveDemoPrefs } from "@/lib/simple/demo";
 import BannerSlot from "./BannerSlot";
+import { DemoHome } from "./DemoBand";
 import IngestReview from "./IngestReview";
 import Memory from "./Memory";
 import { openStudyConsent } from "./StudyConsent";
@@ -40,7 +42,12 @@ function hrefOf(v: View): string {
 }
 
 export default function SimpleApp({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }) {
-  const save = useCallback((p: { lang?: LangPref; theme?: ThemePref }) => { savePrefs(p).then(onPrefs).catch(() => {}); }, [onPrefs]);
+  const demo = !!useFeatures().demo_atelier;
+  // 3.6.7 public demo: one identity for every visitor — their language and theme stay in their browser
+  const save = useCallback((p: { lang?: LangPref; theme?: ThemePref }) => {
+    if (demo) { saveDemoPrefs(p); return; }
+    savePrefs(p).then(onPrefs).catch(() => {});
+  }, [onPrefs, demo]);
   return (
     <SimpleUIProvider initialLang={prefs.lang} initialTheme={prefs.theme} onChange={save}>
       <Shell prefs={prefs} onPrefs={onPrefs} />
@@ -64,15 +71,19 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   // batches of this project — the API says so (403 / 404 otherwise), with how many wait
   const ingestOn = !!feats.registry?.items.find((i) => i.id === "doc_ingest")?.enabled;
   const [review, setReview] = useState<number | null>(null);
+  const demo = !!feats.demo_atelier;
+  // a viewer reviews nothing: not even asked (it answered 403 on every screen — 3.6.7 demo audit)
+  const reader = me?.project_role === "viewer";
   // 3.6.7: the screen also holds the notes a work asked to keep (quarantine) — there for a
   // contributor even when the ingestion is off; the count adds both
   useEffect(() => {
+    if (!me || reader) { setReview(null); return; }
     const batches = ingestOn ? ingestStatus().then((s) => s.pending_batches) : Promise.reject(new Error("off"));
     Promise.allSettled([batches, quarantineList()]).then(([b, q]) => {
       if (b.status === "rejected" && q.status === "rejected") { setReview(null); return; }
       setReview((b.status === "fulfilled" ? b.value : 0) + (q.status === "fulfilled" ? q.value.length : 0));
     });
-  }, [ingestOn, home?.project]);
+  }, [ingestOn, home?.project, me, reader]);
 
   const loadHome = useCallback(() => {
     fetchHome(lang).then((h) => { setHome(h); setHomeFailed(false); }).catch(() => setHomeFailed(true));
@@ -108,7 +119,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     ...(review !== null ? [{ id: "review" as const, icon: "seal" as const, count: review || undefined }] : []),
   ];
   const pct = home?.usage.pct;
-  const name = (me?.name && !me.name.includes("@") ? me.name : "") || me?.email || "";
+  const name = demo ? t("demo.visitor") : (me?.name && !me.name.includes("@") ? me.name : "") || me?.email || "";
 
   return (
     <div className="sk">
@@ -119,7 +130,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           <Brand />
           <button className="sk-btn sk-btn-quiet sk-btn-icon sk-push sk-only-narrow" onClick={() => setDrawer(false)} aria-label={t("nav.close")}><Icon name="close" /></button>
         </div>
-        <ProjectPicker last={prefs.project || ""} />
+        <ProjectPicker last={prefs.project || ""} only={demo ? feats.demo_atelier_projects || [] : null} />
         <div className="sk-nav">
           {nav.map((n) => (
             <button key={n.id} className="sk-nav-item" aria-current={view.name === n.id ? "page" : undefined} onClick={() => go({ name: n.id })}>
@@ -170,12 +181,14 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           {home?.nina && <button className="sk-btn sk-btn-quiet sk-btn-icon sk-push" onClick={() => setNina(true)} aria-label={t("nina.open")}><Icon name="chat" /></button>}
         </div>
         <BannerSlot />
-        {view.name === "home" && <Home home={home} failed={homeFailed} retry={loadHome}
-          onStarted={(sid) => { loadHome(); go({ name: "work", sid }); }} />}
+        {view.name === "home" && (demo && home && !home.can_start
+          ? <DemoHome home={home} onOpen={(sid) => go({ name: "work", sid })} />
+          : <Home home={home} failed={homeFailed} retry={loadHome}
+              onStarted={(sid) => { loadHome(); go({ name: "work", sid }); }} />)}
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
-        {view.name === "team" && <Team enabled={!!feats.agents} />}
+        {view.name === "team" && <Team enabled={!!feats.agents} demo={demo} />}
         {view.name === "review" && <IngestReview quarantine batchesOn={ingestOn} onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}
           onBack={() => go({ name: "works" })} onChanged={loadHome} />}
@@ -328,12 +341,15 @@ function Tick({ on }: { on: boolean }) {
 
 /** 3.6.5 — the project the person works in, when they have more than one (the cockpit's
  *  selector, in plain words): switching reloads the page in that project. */
-function ProjectPicker({ last }: { last: string }) {
+function ProjectPicker({ last, only }: { last: string; only: string[] | null }) {
   const t = useT();
   const [list, setList] = useState<ProjectRow[] | null>(null);
+  const demo = only !== null;
+  const keep = (only || []).join(",");
   useEffect(() => {
     fetchMyProjects().then((r) => {
-      const work = r.projects.filter((p) => !p.shared);
+      // 3.6.7 public demo: the Atelier's own projects only (the instance's others hold no work of it)
+      const work = r.projects.filter((p) => !p.shared && (only === null || only.includes(p.slug)));
       setList(work);
       // 3.6.7: the project THIS person last worked in, unless the address names one — the
       // browser's memory is the last person's (a shared computer signed in someone else)
@@ -342,13 +358,14 @@ function ProjectPicker({ last }: { last: string }) {
       // a person who has no role in the project the browser remembers lands in one of theirs
       if (work.length && !work.some((p) => p.slug === currentProject())) switchProject(work[0].slug);
     }).catch(() => setList(null));
-  }, [last]);
+  }, [last, keep]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!list || list.length < 2) return null;
   return (
     <label className="sk-project-pick">
       <span className="sk-xs sk-muted">{t("nav.project")}</span>
       <select value={currentProject()} onChange={(e) => {
         const slug = e.target.value;
+        if (demo) { switchProject(slug); return; }   // the demo identity's last project is nobody's
         savePrefs({ project: slug }).catch(() => {}).finally(() => switchProject(slug));
       }}>
         {list.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}

@@ -10,6 +10,8 @@ import {
 import type { AgentQuestion } from "@/lib/agent";
 import { age, fullDate, useT, useUI } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
+import { useFeatures } from "@/lib/features";
+import { DemoCta } from "./DemoBand";
 import { reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
@@ -29,6 +31,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   const t = useT();
   const { lang } = useUI();
   const me = useMe();
+  const demo = !!useFeatures().demo_atelier;
   const [work, setWork] = useState<Work | null>(null);
   const [missing, setMissing] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -219,7 +222,9 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
           </div>
           <div className="sk-compose-dock">
             <div>
-              {work && !canDrive ? <p className="sk-small sk-muted">{t("th.readonly")}</p> : (
+              {work && !canDrive ? (demo
+                ? <div className="sk-demo-readonly"><p className="sk-small">{t("demo.th.readonly")}</p><DemoCta compact /></div>
+                : <p className="sk-small sk-muted">{t("th.readonly")}</p>) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--sk-s2)" }}>
                   {working && !waiting && (
                     <div className="sk-row">

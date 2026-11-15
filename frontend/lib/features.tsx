@@ -32,6 +32,12 @@ export interface Features {
   /** 3.6 : document drop (feature `documents`) and the simple profile (feature `simple_profile`) */
   documents?: boolean;
   simple_profile?: boolean;
+  /** 3.6.7 : the public demo of SOKKAN Atelier (read-only, fictional work) */
+  demo_atelier?: boolean;
+  /** 3.6.7 : the call to action of the demo band — the operator's URLs ('' = no button) */
+  demo_cta?: { book_url: string; install_url: string } | null;
+  /** 3.6.7 : the projects of the Atelier demo (the visitor's project picker) */
+  demo_atelier_projects?: string[];
   /** 3.2 : the feature registry (backend/features.py) — effective state and why */
   registry?: FeatureRegistry;
   /** front only: true once /api/features answered (tab availability is then known) */
