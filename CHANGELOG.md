@@ -38,7 +38,7 @@ today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature
   (`usage_calls`). Operate › Costs and the budgets still read the transcripts, unchanged;
   `usage.session_totals(sid, source=…)` gives a session by either source and tests prove both
   agree on a same run of the real CLI.
-- **Conformance scenarios C1–C8 for an engine** (`backend/harness/conformance/`), played
+- **Conformance scenarios C1–C9 for an engine** (`backend/harness/conformance/`), played
   against every engine: a denied shell command has not run, the recall is announced and seen
   by the model, a write outside the run's space is refused and the run goes on, a stopped run
   resumes with its history, every turn reports its usage, a decision is held, attributed and
@@ -57,6 +57,35 @@ today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature
 - **The journal of a run's events**, written by the cockpit whatever the engine
   (`run_events.db`): order, turns, tools, gates and decisions, recalls, errors — their shape,
   never what was written. New variable `SOKKAN_RUN_EVENTS_DAYS` (kept 90 days by default).
+- **A thread is read back from its engine (`Harness.history`)**, whatever the engine: the
+  cockpit pane and the simple profile's thread after a restart, `GET /api/sessions/{sid}`, the
+  study export, and a new route `GET /api/sessions/{sid}/history` (the contract's items:
+  prompt, answer, reasoning, tool call with its outcome). The cockpit no longer opens the
+  CLI's transcript files itself: the adapter does (`harness/cli_transcript.py`), and drops what
+  the CLI writes for itself (its reminders, its command lines). The live flow and a thread read
+  back go through the same translation, so a thread reads the same on every engine; the simple
+  profile reads another engine's tool by its contract classification (`kind`), not its name.
+  An engine that cannot read a thread back says so in the pane, nothing is rebuilt from
+  elsewhere. Conformance **C9** (a finished run's thread, read back by a new harness) is green
+  on the CLI for real and on the fake engine, with the same shape on both.
+- **One decision path for a person's decision on a session gate** (`AgentSession.decide`,
+  the contract's `Decision`): the rail, a delegated review (`shared_review`) and Microsoft
+  Teams all decide through it, with who decided and through what in the decision itself — in
+  the journal of validations, to the engine, and back in `gate.resolved` and the run journal
+  (an opaque engine sees the person's handle, the journal names the person). A delegated
+  review lists the session's waiting gates, not the flow sent to the pane. A gate the engine
+  settles by itself (expired, decided elsewhere) is journalled as such.
+- **Four-eyes on a session's gates.** With `four_eyes` on and the session's approval
+  delegated to a reviewer (a write share with the approval), an allow needs another person
+  than the session's owner: the owner's own allow is refused in words and the card stays, an
+  approval mode does not stand in for the second person; a refusal is anybody's.
+- **The working folder and the tools' environment of an opaque engine name nobody.** A
+  project's session is handed `<data>/engine-roots/<prj-handle>/work` (a link to the
+  project's space) instead of a path with the project's slug; in `RunSpec.env` the person's
+  address, the session id and the project's slug become handles (the « Write with Claude »
+  routing header resolves its project handle on the api, the forge ticket is minted over the
+  handles and resolved back by the credential helper), and a variable that still carries one
+  — in clear or base64 — is not handed to the engine.
 - **A capability the engine lacks is greyed out, never emulated (C7).** The pane drops
   « plan » from its approval modes when the session's engine has none, and says why; a
   session refuses the mode without touching the engine. Today's engine has every capability:

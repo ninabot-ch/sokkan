@@ -12,7 +12,8 @@ backend/harness/
   base.py         Harness(ABC): start · send · decide · interrupt · stop · capabilities · set_mode
   registry.py     declared engines, detection, selection by configuration
   legacy.py       adapter 1: the Claude Code CLI through the Claude Agent SDK
-  conformance/    scenarios C1–C8 against the interface, a reference engine, the driver
+  cli_transcript.py  where the CLI keeps a thread, read by its adapter's history()
+  conformance/    scenarios C1–C9 against the interface, a reference engine, the driver
 ```
 
 Nothing changes for a user in this step. The cockpit still shows the same pane, the same
@@ -44,8 +45,12 @@ Three rules hold for every engine:
    (`tool`, `shell`, `file_write`, `net`, `mcp`, `question`, `plan`, `budget`), a subject
    and the decisions the engine accepts for it. The cockpit answers with a `Decision`
    (`allow_once`, `allow_session`, `deny`, `answer`, `edit`) through `Harness.decide`. Who
-   decides — a rule, a person in the rail, a person in a chat card — is the cockpit's
-   business; `by` / `via` travel with the decision and come back in `gate.resolved`.
+   decides — a rule, a person in the rail, a reviewer the session was shared with, a person
+   in a Teams card — is the cockpit's business; `by` / `via` travel with the decision and
+   come back in `gate.resolved`. On the cockpit's side every person's decision goes through
+   ONE call (`AgentSession.decide(gate_id, Decision)`), where the cockpit's own rules apply
+   (four-eyes: with `four_eyes` on and the approval delegated, the owner's allow is
+   refused and the gate keeps waiting for the other person).
 2. **The cockpit produces the memory, the adapter delivers it.** `RunSpec.context` is a
    provider: the adapter calls it before a turn (and before a sub-agent), puts what it
    returns in front of the model by the best path its engine has, and says so with
@@ -95,6 +100,7 @@ Subclass `Harness`, declare it in `registry.py`, give it a rig in
 | `interrupt()` | Stops the turn, keeps the run. |
 | `set_mode(mode)` | Only for what must change the ENGINE (`plan`). Raises `Unsupported` otherwise. |
 | `stop()` | Ends the run, denies what still waits, emits `run.ended`; idempotent. |
+| `history(ref, cwd=)` | The thread of a run, read back as `HistoryItem`s (see below). `Unsupported` when `Capabilities.history` is False. |
 
 What an adapter must get right (each line is a conformance scenario or a unit test):
 
@@ -113,10 +119,24 @@ What an adapter must get right (each line is a conformance scenario or a unit te
   instance, meaningless elsewhere); the identity variables of the SOKKAN MCP servers become
   one `SOKKAN_SESSION_HANDLE`, which each server expands back when it starts
   (`identity.expand_env`, from the mapping in the data directory). The cockpit keeps the
-  mapping (`engine_handles.db`) and resolves a handle (`identity.resolve`). Not covered
-  yet, to look at with the first opaque engine: the run's working folder (it holds the
-  project's slug) and `RunSpec.env` (the model routing of « Write with Claude » names the
-  project) — both go to the run's tools, not to the model.
+  mapping (`engine_handles.db`) and resolves a handle (`identity.resolve`). The run's
+  working folder is handed through a link without the project's slug
+  (`<data>/engine-roots/<prj-handle>` → `../projects/<slug>`, `identity.opaque_cwd`); in
+  `RunSpec.env` the address, the session id and the slug become handles
+  (`identity.opaque_env`; the cockpit re-mints the forge ticket over the handles), and a
+  variable that still carries one, in clear or base64, is dropped (`identity.leaks`). The
+  decider of a gate reaches such an engine as a handle too (`Decision.by`); the cockpit's
+  journals name the person. An engine that resolves links on the host still finds the real
+  folder: the alias keeps the name out of what it is handed, not out of what it can compute.
+* **History.** `history(ref, cwd=)` gives the thread of a run as the engine keeps it
+  (`HistoryItem`: `prompt`, `text`, `think`, `tool` with its outcome), without `start`,
+  from the engine's reference to the run. An unknown reference is an empty thread. The
+  cockpit reads every thread back through it — the pane after a restart, the session's
+  detail, the export — and translates the items exactly as it translates a live run. An
+  engine that cannot declares `Capabilities.history = False` and raises `Unsupported`: the
+  pane says the thread is not available. What the engine writes for itself (reminders,
+  command echoes) is not an item. The CLI's own files are read by its adapter only
+  (`cli_transcript.py`).
 * **Usage.** One `usage` event per model call, `scope="message"`. A repeated `message_id`
   supersedes (the largest of each field) — never an addition. An engine that first reports
   a call before its output is known settles it later with `revision=True`. An engine that
@@ -132,14 +152,14 @@ What an adapter must get right (each line is a conformance scenario or a unit te
 
 ### Conformance
 
-`conformance/scenarios.py` holds C1–C8; they only use `Harness`, contract events and a
+`conformance/scenarios.py` holds C1–C9 (C9: the thread of a finished run, read back by a new harness); they only use `Harness`, contract events and a
 `Rig` (how to build the harness, how to script the model behind it, what the model was
 shown). The suite is parametrised by engine: `tests/test_harness_conformance.py` has one
 rig per engine and plays every scenario against each.
 
 `conformance/reference.py` is the **fake engine**: about 300 lines, no SDK, no model, no
 transcript — an in-memory engine written from this README and the contract alone. It
-passes C1–C8, and the cockpit runs a session on it (gates, memory, usage records, the
+passes C1–C9, and the cockpit runs a session on it (gates, memory, usage records, the
 journal) with nothing that knows it is not the CLI. That is the proof the contract is
 enough for a second engine. It is deliberately unlike the CLI where the contract lets
 engines differ: its gates are born on its side, it takes no edited input, it has no

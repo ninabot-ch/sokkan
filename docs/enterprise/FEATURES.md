@@ -275,7 +275,7 @@ Unattended agent runs may use the Claude CLI login found on the host (otherwise 
 
 **Four-eyes approval** — stable, toggle.
 
-Activating an agent (or a change to an approved one) needs ANOTHER person than its proposer and its owner.
+Activating an agent (or a change to an approved one) needs ANOTHER person than its proposer and its owner. A session whose approval was delegated to a reviewer (shared_review) has its requests approved by another person than its owner.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `agents`
