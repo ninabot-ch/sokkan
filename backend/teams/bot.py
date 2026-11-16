@@ -655,18 +655,6 @@ def _refresh(token: str) -> dict:
                                        spec.get("note", ""), spec.get("open_url", ""), lang=lang))
 
 
-def _resolve_permission(sess, pid: str, decision: dict) -> None:
-    """Resolve a tool approval of a live session from this (worker) thread: the future
-    belongs to the API's event loop."""
-    fut = (getattr(sess, "_perms", None) or {}).get(pid)
-    get_loop = getattr(fut, "get_loop", None)
-    loop = get_loop() if get_loop else None
-    if loop is not None and loop.is_running():
-        loop.call_soon_threadsafe(sess.resolve_permission, pid, decision)
-    else:
-        sess.resolve_permission(pid, decision)
-
-
 def _decide_tool(pu: dict, row: dict, verb: str, email: str) -> tuple[str, str]:
     """A tool call of an agent run, approved or denied from Teams — by the agent's owner
     (dev+) or an admin of the project, like in the cockpit."""
@@ -685,11 +673,17 @@ def _decide_tool(pu: dict, row: dict, verb: str, email: str) -> tuple[str, str]:
     sess = agentchat.peek(run["session_id"])
     if pid not in pend or sess is None:
         raise agents.AgentError("this tool call no longer waits (decided, or the run ended)")
-    import hitl_journal
-    hitl_journal.attribute(pid, email, "teams")   # the journal names who decided, from where
-    _resolve_permission(sess, pid, {
-        "decision": "allow" if verb == "approve" else "deny",
-        "message": None if verb == "approve" else f"Denied by {email} (Microsoft Teams)"})
+    from harness import contract
+    who = (email or "").lower().strip()
+    # the one decision path of a session (the contract's Decision): by = the person, via = teams
+    d = (contract.Decision.allow(by=who, via="teams") if verb == "approve" else
+         contract.Decision.deny(f"Denied by {email} (Microsoft Teams)", by=who, via="teams"))
+    out = sess.decide_threadsafe(pid, d)
+    if out == "four_eyes":
+        raise agents.Forbidden("four-eyes approval: another person than the session's owner "
+                               "approves")
+    if out != "ok":
+        raise agents.AgentError("this tool call no longer waits (decided, or the run ended)")
     title = _spec(row).get("title") or f"Agent {a.get('name')} · {pend[pid]['tool']}"
     return title, ("allowed — the run continues" if verb == "approve" else "denied")
 

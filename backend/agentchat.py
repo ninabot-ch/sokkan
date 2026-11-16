@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import os
-import re
 import sys
 import time
 import uuid
@@ -214,7 +213,6 @@ class AgentSession:
         self.harness: Any = None
         self._stream: Any = None
         self._gate_tasks: set[asyncio.Task] = set()
-        self._decided_by: dict[str, tuple[str, str]] = {}   # gate id → (who, through what)
         self._turn_usage: contract.Usage | None = None      # the engine's own turn total
         # the model calls of the running turn, final figures ({call key: usage event}), and
         # when it started: the turn's record in the ledger (usage.turn_record) is built
@@ -229,6 +227,9 @@ class AgentSession:
         self.subscribers: set[asyncio.Queue] = set()
         self._perms: dict[str, asyncio.Future] = {}
         self._questions: dict[str, asyncio.Future] = {}
+        # the gates waiting for a person here, as the contract gave them (id → gate, the
+        # input the rules let through): what a reviewer, Teams or the rail decide on
+        self._pending: dict[str, tuple[contract.Gate, dict]] = {}
         self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
         self._start_lock = asyncio.Lock()
@@ -414,9 +415,10 @@ class AgentSession:
             spec = await self._run_spec()
             self.harness = registry.create()
             if self.harness.capabilities().identity == "opaque":
-                # who and what the run is for never reaches such an engine: handles only
+                # who and what the run is for never reaches such an engine: handles only —
+                # in its spec, its working folder and its tools' environment
                 from harness import identity
-                spec = identity.opaque_spec(spec)
+                spec = identity.opaque_spec(spec, rewrite=_opaque_env_rewrite)
             self._stream = self.harness.start(spec)
             self._announce_capabilities()
             # the first event reaches the engine: `run.started`, or the engine's own error
@@ -664,6 +666,7 @@ class AgentSession:
             qid = gate.gate_id
             fut: asyncio.Future = loop.create_future()
             self._questions[qid] = fut
+            self._pending[qid] = (gate, input_data)
             hitl_journal.requested(qid, "question", session_id=self.sid, tool=tool_name,
                                    title=_tool_title(tool_name, input_data),
                                    input_data=input_data, mode=self.mode,
@@ -672,20 +675,23 @@ class AgentSession:
             self._emit({"type": "question", "id": qid, "ts": time.time(),
                         "questions": input_data.get("questions", [])})
             try:
-                answers = await fut
+                answered: contract.Decision = await fut
             except asyncio.CancelledError:
                 hitl_journal.decided(qid, "cancelled")
                 return contract.Decision.deny("Question cancelled", via="engine")
             finally:
                 self._questions.pop(qid, None)
-            by, via = self._decided_by.pop(qid, ("", "rail"))
-            return contract.Decision.answer(answers, by=by, via=via)
+                self._pending.pop(qid, None)
+            return answered
 
         # auto-approval by the current mode (automode / accept-edits) — the web equivalent
         # of the TUI's Shift+Tab. A question (above) always stays interactive: it is a real
         # question to the person, not a mere permission gate.
-        if self.mode == "bypassPermissions" or (
-                self.mode == "acceptEdits" and gate.kind == "file_write"):
+        if (self.mode == "bypassPermissions" or (
+                self.mode == "acceptEdits" and gate.kind == "file_write")) \
+                and not self._four_eyes_binding():
+            # (four-eyes: an approval mode is the owner approving in advance — it does not
+            # stand in for the second person)
             self._journal_auto(gate, input_data, True, f"mode:{self.mode}")
             return _allow(gate, input_data, by=f"mode:{self.mode}", via="auto_rule")
 
@@ -693,6 +699,7 @@ class AgentSession:
         pid = gate.gate_id
         fut = loop.create_future()
         self._perms[pid] = fut
+        self._pending[pid] = (gate, input_data)
         title = _tool_title(tool_name, input_data)
         hitl_journal.requested(pid, "permission", session_id=self.sid, tool=tool_name,
                                title=title, input_data=input_data, mode=self.mode,
@@ -700,21 +707,21 @@ class AgentSession:
                                agent_run=str((self.policy or {}).get("agent") or ""),
                                model=self._turn_model or "")
         self._emit({"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
-                    "title": title, "input": input_data})
+                    "title": title, "input": input_data, "kind": gate.kind})
         self._arm_hitl_notify(pid, title)  # ping if nobody answers in time
         self._set_waiting(True)
         try:
-            decision = await fut
+            decision: contract.Decision = await fut
         except asyncio.CancelledError:
             hitl_journal.decided(pid, "cancelled")
             return contract.Decision.deny("Request cancelled", via="engine")
         finally:
             self._perms.pop(pid, None)
+            self._pending.pop(pid, None)
             if not self._perms:
                 self._set_waiting(False)
-        by, via = self._decided_by.pop(pid, ("", "rail"))
-        if decision.get("decision") == "allow":
-            final = decision.get("updated_input") or input_data
+        if decision.allowed:
+            final = decision.input or input_data
             if self.sandboxed is not None:
                 # the browser may send an edited input: what runs is re-checked/re-wrapped
                 import sandbox
@@ -728,9 +735,9 @@ class AgentSession:
                 if not hasattr(self, "_approved_saves"):
                     self._approved_saves = set()
                 self._approved_saves.add(os.path.abspath(saved))
-            return _allow(gate, final, by=by, via=via)
-        return contract.Decision.deny(decision.get("message") or "Denied by the user",
-                                      by=by, via=via)
+            return _allow(gate, final, by=decision.by, via=decision.via)
+        return contract.Decision.deny(decision.message or "Denied by the user",
+                                      by=decision.by, via=decision.via)
 
     def _on_gate(self, gate: contract.Gate) -> None:
         """A `gate.requested` of the stream: decided apart, so the stream keeps flowing
@@ -745,6 +752,12 @@ class AgentSession:
                     f"This engine does not take the decision {decision.kind!r} for this "
                     "request.", by="policy", via="auto_rule")
             if harness is not None:
+                if "@" in (decision.by or "") and self._opaque(harness):
+                    # who decided reaches an opaque engine as a handle; the cockpit's journal
+                    # gets the person back from `gate.resolved` (`_journal`)
+                    from harness import identity
+                    decision = dataclasses.replace(
+                        decision, by=identity.handle("user", decision.by.lower().strip()))
                 try:
                     await harness.decide(gate.gate_id, decision)
                 except Exception as e:  # noqa: BLE001 — the engine is gone: nothing to tell
@@ -761,6 +774,13 @@ class AgentSession:
         fut = self._perms.get(ev.gate_id) or self._questions.get(ev.gate_id)
         if fut is not None and not fut.done():
             kind = "question" if ev.gate_id in self._questions else "permission"
+            # nobody here decided: the journal says what the engine applied, and through what
+            hitl_journal.decided(
+                ev.gate_id, {"allow_once": "allow", "allow_session": "allow", "edit": "edit",
+                             "answer": "answer"}.get(ev.decision, "deny"),
+                actor="", origin="system",
+                message=f"settled by the engine ({ev.via or 'engine'})"
+                + (f": {ev.message}" if ev.message else ""), fallback_owner=self.user)
             fut.cancel()
             self._emit({"type": f"{kind}_resolved", "id": ev.gate_id, "ts": time.time()})
 
@@ -811,39 +831,140 @@ class AgentSession:
         self._notify_tasks.add(t)
         t.add_done_callback(self._notify_tasks.discard)
 
-    def resolve_permission(self, pid: str, decision: dict) -> None:
-        """Who decides is declared by the caller just before (hitl_journal.attribute):
-        the cockpit's WebSocket, a delegated share, Microsoft Teams."""
-        fut = self._perms.get(pid)
-        if fut and not fut.done():
+    # ---- a person's decision: one entry, the contract's Decision ------------------------
+    def pending_gates(self) -> list[dict]:
+        """The gates waiting for a person in this session, from the contract (not from the
+        flow sent to the pane): what a reviewer, Teams or the rail can decide."""
+        out = []
+        for gid, (gate, inp) in list(self._pending.items()):
+            out.append({"id": gid, "kind": gate.kind, "tool": gate.tool,
+                        "title": _tool_title(gate.tool, inp), "options": list(gate.options),
+                        "question": gid in self._questions})
+        return out
+
+    def _owner(self) -> str:
+        return (self._study_owner() or self.user or "").lower().strip()
+
+    def _four_eyes_binding(self) -> bool:
+        """Four-eyes on this session's gates: the feature `four_eyes` is on AND the owner has
+        delegated the approval to a reviewer (`shared_review`, a write share with the
+        approval). Then an allow needs ANOTHER person than the owner."""
+        try:
+            import features
+            if not features.enabled("four_eyes"):
+                return False
+            import sharing
+            return bool(sharing.approvers(self.sid))
+        except Exception:  # noqa: BLE001 — no share store: nothing delegated
+            return False
+
+    def four_eyes_refusal(self, gate_id: str, decision: contract.Decision) -> str:
+        """Why this decision may not be applied under four-eyes ('' = it may). A refusal,
+        an answer to a question: always. An allow: only by another person than the owner —
+        an unknown decider is not another person."""
+        if not decision.allowed or decision.kind == contract.ANSWER or gate_id in self._questions:
+            return ""
+        if not self._four_eyes_binding():
+            return ""
+        who = (decision.by or "").lower().strip()
+        if who and who != self._owner():
+            return ""
+        return ("Four-eyes approval: another person approves this request (the reviewer "
+                "the session was shared with).")
+
+    def decide(self, gate_id: str, decision: contract.Decision) -> str:
+        """A person's decision on a gate of this session — from the rail, a delegated share,
+        Microsoft Teams: the ONE path, whatever the engine. ``decision.by`` is who decided,
+        ``decision.via`` through what (rail | share | teams); both go to the journal of
+        validations and, with the decision, to the engine (`Harness.decide`, echoed in
+        `gate.resolved`). → "ok", "unknown" (not waiting: decided, expired, gone) or
+        "four_eyes" (refused by the rule, the request still waits)."""
+        if gate_id in self._questions:
+            fut = self._questions.get(gate_id)
+            if fut is None or fut.done():
+                return "unknown"
+            value = decision.value if decision.kind == contract.ANSWER else None
+            if decision.kind == contract.ANSWER:
+                hitl_journal.decided(gate_id, "answer", actor=decision.by,
+                                     origin=self._origin(decision), message=value,
+                                     secrets=self.redact_values, fallback_owner=self.user)
+            else:
+                hitl_journal.decided(gate_id, "deny", actor=decision.by,
+                                     origin=self._origin(decision), message=decision.message,
+                                     secrets=self.redact_values, fallback_owner=self.user)
             fut.set_result(decision)
-            allow = decision.get("decision") == "allow"
-            row = hitl_journal.decided(
-                pid, "allow" if allow else "deny",
-                edited_input=decision.get("updated_input") if allow else None,
-                message=None if allow else (decision.get("message") or ""),
-                secrets=self.redact_values, fallback_owner=self.user)
-            self._note_decider(pid, row)
-            # évent de réconciliation : au replay (refresh), les cartes déjà
-            # résolues ne doivent pas se ré-afficher comme actionnables
-            self._emit({"type": "permission_resolved", "id": pid, "ts": time.time(),
-                        "decision": "allow" if allow else "deny"})
+            self._emit({"type": "question_resolved", "id": gate_id, "ts": time.time()})
+            return "ok"
+        fut = self._perms.get(gate_id)
+        if fut is None or fut.done():
+            return "unknown"
+        if self.four_eyes_refusal(gate_id, decision):
+            return "four_eyes"
+        gate, asked = self._pending.get(gate_id, (None, {}))
+        if decision.allowed:
+            final = decision.input if decision.input is not None else (
+                asked if gate is not None else None)
+            hitl_journal.decided(gate_id, "allow", actor=decision.by,
+                                 origin=self._origin(decision), edited_input=final,
+                                 secrets=self.redact_values, fallback_owner=self.user)
+        else:
+            hitl_journal.decided(gate_id, "deny", actor=decision.by,
+                                 origin=self._origin(decision),
+                                 message=decision.message or "",
+                                 secrets=self.redact_values, fallback_owner=self.user)
+        fut.set_result(decision)
+        # évent de réconciliation : au replay (refresh), les cartes déjà
+        # résolues ne doivent pas se ré-afficher comme actionnables
+        self._emit({"type": "permission_resolved", "id": gate_id, "ts": time.time(),
+                    "decision": "allow" if decision.allowed else "deny"})
+        return "ok"
 
-    def _note_decider(self, gate_id: str, row: dict | None) -> None:
-        """Who decided and through what, as the journal attributed it — echoed by the
-        engine in `gate.resolved`."""
-        if row:
-            via = row.get("origin") if row.get("origin") in ("teams", "share") else "rail"
-            self._decided_by[gate_id] = (row.get("actor") or "", via)
+    def decide_threadsafe(self, gate_id: str, decision: contract.Decision,
+                          timeout: float = 10.0) -> str:
+        """`decide` from a worker thread (a sync route, the Teams bot): applied on the
+        api's event loop, which holds the waiting gate; the outcome is returned."""
+        fut = self._perms.get(gate_id) or self._questions.get(gate_id)
+        loop = fut.get_loop() if fut is not None else None
+        try:
+            here = asyncio.get_running_loop()
+        except RuntimeError:
+            here = None
+        if loop is None or here is loop or not loop.is_running():
+            return self.decide(gate_id, decision)
 
-    def resolve_question(self, qid: str, answers: dict) -> None:
-        fut = self._questions.get(qid)
-        if fut and not fut.done():
-            fut.set_result(answers)
-            row = hitl_journal.decided(qid, "answer", message=answers,
-                                       secrets=self.redact_values, fallback_owner=self.user)
-            self._note_decider(qid, row)
-            self._emit({"type": "question_resolved", "id": qid, "ts": time.time()})
+        async def _apply() -> str:
+            return self.decide(gate_id, decision)
+        return asyncio.run_coroutine_threadsafe(_apply(), loop).result(timeout)
+
+    def _origin(self, decision: contract.Decision) -> str:
+        """The journal's origin of a person's decision: share / teams as said, else owner or
+        project member (who opened the session or not)."""
+        if decision.via in ("share", "teams"):
+            return decision.via
+        return hitl_journal.origin_of(decision.by, self.sid, self.user) if decision.by else ""
+
+    def resolve_permission(self, pid: str, decision: dict) -> str:
+        """The pane's dict ({decision, updated_input, message}) → `decide`. Who decides is
+        the attribution declared just before (hitl_journal.attribute), when there is one."""
+        actor, origin = hitl_journal.peek_attribution(pid)
+        via = origin if origin in ("share", "teams") else "rail"
+        if decision.get("decision") == "allow":
+            d = contract.Decision.allow(decision.get("updated_input"), by=actor, via=via)
+        else:
+            d = contract.Decision.deny(decision.get("message") or "Denied by the user",
+                                       by=actor, via=via)
+        out = self.decide(pid, d)
+        if out == "ok":
+            hitl_journal.forget_attribution(pid)
+        return out
+
+    def resolve_question(self, qid: str, answers: dict) -> str:
+        actor, origin = hitl_journal.peek_attribution(qid)
+        via = origin if origin in ("share", "teams") else "rail"
+        out = self.decide(qid, contract.Decision.answer(answers, by=actor, via=via))
+        if out == "ok":
+            hitl_journal.forget_attribution(qid)
+        return out
 
     # ---- un tour ------------------------------------------------------------
     async def handle_user(self, text: str) -> None:
@@ -989,24 +1110,16 @@ class AgentSession:
                 self._turn_model = ev.model
         elif isinstance(ev, contract.AssistantText):
             if ev.text.strip():
-                out = {"type": "text", "text": ev.text}
-                if self._turn_model:
-                    out["model"] = self._turn_model
-                self._emit(out)
+                self._emit(_ws_text(ev.text, self._turn_model))
                 if ev.text.lstrip().startswith("API Error"):   # the engine's line for a refusal
                     self._explain_refusal(ev.text)
         elif isinstance(ev, contract.AssistantThink):
             self._emit({"type": "thinking", "text": ev.text})
         elif isinstance(ev, contract.ToolCalled):
-            out = {"type": "tool_use", "id": ev.call_id, "tool": ev.name,
-                   "title": _tool_title(ev.name, ev.input), "input": ev.input}
-            if self._turn_model:
-                out["model"] = self._turn_model
-            self._emit(out)
+            self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
+                                    self._turn_model))
         elif isinstance(ev, contract.ToolResult):
-            self._emit({"type": "tool_result", "tool_use_id": ev.call_id,
-                        "text": ev.output[:8000], "is_error": not ev.ok,
-                        "truncated": len(ev.output) > 8000})
+            self._emit(_ws_tool_result(ev.call_id, ev.output, ev.ok))
         elif isinstance(ev, contract.TurnStarted):
             self._turn_calls, self._turn_usage = {}, None
             self._turn_started = time.time()
@@ -1078,8 +1191,25 @@ class AgentSession:
         except Exception as e:  # noqa: BLE001
             print(f"[sokkan] usage event of {self.sid} not recorded ({e!r})", file=sys.stderr)
 
+    @staticmethod
+    def _opaque(harness) -> bool:
+        try:
+            return harness.capabilities().identity == "opaque"
+        except Exception:  # noqa: BLE001
+            return False
+
     def _journal(self, ev: contract.Event) -> None:
-        """Every event of the run, journalled by the cockpit (its shape only: run_journal)."""
+        """Every event of the run, journalled by the cockpit (its shape only: run_journal).
+        The decider of a gate is journalled as the person, even when the engine only ever
+        saw a handle of them."""
+        if isinstance(ev, contract.GateResolved) and (ev.by or "").startswith("usr-"):
+            try:
+                from harness import identity
+                who = identity.resolve(ev.by)
+                if who and who[0] == "user":
+                    ev = dataclasses.replace(ev, by=who[1])
+            except Exception:  # noqa: BLE001
+                pass
         try:
             j = self._run_journal
         except AttributeError:
@@ -1180,6 +1310,16 @@ class AgentSession:
                                     "accepting new turns at the limit.")})
 
 
+def _opaque_env_rewrite(env: dict, handles: dict) -> dict:
+    """What only the cockpit can re-mint for an opaque engine: the forge ticket names the
+    session and the person (base64) — the same ticket over their handles, which the
+    credential helper resolves back on the api (forge.gitcred.verify)."""
+    if env.get("SOKKAN_FORGE_TICKET") and handles.get("run") and handles.get("user"):
+        from forge import gitcred
+        env = {**env, "SOKKAN_FORGE_TICKET": gitcred.ticket(handles["run"], handles["user"])}
+    return env
+
+
 def _allow(gate: contract.Gate, final: dict, *, by: str, via: str) -> contract.Decision:
     """Allow a gate with the input that may run: `edit` when it is not what was asked."""
     if final != gate.input:
@@ -1276,62 +1416,133 @@ def _closed_to_agent_run(path: str, project: str) -> bool:
 _registry: dict[str, AgentSession] = {}
 
 
-def _transcript_path(csid: str, cwd: str | None = None) -> Path:
-    """Chemin du transcript persisté par Claude Code (même résolution que
-    PROJECT_DIR côté app.py — dupliquée ici pour éviter le cycle d'import).
-
-    3.6.3: the CLI files a transcript under the session's OWN working directory, every
-    non-alphanumeric character of it replaced by « - ». A session of another project than
-    `default` works in its project's folder (project_cwd), so its transcript is not in the
-    instance's folder: pass ``cwd``. Only that folder is searched — never another project's."""
-    claude_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
-    cwd_slug = (os.environ.get("SOKKAN_AGENT_CWD")
-                or ("/workspace" if os.path.isdir("/workspace") else os.getcwd())).replace("/", "-")
-    base = os.environ.get("SOKKAN_PROJECT_DIR", os.path.join(claude_dir, "projects", cwd_slug))
-    path = Path(base) / f"{csid}.jsonl"
-    if cwd and not path.exists() and re.fullmatch(r"[A-Za-z0-9-]{8,64}", csid or ""):
-        for d in dict.fromkeys((cwd, os.path.realpath(cwd))):
-            own = Path(claude_dir) / "projects" / re.sub(r"[^a-zA-Z0-9]", "-", d) / path.name
-            if own.exists():
-                return own
-    return path
-
-
-def _seed_ring_from_transcript(s: AgentSession, csid: str) -> None:
-    """Après un restart de sokkan-api, le ring buffer est vide : le pane d'une
-    session existante s'affichait vide alors que tout l'historique est dans le
-    transcript JSONL. On re-peuple le ring depuis le transcript pour que le
-    replay WS montre la conversation complète."""
-    path = _transcript_path(csid, s.cwd)
-    if s.events or not path.exists():
-        return
-    import transcript
-
+def engine_of(sid: str) -> str:
+    """The engine a session ran on: the one its journal names (run_journal), else the first
+    declared engine — every session before 4.0 ran on it."""
     try:
-        msgs = transcript.parse_file(path).get("messages", [])
-    except Exception:  # noqa: BLE001 — un transcript illisible ne doit pas bloquer la session
-        return
+        import run_journal
+        name = run_journal.engine_of(sid)
+    except Exception:  # noqa: BLE001 — no journal: the default engine
+        name = ""
+    return name if name in registry.declared() else registry.default()
+
+
+def thread_history(sid: str, ref: str | None = None
+                   ) -> tuple[str, list[contract.HistoryItem] | None]:
+    """(engine, the thread of session ``sid`` as its engine keeps it). ``None`` = this
+    engine cannot read a thread back (`Capabilities.history`). ``ref`` = the engine's
+    reference to the run (default: the one persisted for the session). The thread is read
+    in the session's own working directory only, never another project's."""
+    name = engine_of(sid)
+    ref = ref or board.get_claude_session_id(sid) or ""
+    try:
+        h = registry.create(name)
+        caps = h.capabilities()
+    except Exception as e:  # noqa: BLE001 — the engine is not installed here
+        print(f"[sokkan] engine {name} of {sid} unavailable ({e!r}): thread not read",
+              file=sys.stderr)
+        return name, None
+    if not caps.history:
+        return name, None
+    if not ref:
+        return name, []
+    cwd = project_cwd(sid)
+    if caps.identity == "opaque":
+        from harness import identity
+        cwd = identity.opaque_cwd(cwd)
+    try:
+        return name, list(h.history(ref, cwd=cwd))
+    except contract.Unsupported:
+        return name, None
+    except Exception as e:  # noqa: BLE001 — an unreadable thread never breaks the session
+        print(f"[sokkan] thread of {sid} unreadable on {name} ({type(e).__name__})",
+              file=sys.stderr)
+        return name, []
+
+
+def _ws_text(text: str, model: str | None) -> dict:
+    out = {"type": "text", "text": text}
+    if model:
+        out["model"] = model
+    return out
+
+
+def _ws_tool_use(call_id, name: str, inp: dict, classification: str, model: str | None) -> dict:
+    out = {"type": "tool_use", "id": call_id, "tool": name, "title": _tool_title(name, inp),
+           "input": inp, "kind": classification}
+    if model:
+        out["model"] = model
+    return out
+
+
+def _ws_tool_result(call_id, output: str, ok: bool) -> dict:
+    return {"type": "tool_result", "tool_use_id": call_id, "text": output[:8000],
+            "is_error": not ok, "truncated": len(output) > 8000}
+
+
+def history_events(items: list[contract.HistoryItem]) -> list[dict]:
+    """A thread read back from its engine, as the events the pane reads: the SAME
+    translation as a live run's (`_consume`), so a thread reads back identically whatever
+    the engine that kept it."""
     evs: list[dict] = []
-    for m in msgs:
-        role, kind, text = m.get("role"), m.get("kind"), m.get("text", "")
-        if role == "user" and kind == "text":
-            evs.append({"type": "user", "text": text})
-        elif role == "assistant" and kind == "text":
-            evs.append({"type": "text", "text": text, **({"model": m["model"]} if m.get("model") else {})})
-        elif role == "assistant" and kind == "thinking":
-            evs.append({"type": "thinking", "text": text})
-        elif kind == "tool":
-            evs.append({"type": "tool_use", "id": m.get("id"), "tool": m.get("tool", "tool"),
-                        "title": m.get("title", ""), "input": m.get("input", {}) or {},
-                        **({"model": m["model"]} if m.get("model") else {})})
-            r = m.get("result")
-            if r and m.get("id"):
-                evs.append({"type": "tool_result", "tool_use_id": m["id"],
-                            "text": r.get("text", ""), "is_error": bool(r.get("is_error")),
-                            "truncated": bool(r.get("truncated"))})
+    for it in items:
+        if it.kind == "prompt":
+            evs.append({"type": "user", "text": it.text})
+        elif it.kind == "text":
+            if it.text.strip():
+                evs.append(_ws_text(it.text, it.model))
+        elif it.kind == "think":
+            evs.append({"type": "thinking", "text": it.text})
+        elif it.kind == "tool":
+            evs.append(_ws_tool_use(it.call_id, it.name, dict(it.input), it.classification,
+                                    it.model))
+            if it.output is not None and it.call_id:
+                evs.append(_ws_tool_result(it.call_id, it.output, it.ok))
+    return evs
+
+
+def history_messages(items: list[contract.HistoryItem]) -> list[dict]:
+    """The same thread in the shape of a session's detail (`GET /api/sessions/{sid}`):
+    {role, kind, text | tool, title, input, id, result}."""
+    out: list[dict] = []
+    for it in items:
+        if it.kind == "prompt":
+            out.append({"role": "user", "kind": "text", "text": it.text})
+        elif it.kind in ("text", "think"):
+            m = {"role": "assistant", "kind": "text" if it.kind == "text" else "thinking",
+                 "text": it.text}
+            if it.model and it.kind == "text":
+                m["model"] = it.model
+            out.append(m)
+        elif it.kind == "tool":
+            m = {"role": "assistant", "kind": "tool", "tool": it.name,
+                 "title": _tool_title(it.name, dict(it.input)), "input": dict(it.input),
+                 "id": it.call_id, "classification": it.classification,
+                 "result": None if it.output is None else {
+                     "text": it.output[:8000], "is_error": not it.ok,
+                     "truncated": len(it.output) > 8000}}
+            if it.model:
+                m["model"] = it.model
+            out.append(m)
+    return out
+
+
+def _seed_ring_from_history(s: AgentSession, ref: str) -> None:
+    """After a restart of sokkan-api the ring buffer is empty: the pane of an existing
+    session would open empty although its engine keeps the whole thread. The ring is filled
+    again from the engine's `history()` — whatever the engine — so that the WebSocket
+    replay (cockpit pane, Atelier thread) shows the whole conversation."""
+    if s.events:
+        return
+    _engine, items = thread_history(s.sid, ref)
+    if items is None:
+        # this engine cannot read a thread back: said in the pane, never rebuilt elsewhere
+        s.events.append({"type": "history", "available": False})
+        return
+    evs = history_events(items)
     if evs:
         evs.append({"type": "status", "state": "idle"})
-        if s.redact_values:  # a reopened agent run: the transcript holds raw values
+        if s.redact_values:  # a reopened agent run: the engine kept raw values
             import agents
             evs = agents.redact_obj(evs, s.redact_values)
         s.events.extend(evs[-RING_MAX:])
@@ -1355,7 +1566,7 @@ def get_or_create(sid: str, resume: str | None = None, user: str = "",
             except Exception:  # noqa: BLE001
                 pass
         if resume:
-            _seed_ring_from_transcript(s, resume)
+            _seed_ring_from_history(s, resume)
         _registry[sid] = s
     elif user and not s.user:
         s.user = user  # rattachement avant le premier start (client pas encore créé)

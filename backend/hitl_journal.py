@@ -25,8 +25,10 @@ with the vault's masking applied first (``agents.redact_obj`` over the values th
 environment holds) and then a pattern pass for credentials pasted in clear. Never the
 tool's output.
 
-Who decided is not carried by ``AgentSession.resolve_permission(pid, decision)`` (its
-callers and their tests pin that dict): the caller declares it just before with
+Who decided travels with the decision (4.0): ``AgentSession.decide(gate_id, Decision)``
+carries ``by`` (the person) and ``via`` (rail, share, teams) — the rail, a delegated share and
+Microsoft Teams all decide through it. The older ``resolve_permission(pid, dict)`` stays for
+the callers that pin that dict: they declare the decider just before with
 ``attribute(request_id, actor, origin)``.
 """
 from __future__ import annotations
@@ -166,6 +168,16 @@ def attribute(request_id: str, actor: str, origin: str) -> None:
         _attrib.pop(k, None)
     _attrib[request_id] = ((actor or "").lower().strip(),
                            origin if origin in ORIGINS else "unknown", now)
+
+
+def peek_attribution(request_id: str) -> tuple[str, str]:
+    """(actor, origin) declared for `request_id` and not consumed yet; ('', '') if none."""
+    a = _attrib.get(request_id or "")
+    return (a[0], a[1]) if a else ("", "")
+
+
+def forget_attribution(request_id: str) -> None:
+    _attrib.pop(request_id or "", None)
 
 
 def _session_facts(session_id: str) -> tuple[str, str]:

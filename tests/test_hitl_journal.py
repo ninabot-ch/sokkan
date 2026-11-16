@@ -330,6 +330,8 @@ def _waiting(world, sid=SID, user="bob@x", pid="p-ws-1", tool="Bash", inp=None):
     inp = inp or {"command": "make release"}
     fut = asyncio.new_event_loop().create_future()
     sess._perms[pid] = fut
+    from harness import legacy
+    sess._pending[pid] = (legacy.tool_gate(tool, inp, gate_id=pid), inp)
     hitl_journal.requested(pid, "permission", session_id=sid, tool=tool,
                            title=agentchat._tool_title(tool, inp), input_data=inp, owner=user)
     sess.events.append({"type": "permission", "id": pid, "tool": tool,
@@ -347,7 +349,7 @@ def test_the_cockpit_websocket_names_the_owner(world):
         for _ in range(50):
             if ws.receive_json().get("type") == "perm_mode":
                 break
-    assert fut.result()["decision"] == "allow"
+    assert fut.result().kind == "allow_once" and fut.result().by == "bob@x"
     perm, mode = _rows(session_id=SID)
     assert (perm["decision"], perm["actor"], perm["origin"]) == ("allow", "bob@x", "owner")
     assert (mode["decision"], mode["actor"], mode["origin"]) == ("mode_change", "bob@x", "owner")
@@ -391,7 +393,8 @@ def test_a_delegated_share_decision_names_the_delegate_and_keeps_its_audit_line(
     assert bob.post(f"/api/shares/{sid}/approver", json={"approver": True}).status_code == 200
     r = world["as"]("dave@x").post(f"/api/shares/{sid}/decide",
                                    json={"permission_id": "p-share-1", "decision": "deny"})
-    assert r.status_code == 200 and fut.result()["decision"] == "deny"
+    assert r.status_code == 200 and fut.result().kind == "deny"
+    assert (fut.result().by, fut.result().via) == ("dave@x", "share")
     (row,) = _rows(session_id=SID)
     assert (row["decision"], row["actor"], row["origin"], row["owner"]) == ("deny", "dave@x",
                                                                             "share", "bob@x")
@@ -417,7 +420,8 @@ def test_a_teams_decision_names_the_person_and_teams(world, monkeypatch):
     title, verdict = bot._decide_tool({"email": "ray@x", "role": "dev", "project": "radio"},
                                       {"ref": "3:p-teams-1", "project": "radio", "spec": "{}"},
                                       "approve", "ray@x")
-    assert "allowed" in verdict and fut.result() == {"decision": "allow", "message": None}
+    assert "allowed" in verdict
+    assert (fut.result().kind, fut.result().by, fut.result().via) == ("allow_once", "ray@x", "teams")
     (r,) = _rows(session_id=RADIO_SID)
     assert (r["decision"], r["actor"], r["origin"], r["project"]) == ("allow", "ray@x", "teams",
                                                                       "radio")

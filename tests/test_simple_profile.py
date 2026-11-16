@@ -381,8 +381,8 @@ def test_a_corrected_draft_is_what_gets_saved_and_only_its_text(world):
         ws.send_json({"type": "permission", "id": "p2", "decision": "allow", "draft_text": "rm -rf /",
                       "updated_input": {"command": "rm -rf /"}})
         assert ws.receive_json() == {"type": "approval_resolved", "id": "p2", "decision": "allow"}
-    assert futs["p1"].result()["updated_input"] == {"file_path": target, "content": "# Plan\n3 jours\n"}
-    assert futs["p2"].result()["updated_input"] is None
+    assert futs["p1"].result().input == {"file_path": target, "content": "# Plan\n3 jours\n"}
+    assert futs["p2"].result().input is None
     s._perms.clear()
     loop.close()
 

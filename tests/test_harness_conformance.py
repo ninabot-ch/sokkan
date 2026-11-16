@@ -1,4 +1,4 @@
-"""Conformance C1–C8 (backend/harness/conformance), played against every engine.
+"""Conformance C1–C9 (backend/harness/conformance), played against every engine.
 
 * `reference` — the in-memory engine of the conformance package (gates born on the
   engine's side, no question, no plan): always played.
@@ -242,3 +242,34 @@ def test_the_scenarios_catch_an_engine_that_does_not_conform(tmp_path):
         rig.harness = lambda rig=rig, cheat=cheat: cheat(rig.model)
         with pytest.raises(AssertionError):
             _play(scenario, rig)
+
+
+def test_an_engine_that_cannot_read_a_thread_back_says_so(tmp_path):
+    """C9 the other way round: `history` declared absent → `history()` raises Unsupported
+    (the cockpit says the thread is not available, it rebuilds nothing)."""
+
+    class NoHistory(reference.ReferenceHarness):
+        def capabilities(self):
+            import dataclasses
+            return dataclasses.replace(super().capabilities(), history=False)
+
+        def history(self, ref, *, cwd=""):
+            return driver.Harness.history(self, ref, cwd=cwd)
+
+    rig = ReferenceRig(tmp_path)
+    rig.capabilities = lambda: NoHistory().capabilities()
+    rig.harness = lambda: NoHistory(rig.model)
+    _play(scenarios.c9_thread_reads_back, rig)
+
+    class Lies(reference.ReferenceHarness):          # declares none, answers anyway
+        def capabilities(self):
+            import dataclasses
+            return dataclasses.replace(super().capabilities(), history=False)
+
+    d = tmp_path / "lies"
+    d.mkdir()
+    rig = ReferenceRig(d)
+    rig.capabilities = lambda: Lies().capabilities()
+    rig.harness = lambda: Lies(rig.model)
+    with pytest.raises(AssertionError):
+        _play(scenarios.c9_thread_reads_back, rig)

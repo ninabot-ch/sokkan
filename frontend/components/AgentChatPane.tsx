@@ -85,8 +85,13 @@ export default function AgentChatPane({
         setWorking(e.state === "working");
         break;
       case "user":
-        // replay d'historique après restart (ring re-peuplé depuis le transcript)
+        // replay of the thread after a restart: the ring is filled again from the ENGINE
+        // (Harness.history, GET /api/sessions/{sid}/history) — the same events whatever
+        // the engine that kept the thread
         push({ role: "user", kind: "text", text: e.text });
+        break;
+      case "history":
+        if (!e.available) push({ role: "system", kind: "note", text: "The earlier conversation cannot be read back with this engine." });
         break;
       case "text":
         push({ role: "assistant", kind: "text", text: e.text });
@@ -105,7 +110,8 @@ export default function AgentChatPane({
             : m));
         break;
       case "permission":
-        setPerms((p) => [...p, { id: e.id, tool: e.tool, title: e.title, input: e.input }]);
+        // one card per request: a card refused by the four-eyes rule is sent again
+        setPerms((p) => [...p.filter((x) => x.id !== e.id), { id: e.id, tool: e.tool, title: e.title, input: e.input }]);
         break;
       case "question":
         setQuestions((q) => [...q, { id: e.id, questions: e.questions }]);

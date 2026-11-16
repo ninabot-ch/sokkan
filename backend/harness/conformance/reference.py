@@ -12,7 +12,8 @@ allows engines to differ:
 * it takes no edited input (`edit` is not among its decisions);
 * it has no question tool and no plan mode unless built with them (C7);
 * its context path is a **preamble** (the recall is put in front of the prompt);
-* it confines its tools itself (`sandbox="engine"`) and reports usage as events.
+* it confines its tools itself (`sandbox="engine"`) and reports usage as events;
+* it keeps its threads as structured records in memory (`history()`), not as files.
 """
 from __future__ import annotations
 
@@ -28,8 +29,8 @@ from ..base import Harness
 from ..contract import (
     ALLOW_ONCE, ANSWER, DENY,
     AssistantText, Capabilities, ContextInjected, ContextRequest, ContractError, Decision,
-    Error, Event, Gate, GateRequested, GateResolved, RunEnded, RunInfo, RunSpec, RunStarted,
-    ToolCalled, ToolResult, TurnEnded, TurnStarted, Unsupported, Usage, prompt_ref,
+    Error, Event, Gate, GateRequested, GateResolved, HistoryItem, RunEnded, RunInfo, RunSpec,
+    RunStarted, ToolCalled, ToolResult, TurnEnded, TurnStarted, Unsupported, Usage, prompt_ref,
 )
 
 NAME = "reference"
@@ -90,6 +91,8 @@ class ReferenceHarness(Harness):
     name = NAME
     # engine session → what was said so far (what a resumed run finds again)
     _sessions: ClassVar[dict[str, list[str]]] = {}
+    # engine session → its thread, as the engine keeps it (what `history()` reads back)
+    _threads: ClassVar[dict[str, list[HistoryItem]]] = {}
 
     def __init__(self, model: ReferenceModel | None = None, *, question: bool = False,
                  plan: bool = False, never: tuple[str, ...] = ("sudo ",),
@@ -114,7 +117,10 @@ class ReferenceHarness(Harness):
             gate_authority="engine", question=self._question, plan=self._plan,
             interrupt=True, thinking=False, streaming=False, subagents=False, resume=True,
             context=("preamble",), mcp_stdio=False, sandbox="engine", identity="opaque",
-            usage="events", budget=())
+            usage="events", budget=(), history=True)
+
+    def history(self, ref: str, *, cwd: str = "") -> list[HistoryItem]:
+        return list(self._threads.get(ref) or [])
 
     # ---- Harness ---------------------------------------------------------------------
     def start(self, spec: RunSpec) -> AsyncIterator[Event]:
@@ -126,6 +132,7 @@ class ReferenceHarness(Harness):
         else:
             self._session = "ref-" + uuid.uuid4().hex[:12]
             self._sessions[self._session] = []
+            self._threads[self._session] = []
         self._history = self._sessions[self._session]
         self._mail.put(RunStarted(run_id=spec.run_id, harness=NAME, sid=spec.run_id,
                                   cwd=spec.cwd, model=MODEL, project=spec.project,
@@ -207,8 +214,30 @@ class ReferenceHarness(Harness):
         p = os.path.realpath(path)
         return p == root or p.startswith(root + os.sep)
 
+    def _keep(self, ev: Event) -> None:
+        """What the engine keeps of its own thread (read back by `history()`)."""
+        thread = self._threads.setdefault(self._session, [])
+        if isinstance(ev, AssistantText):
+            thread.append(HistoryItem("text", text=ev.text, model=MODEL))
+        elif isinstance(ev, ToolCalled):
+            thread.append(HistoryItem("tool", call_id=ev.call_id, name=ev.name,
+                                      input=dict(ev.input), classification=ev.classification,
+                                      model=MODEL))
+        elif isinstance(ev, ToolResult):
+            for i, item in enumerate(thread):
+                if item.kind == "tool" and item.call_id == ev.call_id:
+                    thread[i] = HistoryItem(
+                        "tool", call_id=item.call_id, name=item.name, input=item.input,
+                        classification=item.classification, model=item.model,
+                        output=ev.output, ok=ev.ok)
+
+    def _put(self, ev: Event) -> None:
+        self._keep(ev)
+        self._mail.put(ev)
+
     async def _turn(self, turn: str, prompt: str) -> None:
-        spec, put = self._spec, self._mail.put
+        spec, put = self._spec, self._put
+        self._threads.setdefault(self._session, []).append(HistoryItem("prompt", text=prompt))
         said = ""
         try:
             shown = prompt
@@ -258,7 +287,7 @@ class ReferenceHarness(Harness):
             put(TurnEnded(turn_id=turn, stop_reason="error", is_error=True, reported=False))
 
     async def _shell(self, turn: str, call: str, command: str) -> str:
-        put = self._mail.put
+        put = self._put
         put(ToolCalled(turn_id=turn, call_id=call, name="shell", input={"command": command},
                        classification="shell"))
         if any(n in command for n in self._never):
@@ -278,7 +307,7 @@ class ReferenceHarness(Harness):
         return out
 
     async def _write(self, turn: str, call: str, path: str, content: str) -> str:
-        put = self._mail.put
+        put = self._put
         full = path if os.path.isabs(path) else os.path.join(self._spec.cwd, path)
         put(ToolCalled(turn_id=turn, call_id=call, name="write_file",
                        input={"path": path, "content": content}, classification="file_write"))
@@ -300,7 +329,7 @@ class ReferenceHarness(Harness):
         return "written"
 
     async def _ask(self, turn: str, call: str, question: str, options: tuple[str, ...]) -> str:
-        put = self._mail.put
+        put = self._put
         if not self._question:
             # no question tool in this engine: the model has nothing to call. Nothing is
             # emulated (no gate, no card); it is told, and goes on.

@@ -204,6 +204,7 @@ class Capabilities:
     identity: str = "plain"                 # plain | opaque (see RunSpec)
     usage: str = "none"                     # events | transcripts | none
     budget: tuple[str, ...] = ()            # native spend caps: usd | tokens
+    history: bool = False                   # the thread of a run can be read back (history())
 
     def to_dict(self) -> dict:
         return {f.name: (list(v) if isinstance(v := getattr(self, f.name), tuple) else v)
@@ -241,6 +242,49 @@ class ContextBlock:
 
 # async (ContextRequest) -> ContextBlock | None ; never raises (a recall never breaks a turn)
 ContextProvider = Callable[[ContextRequest], Awaitable["ContextBlock | None"]]
+
+
+# ---- history ---------------------------------------------------------------------------
+
+HISTORY_KINDS = ("prompt", "text", "think", "tool")
+
+
+@dataclass(frozen=True)
+class HistoryItem:
+    """One entry of a run's thread as the ENGINE keeps it (``Harness.history``): what the
+    cockpit shows when it reads a thread back — after a restart, in an export — whatever the
+    engine and however it stores its sessions.
+
+    * ``prompt`` — what was sent to the engine for a turn (``text``), as it was sent;
+    * ``text`` / ``think`` — an answer / reasoning block of the model (``model``: the model
+      that answered, when the engine knows it);
+    * ``tool`` — one tool call: ``call_id``, ``name`` (the engine's tool name), ``input``,
+      ``classification`` (the vocabulary of ``tool.called``), and its outcome when known:
+      ``output`` (None = no result kept) and ``ok``.
+
+    Nothing the engine adds for itself (its reminders, its command echoes, its own system
+    lines) is an item: the adapter drops it."""
+    kind: str
+    text: str = ""
+    model: str | None = None
+    call_id: str | None = None
+    name: str = ""
+    input: dict = field(default_factory=dict)
+    classification: str = "other"
+    output: str | None = None
+    ok: bool = True
+
+    def __post_init__(self) -> None:
+        if self.kind not in HISTORY_KINDS:
+            raise ContractError(f"unknown history item kind {self.kind!r}")
+
+    def to_dict(self) -> dict:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "HistoryItem":
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 # ---- run spec --------------------------------------------------------------------------

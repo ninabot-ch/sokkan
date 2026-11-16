@@ -73,7 +73,7 @@ CAPABILITIES = Capabilities(
     gate_authority="core",
     question=True, plan=True, interrupt=True, thinking=True, streaming=False,
     subagents=True, resume=True, context=("hook", "mcp"), mcp_stdio=True,
-    sandbox="host", identity="plain", usage="transcripts", budget=("usd",),
+    sandbox="host", identity="plain", usage="transcripts", budget=("usd",), history=True,
 )
 
 try:  # the SDK's transport interface (the session runner carries it to a container)
@@ -360,6 +360,11 @@ class LegacyHarness(Harness):
     # ---- Harness ---------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
         return CAPABILITIES
+
+    def history(self, ref: str, *, cwd: str = "") -> list:
+        """The CLI keeps each session as a JSONL file (`cli_transcript`)."""
+        from . import cli_transcript
+        return cli_transcript.read(ref, cwd or None)
 
     def start(self, spec: RunSpec | None) -> AsyncIterator[Event]:
         self._spec = spec

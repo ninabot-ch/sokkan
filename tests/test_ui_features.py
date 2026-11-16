@@ -177,15 +177,21 @@ def test_revoke_is_logged_and_removes_the_share(world):
 
 
 class _FakeSession:
+    """A live session waiting on one approval: what sharing reads (its pending gates) and
+    the one decision path it calls (4.0: the contract's Decision)."""
+
     def __init__(self):
-        self.events = [{"type": "permission", "id": "p1", "tool": "Bash",
-                        "title": "Run: rm -rf build", "input": {}}]
         self._perms = {"p1": object()}
         self.decisions = []
 
-    def resolve_permission(self, pid, decision):
+    def pending_gates(self):
+        return [{"id": p, "kind": "shell", "tool": "Bash", "title": "Run: rm -rf build",
+                 "options": ["allow_once", "deny"], "question": False} for p in self._perms]
+
+    def decide_threadsafe(self, pid, decision):
         self.decisions.append((pid, decision))
         self._perms.pop(pid, None)
+        return "ok"
 
 
 def test_delegated_hitl_approval(world, monkeypatch):
@@ -206,8 +212,10 @@ def test_delegated_hitl_approval(world, monkeypatch):
         "permission_id": "p1", "decision": "allow"}).status_code == 403
     r = world["as"]("dave@x").post(f"/api/shares/{sid}/decide",
                                    json={"permission_id": "p1", "decision": "deny"})
-    assert r.status_code == 200 and fake.decisions[0][1]["decision"] == "deny"
-    assert "dave@x" in fake.decisions[0][1]["message"]
+    assert r.status_code == 200 and fake.decisions[0][1].kind == "deny"
+    assert "dave@x" in fake.decisions[0][1].message
+    # who really decided travels with the decision, and through what
+    assert (fake.decisions[0][1].by, fake.decisions[0][1].via) == ("dave@x", "share")
     assert _audit("share.hitl.deny") and _audit("share.approver")
     # already decided
     assert world["as"]("dave@x").post(f"/api/shares/{sid}/decide", json={

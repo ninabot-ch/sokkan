@@ -57,6 +57,10 @@ def _study_code(text: str) -> str | None:
 _CLAUDE_REFUSAL = re.compile(r"\[sokkan:(claude_[a-z_]+)\]")
 _ENGINE_ERROR = re.compile(r"\s*(API Error\b|Credit balance is too low|Invalid API key)", re.I)
 _EDIT = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+# the tool names this view reads; another engine's tool is read by its classification
+_KNOWN = _EDIT | {"Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch", "ToolSearch", "Task",
+                  "Agent", "TodoWrite"}
+_BY_KIND = {"file_write": "Write", "file_read": "Read", "shell": "Bash", "subagent": "Task"}
 _DETAIL_MAX = 4000
 DRAFT_MAX = 120_000
 # 3.6.7 — a tool call that did not run because SOMEONE said no is not a failure. The person's
@@ -213,10 +217,13 @@ class View:
                 "modified_at": doc.get("modified_at") or doc.get("created_at")}
 
     # ---- classification of a tool call ---------------------------------------------------
-    def classify(self, tool: str, inp: dict) -> dict:
-        """→ {kind, subject?, deliverable?} — never a tool name, a path or a command."""
+    def classify(self, tool: str, inp: dict, kind: str = "") -> dict:
+        """→ {kind, subject?, deliverable?} — never a tool name, a path or a command.
+        ``kind`` is the contract's classification of the call (`tool.called`): it decides
+        for a tool whose name this view does not know (another engine's vocabulary)."""
         inp = inp if isinstance(inp, dict) else {}
         path = str(inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or "")
+        tool = _BY_KIND.get(kind, tool) if tool not in _KNOWN else tool
         if tool == "Read":
             doc = self._doc_of(path)
             if doc:
@@ -287,7 +294,9 @@ class View:
         return {"tool": ev.get("tool") or "", "title": _short(ev.get("title") or "", 400),
                 "input": _short(ev.get("input") or {})}
 
-    def _draft(self, tool: str, inp: dict) -> dict | None:
+    def _draft(self, tool: str, inp: dict, kind: str = "") -> dict | None:
+        if tool not in _KNOWN and kind == "file_write":
+            tool = "Write"
         if tool == "Write" and isinstance(inp.get("content"), str):
             text = inp["content"]
         elif tool in ("Edit", "MultiEdit"):
@@ -344,7 +353,7 @@ class View:
             return [{"type": "user", "text": text, "documents": []}] if text else []
         if t == "tool_use":
             tool, inp = ev.get("tool") or "", ev.get("input") or {}
-            c = self.classify(tool, inp)
+            c = self.classify(tool, inp, ev.get("kind") or "")
             tid = ev.get("id") or ""
             if tid:
                 self._tools[tid] = {**c, "model": ev.get("model") or "", "tool": tool, "input": inp}
@@ -382,8 +391,9 @@ class View:
             return out
         if t == "permission":
             tool, inp = ev.get("tool") or "", ev.get("input") or {}
-            c = self.classify(tool, inp)
-            draft = self._draft(tool, inp) if c["kind"] in ("write_draft", "write_file") else None
+            c = self.classify(tool, inp, ev.get("kind") or "")
+            draft = self._draft(tool, inp, ev.get("kind") or "") \
+                if c["kind"] in ("write_draft", "write_file") else None
             title = c.get("subject") or ""
             if c["kind"] == "write_draft" and draft and not draft["partial"]:
                 title = title_from_markdown(draft["text"]) or title
@@ -416,6 +426,9 @@ class View:
                     return []      # the error result of the same refusal: already said
                 return self.feed({"type": "text", "text": f"[sokkan:{ev['code']}]"})
             low = msg.lower()
+            if ev.get("code") == "four_eyes":
+                # the four-eyes rule refused the owner's approval: the card is sent again
+                return [{"type": "notice", "code": "four_eyes", "detail": _short(msg, 1000)}]
             if ev.get("code") in STUDY_NOTICES:
                 # a refusal of the inference gateway about the study (backend/study.py): its
                 # own notice, in the person's language — never « you can send it again »
@@ -425,6 +438,10 @@ class View:
                     "read_only" if "lecture seule" in low or "read-only" in low else
                     "mode_locked" if "approval mode" in low else "engine")
             return [{"type": "notice", "code": code, "detail": _short(msg, 1000)}]
+        if t == "history":
+            # 4.0: the engine cannot read the thread back (Harness.history): said, not rebuilt
+            return [] if ev.get("available", True) else [
+                {"type": "notice", "code": "no_history", "detail": ""}]
         if t == "sandbox":
             return [{"type": "notice", "code": "sandbox",
                      "detail": _short(str(ev.get("message") or ""), 1000)}] if ev.get("denied") else []

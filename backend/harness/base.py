@@ -27,7 +27,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import AsyncIterator
 
-from .contract import Capabilities, Decision, Event, RunSpec, Unsupported
+from .contract import Capabilities, Decision, Event, HistoryItem, RunSpec, Unsupported
 
 
 class Harness(ABC):
@@ -72,3 +72,16 @@ class Harness(ABC):
         cockpit, applied when a gate is requested, never a setting of the engine."""
         if mode != "default":
             raise Unsupported(f"{self.name or type(self).__name__} has no {mode!r} mode")
+
+    def history(self, ref: str, *, cwd: str = "") -> list[HistoryItem]:
+        """The thread of a run as the engine keeps it, oldest first: what the cockpit shows
+        when it reads a conversation back (a pane after a restart, an export). ``ref`` is
+        the engine's own reference to the run (``run.info.engine_session``, what
+        ``RunSpec.resume`` takes); ``cwd`` the run's working directory, for an engine that
+        files its sessions by folder. Available without ``start``, like ``capabilities``.
+
+        An unknown reference is an empty thread, never an error (a run the engine never
+        kept, or one it has pruned). An engine that cannot read a thread back declares
+        ``Capabilities.history = False`` and raises ``Unsupported`` here: the cockpit
+        says the thread is not available, it never rebuilds one from somewhere else."""
+        raise Unsupported(f"{self.name or type(self).__name__} cannot read a thread back")

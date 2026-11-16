@@ -306,7 +306,8 @@ REGISTRY: tuple[Feature, ...] = (
                                             True, "1 = on")), doc=A),
     Feature("four_eyes", "Four-eyes approval",
             "Activating an agent (or a change to an approved one) needs ANOTHER person than its "
-            "proposer and its owner.",
+            "proposer and its owner. A session whose approval was delegated to a reviewer "
+            "(shared_review) has its requests approved by another person than its owner.",
             defaults=_ed(False, True), requires=("agents",), conflicts=("admin_approval",),
             vars=_t("four_eyes", Var("SOKKAN_AGENTS_APPROVAL", _mode(("four_eyes",), ("owner", "admin")),
                                      True, "four_eyes = on, owner/admin = off")), doc=A),

@@ -264,20 +264,16 @@ def _events(tags: list[dict], content_ok: dict[str, bool], people: dict[str, str
 
 
 def _content(tag: dict, people: dict[str, str]) -> dict | None:
-    """The exchanges of ONE session whose participant agreed for its scenario: read from
-    the transcript at export time, secrets masked, nobody named."""
+    """The exchanges of ONE session whose participant agreed for its scenario: read back
+    from its engine at export time (`history()`), secrets masked, nobody named."""
     try:
         import agentchat
-        import board
-        import transcript
-        csid = board.get_claude_session_id(tag["session_id"])
-        # a session of a project works in that project's folder: its transcript is there
-        path = agentchat._transcript_path(
-            csid, agentchat.project_cwd(tag["session_id"])) if csid else None
-        if not path or not path.exists():
+        _engine, items = agentchat.thread_history(tag["session_id"])
+        if not items:
             return {"session": _sid(tag["session_id"]), "messages": [],
-                    "note": "no transcript on this instance"}
-        msgs = transcript.parse_file(path).get("messages", [])
+                    "note": "no transcript on this instance" if items is not None
+                    else "this engine cannot read a thread back"}
+        msgs = agentchat.history_messages(items)
     except Exception as e:  # noqa: BLE001
         return {"session": _sid(tag["session_id"]), "messages": [],
                 "note": f"transcript unreadable ({type(e).__name__})"}

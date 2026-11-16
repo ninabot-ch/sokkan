@@ -1,4 +1,4 @@
-"""The conformance scenarios C1–C8. Each takes a `Rig` and raises `AssertionError` when
+"""The conformance scenarios C1–C9. Each takes a `Rig` and raises `AssertionError` when
 the engine does not conform. They assert on contract events and on effects (a file that is
 or is not there), never on anything of a particular engine."""
 from __future__ import annotations
@@ -7,7 +7,7 @@ import asyncio
 
 from ..contract import (
     ANSWER, BASES, ContextBlock, ContextInjected, Decision, Error, GateRequested,
-    GateResolved, RunInfo, ToolResult, Unsupported, Usage,
+    GateResolved, HistoryItem, RunEnded, RunInfo, ToolResult, Unsupported, Usage,
 )
 from .driver import Rig, Run, allow, ask, deny, say, shell, write
 
@@ -210,6 +210,60 @@ async def c8_only_what_the_cockpit_returns(rig: Rig) -> None:
         "the model saw a note the cockpit withheld"
 
 
+def thread_shape(items: list[HistoryItem]) -> list[tuple]:
+    """What a person reads of a thread, without what engines may legitimately differ on (the
+    tool's own name, its exact input keys, the call ids): the words, the kind of each tool
+    call and whether it worked. Two engines that played the same conversation have the same
+    shape."""
+    out: list[tuple] = []
+    for it in items:
+        if it.kind in ("prompt", "text"):
+            out.append((it.kind, it.text.strip()))
+        elif it.kind == "tool":
+            out.append(("tool", it.classification, it.output is not None, it.ok))
+    return out
+
+
+SHAPE_C9 = [("prompt", "Write the minutes, then say so."),
+            ("tool", "file_write", True, True),
+            ("text", "The minutes are saved.")]
+
+
+async def c9_thread_reads_back(rig: Rig) -> list[HistoryItem]:
+    """The thread of a finished run is read back from the engine (`history()`), by its
+    engine reference, by a NEW harness (the process that ran it is gone): the prompt, the
+    tool call with its outcome, the answer — in order, as contract items. An unknown
+    reference is an empty thread. Or the adapter says honestly that it cannot."""
+    caps = rig.capabilities()
+    rig.script([write("minutes.md", "# Minutes\n"), say("The minutes are saved.")])
+    async with _run(rig) as run:
+        await run.turn("Write the minutes, then say so.")
+    ended: RunEnded | None = run.ended
+    ref = (ended.engine_session if ended else None) or next(
+        (e.engine_session for e in reversed(run.events)
+         if isinstance(e, RunInfo) and e.engine_session), None)
+    fresh = rig.harness()
+    if not caps.history:
+        try:
+            fresh.history(ref or "", cwd=str(rig.workspace))
+        except Unsupported:
+            return []
+        raise AssertionError("history is declared absent but history() answered")
+    assert ref, "no engine reference to read the thread back with"
+    items = fresh.history(ref, cwd=str(rig.workspace))
+    assert all(isinstance(i, HistoryItem) for i in items), items
+    for i in items:
+        assert HistoryItem.from_dict(i.to_dict()) == i, f"{i} does not round-trip"
+    shape = thread_shape(items)
+    assert shape == SHAPE_C9, f"thread read back as {shape}"
+    tool = next(i for i in items if i.kind == "tool")
+    assert tool.call_id and tool.name, tool
+    assert (rig.workspace / "minutes.md").exists()
+    assert fresh.history("0f0f0f0f-dead-4bee-8f00-0123456789ab", cwd=str(rig.workspace)) == [], \
+        "an unknown reference must be an empty thread"
+    return items
+
+
 ALL = (
     ("C1", c1_shell_gate_denied),
     ("C2", c2_context_injected),
@@ -219,4 +273,5 @@ ALL = (
     ("C6", c6_decision_held_and_attributed),
     ("C7", c7_capabilities_are_honest),
     ("C8", c8_only_what_the_cockpit_returns),
+    ("C9", c9_thread_reads_back),
 )

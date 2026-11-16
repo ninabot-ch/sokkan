@@ -113,7 +113,7 @@ def _session(monkeypatch, tmp_path):
     s = agentchat.AgentSession.__new__(agentchat.AgentSession)
     s.sid, s.user, s.mode, s.policy, s.sandboxed, s.cwd = "e" * 32, "a@x", "default", None, None, str(tmp_path)
     s._perms, s._questions, s.redact_values, s._turn_model = {}, {}, [], ""
-    s._decided_by = {}              # 4.0: who decided, echoed by the engine (agentchat.gate)
+    s._pending = {}                 # 4.0: the gates waiting for a person (agentchat.decide)
     s._simple_work = True
     s._emit = lambda ev: s.events.append(ev)
     s.events = []

@@ -162,3 +162,16 @@ def events(session_id: str) -> list[dict]:
     return [{"seq": r["seq"], "ts": r["ts"], "type": r["type"], "turn_id": r["turn_id"],
              "project": r["project"], "engine": r["engine"], **json.loads(r["data"])}
             for r in rows]
+
+
+def engine_of(session_id: str) -> str:
+    """The engine of a session's last run ('' when the journal does not know it)."""
+    if not db_path().exists():
+        return ""
+    con = _con()
+    try:
+        r = con.execute("SELECT engine FROM run_events WHERE session_id = ? AND engine != ''"
+                        " ORDER BY seq DESC LIMIT 1", (session_id,)).fetchone()
+    finally:
+        con.close()
+    return r["engine"] if r else ""

@@ -312,13 +312,17 @@ class _FakeSession:
 
     def __init__(self):
         self._perms = {"perm-1": object()}
-        self.events = [{"type": "permission", "id": "perm-1", "tool": "Bash",
-                        "title": "Bash: rotate the HSM keys"}]
         self.resolved = []
 
-    def resolve_permission(self, pid, decision):
-        self.resolved.append((pid, decision))
+    def pending_gates(self):
+        return [{"id": p, "kind": "shell", "tool": "Bash", "title": "Bash: rotate the HSM keys",
+                 "options": ["allow_once", "deny"], "question": False} for p in self._perms]
+
+    def decide_threadsafe(self, pid, decision):
+        # 4.0: the contract's Decision, with who decided and through what
+        self.resolved.append((pid, decision.kind, decision.by, decision.via))
         self._perms.pop(pid, None)
+        return "ok"
 
 
 def _waiting_run(pro, monkeypatch, level=2):
@@ -354,7 +358,7 @@ def test_a_tool_call_waiting_in_a_run_is_posted_and_decided_by_the_owner(pro, mo
     assert sess.resolved == []
     out = _execute(pro, "carol@x", tok)                                   # the owner
     assert "allowed" in json.dumps(out["value"])
-    assert sess.resolved == [("perm-1", {"decision": "allow", "message": None})]
+    assert sess.resolved == [("perm-1", "allow_once", "carol@x", "teams")]
     agents.update_run(r["id"], waiting_approval=0)
     assert any(m.get("method") == "PUT" for m in sim.sent)
 
@@ -393,31 +397,38 @@ def test_admin_state_exposes_last_inbound_and_proactive(pro):
     assert st["proactive"]["on"] is True and st["tenant"] == TENANT
 
 
-def test_a_tool_decision_from_a_worker_thread_lands_on_the_session_loop():
-    """The bot runs in a worker thread; the session's future belongs to the API loop."""
+def test_a_tool_decision_from_a_worker_thread_lands_on_the_session_loop(tmp_path, monkeypatch):
+    """The bot runs in a worker thread; the session's gate waits on the API loop: the
+    decision is applied there (AgentSession.decide_threadsafe), and its outcome comes back."""
     import asyncio
     import threading
-    from teams import bot
+
+    import agentchat
+    import audit
+    import board
+    from harness import contract, legacy
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(board, "DB", tmp_path / "board.db")
+    board.init(force=True)
+    monkeypatch.setattr(audit, "DB", tmp_path / "audit.db")
 
     loop = asyncio.new_event_loop()
     t = threading.Thread(target=loop.run_forever, daemon=True)
     t.start()
     try:
-        fut = asyncio.run_coroutine_threadsafe(asyncio.sleep(0, result=loop.create_future()),
-                                               loop).result()
-        seen = []
-
-        class S:
-            _perms = {"p": fut}
-
-            def resolve_permission(self, pid, decision):
-                seen.append(threading.current_thread() is t)
-                fut.set_result(decision)
-
-        bot._resolve_permission(S(), "p", {"decision": "allow"})
-        assert asyncio.run_coroutine_threadsafe(asyncio.wait_for(asyncio.shield(fut), 2),
-                                                loop).result() == {"decision": "allow"}
-        assert seen == [True]
+        sess = agentchat.AgentSession("sid-thr", user="carol@x")
+        gate = legacy.tool_gate("Bash", {"command": "make deploy"}, gate_id="g-1")
+        waiting = asyncio.run_coroutine_threadsafe(sess.gate(gate), loop)
+        for _ in range(200):
+            if sess.pending_gates():
+                break
+            threading.Event().wait(0.01)
+        assert [g["id"] for g in sess.pending_gates()] == ["g-1"]
+        out = sess.decide_threadsafe("g-1", contract.Decision.allow(by="carol@x", via="teams"))
+        assert out == "ok"
+        d = waiting.result(2)
+        assert (d.kind, d.by, d.via) == ("allow_once", "carol@x", "teams")
+        assert sess.decide_threadsafe("g-1", contract.Decision.deny()) == "unknown"
     finally:
         loop.call_soon_threadsafe(loop.stop)
         t.join(2)

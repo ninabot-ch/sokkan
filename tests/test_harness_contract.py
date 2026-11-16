@@ -580,7 +580,9 @@ def test_a_gate_settled_by_the_engine_closes_the_card(world):
     assert kinds.count("permission") == 1 and kinds.count("permission_resolved") == 1
     assert not s._perms
     (row,) = hitl_journal.query(session_id="sid-exp")
-    assert row["decision"] == "cancelled" and row["actor"] == ""
+    # 4.0 lot 0c: the journal says what the engine applied, and that nobody here decided
+    assert (row["decision"], row["actor"], row["origin"]) == ("deny", "", "system")
+    assert "settled by the engine (timeout)" in row["message"]
 
 
 def test_the_cockpit_can_only_restrict_an_engine_that_owns_its_gates(world):
