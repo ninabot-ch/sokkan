@@ -158,6 +158,16 @@ def _mcp_headers(servers: dict[str, dict] | None) -> dict[str, dict[str, str]]:
             for name, srv in (servers or {}).items() if srv.get("headers")}
 
 
+SANDBOX_ROOT = "/workspace"
+
+
+def _in_sandbox() -> bool:
+    """``SOKKAN_KERNEL_SANDBOX=docker``: the kernel runs the run's tools in a sandbox container
+    where the run's folder is ``/workspace`` (its file tools too): the model must be handed
+    paths as the sandbox sees them, and the kernel's paths are mapped back for the cockpit."""
+    return os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
+
+
 def _headers(extra: dict | None = None) -> dict:
     return {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json",
             **(extra or {})}
@@ -396,8 +406,24 @@ class KernelHarness(Harness):
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
         text = self._alias_paths(text)
+        if _in_sandbox():
+            text = self._sandbox_paths(text)
         self._chat = asyncio.create_task(self._post_chat(turn, text))
         return turn
+
+    def _sandbox_paths(self, text: str) -> str:
+        """The run's folder named as the sandbox mounts it (``/workspace``)."""
+        for root in sorted({os.path.realpath(self._spec.cwd), self._spec.cwd.rstrip("/"),
+                            _cwd_map(self._spec.cwd).rstrip("/")}, key=len, reverse=True):
+            text = text.replace(root + "/", SANDBOX_ROOT + "/")
+            text = re.sub(re.escape(root) + r"(?![\w./-])", SANDBOX_ROOT, text)
+        return text
+
+    def _host_path(self, p: str) -> str:
+        """A path the kernel reports, as the cockpit sees it."""
+        if _in_sandbox() and (p == SANDBOX_ROOT or p.startswith(SANDBOX_ROOT + "/")):
+            return os.path.join(self._spec.cwd, p[len(SANDBOX_ROOT):].lstrip("/"))
+        return p if os.path.isabs(p) else os.path.join(self._spec.cwd, p)
 
     def _alias_paths(self, text: str) -> str:
         """The kernel scrubs every hexadecimal run of 16 characters or more from what its
@@ -421,7 +447,9 @@ class KernelHarness(Harness):
             try:
                 os.makedirs(base, exist_ok=True)
                 if not os.path.islink(alias):
-                    os.symlink(target, alias)
+                    # relative: the same link resolves on the host and in a sandbox where the
+                    # run's folder is mounted elsewhere
+                    os.symlink(os.path.relpath(target, os.path.dirname(alias)), alias)
             except OSError:
                 return real
             self._aliases[real] = alias
@@ -738,7 +766,7 @@ class KernelHarness(Harness):
             subject["command"] = str(args.get("command") or "")
         elif kind == "file_write":
             p = str(args.get("path") or "")
-            subject["path"] = p if os.path.isabs(p) else os.path.join(self._spec.cwd, p)
+            subject["path"] = self._host_path(p)
         rules = list(a.get("suggested_rules") or [])
         options = (ALLOW_ONCE, ALLOW_SESSION, DENY) if rules else (ALLOW_ONCE, DENY)
         call = a.get("call_id")

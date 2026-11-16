@@ -79,6 +79,8 @@ def kernel_env() -> None:
     os.environ["SOKKAN_KERNEL_TOKEN_FILE"] = env("PARITY_KERNEL_TOKEN_FILE",
                                                  "/srv/sokkan-parity/kernel/token/local-token")
     os.environ.pop("SOKKAN_KERNEL_TOKEN", None)
+    # the adapter hands the model sandbox paths (/workspace) when the kernel runs a sandbox
+    os.environ["SOKKAN_KERNEL_SANDBOX"] = env("PARITY_KERNEL_SANDBOX", "local")
 
 
 def new_harness(engine: str):
