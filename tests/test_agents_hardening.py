@@ -622,6 +622,9 @@ def test_history_transcript_route_masks_the_run_secrets(env, monkeypatch, tmp_pa
     proj = tmp_path / "proj"
     proj.mkdir()
     monkeypatch.setattr(appmod, "PROJECT_DIR", proj)
+    # 4.0: the thread is read back by the engine's adapter (harness.cli_transcript), which
+    # finds the CLI's folder the way the CLI does
+    monkeypatch.setenv("SOKKAN_PROJECT_DIR", str(proj))
     (proj / f"{csid}.jsonl").write_text("\n".join(json.dumps(x) for x in [
         {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "printenv"}}]}},
