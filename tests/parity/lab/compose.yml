@@ -103,6 +103,7 @@ services:
       NOKKER_HOME: /opt/data
       NOKKER_ALLOWED_HOSTS: 127.0.0.1:${PARITY_KERNEL_PORT:-18742},localhost:${PARITY_KERNEL_PORT:-18742},127.0.0.1:8742
       SOKKAN_KERNEL_MODEL_KEY: parity-meter
+      DOCKER_CONFIG: /tmp/docker
     ports: ["127.0.0.1:${PARITY_KERNEL_PORT:-18742}:8742"]
     volumes:
       - ${PARITY_HOME}/secrets/kernel_app:/run/parity/kernel_app:ro
@@ -111,6 +112,10 @@ services:
       - ${PARITY_HOME}/kernel/state:/opt/data
       - ${PARITY_HOME}/kernel/token:/run/kernel
       - ${PARITY_HOME}/ws:${PARITY_HOME}/ws
+      # PARITY_KERNEL_SANDBOX=docker: the host's docker socket (the kernel starts the sandbox
+      # containers of its code sessions); /dev/null otherwise
+      - ${PARITY_DOCKER_SOCK:-/dev/null}:/var/run/docker.sock
+    group_add: ["${PARITY_DOCKER_GID:-65534}"]
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]

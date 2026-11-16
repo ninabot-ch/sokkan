@@ -137,6 +137,27 @@ def _cwd_map(path: str) -> str:
     return path
 
 
+def _always_denied() -> list[str]:
+    """Kernel tools a cockpit session never gets (``SOKKAN_KERNEL_DENY_TOOLS``, comma list).
+
+    Default ``memory_note``: the kernel's own project-memory tool writes outside the cockpit's
+    quarantine; a note of a conversation goes through SOKKAN's ``memory_write`` (MCP) instead.
+    The kernel removes these from the catalogue of the thread and refuses them if called
+    (``deny_tools``, kernel host-embed § 2). An empty value sends no list at all."""
+    raw = os.environ.get("SOKKAN_KERNEL_DENY_TOOLS", "memory_note")
+    return [n.strip() for n in raw.split(",") if n.strip()]
+
+
+def _mcp_headers(servers: dict[str, dict] | None) -> dict[str, dict[str, str]]:
+    """Per-session headers for the cockpit's MCP servers reached over HTTP by the kernel
+    (``mcp_headers``, kernel host-embed § 6; ``SOKKAN_KERNEL_MCP_HEADERS=1`` = the kernel's
+    ``local.mcp_session_headers`` is on). Only servers declared with ``headers``."""
+    if os.environ.get("SOKKAN_KERNEL_MCP_HEADERS") != "1":
+        return {}
+    return {name: {str(k): str(v) for k, v in (srv.get("headers") or {}).items()}
+            for name, srv in (servers or {}).items() if srv.get("headers")}
+
+
 def _headers(extra: dict | None = None) -> dict:
     return {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json",
             **(extra or {})}
@@ -238,10 +259,6 @@ class KernelHarness(Harness):
     def start(self, spec: RunSpec) -> AsyncIterator[Event]:
         if self._spec is not None:
             raise ContractError("start() called twice")
-        if spec.deny_tools:
-            # the kernel has no per-session « never » list yet: an agent run that relies on
-            # one is refused rather than run with more tools than it was given
-            raise Unsupported("the kernel engine cannot remove tools from a run yet (deny_tools)")
         if spec.plan:
             raise Unsupported("the kernel engine has no plan mode (a plan submitted, then approved)")
         self._spec = spec
@@ -276,8 +293,22 @@ class KernelHarness(Harness):
             budget["max_cost_usd"] = float(spec.budget_usd)
         if budget:
             body["budget"] = budget
+        # tools the run must not have: the spec's list (kernel names) plus the cockpit's own
+        # « never » list; the kernel removes them from the thread and refuses them if called.
+        # A kernel without the feature answers 400: the run does not start (never wider).
+        denied = list(dict.fromkeys([*(spec.deny_tools or ()), *_always_denied()]))
+        if denied:
+            body["deny_tools"] = denied
+        # the cockpit has no bubble surface: a kernel with `surfaces_gate` drops its bubble
+        # tools from the thread (they would fail with « bubble not found »)
+        body["surfaces"] = []
+        headers_by_server = _mcp_headers(spec.mcp_servers)
+        if headers_by_server:
+            body["mcp_headers"] = headers_by_server
         mcp_env, mcp_off = {}, []
-        if spec.mcp_servers and os.environ.get("SOKKAN_KERNEL_MCP_STDIO") == "1":
+        if headers_by_server:
+            mcp_off = sorted(set(spec.mcp_servers or {}) - set(headers_by_server))
+        elif spec.mcp_servers and os.environ.get("SOKKAN_KERNEL_MCP_STDIO") == "1":
             # the kernel launches the servers declared in ITS configuration inside its
             # sandbox; the run's identity goes as their variables (opaque values only)
             for server in spec.mcp_servers.values():
@@ -459,6 +490,12 @@ class KernelHarness(Harness):
         body: dict[str, Any] = {"decision": "reject" if d.denied else "approve", "scope": "once"}
         if d.kind == ALLOW_SESSION and g.get("rules"):
             body.update(scope="session", rule=g["rules"][0])
+        # the real decider and rail, written by the kernel in its card's journal (kernel
+        # host-embed § 3); its `decided_by` stays the local owner (the token that called)
+        if d.by:
+            body["on_behalf_of"] = str(d.by)[:200]
+        if d.via:
+            body["via"] = str(d.via)[:200]
         r = await self._client.post(f"/v1/local/approvals/{g['id']}/decide", headers=_headers(),
                                     json=body)
         if r.status_code == 403:

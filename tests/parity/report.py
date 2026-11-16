@@ -61,6 +61,8 @@ def stats(runs: list[dict]) -> dict:
                      if r.get("kernel_journal", {}).get("status") == GAP}
                   | {r.get("unknown_thread", {}).get("gap") for r in runs
                      if r.get("unknown_thread", {}).get("status") == GAP}
+                  | {r.get("mcp_headers", {}).get("gap") for r in runs
+                     if r.get("mcp_headers", {}).get("status") == GAP}
                   | ({2} if waits else set()))
     gaps = sorted(g for g in gaps if g is not None)
     wire = [r.get("wire") or {} for r in played]
@@ -246,6 +248,9 @@ def markdown(data: dict) -> str:
         if ut.get("status") == GAP:
             waits.append(f"{rr['journey']} — fil inconnu repris : HTTP {ut.get('http')} au lieu de 404 : "
                          "attend noyau n°4")
+        mh = rr.get("mcp_headers") or {}
+        if mh.get("status") == GAP:
+            waits.append(f"{rr['journey']} — mcp_headers refusé (HTTP {mh.get('http')}) : attend noyau n°16")
     if waits:
         out += ["", "**En attente du noyau** (sautés, motivés — jamais comptés comme réussis) :", ""]
         out += [f"- {w}" for w in sorted(set(waits))]

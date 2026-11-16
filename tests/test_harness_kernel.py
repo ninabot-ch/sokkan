@@ -114,12 +114,12 @@ def test_kernel_engine(scenario, kernel_rig):
 
 
 def test_kernel_refuses_what_it_cannot_honour(kernel_rig):
-    """A run that relies on removed tools or on a plan mode is refused, never run wider."""
+    """A run that relies on a plan mode is refused, never run wider. Removed tools
+    (``deny_tools``) are the kernel's own per-session list since its host-embed lot."""
     from harness import kernel
     spec = kernel_rig.spec()
     spec.deny_tools = ("terminal",)
-    with pytest.raises(contract.Unsupported):
-        kernel.KernelHarness().start(spec)
+    kernel.KernelHarness().start(spec)          # accepted: the kernel removes the tool
     spec = kernel_rig.spec()
     spec.plan = True
     with pytest.raises(contract.Unsupported):

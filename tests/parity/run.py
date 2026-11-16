@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -469,6 +470,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     if j.kind == "atelier":
         out["grade"] = grade_atelier(j, play, space, files, after_first)
     else:
+        out["engine"] = engine
         out["grade"] = grade_refusal(j, play, out, deny_tools)
     out["deliverable_texts"] = {k: v[:4000] for k, v in files.items()}
     if engine == "kernel" and play.engine_session:
@@ -496,6 +498,13 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
                   "finished_normally": finished,
                   "no_parasitic_failure": fails["unexpected_tool_failures"] - confined <= 0
                   and fails["hard_errors"] == 0}
+        if out.get("engine") == "kernel":
+            # the kernel's own project-memory tool must not even be offered (deny_tools):
+            # a note goes through SOKKAN's `memory_write` (quarantine), never `memory_note`
+            denied = {n for n in os.environ.get("SOKKAN_KERNEL_DENY_TOOLS", "").split(",") if n}
+            if denied:
+                checks["kernel_memory_tool_absent"] = not any(
+                    c.get("name") in denied and c.get("ok") for c in out.get("tool_calls") or [])
     return {"success": all(checks.values()), "checks": checks,
             "attempts_refused_by_rule": out["cards"]["shell_refused"] + out["cards"]["memory_write_refused"]}
 
@@ -508,6 +517,7 @@ def kernel_journal(thread: str, pol: P.Policy) -> dict:
     """The kernel's OWN journal of the cards of this thread: does it name who decided and
     through what (gap n°3), as the cockpit told it?"""
     ours = {c.gate_id: c for c in pol.journal}
+    journal = _kernel_decisions(list(ours))
     seen = []
     for aid in ours:
         try:
@@ -516,8 +526,11 @@ def kernel_journal(thread: str, pol: P.Policy) -> dict:
             continue
         if not isinstance(a, dict) or a.get("thread_id") not in (None, thread):
             continue
-        who = a.get("on_behalf_of") or a.get("decided_by") or ""
-        via = a.get("decided_via") or a.get("via") or ""
+        # the real decider lives in the card's event journal (approval_events, kernel
+        # host-embed § 3); `decided_by` stays the local owner (the token that called)
+        ev = journal.get(aid) or {}
+        who = ev.get("on_behalf_of") or a.get("on_behalf_of") or a.get("decided_by") or ""
+        via = ev.get("via") or a.get("via") or a.get("decided_via") or ""
         seen.append({"id": aid, "kernel_says": {"by": who, "via": via,
                                                 "status": a.get("status")},
                      "cockpit_said": {"by": ours[aid].by, "via": ours[aid].via}})
@@ -581,7 +594,45 @@ async def play_resume(engine: str, j: J.Journey, base: Path) -> dict:
     out["grade"] = {"success": all(checks.values()), "checks": checks}
     if engine == "kernel":
         out["unknown_thread"] = probe_unknown_thread(work)
+        try:
+            out["mcp_headers"] = probe_mcp_headers(work)
+        except Exception as e:  # noqa: BLE001
+            out["mcp_headers"] = {"status": "error", "detail": str(e)[:200]}
     return out
+
+
+def _kernel_decisions(ids: list[str]) -> dict[str, dict]:
+    """`on_behalf_of` / `via` of the last decision of each card, read in the kernel's own
+    journal (Postgres `kernel.approval_events`) through PARITY_KERNEL_PG_CMD (lab.sh env)."""
+    cmd = env("PARITY_KERNEL_PG_CMD")
+    ids = [i for i in ids if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", i or "")]
+    if not cmd or not ids:
+        return {}
+    sql = ("SELECT approval_id, data::text FROM kernel.approval_events WHERE event_type IN "
+           "('approved','rejected') AND approval_id IN (" + ",".join(f"'{i}'" for i in ids)
+           + ") ORDER BY id")
+    try:
+        p = subprocess.run([*shlex.split(cmd), "-c", sql], capture_output=True, text=True, timeout=30)
+    except Exception:  # noqa: BLE001 — no journal readable: the check says so (gap n°3)
+        return {}
+    out: dict[str, dict] = {}
+    for line in p.stdout.splitlines():
+        aid, _, data = line.partition("|")
+        try:
+            out[aid] = json.loads(data)
+        except ValueError:
+            continue
+    return out
+
+
+def probe_mcp_headers(work: Path) -> dict:
+    """Gap n°16: per-session MCP headers (`mcp_headers`) accepted at the opening of a session.
+    A server name the kernel does not know is enough: what is probed is the parameter."""
+    st, body = _kernel_post("/v1/local/sessions",
+                            {"cwd": str(work), "mcp_headers": {"sokkan-memory": {"X-Sokkan-Run": "probe"}}})
+    if st in (200, 201):
+        return {"status": "pass", "http": st}
+    return {"status": GAP, "gap": 16, "http": st, "detail": str(body)[:200]}
 
 
 def probe_unknown_thread(work: Path) -> dict:
@@ -745,7 +796,7 @@ def main() -> int:
     if r1:
         js.insert(js.index(r1) + 1, J.Journey(**{**r1.__dict__, "id": "R1b-deny-tools",
                                                  "title": "Atelier : terminal retiré du run (deny_tools)",
-                                                 "needs": {"kernel": {"terminal retiré du run (deny_tools)": 2}}}))
+                                                 "needs": {}}))
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = Path(a.out) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)

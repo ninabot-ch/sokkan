@@ -14,7 +14,9 @@
 # 127.0.0.1), PARITY_CONF_UPSTREAM_PORT (18791: the scripted model of the conformance tests),
 # PARITY_KERNEL_PORT (18742), PARITY_CONF_PORT (18743), PARITY_PG_PORT (15433, 127.0.0.1),
 # PARITY_KERNEL_SANDBOX (local | docker), PARITY_KERNEL_MEM (2g; at most 7g on a shared machine),
-# PARITY_THINKING (0), PARITY_MAX_CONCURRENT (2).
+# PARITY_THINKING (0), PARITY_MAX_CONCURRENT (2), PARITY_HOST_EMBED (1: the kernel's host-embed
+# flags on, as SOKKAN ships them), PARITY_SANDBOX_IMAGE (the sandbox image when
+# PARITY_KERNEL_SANDBOX=docker; the kernel then reaches the host's docker socket).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_HOME:=/srv/sokkan-parity}"
@@ -28,6 +30,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_PG_PORT:=15433}"
 : "${PARITY_THINKING:=0}"
 : "${PARITY_MAX_CONCURRENT:=2}"
+: "${PARITY_HOST_EMBED:=1}"
+: "${PARITY_SANDBOX_IMAGE:=}"
+PARITY_DOCKER_SOCK=/dev/null
+PARITY_DOCKER_GID=65534
+if [ "$PARITY_KERNEL_SANDBOX" = docker ]; then
+    PARITY_DOCKER_SOCK=/var/run/docker.sock
+    PARITY_DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 65534)
+fi
 export PARITY_HOME PARITY_PROJECT PARITY_KERNEL_PORT PARITY_CONF_PORT PARITY_KERNEL_MEM PARITY_PG_PORT
 
 compose() {
@@ -47,10 +57,14 @@ secret() {
     chmod 600 "$f"
 }
 
-render() {   # template, out, upstream, model, root, context, max_calls, host, port
-    sed -e "s#@UPSTREAM@#$3#" -e "s#@MODEL@#$4#" -e "s#@ROOT@#$5#" -e "s#@CONTEXT@#$6#" \
+render() {   # template, out, upstream, model, root, context, max_calls, host, port (+ R_SANDBOX)
+    if [ "$PARITY_HOST_EMBED" = 1 ]; then he=true; chain=60; else he=false; chain=0; fi
+    if [ "$R_SANDBOX" = docker ]; then req=true; else req=false; fi
+    sbi=${PARITY_SANDBOX_IMAGE:-nikolaik/python-nodejs:python3.14-nodejs22}
+    sed -e "s#@UPSTREAM@#$3#" -e "s#@MODEL@#$4#" -e "s#@ROOT@#$5#g" -e "s#@CONTEXT@#$6#" \
         -e "s#@MAX_CALLS@#$7#" -e "s#@HOST@#$8#" -e "s#@PORT@#$9#" \
-        -e "s#@SANDBOX@#$PARITY_KERNEL_SANDBOX#" "$1" > "$2"
+        -e "s#@SANDBOX@#$R_SANDBOX#" -e "s#@HOST_EMBED@#$he#" -e "s#@CHAIN_MAX@#$chain#" \
+        -e "s#@REQUIRE_SANDBOX@#$req#" -e "s#@SANDBOX_IMAGE@#$sbi#" "$1" > "$2"
     chmod 644 "$2"
 }
 
@@ -80,8 +94,10 @@ up)
     mkdir -p "$PARITY_HOME/kconf/state" "$PARITY_HOME/kconf/token" "$PARITY_HOME/conf-ws/root"
     open_dir "$PARITY_HOME/ws"
     mkdir -p "$PARITY_HOME/meter"; chown 1000:1000 "$PARITY_HOME/meter"
+    R_SANDBOX=$PARITY_KERNEL_SANDBOX
     render "$HERE/kernel.yaml.tmpl" "$PARITY_HOME/kernel/config.yaml" \
         "http://meter:18790/v1" "$PARITY_MODEL" "$PARITY_HOME/ws" true 60 0.0.0.0 8742
+    R_SANDBOX=local     # the conformance kernel: scripted model, host network, no sandbox
     render "$HERE/kernel.yaml.tmpl" "$PARITY_HOME/kconf/config.yaml" \
         "http://127.0.0.1:$PARITY_CONF_UPSTREAM_PORT/v1" scripted "$PARITY_HOME/conf-ws/root" false 20 \
         127.0.0.1 "$PARITY_CONF_PORT"
@@ -101,6 +117,8 @@ PARITY_UPSTREAM=$PARITY_UPSTREAM
 PARITY_MODEL=$PARITY_MODEL
 PARITY_THINKING=$PARITY_THINKING
 PARITY_MAX_CONCURRENT=$PARITY_MAX_CONCURRENT
+PARITY_DOCKER_SOCK=$PARITY_DOCKER_SOCK
+PARITY_DOCKER_GID=$PARITY_DOCKER_GID
 EOF
     compose up -d --wait kernel kernel-conf
     compose ps
@@ -114,6 +132,10 @@ export PARITY_KERNEL_TOKEN_FILE=$PARITY_HOME/kernel/token/local-token
 export PARITY_KERNEL_RESTART_CMD='docker restart $PARITY_PROJECT-kernel-1'
 export PARITY_KERNEL_SANDBOX=$PARITY_KERNEL_SANDBOX
 export PARITY_KERNEL_IMAGE=${PARITY_KERNEL_IMAGE:-}
+export PARITY_HOST_EMBED=$PARITY_HOST_EMBED
+export PARITY_KERNEL_PG_CMD='docker exec -i $PARITY_PROJECT-pg-1 psql -U parity -d sokkan -tA'
+export SOKKAN_KERNEL_MCP_HEADERS=$([ "$PARITY_HOST_EMBED" = 1 ] && echo 1 || echo 0)
+export SOKKAN_KERNEL_DENY_TOOLS=$([ "$PARITY_HOST_EMBED" = 1 ] && echo memory_note || echo)
 export SOKKAN_KERNEL_TEST_URL=http://127.0.0.1:$PARITY_CONF_PORT
 export SOKKAN_KERNEL_TEST_TOKEN_FILE=$PARITY_HOME/kconf/token/local-token
 export SOKKAN_KERNEL_TEST_ROOT=$PARITY_HOME/conf-ws/root

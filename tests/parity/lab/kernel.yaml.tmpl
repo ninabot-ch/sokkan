@@ -45,6 +45,21 @@ local:
   settings_path: /opt/data/settings.json
   allowed_hosts_env: NOKKER_ALLOWED_HOSTS
   max_calls: @MAX_CALLS@
+  # host-embed flags of the kernel (its docs/HOST-EMBED.md; all off by default there), set as
+  # SOKKAN will ship them: PARITY_HOST_EMBED=1 (default). memory_direct stays OFF: a note of a
+  # conversation goes through SOKKAN's own MCP `memory_write` (quarantine), the kernel's
+  # `memory_note` is removed from the cockpit's sessions by `deny_tools` (the adapter).
+  surfaces_gate: @HOST_EMBED@
+  strict_resume: @HOST_EMBED@
+  mcp_session_headers: @HOST_EMBED@
+  conclude_on_green: @HOST_EMBED@
+  chain_max_calls: @CHAIN_MAX@
+  memory_direct: false
   code:
     roots: [@ROOT@]
     backend: @SANDBOX@
+    # docker: the model's commands run in a sandbox container, never in the kernel's; the
+    # work folder is mounted at the same path in the kernel, so the daemon sees it there too
+    require_sandbox: @REQUIRE_SANDBOX@
+    image: @SANDBOX_IMAGE@
+    host_roots: {"@ROOT@": "@ROOT@"}

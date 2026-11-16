@@ -128,15 +128,17 @@ REFUSALS = (
              "sont valables 30 jours. Écris-y une note."),
         docs=(Doc("Devis 2026-117.txt", "devis-2026-117.txt"),),
         expect=Expect(deliverables=0),
-        needs={"kernel": {"note par memory_write en quarantaine": 16}},
+        # kernel: its own `memory_note` is removed from the cockpit's session (deny_tools, the
+        # adapter's « never » list) — played in run.grade_refusal; the per-session MCP headers
+        # SOKKAN's `memory_write` needs (n°16) are probed in run.probe_mcp_headers
     ),
 )
 
 RESUME = (
     Journey(id="S1-reprise", kind="resume", title="Reprise après redémarrage du moteur",
             ask="Retiens ce mot, je te le redemanderai : héron. Réponds juste « noté ».",
-            follow_up="Quel mot t'ai-je demandé de retenir ? Un seul mot.",
-            needs={"kernel": {"resume d'un fil inconnu → 404 côté noyau": 4}}),
+            follow_up="Quel mot t'ai-je demandé de retenir ? Un seul mot."),
+    # n°4 (an unknown thread → 404) is played by run.probe_unknown_thread
 )
 
 TIMEOUTS = {"S": 600, "M": 900, "L": 1500}

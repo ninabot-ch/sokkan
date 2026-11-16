@@ -44,16 +44,20 @@ Both engines are driven through `backend/harness` — the contract the cockpit c
 | A3-retroplanning-mail | a schedule and an invitation mail: **two** documents | two deliverables, the session's dates and room, one card per document |
 | A4-relance-devis | follow-up mail from a quote (reference journey of scope § 7.2) | the quote's number and total |
 | R1-pas-de-shell | the Atelier asked to « file » a document in a new folder | no shell command ran (refused by the cockpit's rule), the turn ends normally |
-| R1b-deny-tools | the same with the engine told to remove its terminal (`deny_tools`) | as R1, and no shell gate even reaches the cockpit — **kernel: waits for n°2** |
-| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder; the quarantine path (`memory_write`) — **kernel: waits for n°16** |
-| S1-reprise | « remember: heron », engine gone (kernel container restarted), resumed | the answer is « héron »; the kernel's own answer to an unknown thread — **waits for n°4** (201 today, the adapter compensates) |
+| R1b-deny-tools | the same with the engine told to remove its terminal (`deny_tools`) | as R1, and no shell gate even reaches the cockpit |
+| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder; kernel: its own `memory_note` is not offered (`deny_tools`, `SOKKAN_KERNEL_DENY_TOOLS`), per-session MCP headers accepted (n°16, probed) |
+| S1-reprise | « remember: heron », engine gone (kernel container restarted), resumed | the answer is « héron »; the kernel's own answer to an unknown thread is 404 (n°4, `strict_resume`) |
 | D-* | Cockpit in a repository: the built-in task `P01` + the coding-bench tasks of `PARITY_REPO_TASKS` | the task's tests pass (protected paths restored, hidden tests added) |
 
 For every kernel run the bench also reads the kernel's **own** card (`GET /v1/approvals/{id}`):
-the decider must be the one the cockpit sent (`by` / `via`). Today the kernel writes
-`local-owner` / `local-token` — **waits for n°3**. Repository journeys on a kernel whose tools run
-in its own container (`local.code.backend: local`) carry **waits for n°1** (the model could read
-the kernel's local token).
+the decider must be the one the cockpit sent (`by` / `via`), read in the kernel's own journal
+(`kernel.approval_events`, through `PARITY_KERNEL_PG_CMD`) — n°3. With `PARITY_KERNEL_SANDBOX=docker`
+(the kernel starts a sandbox container per code session, `require_sandbox`) n°1 is played; with
+`local` the repository journeys carry **waits for n°1** (the model could read the kernel's local token).
+
+The kernel is configured as SOKKAN ships it (`PARITY_HOST_EMBED=1`, `lab/kernel.yaml.tmpl`): `surfaces_gate`
+(no bubble tools, n°18), `strict_resume`, `mcp_session_headers`, `chain_max_calls: 60` and
+`conclude_on_green` (n°19); `memory_direct` stays off.
 
 Measured per journey and engine: success, time to the first card and to the first draft (the
 deliverable's card), end of turn, model requests, prompt tokens (total / cached / uncached) and
