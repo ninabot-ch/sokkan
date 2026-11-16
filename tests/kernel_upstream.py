@@ -86,9 +86,12 @@ class ScriptedUpstream:
                                  "choices": [{"index": 0, "message": msg,
                                               "finish_reason": finish}], "usage": usage})
 
-        self._httpd = ThreadingHTTPServer(("127.0.0.1", port), H)
+        # a kernel in a container on a bridge network reaches the host on the network's
+        # gateway, not on 127.0.0.1 (tests/parity/lab)
+        host = os.environ.get("SOKKAN_KERNEL_TEST_UPSTREAM_HOST") or "127.0.0.1"
+        self._httpd = ThreadingHTTPServer((host, port), H)
         self.port = self._httpd.server_address[1]
-        self.url = f"http://127.0.0.1:{self.port}/v1"
+        self.url = f"http://{host}:{self.port}/v1"
 
     # ---- what the model does -------------------------------------------------------------
     def _tool(self, step) -> tuple[str, dict]:

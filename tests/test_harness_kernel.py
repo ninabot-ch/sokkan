@@ -11,6 +11,9 @@ repository). Point the test at one:
                                    same path for the kernel and for this test
     SOKKAN_KERNEL_TEST_UPSTREAM_PORT  the port the kernel's model tiers point to
                                    (``http://127.0.0.1:<port>/v1``)
+    SOKKAN_KERNEL_TEST_UPSTREAM_HOST  where that endpoint listens (default 127.0.0.1; the
+                                   docker network's gateway for a kernel in a container:
+                                   tests/parity/lab/lab.sh)
 
 Kernel settings the scenarios assume: the question piece on (``host_clarify_options``), the
 session cap on (``host_session_budget``), long memory, judge and web search off. Without the

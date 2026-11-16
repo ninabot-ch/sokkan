@@ -1,0 +1,50 @@
+# A kernel of the parity lab (lab.sh writes it from this template). Same settings as
+# deploy/kernel/config.example.yaml, except: the model endpoint (@UPSTREAM@ = the bench's meter
+# for the kernel under test, the scripted endpoint for the conformance kernel) and the code root
+# (the bench's work folder, mounted at the same path in the kernel and for the bench).
+pg_dsn_env: NOKKER_PG_DSN
+memory_mcp_url: ""
+api_keys: []
+telegram_ids: {}
+extra_go_senders: [local-owner]
+tiers:
+  ship:
+    base_url: @UPSTREAM@
+    model: @MODEL@
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+  deep:
+    base_url: @UPSTREAM@
+    model: @MODEL@
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+route:
+  policy: v0
+  classifier: rules
+  code_to_deep: false
+judge_enabled: false
+judge_review: false
+web_search_enabled: false
+context_enabled: @CONTEXT@
+context_corthexis:
+  enabled: false
+  root_dir: /opt/data/session-memory
+previews_cache_dir: /opt/data/previews
+guide: false
+approvals_enabled: true
+bubbles_enabled: true
+host_clarify_options: true
+host_session_budget: true
+host_reasoning_stream: true
+host: @HOST@
+port: @PORT@
+local:
+  reasoning: false
+  state_dir: /opt/data
+  token_path: /run/kernel/local-token
+  settings_path: /opt/data/settings.json
+  allowed_hosts_env: NOKKER_ALLOWED_HOSTS
+  max_calls: @MAX_CALLS@
+  code:
+    roots: [@ROOT@]
+    backend: @SANDBOX@
