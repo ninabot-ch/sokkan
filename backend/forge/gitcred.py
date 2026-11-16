@@ -91,8 +91,20 @@ def verify(t: str) -> tuple[str, str] | None:
     msg = f"{sid}|{email}".encode()
     for k in links.mac_keys():  # a forge data-key rotation in progress: old tickets still verify
         if hmac.compare_digest(hmac.new(k, msg, hashlib.sha256).hexdigest(), sig):
-            return sid, email
+            return _named(sid, email)
     return None
+
+
+def _named(sid: str, email: str) -> tuple[str, str] | None:
+    """4.0: a ticket handed to an opaque engine is minted over identity handles (run-…,
+    usr-…): the session and the person are put back from the instance's mapping."""
+    if not (sid.startswith("run-") and email.startswith("usr-") and "@" not in email):
+        return sid, email
+    from harness import identity
+    r, u = identity.resolve(sid), identity.resolve(email)
+    if not r or not u or r[0] != "run" or u[0] != "user":
+        return None
+    return r[1], u[1]
 
 
 def _hosts(project: str) -> list[str]:

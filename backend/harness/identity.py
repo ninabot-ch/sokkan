@@ -21,17 +21,36 @@ the server calls ``expand_env()`` when it starts: the variables it has always re
 back from the mapping. That needs the data directory, as today's servers do; a server
 started where the data directory is not mounted resolves through the api instead (lot 1).
 
+Two more places carried the identity to the engine (closed in 4.0, lot 0c):
+
+* the run's **working folder** — a project's sessions work in
+  ``<data>/projects/<slug>/work``: the slug is in every path the engine sees. An opaque
+  engine is handed ``<data>/engine-roots/<prj-handle>/work`` instead, through a link
+  ``<data>/engine-roots/<prj-handle>`` → ``../projects/<slug>`` (`opaque_cwd`): the same
+  files, a path without the name. An engine that resolves links on the host (``realpath``)
+  still finds the real folder: the alias keeps the name out of what it is handed, logs and
+  shows, not out of what it can compute;
+* **``RunSpec.env``** — the tools' environment held the person's address and the session
+  id (inference headers, the forge ticket), and the project's slug (« Write with Claude »
+  routing). `opaque_env` rewrites the values that carry them into handles, and `leaks`
+  finds any value that still carries one, in clear or base64-encoded: `opaque_spec` DROPS
+  such a variable (and says so on stderr) — a variable nobody rewrote never reaches the
+  engine with a name in it.
+
 Standard library only: the memory server imports this module without the backend.
 """
 from __future__ import annotations
 
+import base64
 import dataclasses
 import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -122,10 +141,111 @@ def _env_of(h: str) -> dict:
     return json.loads(r[0]) if r else {}
 
 
-def opaque_spec(spec):
+ROOTS = "engine-roots"
+
+
+def opaque_cwd(cwd: str) -> str:
+    """The working folder an opaque engine is handed: a folder of a project's space
+    (``<data>/projects/<slug>/…``) through the link ``<data>/engine-roots/<prj-handle>``;
+    any other folder (the instance's workspace) unchanged."""
+    if not cwd:
+        return cwd
+    projects = (_data_dir() / "projects").resolve()
+    try:
+        rel = Path(cwd).resolve().relative_to(projects)
+    except (ValueError, OSError):
+        return cwd
+    if not rel.parts:
+        return cwd
+    slug, rest = rel.parts[0], rel.parts[1:]
+    h = handle("project", slug)
+    roots = _data_dir() / ROOTS
+    roots.mkdir(parents=True, exist_ok=True)
+    link = roots / h
+    target = Path("..") / "projects" / slug
+    if link.is_symlink():
+        if os.readlink(link) != str(target):
+            link.unlink()
+    elif link.exists():
+        raise RuntimeError(f"{link} exists and is not the alias of a project's space")
+    if not link.is_symlink():
+        os.symlink(target, link, target_is_directory=True)
+    return str(link.joinpath(*rest))
+
+
+def _encoded(word: str) -> set[str]:
+    raw = word.encode()
+    out = {word}
+    for enc in (base64.b64encode, base64.urlsafe_b64encode):
+        e = enc(raw).decode()
+        out |= {e, e.rstrip("=")}
+    return {x for x in out if x}
+
+
+# the project every instance has: its name says nothing about anyone
+PUBLIC_PROJECTS = ("default",)
+
+
+def leaks(env: dict, words, slugs=()) -> list[str]:
+    """The names of the variables of ``env`` whose value still carries an identifier:
+    one of ``words`` (a session id, an address) anywhere, in clear or base64; one of
+    ``slugs`` (a project's slug — a short slug is a common word) as a whole value, the value
+    of a header line or a path component."""
+    pats = []
+    for w in words:
+        if not w:
+            continue
+        for e in _encoded(w):
+            pats.append(re.compile(r"(?<![A-Za-z0-9_.@-])" + re.escape(e)
+                                   + r"(?![A-Za-z0-9_@-])"))
+    for slug in slugs:
+        if not slug or slug in PUBLIC_PROJECTS:
+            continue
+        q = re.escape(slug)
+        pats.append(re.compile(rf"^\s*{q}\s*$|^\s*[A-Za-z0-9-]+\s*:\s*{q}\s*$|/{q}(?=/|$)",
+                               re.M))
+    return sorted(k for k, v in (env or {}).items() if any(p.search(str(v)) for p in pats))
+
+
+_HEADER_LINE = re.compile(r"^(\s*[A-Za-z0-9-]+\s*:\s*)(.*?)(\s*)$")
+
+
+def opaque_env(env: dict, names: dict[str, str]) -> dict:
+    """``env`` with every identifier of ``names`` (value → handle) replaced by its handle:
+    anywhere for an address or a session id (distinctive), and for a project's slug where
+    it is a whole value or the value of a header line (``x-sokkan-project: radio``) — a
+    short slug is a common word, it is not replaced inside other text."""
+    out = {}
+    for k, v in (env or {}).items():
+        v = str(v)
+        for word, h in names.items():
+            if not word or not h:
+                continue
+            if "@" in word or len(word) >= 16:
+                v = v.replace(word, h)
+            elif v == word:
+                v = h
+            else:
+                lines = []
+                for line in v.split("\n"):
+                    m = _HEADER_LINE.match(line)
+                    if m and m.group(2) == word:
+                        line = m.group(1) + h + m.group(3)
+                    lines.append(line)
+                v = "\n".join(lines)
+        out[k] = v
+    return out
+
+
+def opaque_spec(spec, *, rewrite=None):
     """A copy of a `RunSpec` an opaque engine may be handed: run, person and project
-    replaced by handles, the MCP servers' identity variables by one run handle."""
+    replaced by handles, the MCP servers' identity variables by one run handle, the working
+    folder by its alias (`opaque_cwd`), the tools' environment rewritten (`opaque_env`) —
+    ``rewrite(env, handles)`` lets the cockpit re-mint what it alone can (the forge
+    ticket) — and any variable that still names someone dropped (`leaks`)."""
     run = handle("run", spec.run_id)
+    user = handle("user", spec.user)
+    project = handle("project", spec.project)
     servers = {}
     for name, cfg in (spec.mcp_servers or {}).items():
         env = dict(cfg.get("env") or {})
@@ -138,8 +258,19 @@ def opaque_spec(spec):
     conf = spec.confinement
     if conf is not None and conf.project:
         conf = dataclasses.replace(conf, project=handle("project", conf.project))
-    return dataclasses.replace(spec, run_id=run, user=handle("user", spec.user),
-                               project=handle("project", spec.project),
+    names = {spec.run_id: run, spec.user: user}
+    if spec.project not in PUBLIC_PROJECTS:
+        names[spec.project] = project
+    env = opaque_env(spec.env, names)
+    if rewrite is not None:
+        env = rewrite(env, {"run": run, "user": user, "project": project})
+    for k in leaks(env, [w for w in (spec.run_id, spec.user) if w], [spec.project]):
+        print(f"[sokkan] {k} not handed to the engine: it names the run's identity",
+              file=sys.stderr)
+        env.pop(k, None)
+    return dataclasses.replace(spec, run_id=run, user=user, project=project,
+                               cwd=opaque_cwd(spec.cwd), env=env,
+                               secret_names=tuple(n for n in spec.secret_names if n in env),
                                mcp_servers=servers, confinement=conf)
 
 

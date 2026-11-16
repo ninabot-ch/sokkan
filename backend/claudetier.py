@@ -239,6 +239,11 @@ def grant(project: str, model: str, secret: str, forwarded: bool) -> tuple[int, 
     want = router_secret()
     if not want or forwarded or not secret or not hmac.compare_digest(secret, want):
         return 404, {"detail": "not found"}
+    if project.startswith("prj-"):
+        # 4.0: an opaque engine's tools were handed the project's handle, never its name
+        from harness import identity
+        r = identity.resolve(project)
+        project = r[1] if r and r[0] == "project" else project
     g = gate(project, model)
     if not g["allowed"]:
         return 200, {"allowed": False, "code": g["code"], "reason": g["reason"]}
