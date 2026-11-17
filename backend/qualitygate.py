@@ -81,7 +81,7 @@ def _extra(raw: str | None, default: dict) -> dict:
 
 def remote_max_level() -> int:
     try:
-        return int(os.environ.get("SOKKAN_REVIEW_REMOTE_MAX_LEVEL", "2"))
+        return int(os.environ.get("SOKKAN_REVIEW_REMOTE_MAX_LEVEL") or "2")
     except ValueError:
         return 2
 

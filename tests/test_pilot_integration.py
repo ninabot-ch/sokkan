@@ -691,6 +691,11 @@ def test_a_work_with_documents_still_saves_its_deliverable_in_any_project(box):
     assert sess._has_documents() and project != "default"
     target = _deliverable(box, project, sid)
     assert str(box["data"] / "projects" / project / "work") in target
+    # 4.0: the agent read the attached document first (the quality gate's rule)
+    from harness import contract
+    sess._note_read(contract.ToolCalled(turn_id="t", call_id="r", name="Read",
+                                        input={"file_path": f"…/{doc['id']}/{doc['name']}"},
+                                        classification="file_read"))
     with ana.websocket_connect(f"/api/agent/ws/{sid}?view=simple") as ws:
         tool = _Tool(sess, "Write", {"file_path": target, "content": "# Plan de formation\n"}, ws)
         pid = tool.pid()                                     # a person is asked: not refused
