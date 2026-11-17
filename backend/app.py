@@ -3451,6 +3451,8 @@ app.include_router(claudetier_api.router)
 # 4.0 — first launch (administrator), first sign-in (person), Team / Usage (onboarding.py)
 import onboarding  # noqa: E402
 app.include_router(onboarding.router(require))
+import orgprofile_api  # noqa: E402 — 4.0: the organisation's profile, given to every work
+app.include_router(orgprofile_api.router(require))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402

@@ -141,6 +141,8 @@ _THREAD_RX = re.compile(r"th_[A-Za-z0-9_-]{1,64}")
 _HELD_RX = re.compile(r"\[approval:[0-9a-fA-F-]{8,}\]")
 _APPROVAL_RX = re.compile(r"^\[Approbation\]\n(.*)\n\[/Approbation\]\s*$", re.S)
 _RECALL_RX = re.compile(r"^\s*<memory-recall\b.*?</memory-recall>\s*", re.S)
+# 4.0: the run's head, in front of its first turn (`send`)
+_HEAD_RX = re.compile(r"^\s*<sokkan-brief>\n<sokkan-(?:house|project)>.*?\n</sokkan-brief>\s*", re.S)
 
 
 def _approval_block(text: str) -> dict | None:
@@ -195,7 +197,7 @@ def _history_items(messages: list[dict], cwd: str) -> list[HistoryItem]:
                     call["ok"] = block["decision"] == "executed"
                 continue
             items.append({"kind": "prompt",
-                          "text": _cockpit_text(_RECALL_RX.sub("", content, count=1), cwd)})
+                          "text": _cockpit_text(_RECALL_RX.sub("", _HEAD_RX.sub("", content, count=1), count=1), cwd)})
         elif role == "assistant" and m.get("tool_calls"):
             if content.strip():
                 items.append({"kind": "text", "text": _cockpit_text(content, cwd)})
@@ -409,6 +411,7 @@ class KernelHarness(Harness):
         # were EXPECTED to be active tools: a refusal that would pass in silence
         self.deny_unmatched: list[str] = []
         self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
+        self._head_sent = False                 # the run's head went with its first turn
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -639,6 +642,19 @@ class KernelHarness(Harness):
                 self._mail.put_nowait(ContextInjected(
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
+        if spec.head and not self._head_sent and not spec.resume:
+            # 4.0: the run's fixed context (organisation, project's validated work) = the host
+            # contract's `project` block. The kernel's host API has no head block yet: it goes
+            # in front of the FIRST turn of the thread, once — the thread keeps it, a resumed
+            # thread already has it. Inside a brief block: never shown as the person's words.
+            head = "\n\n".join(b.text for b in spec.head if b.text)
+            if head:
+                text = "<sokkan-brief>\n" + head + "\n</sokkan-brief>\n\n" + text
+                for b in spec.head:
+                    self._mail.put_nowait(ContextInjected(
+                        turn_id=turn, source="preamble", note_names=tuple(b.note_names),
+                        chars=len(b.text), channel="head"))
+        self._head_sent = True
         text = self._alias_paths(text)
         if _in_sandbox():
             text = self._sandbox_paths(text)
