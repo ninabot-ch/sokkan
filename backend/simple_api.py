@@ -13,7 +13,7 @@
     GET  /api/simple/sessions/{sid}/deliverables
     POST /api/simple/sessions/{sid}/deliverables            {title, text} keep an answer
     GET  /api/simple/sessions/{sid}/deliverables/{name}     preview (text)
-    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx
+    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx|xlsx
     POST /api/simple/sessions/{sid}/deliverables/{name}/validate
 
 Everything under /api/simple answers 404 when the feature is off. As for the documents,
@@ -93,6 +93,7 @@ class PrefsIn(BaseModel):
     lang: str | None = None
     theme: str | None = None
     project: str | None = None      # 3.6.7: the project the person works in, kept per person
+    roles: list[str] | None = None  # 4.0: the person's jobs (backend/roles.py); [] = « later »
 
 
 class StartIn(BaseModel):
@@ -216,6 +217,14 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                     f"« {d['name']} » est classé trop haut pour partir chez Anthropic." if lang == "fr"
                     else f"« {d['name']} » is classified too high to go to Anthropic.")})
 
+    def _job_forbids_claude(slug: str) -> bool:
+        try:
+            import roles
+            r = roles.get(simple.project_role(slug))
+            return bool(r) and not r["claude"]
+        except Exception:  # noqa: BLE001 — unreadable kit: fail closed
+            return bool(simple.project_role(slug))
+
     def _engine_of(sid: str) -> dict:
         tier, model = claudetier.work_tier(sid)
         lang = (simple.get_work(sid) or {}).get("lang") or "fr"
@@ -241,6 +250,31 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 if (s.get("project") or "default") == project and s.get("kind") == "sdk"
                 and (s.get("owner") or "") == email]
 
+    def _known_roles(ids: list[str] | None) -> list[str] | None:
+        """4.0 job kits: only jobs of the catalog are remembered (400 for any other)."""
+        if ids is None:
+            return None
+        import roles
+        known = roles.valid(ids)
+        if len(known) != len(set(ids)):
+            raise HTTPException(400, "roles: unknown job " + ", ".join(sorted(set(ids) - set(known))))
+        return known
+
+    def _kit_templates(email: str, slug: str, lang: str) -> tuple[list[dict], list[dict], str]:
+        """(templates of the person's jobs — the project's own job first —, their jobs, the
+        project's job). A broken kit file leaves the home as it was (logged, never a 500)."""
+        try:
+            import roles
+            mine = uiprefs.get(email).get("roles") or []
+            bound = simple.project_role(slug)
+            order = ([bound] if bound and roles.get(bound) else []) + [r for r in mine if r != bound]
+            jobs = [roles.public(roles.get(r), lang, with_templates=False) for r in order if roles.get(r)]
+            return roles.templates_for(order, lang), jobs, bound if roles.get(bound) else ""
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger("sokkan.roles").warning("job kits unavailable: %s", e)
+            return [], [], ""
+
     # ---- preferences -----------------------------------------------------------------------
     @r.get("/api/me/prefs")
     def prefs_get(user: dict = Depends(auth.current_user)) -> dict:
@@ -257,7 +291,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             _in_project(request, body.project)
         try:
             out = uiprefs.set_prefs(user["email"], profile=body.profile, lang=body.lang,
-                                    theme=body.theme, project=body.project)
+                                    theme=body.theme, project=body.project,
+                                    roles=_known_roles(body.roles))
         except ValueError as e:
             raise HTTPException(400, str(e))
         if body.profile is not None:
@@ -269,13 +304,17 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         admin = auth.instance_user(request)
         if iam.rank(admin.get("role") or "") < iam.rank("admin"):
             raise HTTPException(403, "role 'admin' required")
-        if body.profile is None:
+        if body.profile is None and body.roles is None:
             raise HTTPException(400, "profile: simple | technical")
         try:
-            out = uiprefs.set_prefs(email, profile=body.profile)
+            out = uiprefs.set_prefs(email, profile=body.profile, roles=_known_roles(body.roles))
         except ValueError as e:
             raise HTTPException(400, str(e))
-        audit.log(admin["email"], "profile.set", email.lower().strip(), body.profile, project="")
+        if body.profile is not None:
+            audit.log(admin["email"], "profile.set", email.lower().strip(), body.profile, project="")
+        if body.roles is not None:
+            audit.log(admin["email"], "roles.set", email.lower().strip(), ",".join(out["roles"] or []),
+                      project="")
         return out
 
     # ---- home ------------------------------------------------------------------------------
@@ -297,14 +336,19 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             nina = features.enabled("assistant") and assistant.configured()
         except Exception:  # noqa: BLE001
             nina = False
+        kit, jobs, bound = _kit_templates(email, slug, lang)
+        prefs = uiprefs.get(email)
         return {"first_name": first, "project": slug,
                 "project_name": (projects.get(slug) or {}).get("name") or slug,
                 "can_start": iam.rank(pu["role"]) >= iam.rank("dev"),
-                "playbooks": playbooks.catalog("simple", lang),
+                "playbooks": kit + playbooks.catalog("simple", lang),
+                # 4.0 job kits: the person's jobs, the project's own, and whether to offer the choice
+                "roles": jobs, "project_role": bound,
+                "ask_roles": prefs.get("roles") is None and not demo_atelier.enabled(),
                 "recents": recents[:6], "works_total": len(mine),
                 "usage": simple.usage_gauge(slug), "nina": bool(nina),
                 "limits": documents.limits() if documents.enabled() else None,
-                "prefs": uiprefs.get(email),
+                "prefs": prefs,
                 # 3.6.5: may this project's work be written with Claude, and why not
                 "claude": claudetier.gate(slug, lang=lang) if claudetier.enabled() else None}
 
@@ -349,6 +393,12 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if tier not in ("", "local", "claude"):
             raise HTTPException(400, "tier: local | claude")
         cmodel = ""
+        if tier == "claude" and ((pb and not pb.get("claude", True)) or _job_forbids_claude(slug)):
+            # 4.0 job kits: HR, legal, finance… never go to Claude, whatever the project's level
+            raise HTTPException(409, {"code": "claude_role", "message": (
+                "Ce poste traite des données qui restent sur le modèle de la machine : pas de Claude."
+                if lang == "fr" else
+                "This job handles data that stays on the model of this machine: no Claude.")})
         if tier == "claude":
             cmodel = (body.claude_model or "").strip() or claudetier.default_model()
             g = claudetier.gate(slug, cmodel, lang)
@@ -475,7 +525,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         text = ""
         if d["previewable"]:
             try:
-                text = simple.read_deliverable(project, sid, name)
+                text = simple.preview_text(name, simple.read_deliverable(project, sid, name))
             except (FileNotFoundError, ValueError):
                 raise HTTPException(404, "not found")
         return {**d, "text": text}
@@ -490,7 +540,13 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         except (FileNotFoundError, ValueError):
             raise HTTPException(404, "not found")
         stem = name.rsplit(".", 1)[0]
-        if format == "docx":
+        if format == "xlsx":
+            if d["ext"] != "csv":
+                raise HTTPException(400, "Excel export is for table deliverables")
+            data = simple.csv_to_xlsx(simple.read_deliverable(project, sid, name),
+                                      sheet=d.get("title") or stem)
+            out_name, mime = f"{stem}.xlsx", documents.MIME["xlsx"]
+        elif format == "docx":
             if d["ext"] not in ("md", "markdown", "txt"):
                 raise HTTPException(400, "Word export is for text deliverables")
             data = simple.markdown_to_docx(simple.read_deliverable(project, sid, name))
@@ -499,7 +555,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             data = p.read_bytes()
             out_name = name
             mime = "text/markdown; charset=utf-8" if d["ext"] in ("md", "markdown") else \
-                "application/octet-stream"
+                "text/csv; charset=utf-8" if d["ext"] == "csv" else "application/octet-stream"
         audit.log(pu.get("email") or "", "deliverable.download", sid, out_name, project=project)
         ascii_name = out_name.encode("ascii", "replace").decode().replace('"', "'").replace("?", "_")
         return Response(data, media_type=mime, headers={

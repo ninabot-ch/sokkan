@@ -1,0 +1,17 @@
+{
+  "template": "customer-support.complaint-reply",
+  "lang": "fr",
+  "ask": "Prépare la réponse à la réclamation de Mme Favre selon les instructions d'Aline : remboursement des frais de livraison et chaise de remplacement.",
+  "documents": [
+    {"name": "Réclamation Favre 10.11.2026.txt", "source": "reclamation.txt", "as_docx": false},
+    {"name": "Historique commande 2026-11873.docx", "source": "historique-commande.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Favre"],
+    ["2026-11873"],
+    ["49"],
+    ["21.11.2026", "21 novembre"],
+    ["07.11.2026", "7 novembre", "7.11.2026"],
+    ["chaise"]
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "template": "hr.absence-tracker",
+  "lang": "fr",
+  "ask": "Établis le tableau des soldes de vacances au 30 novembre 2026 pour l'atelier, avec les maladies, accidents et autres absences de l'année.",
+  "documents": [
+    {"name": "Droits aux vacances 2026 - atelier.docx", "source": "droits-vacances.md", "as_docx": true},
+    {"name": "Demandes de congé et absences 2026.txt", "source": "demandes-et-absences.txt", "as_docx": false}
+  ],
+  "must_contain": [
+    ["Luc Berset", "Berset"],
+    ["Sofia Marques", "Marques"],
+    ["Henri Favre", "Favre"],
+    ["Inès Kader", "Kader"],
+    ["30"],
+    ["Report", "report"]
+  ],
+  "min_rows": 4
+}

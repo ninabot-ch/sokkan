@@ -18,6 +18,8 @@ import { ingestStatus, quarantineList } from "@/lib/simple/ingest";
 import Composer from "./Composer";
 import Icon, { templateIcon, type IconName } from "./icons";
 import Nina from "./Nina";
+import { RolePicker, TemplateDetail } from "./Roles";
+import { groupTemplates, localOnly } from "@/lib/simple/roles";
 import { Documents, Team, Works } from "./Pages";
 import Settings from "./Settings";
 import Thread from "./Thread";
@@ -66,6 +68,9 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
   const [nina, setNina] = useState(false);
+  // 4.0 job kits: the picker, offered once at the first sign-in, then from Settings
+  const [picker, setPicker] = useState<"first" | "change" | null>(null);
+  const offered = useRef(false);
   const main = useRef<HTMLElement>(null);
   // « Notes to review » (feature `doc_ingest`): there for the people who may review the
   // batches of this project — the API says so (403 / 404 otherwise), with how many wait
@@ -84,6 +89,10 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
       setReview((b.status === "fulfilled" ? b.value : 0) + (q.status === "fulfilled" ? q.value.length : 0));
     });
   }, [ingestOn, home?.project, me, reader]);
+
+  useEffect(() => {
+    if (home?.ask_roles && !demo && home.can_start && !offered.current) { offered.current = true; setPicker("first"); }
+  }, [home?.ask_roles, home?.can_start, demo]);
 
   const loadHome = useCallback(() => {
     fetchHome(lang).then((h) => { setHome(h); setHomeFailed(false); }).catch(() => setHomeFailed(true));
@@ -195,7 +204,10 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {nina && <Nina onClose={() => setNina(false)} />}
       </main>
 
-      {settings && <Settings prefs={prefs} onPrefs={onPrefs} onClose={() => setSettings(false)} project={home?.project || currentProject()} projectName={home?.project_name} />}
+      {settings && <Settings prefs={prefs} onPrefs={onPrefs} onClose={() => setSettings(false)} project={home?.project || currentProject()} projectName={home?.project_name}
+        jobs={demo ? null : home?.roles || []} onRoles={() => { setSettings(false); setPicker("change"); }} />}
+      {picker && <RolePicker first={picker === "first"} onClose={() => setPicker(null)}
+        onSaved={(p) => { onPrefs(p); loadHome(); }} />}
     </div>
   );
 }
@@ -242,7 +254,10 @@ function Home({ home, failed, retry, onStarted }: {
     );
   }
   const can = home.can_start;
-  const gate = home.claude || null;
+  // 4.0 job kits: a job that keeps its data on the machine never offers Claude
+  const local = localOnly(tpl, home.project_role, home.roles);
+  const gate = local ? null : home.claude || null;
+  const groups = groupTemplates(home.playbooks, home.roles);
   const claudeOn = engine === "claude" && !!gate?.allowed;
   const model = cmodel || gate?.default_model || "";
   return (
@@ -255,8 +270,11 @@ function Home({ home, failed, retry, onStarted }: {
         footer={gate ? <EngineChoice gate={gate} engine={engine} model={model} disabled={!can}
           onEngine={setEngine} onModel={setCmodel} /> : undefined}
         header={tpl ? (
-          <div className="sk-template-on"><Icon name={templateIcon(tpl.id)} small />{t("home.template.on", { label: tpl.label })}
-            <button className="sk-chip-x" style={{ marginRight: 0 }} onClick={() => setTpl(null)} aria-label={t("home.template.off")}><Icon name="close" small /></button></div>
+          <>
+            <div className="sk-template-on"><Icon name={templateIcon(tpl.id)} small />{t("home.template.on", { label: tpl.label })}
+              <button className="sk-chip-x" style={{ marginRight: 0 }} onClick={() => setTpl(null)} aria-label={t("home.template.off")}><Icon name="close" small /></button></div>
+            <TemplateDetail tpl={tpl} />
+          </>
         ) : undefined}
         onSubmit={async (text, docs) => {
           const sig = JSON.stringify([text, tpl?.id || "", docs.map((d) => d.id), claudeOn ? model : ""]);
@@ -281,18 +299,23 @@ function Home({ home, failed, retry, onStarted }: {
           }
         }} />
       {home.limits && <p className="sk-composer-hint">{t("home.formats", { mb: Math.round(home.limits.max_bytes / 1024 / 1024) })}</p>}
-      <section aria-labelledby="sk-tpl">
-        <h2 className="sk-drawer-label" id="sk-tpl" style={{ padding: 0, marginBottom: "var(--sk-s3)" }}>{t("home.templates")}</h2>
-        <div className="sk-tasks">
-          {home.playbooks.map((p) => (
-            <button key={p.id} className="sk-task" disabled={!can} aria-pressed={tpl?.id === p.id}
-              onClick={() => { setTpl(tpl?.id === p.id ? null : p); setFocusKey(`${p.id}-${Date.now()}`); }}>
-              <span className="sk-task-ico"><Icon name={templateIcon(p.id)} /></span>
-              <b>{p.label}</b><small>{p.description}</small>
-            </button>
-          ))}
-        </div>
-      </section>
+      {local && <p className="sk-role-guard sk-small"><Icon name="shield" small />{t("roles.local")}</p>}
+      {groups.map((g, gi) => (
+        <section key={g.role?.id || "general"} aria-labelledby={`sk-tpl-${gi}`}>
+          <h2 className="sk-drawer-label" id={`sk-tpl-${gi}`} style={{ padding: 0, marginBottom: "var(--sk-s3)" }}>
+            {g.role ? t("roles.templates.of", { role: g.role.label }) : groups.length > 1 ? t("roles.templates.general") : t("home.templates")}</h2>
+          <div className="sk-tasks">
+            {g.templates.map((p) => (
+              <button key={p.id} className="sk-task" disabled={!can} aria-pressed={tpl?.id === p.id}
+                onClick={() => { setTpl(tpl?.id === p.id ? null : p); setFocusKey(`${p.id}-${Date.now()}`); }}>
+                <span className="sk-task-ico"><Icon name={templateIcon(p.id)} /></span>
+                <b>{p.label}</b><small>{p.description}</small>
+                {p.format && <span className="sk-task-fmt">{p.format === "xlsx" ? "Excel" : p.format === "md" ? t("roles.fmt.md") : "Word"}</span>}
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
     </div></div>
   );
 }

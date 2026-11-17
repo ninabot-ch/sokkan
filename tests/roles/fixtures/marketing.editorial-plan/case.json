@@ -1,0 +1,18 @@
+{
+  "template": "marketing.editorial-plan",
+  "lang": "fr",
+  "ask": "Fais-moi le plan éditorial de janvier à mars 2027 pour LinkedIn, la newsletter et le site, calé sur nos temps forts.",
+  "documents": [
+    {"name": "Temps forts communication T1 2027.docx", "source": "temps-forts-2027.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Yverdon"],
+    ["Habitat-Jardin"],
+    ["Sérénité", "Serenite"],
+    ["289"],
+    ["LinkedIn"],
+    ["Newsletter", "newsletter"],
+    ["Julie Rey", "J. Rey"]
+  ],
+  "min_rows": 12
+}

@@ -1,0 +1,19 @@
+{
+  "template": "executive-assistant.meeting-minutes",
+  "lang": "fr",
+  "ask": "Rédige le procès-verbal du comité de direction du 10.11.2026 à partir de mes notes et de l'ordre du jour.",
+  "documents": [
+    {"name": "Ordre du jour CODIR 10.11.2026.docx", "source": "ordre-du-jour.md", "as_docx": true},
+    {"name": "Notes séance CODIR 10.11.2026.docx", "source": "notes-seance.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Olivier Mercier"],
+    ["Holzmatic"],
+    ["leasing"],
+    ["38'600", "38 600", "38600"],
+    ["11.12.2026", "11 décembre 2026"],
+    ["24.11"],
+    ["17.11"],
+    ["1'148'000", "1 148 000", "1148000"]
+  ]
+}

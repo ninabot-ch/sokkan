@@ -1,0 +1,320 @@
+{
+  "id": "training",
+  "order": 90,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Formation",
+      "description": "Plans de formation, supports de cours, quiz, convocations, inscriptions et évaluations.",
+      "project": "Formation"
+    },
+    "en": {
+      "label": "Training",
+      "description": "Training plans, course material, quizzes, invitations, registrations and evaluations.",
+      "project": "Training"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Le contenu enseigné vient de vos documents : l'agent ne complète pas une procédure ou une règle par ce qu'il croit savoir."},
+        "en": {"text": "What is taught comes from your documents: the agent does not complete a procedure or a rule with what it believes it knows."}
+      },
+      "agent": "Teach only what the attached documents say; anything added from general knowledge is marked « (complément, à valider) ». Every quiz answer must be traceable to a passage of the documents, named in the answer key."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les résultats, absences et appréciations des participant·es sont des données personnelles : seulement ce que le livrable exige."},
+        "en": {"text": "Participants' results, absences and assessments are personal data: only what the deliverable requires."}
+      },
+      "agent": "Treat participants' names, results, absences and comments as personal data: use them only where the deliverable needs them, anonymise free-text comments in summaries, and never rank or judge a named person."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Dates, lieux, horaires, coûts et nombre de places sont repris tels quels ; ce qui manque reste « à définir »."},
+        "en": {"text": "Dates, places, times, costs and number of seats are taken as they are; what is missing stays « to be defined »."}
+      },
+      "agent": "Copy every date, time, place, cost, trainer and number of seats exactly from the documents or the request; when one is missing write « [à définir] » — never a plausible value. Flag any session over its capacity."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Une formation obligatoire (sécurité, hygiène, réglementaire) se valide avec la personne responsable du domaine avant diffusion."},
+        "en": {"text": "A mandatory training (safety, hygiene, regulatory) is validated with the person responsible for the field before it is used."}
+      },
+      "agent": "When the content concerns safety, hygiene, health or a legal obligation, say at the top of the deliverable that it must be validated by the person responsible for that field before use, and never soften or shorten a safety instruction."
+    }
+  ],
+  "templates": [
+    {
+      "id": "training-plan",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Plan de formation",
+          "description": "Les formations de l'année, chiffrées",
+          "hint": "Pour quelle période, quelles équipes ? Ex. « Plan de formation 2027 de l'atelier et de la vente, budget CHF 18'000 »",
+          "attach": "Les besoins relevés (entretiens, demandes), le budget, les offres des organismes, les obligations légales",
+          "produces": "Un plan : actions de formation par public, priorité, durée, période, coût, financement et calendrier",
+          "deliverable": "Plan de formation",
+          "checks": ["Les coûts et le total par rapport au budget", "Les priorités retenues", "Les formations obligatoires"]
+        },
+        "en": {
+          "label": "Training plan",
+          "description": "The year's courses, with costs",
+          "hint": "For which period, which teams? E.g. “2027 training plan for the workshop and sales, budget CHF 18,000”",
+          "attach": "The needs found (reviews, requests), the budget, the providers' offers, the legal obligations",
+          "produces": "A plan: training actions by audience, priority, duration, period, cost, funding and calendar",
+          "deliverable": "Training plan",
+          "checks": ["Costs and total against the budget", "The priorities chosen", "Mandatory trainings"]
+        }
+      },
+      "mission": "Write a training plan. What the person asked for: {subject}\n\nGroup the training actions by audience, each with the need it answers (and its source), priority (mandatory / important / useful), format, duration, period, provider and cost as quoted. Put mandatory trainings first. Total the costs and compare with the budget, showing the calculation; when the total exceeds it, say by how much and which actions could move to the next period."
+    },
+    {
+      "id": "course-material",
+      "brief": "procedure",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Support de cours",
+          "description": "Depuis votre procédure ou document",
+          "hint": "Quel sujet, pour qui ? Ex. « Support pour former les nouveaux à la procédure de réception des marchandises »",
+          "attach": "Le document source (procédure, manuel, règlement), les captures d'écran utiles",
+          "produces": "Un support pédagogique : objectifs, notions clés expliquées simplement, étapes, exemples, erreurs fréquentes, résumé",
+          "deliverable": "Support de cours",
+          "checks": ["La fidélité au document source", "Les exemples ajoutés", "Les compléments marqués « à valider »"]
+        },
+        "en": {
+          "label": "Course material",
+          "description": "From your procedure or document",
+          "hint": "Which topic, for whom? E.g. “Material to train newcomers on the goods-receipt procedure”",
+          "attach": "The source document (procedure, manual, regulation), useful screenshots",
+          "produces": "A learner handout: objectives, key notions explained simply, steps, examples, common mistakes, summary",
+          "deliverable": "Course material",
+          "checks": ["Faithfulness to the source document", "The examples added", "Additions marked « to be validated »"]
+        }
+      },
+      "mission": "Turn the attached document into course material for learners. What the person asked for: {subject}\n\nStart with three to five learning objectives worded as what the learner will be able to do. Explain each key notion in plain words, then the steps in order, each with the reference of the passage it comes from. Add a short worked example per main step and a box of common mistakes, both marked « (exemple) » when they are not in the source. End with a one-page summary the learner can keep."
+    },
+    {
+      "id": "quiz",
+      "brief": "checklist",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Quiz d'évaluation avec corrigé",
+          "description": "Vérifier ce qui a été retenu",
+          "hint": "Sur quel contenu, combien de questions ? Ex. « 10 questions sur le règlement d'hygiène, avec corrigé séparé »",
+          "attach": "Le support de cours ou le document de référence",
+          "produces": "Un quiz (QCM, vrai/faux, questions courtes) puis un corrigé avec la référence de chaque réponse",
+          "deliverable": "Quiz et corrigé",
+          "checks": ["L'exactitude de chaque réponse du corrigé", "L'absence de question piège ou ambiguë", "Le seuil de réussite"]
+        },
+        "en": {
+          "label": "Assessment quiz with answer key",
+          "description": "Check what was retained",
+          "hint": "On which content, how many questions? E.g. “10 questions on the hygiene rules, with a separate answer key”",
+          "attach": "The course material or the reference document",
+          "produces": "A quiz (multiple choice, true/false, short questions) then an answer key with each answer's reference",
+          "deliverable": "Quiz and answer key",
+          "checks": ["The accuracy of each answer in the key", "No trick or ambiguous question", "The pass mark"]
+        }
+      },
+      "mission": "Write an assessment quiz on the attached content, followed by its answer key. What the person asked for: {subject}\n\nWrite the number of questions asked (default 10), mixing multiple choice with answer options as checkboxes « - [ ] », true/false and short questions, covering the key points in the order of the document. Each question has one unambiguous correct answer; no trick questions. In a separate « Corrigé » section give each correct answer with the passage of the document that proves it (section or page) in place of an owner or deadline, and propose a pass mark marked as a proposal."
+    },
+    {
+      "id": "session-scenario",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Scénario pédagogique d'une séquence",
+          "description": "Déroulé minuté d'une session",
+          "hint": "Quelle séquence, quelle durée, combien de personnes ? Ex. « Demi-journée d'accueil des apprentis, 8 personnes »",
+          "attach": "Le contenu à transmettre, les contraintes (salle, matériel, durée), le profil des participant·es",
+          "produces": "Un déroulé minuté : objectifs, phases, méthode (exposé, exercice, mise en situation), matériel, évaluation",
+          "deliverable": "Scénario pédagogique",
+          "checks": ["Le minutage total", "Le matériel nécessaire", "L'adéquation avec le niveau du public"]
+        },
+        "en": {
+          "label": "Session lesson plan",
+          "description": "Timed run of a session",
+          "hint": "Which session, how long, how many people? E.g. “Half-day induction for apprentices, 8 people”",
+          "attach": "The content to teach, the constraints (room, equipment, duration), the participants' profile",
+          "produces": "A timed run: objectives, phases, method (talk, exercise, role play), equipment, assessment",
+          "deliverable": "Lesson plan",
+          "checks": ["The total timing", "The equipment needed", "Fit with the audience's level"]
+        }
+      },
+      "mission": "Design the lesson plan of one training session. What the person asked for: {subject}\n\nState the learning objectives, then a timed table of phases (start time, duration, what the trainer does, what participants do, method, equipment). Alternate input and practice so that no talk lasts more than 20 minutes. Include a check of learning before the end and a short feedback round. Make the durations add up exactly to the time available and show the total."
+    },
+    {
+      "id": "invitation",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Convocation à une formation",
+          "description": "Date, lieu, programme, préparation",
+          "hint": "Quelle formation, pour qui ? Ex. « Convocation au cours premiers secours du 21.01.2027 pour les 12 inscrits »",
+          "attach": "Le programme, la confirmation de l'organisme ou de la salle, la liste des inscrits",
+          "produces": "Une convocation : date, horaires, lieu et accès, programme, ce qu'il faut apporter ou préparer, contact",
+          "deliverable": "Convocation",
+          "checks": ["La date, les horaires et l'adresse", "Ce que les participant·es doivent apporter", "La personne de contact"]
+        },
+        "en": {
+          "label": "Training invitation",
+          "description": "Date, place, programme, preparation",
+          "hint": "Which training, for whom? E.g. “Invitation to the first-aid course of 21.01.2027 for the 12 registered”",
+          "attach": "The programme, the provider's or venue's confirmation, the list of registered people",
+          "produces": "An invitation: date, times, place and access, programme, what to bring or prepare, contact",
+          "deliverable": "Invitation",
+          "checks": ["Date, times and address", "What participants must bring", "The contact person"]
+        }
+      },
+      "mission": "Write the invitation to a training session, to be sent to the registered participants. What the person asked for: {subject}\n\nGive date, start and end times, address and access exactly as in the confirmation, then the programme in a few lines, what to bring or prepare beforehand, whether the time counts as working time when the documents say so, and how to excuse oneself. Write one generic letter with a « [Prénom Nom] » placeholder, not one letter per person."
+    },
+    {
+      "id": "registration-tracker",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Suivi des inscriptions",
+          "description": "Qui est inscrit, à quelle session",
+          "hint": "Quelles sessions ? Ex. « Inscriptions aux trois sessions Excel de janvier, depuis les e-mails reçus »",
+          "attach": "Les demandes d'inscription (e-mails, formulaires), le calendrier des sessions et leurs places",
+          "produces": "Un tableau Excel : participant·e, service, session, date, statut, accord du ou de la responsable, source",
+          "deliverable": "Suivi des inscriptions",
+          "checks": ["Les sessions complètes ou en surnombre", "Les doublons et désistements", "Les accords manquants"]
+        },
+        "en": {
+          "label": "Registration tracker",
+          "description": "Who is registered, for which session",
+          "hint": "Which sessions? E.g. “Registrations for the three Excel sessions in January, from the e-mails received”",
+          "attach": "The registration requests (e-mails, forms), the session calendar and seats",
+          "produces": "An Excel table: participant, department, session, date, status, manager's approval, source",
+          "deliverable": "Registration tracker",
+          "checks": ["Sessions full or over capacity", "Duplicates and withdrawals", "Missing approvals"]
+        }
+      },
+      "mission": "Build the registration tracker of training sessions from the requests attached. What the person asked for: {subject}\n\nColumns: Participant·e, Service, Session, Date, Statut (inscrit / liste d'attente / désisté), Accord responsable (oui / non / manquant), Date de la demande, Source, À vérifier. One row per person and session, sorted by session then by request date. Register in order of request date up to the number of seats; the next ones go on the waiting list. Add a subtotal row per session with seats taken over seats available."
+    },
+    {
+      "id": "satisfaction-summary",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Synthèse des évaluations de satisfaction",
+          "description": "Ce que disent les participant·es",
+          "hint": "Quelle formation ? Ex. « Synthèse des questionnaires du cours de communication client de novembre »",
+          "attach": "Les questionnaires remplis ou l'export des réponses, le questionnaire vierge",
+          "produces": "Une synthèse : taux de réponse, notes moyennes par question, verbatims anonymisés par thème, pistes d'amélioration",
+          "deliverable": "Synthèse de satisfaction",
+          "checks": ["Les moyennes et le taux de réponse calculés", "L'anonymisation des commentaires", "Les pistes d'amélioration retenues"]
+        },
+        "en": {
+          "label": "Satisfaction survey summary",
+          "description": "What participants say",
+          "hint": "Which training? E.g. “Summary of the questionnaires of the November customer-communication course”",
+          "attach": "The completed questionnaires or the export of answers, the blank questionnaire",
+          "produces": "A summary: response rate, average score per question, anonymised quotes by theme, improvement ideas",
+          "deliverable": "Satisfaction summary",
+          "checks": ["The averages and response rate computed", "Comments anonymised", "The improvement ideas kept"]
+        }
+      },
+      "mission": "Summarise the satisfaction questionnaires of a training. What the person asked for: {subject}\n\nGive the response rate and, for each scored question, the number of answers and the average, showing how it was computed. Group free comments by theme with short anonymised quotes, keeping the balance of positive and negative remarks. End with three to five improvement ideas, each tied to the answers that support it. When no blank questionnaire is attached, append a short proposed questionnaire for next time."
+    },
+    {
+      "id": "training-needs",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Analyse des besoins de formation",
+          "description": "Depuis entretiens et demandes",
+          "hint": "Pour quelle équipe ? Ex. « Besoins de formation de l'équipe administrative, depuis les entretiens annuels »",
+          "attach": "Les extraits d'entretiens, les demandes reçues, les changements à venir (logiciel, réglementation)",
+          "produces": "Une note : besoins regroupés par thème, nombre de personnes concernées, urgence, réponse possible",
+          "deliverable": "Analyse des besoins",
+          "checks": ["Le regroupement des besoins", "Les urgences retenues", "Les besoins individuels sensibles à traiter à part"]
+        },
+        "en": {
+          "label": "Training needs analysis",
+          "description": "From reviews and requests",
+          "hint": "For which team? E.g. “Training needs of the admin team, from the annual reviews”",
+          "attach": "Excerpts of reviews, requests received, upcoming changes (software, regulation)",
+          "produces": "A note: needs grouped by theme, number of people concerned, urgency, possible response",
+          "deliverable": "Needs analysis",
+          "checks": ["How needs were grouped", "The urgencies chosen", "Sensitive individual needs to handle separately"]
+        }
+      },
+      "mission": "Analyse the training needs found in the attached documents. What the person asked for: {subject}\n\nGroup the needs by theme, with the number of people concerned (counted, not named) and the documents they come from. Rate urgency from facts given (a deadline, a new tool, an obligation), not from impressions. For each theme propose a type of response (internal coaching, course, e-learning) without naming a provider the documents do not name. Keep individual needs that reveal a performance issue out of the note and say so in one sentence."
+    }
+  ],
+  "notes": [
+    {
+      "name": "formation-catalogue-et-organismes",
+      "i18n": {
+        "fr": {
+          "title": "Catalogue interne et organismes de formation",
+          "description": "Les formations récurrentes, les formateur·rices internes et les organismes avec lesquels vous travaillez — à compléter par l'équipe.",
+          "body": "L'agent ne propose que les formations et organismes listés ici.\n\n| Formation | Public | Durée | Interne ou organisme | Coût indicatif |\n|---|---|---|---|---|\n| [À compléter : ex. Accueil des nouveaux] | [À compléter] | [À compléter] | [À compléter] | [À compléter] |\n\n- Formateur·rices internes et leurs sujets (fonction) : [À compléter]\n- Organismes habituels (nom, domaine) : [À compléter]"
+        },
+        "en": {
+          "title": "Internal catalogue and training providers",
+          "description": "The recurring courses, the internal trainers and the providers you work with — for the team to fill in.",
+          "body": "The agent only proposes the courses and providers listed here.\n\n| Course | Audience | Duration | Internal or provider | Indicative cost |\n|---|---|---|---|---|\n| [To fill: e.g. Newcomer induction] | [To fill] | [To fill] | [To fill] | [To fill] |\n\n- Internal trainers and their topics (function): [To fill]\n- Usual providers (name, field): [To fill]"
+        }
+      }
+    },
+    {
+      "name": "formation-regles-et-budget",
+      "i18n": {
+        "fr": {
+          "title": "Règles de formation et budget",
+          "description": "Budget annuel, qui approuve une inscription, temps de travail, formations obligatoires et prise en charge — à compléter par l'équipe.",
+          "body": "Ces règles servent aux plans, convocations et inscriptions.\n\n- Budget formation de l'année : [À compléter : ex. CHF 20'000.00]\n- Qui approuve une inscription : [À compléter : ex. le ou la responsable directe, puis les RH au-delà de CHF 1'000.00]\n- La formation compte-t-elle comme temps de travail : [À compléter]\n- Formations obligatoires et leur périodicité : [À compléter : ex. premiers secours tous les deux ans]\n- Fonds ou subventions utilisés : [À compléter]\n- Règle de désistement : [À compléter]"
+        },
+        "en": {
+          "title": "Training rules and budget",
+          "description": "Annual budget, who approves a registration, working time, mandatory trainings and funding — for the team to fill in.",
+          "body": "These rules serve the plans, invitations and registrations.\n\n- This year's training budget: [To fill: e.g. CHF 20,000.00]\n- Who approves a registration: [To fill: e.g. the line manager, then HR above CHF 1,000.00]\n- Does training count as working time: [To fill]\n- Mandatory trainings and how often: [To fill: e.g. first aid every two years]\n- Funds or subsidies used: [To fill]\n- Withdrawal rule: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "formation-charte-pedagogique",
+      "i18n": {
+        "fr": {
+          "title": "Charte pédagogique et mise en forme",
+          "description": "Le ton des supports, leur présentation, le format des quiz et le seuil de réussite — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment vos supports sont écrits.\n\n- Ton et niveau de langue : [À compléter : ex. simple, phrases courtes, tutoiement ou vouvoiement]\n- Structure type d'un support : [À compléter]\n- Format des quiz (types de questions, nombre) : [À compléter]\n- Seuil de réussite d'une évaluation : [À compléter : ex. 80 %]\n- Questionnaire de satisfaction utilisé (questions et échelle) : [À compléter]"
+        },
+        "en": {
+          "title": "Teaching charter and layout",
+          "description": "The tone of the material, its layout, the quiz format and the pass mark — for the team to fill in.",
+          "body": "This note tells the agent how your material is written.\n\n- Tone and register: [To fill: e.g. simple, short sentences, informal or formal address]\n- Standard structure of a handout: [To fill]\n- Quiz format (types of questions, number): [To fill]\n- Pass mark of an assessment: [To fill: e.g. 80%]\n- Satisfaction questionnaire used (questions and scale): [To fill]"
+        }
+      }
+    },
+    {
+      "name": "formation-salles-et-logistique",
+      "i18n": {
+        "fr": {
+          "title": "Salles, matériel et logistique",
+          "description": "Les salles disponibles, leur capacité, le matériel et les informations d'accès — à compléter par l'équipe.",
+          "body": "L'agent reprend ces informations dans les convocations et scénarios.\n\n| Salle | Adresse et accès | Places | Matériel |\n|---|---|---|---|\n| [À compléter] | [À compléter] | [À compléter] | [À compléter : ex. écran, tableau blanc, ordinateurs] |\n\n- Repas et pauses (qui commande, budget par personne) : [À compléter]\n- Contact logistique (fonction) : [À compléter]"
+        },
+        "en": {
+          "title": "Rooms, equipment and logistics",
+          "description": "The rooms available, their capacity, the equipment and access information — for the team to fill in.",
+          "body": "The agent uses this information in invitations and lesson plans.\n\n| Room | Address and access | Seats | Equipment |\n|---|---|---|---|\n| [To fill] | [To fill] | [To fill] | [To fill: e.g. screen, whiteboard, computers] |\n\n- Meals and breaks (who orders, budget per person): [To fill]\n- Logistics contact (function): [To fill]"
+        }
+      }
+    }
+  ]
+}

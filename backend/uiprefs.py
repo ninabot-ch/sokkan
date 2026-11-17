@@ -9,6 +9,9 @@
 * ``theme``: ``light`` (default), ``dark`` or ``auto`` (the system's) — idem.
 * ``project``: the project the person last worked in (3.6.7), so that signing in on a
   browser that another person used last does not land them in THAT person's project.
+* ``roles``: the person's jobs in SOKKAN Atelier (4.0, `backend/roles.py`) — a list of job
+  ids, ``None`` until chosen (the Atelier then offers the choice once); an empty list = the
+  person said « later ». Set by the person or, as a default, by an instance admin.
 
 A UI preference, not a right: what a person may do is still decided by roles and features.
 The one thing it gates is the approval mode, which a person on the simple profile cannot
@@ -78,13 +81,16 @@ def get(email: str) -> dict:
         "theme": rec.get("theme") if rec.get("theme") in THEMES else "light",
         "project": rec.get("project") if isinstance(rec.get("project"), str)
         and _SLUG.fullmatch(rec["project"]) else "",
+        "roles": [r for r in rec["roles"] if isinstance(r, str) and _SLUG.fullmatch(r)]
+        if isinstance(rec.get("roles"), list) else None,
         "available": on,
         "locked": locked(),
     }
 
 
 def set_prefs(email: str, *, profile: str | None = None, lang: str | None = None,
-              theme: str | None = None, project: str | None = None) -> dict:
+              theme: str | None = None, project: str | None = None,
+              roles: list[str] | None = None) -> dict:
     if profile is not None and profile not in PROFILES:
         raise ValueError(f"profile: one of {', '.join(PROFILES)}")
     if lang is not None and lang not in LANGS:
@@ -93,10 +99,14 @@ def set_prefs(email: str, *, profile: str | None = None, lang: str | None = None
         raise ValueError(f"theme: one of {', '.join(THEMES)}")
     if project is not None and not _SLUG.fullmatch(project):
         raise ValueError("project: a project slug")
+    if roles is not None and (not isinstance(roles, list) or len(roles) > 12
+                              or not all(isinstance(r, str) and _SLUG.fullmatch(r) for r in roles)):
+        raise ValueError("roles: a list of job ids")
     with _lock:
         d = _load()
         rec = dict(d.get(_key(email)) or {})
-        for k, v in (("profile", profile), ("lang", lang), ("theme", theme), ("project", project)):
+        for k, v in (("profile", profile), ("lang", lang), ("theme", theme), ("project", project),
+                     ("roles", list(dict.fromkeys(roles)) if roles is not None else None)):
             if v is not None:
                 rec[k] = v
         rec["at"] = time.time()

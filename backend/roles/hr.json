@@ -1,0 +1,320 @@
+{
+  "id": "hr",
+  "order": 20,
+  "level": "confidential",
+  "claude": false,
+  "i18n": {
+    "fr": {
+      "label": "Ressources humaines",
+      "description": "Annonces, intégration, entretiens, certificats de travail, absences et courrier au personnel.",
+      "project": "Ressources humaines"
+    },
+    "en": {
+      "label": "Human resources",
+      "description": "Job ads, onboarding, appraisals, work references, absences and staff correspondence.",
+      "project": "Human resources"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Les dossiers du personnel sont confidentiels : ce poste travaille dans un projet « Confidentiel », avec le modèle local uniquement, jamais avec Claude."},
+        "en": {"text": "Staff files are confidential: this job works in a « Confidential » project, with the local model only, never with Claude."}
+      },
+      "agent": "Treat every document as confidential personal data: use only what the deliverable needs, never copy health data, salary or private details into a document whose reader does not need them, and never suggest sending the work to an external service."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Aucune décision sur une personne (engagement, sanction, licenciement, salaire) n'est prise par l'agent : il prépare, la direction ou les RH décident."},
+        "en": {"text": "No decision about a person (hiring, warning, dismissal, salary) is taken by the agent: it prepares, management or HR decides."}
+      },
+      "agent": "Never word a hiring, a warning, a dismissal or a salary change as decided: draft it for the HR manager's signature and list every consequence for the employee under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les faits sur une personne (dates, fonction, taux, absences) sont repris des documents ; un jugement de valeur n'est écrit que s'il figure dans les notes du ou de la responsable."},
+        "en": {"text": "Facts about a person (dates, function, rate, absences) are taken from the documents; a value judgement is written only if the manager's notes contain it."}
+      },
+      "agent": "Copy dates of employment, function, working rate, salary and absence figures exactly from the documents; never add an assessment of a person that the attached notes do not state, and write « [à définir] » for any missing fact."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Annonces et courriers restent neutres : pas de critère d'âge, de sexe, d'origine, d'état civil ou de santé qui ne soit pas indispensable au poste."},
+        "en": {"text": "Ads and letters stay neutral: no criterion of age, sex, origin, marital status or health that is not essential to the job."}
+      },
+      "agent": "Use gender-inclusive wording and never state or infer age, sex, origin, nationality, religion, marital status, pregnancy or health as a criterion; flag any such criterion found in the documents under « Points to confirm »."
+    }
+  ],
+  "templates": [
+    {
+      "id": "job-ad",
+      "brief": "short",
+      "format": "md",
+      "i18n": {
+        "fr": {
+          "label": "Annonce de poste",
+          "description": "Depuis le cahier des charges",
+          "hint": "Quel poste, quel taux, pour quand ? Ex. « Annonce pour un·e comptable à 80 %, entrée le 1er mars, pour jobup et notre site »",
+          "attach": "Le cahier des charges ou la description de fonction, l'ancienne annonce s'il y en a une",
+          "produces": "Une annonce prête à publier : accroche, missions, profil, ce que vous offrez, comment postuler, et deux variantes d'accroche",
+          "deliverable": "Annonce de poste",
+          "checks": ["Le taux, le lieu et la date d'entrée", "Les exigences vraiment indispensables", "Le contact et le délai de postulation"]
+        },
+        "en": {
+          "label": "Job advertisement",
+          "description": "From the job description",
+          "hint": "Which job, which rate, starting when? E.g. “Ad for an accountant at 80 %, starting 1 March, for job boards and our website”",
+          "attach": "The job description or role profile, the previous ad if there is one",
+          "produces": "An ad ready to publish: hook, tasks, profile, what you offer, how to apply, and two alternative hooks",
+          "deliverable": "Job ad",
+          "checks": ["Rate, place and start date", "The truly essential requirements", "The contact and application deadline"]
+        }
+      },
+      "mission": "Write a job advertisement. What the person asked for: {subject}\n\nTake the tasks, rate, place, start date and requirements from the job description attached; separate « indispensable » from « un atout » and keep at most six requirements in each. Use gender-inclusive wording (« un·e comptable » or « comptable (f/h) ») and no criterion of age, origin or marital status. Describe what the organisation offers only with facts found in the documents or the team's memory. End with how and by when to apply, leaving « [à définir] » when the documents do not say."
+    },
+    {
+      "id": "onboarding-plan",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Plan d'intégration",
+          "description": "Les premières semaines d'une recrue",
+          "hint": "Qui arrive, quand, dans quel service ? Ex. « Intégration de notre nouvelle assistante administrative, arrivée le 5 janvier »",
+          "attach": "Le contrat ou la lettre d'engagement, le cahier des charges, votre check-list d'arrivée s'il y en a une",
+          "produces": "Un plan semaine par semaine (J-10 à fin de période d'essai) : matériel, accès, formations, rencontres, points de suivi",
+          "deliverable": "Plan d'intégration",
+          "checks": ["Les dates (entrée, fin de période d'essai)", "Les personnes de référence", "Les accès et le matériel à commander"]
+        },
+        "en": {
+          "label": "Onboarding plan",
+          "description": "A new hire's first weeks",
+          "hint": "Who joins, when, in which team? E.g. “Onboarding of our new administrative assistant, starting 5 January”",
+          "attach": "The contract or offer letter, the job description, your arrival checklist if you have one",
+          "produces": "A week-by-week plan (D-10 to end of probation): equipment, access, training, introductions, check-ins",
+          "deliverable": "Onboarding plan",
+          "checks": ["The dates (start, end of probation)", "The reference people", "Access and equipment to order"]
+        }
+      },
+      "mission": "Prepare the onboarding plan of a new employee. What the person asked for: {subject}\n\nTake the start date, function, rate and probation period from the contract attached and compute the end of probation, showing the computation. Organise the plan by period: before arrival (D-10 to D-1), first day, first week, first month, until the end of probation, each step with its owner and done-when. Plan a check-in with the manager at the end of the first month and before the end of probation. Name only people and functions found in the documents or the memory; otherwise write « [à définir] »."
+    },
+    {
+      "id": "annual-review",
+      "brief": "minutes",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Compte rendu d'entretien annuel",
+          "description": "Depuis les notes de l'entretien",
+          "hint": "Pour qui, quelle année ? Ex. « Compte rendu de l'entretien 2026 de notre magasinier, d'après mes notes et ses objectifs 2025 »",
+          "attach": "Vos notes d'entretien, l'auto-évaluation, les objectifs de l'année précédente",
+          "produces": "Un compte rendu : bilan des objectifs, points forts et axes de progrès tels que notés, objectifs de l'année, formation, remarques de la personne",
+          "deliverable": "Compte rendu d'entretien",
+          "checks": ["Les appréciations, mot pour mot", "Les objectifs mesurables et leurs échéances", "Les remarques de la personne évaluée"]
+        },
+        "en": {
+          "label": "Annual review report",
+          "description": "From the appraisal notes",
+          "hint": "For whom, which year? E.g. “Report of the 2026 review of our warehouse clerk, from my notes and his 2025 objectives”",
+          "attach": "Your appraisal notes, the self-assessment, last year's objectives",
+          "produces": "A report: review of objectives, strengths and areas for progress as noted, objectives for the year, training, the employee's comments",
+          "deliverable": "Appraisal report",
+          "checks": ["The assessments, word for word", "Measurable objectives and their deadlines", "The employee's own comments"]
+        }
+      },
+      "mission": "Write the report of an annual appraisal interview. What the person asked for: {subject}\n\nReview last year's objectives one by one (reached, partly reached, not reached) only as the notes state it. Keep the manager's assessments in their wording and the employee's comments in a separate section, without softening or hardening either. Write the new objectives so that each is measurable and dated; when the notes give an objective without a measure or a date, mark it « [à préciser] ». Leave space for both signatures."
+    },
+    {
+      "id": "work-certificate",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Certificat de travail",
+          "description": "Complet, en usage suisse",
+          "hint": "Pour qui, quel type ? Ex. « Certificat de travail complet de Mme Dupont, départ au 31.12, d'après l'évaluation de son chef »",
+          "attach": "Le contrat et ses avenants, le cahier des charges, la dernière évaluation, les notes du ou de la responsable",
+          "produces": "Un certificat de travail (ou une attestation) : identité, durée, fonctions, tâches, appréciation des prestations et du comportement, motif et formule finale — avec les formulations codées signalées",
+          "deliverable": "Certificat de travail",
+          "checks": ["Les dates d'entrée et de sortie, la fonction et le taux", "Chaque formulation pouvant être lue comme codée ou négative", "La mention du motif de départ (seulement si la personne le souhaite)"]
+        },
+        "en": {
+          "label": "Work reference (Swiss)",
+          "description": "Full reference, Swiss usage",
+          "hint": "For whom, which kind? E.g. “Full work reference for Ms Dupont, leaving on 31.12, from her manager's appraisal”",
+          "attach": "The contract and its amendments, the job description, the last appraisal, the manager's notes",
+          "produces": "A Swiss work reference (or a confirmation of employment): identity, duration, functions, tasks, assessment of performance and conduct, reason and closing — with coded wordings flagged",
+          "deliverable": "Work reference",
+          "checks": ["Start and end dates, function and rate", "Every wording that could read as coded or negative", "The reason for leaving (only if the employee wishes it)"]
+        }
+      },
+      "mission": "Write a Swiss work reference (« certificat de travail »). What the person asked for: {subject}\n\nTake identity, dates, function, rate and tasks exactly from the contract and documents; when the dates of two documents disagree, show both and ask. Write the assessment of performance and conduct only from the manager's notes or appraisal, in a truthful and benevolent wording, and never invent praise. Swiss references are read for coded wordings: avoid them, and in a final table list every wording from the notes or your draft that could be read as coded or negative (for example « à notre satisfaction » instead of « à notre entière satisfaction », « s'est efforcé », « a fait preuve de compréhension », silence on conduct), with a neutral alternative. Mention the reason for leaving only if the documents say the employee asked for it."
+    },
+    {
+      "id": "absence-tracker",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Tableau des absences et vacances",
+          "description": "Soldes de vacances par personne",
+          "hint": "Quelle période, quelle équipe ? Ex. « Soldes de vacances au 30 novembre pour l'atelier, avec les maladies du trimestre »",
+          "attach": "Les demandes de congé, le relevé des absences, les droits aux vacances (contrats ou règlement)",
+          "produces": "Un tableau Excel : collaborateur·trice, taux, droit annuel, report, jours pris, solde, maladie, accident, autres absences, source",
+          "deliverable": "Tableau des absences",
+          "checks": ["Les droits aux vacances et reports", "Les soldes calculés", "Les absences qui se chevauchent ou sont mal saisies"]
+        },
+        "en": {
+          "label": "Absence and holiday tracker",
+          "description": "Holiday balances per person",
+          "hint": "Which period, which team? E.g. “Holiday balances at 30 November for the workshop, with sick leave of the quarter”",
+          "attach": "Leave requests, the absence record, holiday entitlements (contracts or staff rules)",
+          "produces": "An Excel table: employee, rate, annual entitlement, carry-over, days taken, balance, sickness, accident, other absences, source",
+          "deliverable": "Absence tracker",
+          "checks": ["Holiday entitlements and carry-overs", "The computed balances", "Absences that overlap or are wrongly recorded"]
+        }
+      },
+      "mission": "Build the absence and holiday table of a team. What the person asked for: {subject}\n\nColumns: Collaborateur·trice, Taux (%), Droit annuel (jours), Report année précédente (jours), Vacances prises (jours), Solde (jours), Maladie (jours), Accident (jours), Autres absences (jours), Source, À vérifier. One row per person; the balance is computed (entitlement + carry-over - days taken) and labelled as computed in the row. Count working days only, and say in your message which holidays or part-time rules you applied. Mark « À vérifier » any request that overlaps another absence, exceeds the balance or has no approval in the documents."
+    },
+    {
+      "id": "hr-procedure",
+      "brief": "procedure",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Procédure RH",
+          "description": "Arrivée, départ, absence, frais",
+          "hint": "Quelle procédure ? Ex. « Procédure d'annonce d'une absence maladie, pour les collaborateurs et les chefs d'équipe »",
+          "attach": "Le règlement du personnel, les formulaires utilisés, l'ancienne procédure s'il y en a une",
+          "produces": "Une procédure numérotée : but, qui fait quoi, délais, formulaires, cas particuliers et responsable",
+          "deliverable": "Procédure RH",
+          "checks": ["Les délais (annonce, certificat médical)", "Les responsables de chaque étape", "La conformité au règlement du personnel"]
+        },
+        "en": {
+          "label": "HR procedure",
+          "description": "Arrival, departure, absence, expenses",
+          "hint": "Which procedure? E.g. “How to report a sick-leave absence, for employees and team leaders”",
+          "attach": "The staff regulations, the forms in use, the previous procedure if there is one",
+          "produces": "A numbered procedure: purpose, who does what, deadlines, forms, special cases and owner",
+          "deliverable": "HR procedure",
+          "checks": ["The deadlines (notice, medical certificate)", "The owner of each step", "Consistency with the staff regulations"]
+        }
+      },
+      "mission": "Write an HR procedure. What the person asked for: {subject}\n\nBase every rule, deadline and form on the staff regulations and documents attached and quote the article or section each one comes from. Write one action per step with its actor (employee, team leader, HR, payroll) and expected result. Add a section for special cases (part-time, absence during holidays, probation period) only when the documents cover them; otherwise list them as questions for HR."
+    },
+    {
+      "id": "staff-letter",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Courrier RH",
+          "description": "Confirmation, avenant, convocation",
+          "hint": "Quel courrier, pour qui ? Ex. « Confirmer à M. Rochat le passage à 80 % dès le 1er février »",
+          "attach": "Le contrat, la demande ou l'échange précédent, les décisions prises",
+          "produces": "Un courrier au personnel prêt à signer : objet, références, faits, conséquences (salaire, vacances, délais) et suite",
+          "deliverable": "Courrier RH",
+          "checks": ["Les dates d'effet et les montants", "Les conséquences pour la personne", "Qui signe le courrier"]
+        },
+        "en": {
+          "label": "Staff letter",
+          "description": "Confirmation, amendment, invitation",
+          "hint": "Which letter, for whom? E.g. “Confirm to Mr Rochat the move to 80 % from 1 February”",
+          "attach": "The contract, the request or earlier exchange, the decisions taken",
+          "produces": "A staff letter ready to sign: subject, references, facts, consequences (salary, holidays, deadlines) and next step",
+          "deliverable": "Staff letter",
+          "checks": ["Effective dates and amounts", "The consequences for the employee", "Who signs the letter"]
+        }
+      },
+      "mission": "Draft a letter to an employee. What the person asked for: {subject}\n\nState the decision or the request as the documents state it, with its effective date and its consequences (salary, holiday entitlement, notice, insurance) only when the documents give them. A warning, a dismissal or a change of contract is drafted for signature, never presented as sent, and its legal deadlines are listed as points for HR to confirm. Keep the wording factual and respectful; no reproach that the documents do not support."
+    },
+    {
+      "id": "interview-guide",
+      "brief": "checklist",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Grille d'entretien d'embauche",
+          "description": "Questions et critères par poste",
+          "hint": "Quel poste, quel tour ? Ex. « Grille pour le premier entretien de responsable logistique, avec cas pratique »",
+          "attach": "Le cahier des charges, l'annonce, les dossiers des candidat·es retenu·es",
+          "produces": "Une grille : déroulé de l'entretien, questions par compétence, critères d'évaluation notés, questions interdites à éviter",
+          "deliverable": "Grille d'entretien",
+          "checks": ["Les compétences évaluées", "Le barème de notation", "L'absence de question discriminatoire"]
+        },
+        "en": {
+          "label": "Interview guide",
+          "description": "Questions and criteria per job",
+          "hint": "Which job, which round? E.g. “Guide for the first interview of a logistics manager, with a case study”",
+          "attach": "The job description, the ad, the files of the shortlisted candidates",
+          "produces": "A guide: interview flow, questions per skill, scored criteria, questions to avoid",
+          "deliverable": "Interview guide",
+          "checks": ["The skills assessed", "The scoring scale", "No discriminatory question"]
+        }
+      },
+      "mission": "Prepare an interview guide for a job. What the person asked for: {subject}\n\nDerive four to seven skills from the job description and ad, and for each give two behavioural questions (« Racontez-moi une situation où… ») and what a strong, average and weak answer looks like. Add the interview flow with timings and a scoring scale from 1 to 4. List, as a reminder, the questions that must not be asked (pregnancy, family plans, religion, health beyond fitness for the job, union membership). Use the same questions for every candidate so answers can be compared."
+    }
+  ],
+  "notes": [
+    {
+      "name": "rh-charte-annonces",
+      "i18n": {
+        "fr": {
+          "title": "Charte des annonces de poste",
+          "description": "Ce que l'organisation offre, le ton des annonces, les canaux et le contact RH — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment vos annonces sont écrites. Remplacez chaque blanc.\n\n- Présentation de l'organisation en deux phrases : [À compléter]\n- Ce que nous offrons (faits vérifiables : horaires, télétravail, formation, prestations) : [À compléter]\n- Ton (tutoiement ou vouvoiement, style) : [À compléter]\n- Forme inclusive retenue (« comptable (f/h) », « un·e comptable »…) : [À compléter]\n- Canaux de publication : [À compléter]\n- Contact et adresse de postulation (adresse générique, pas une personne) : [À compléter : ex. emploi@example.ch]\n- Mention sur les dossiers d'agences de placement : [À compléter]"
+        },
+        "en": {
+          "title": "Job advertisement charter",
+          "description": "What the organisation offers, the tone of ads, channels and the HR contact — for the team to fill in.",
+          "body": "This note tells the agent how your ads are written. Replace each blank.\n\n- The organisation in two sentences: [To fill]\n- What we offer (verifiable facts: hours, remote work, training, benefits): [To fill]\n- Tone (formal or informal, style): [To fill]\n- Inclusive form used (“accountant (f/m)”…): [To fill]\n- Publication channels: [To fill]\n- Application contact (a generic address, not a person): [To fill: e.g. jobs@example.ch]\n- Statement about recruitment agencies: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "rh-regles-vacances-absences",
+      "i18n": {
+        "fr": {
+          "title": "Règles de vacances et d'absences",
+          "description": "Droits aux vacances, reports, jours fériés, annonce des absences et certificats médicaux — à compléter par l'équipe.",
+          "body": "L'agent calcule les soldes avec ces règles, jamais avec des valeurs supposées.\n\n| Catégorie | Droit annuel (jours à 100 %) |\n|---|---|\n| [À compléter : ex. jusqu'à 49 ans] | [À compléter] |\n| [À compléter : ex. dès 50 ans] | [À compléter] |\n\n- Jours fériés reconnus (canton) : [À compléter]\n- Report des soldes et date limite : [À compléter]\n- Calcul pour un temps partiel : [À compléter]\n- Délai pour annoncer une absence maladie, et dès quel jour un certificat est exigé : [À compléter]\n- Qui valide les demandes de vacances : [À compléter]"
+        },
+        "en": {
+          "title": "Holiday and absence rules",
+          "description": "Holiday entitlements, carry-overs, public holidays, reporting of absences and medical certificates — for the team to fill in.",
+          "body": "The agent computes balances with these rules, never with assumed values.\n\n| Category | Annual entitlement (days at 100 %) |\n|---|---|\n| [To fill: e.g. up to age 49] | [To fill] |\n| [To fill: e.g. from age 50] | [To fill] |\n\n- Recognised public holidays (canton): [To fill]\n- Carry-over of balances and deadline: [To fill]\n- Computation for part-time staff: [To fill]\n- Deadline to report a sick-leave absence, and from which day a certificate is required: [To fill]\n- Who approves holiday requests: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "rh-formules-certificats",
+      "i18n": {
+        "fr": {
+          "title": "Formules des certificats de travail",
+          "description": "Les formules d'appréciation et de fin que l'organisation utilise dans ses certificats, et qui les signe — à compléter par l'équipe.",
+          "body": "Un certificat de travail suisse doit être véridique et bienveillant ; certaines formules sont lues comme codées. Fixez ici les vôtres.\n\n- Formule pour des prestations très bonnes : [À compléter : ex. « à notre entière satisfaction »]\n- Formule pour des prestations bonnes : [À compléter]\n- Formule de comportement (supérieurs, collègues, clientèle) : [À compléter]\n- Formule finale (regrets, remerciements, vœux) : [À compléter]\n- Mention du motif de départ : [À compléter : ex. seulement à la demande de la personne]\n- Qui signe (une ou deux signatures, fonctions) : [À compléter]\n- Délai de remise après la demande : [À compléter]"
+        },
+        "en": {
+          "title": "Work reference wordings",
+          "description": "The assessment and closing wordings the organisation uses in its Swiss work references, and who signs them — for the team to fill in.",
+          "body": "A Swiss work reference must be truthful and benevolent; some wordings are read as coded. Set yours here.\n\n- Wording for very good performance: [To fill: e.g. “à notre entière satisfaction”]\n- Wording for good performance: [To fill]\n- Wording on conduct (superiors, colleagues, customers): [To fill]\n- Closing wording (regret, thanks, wishes): [To fill]\n- Mention of the reason for leaving: [To fill: e.g. only at the employee's request]\n- Who signs (one or two signatures, functions): [To fill]\n- Time to deliver after the request: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "rh-integration-referents",
+      "i18n": {
+        "fr": {
+          "title": "Intégration : étapes et référents",
+          "description": "Ce qu'il faut préparer avant une arrivée, qui s'en charge, et la durée de la période d'essai — à compléter par l'équipe.",
+          "body": "L'agent construit les plans d'intégration avec cette liste.\n\n- Durée habituelle de la période d'essai : [À compléter]\n- Matériel et accès à commander, et auprès de qui : [À compléter : fonction, pas une personne privée]\n- Documents remis le premier jour (règlement, charte informatique…) : [À compléter]\n- Formations obligatoires (sécurité, protection des données) : [À compléter]\n- Parrain ou marraine : [À compléter : fonction]\n- Points de suivi prévus et qui les mène : [À compléter]"
+        },
+        "en": {
+          "title": "Onboarding: steps and contacts",
+          "description": "What to prepare before someone joins, who handles it, and the length of the probation period — for the team to fill in.",
+          "body": "The agent builds onboarding plans with this list.\n\n- Usual length of the probation period: [To fill]\n- Equipment and access to order, and from whom: [To fill: a function, not a private person]\n- Documents handed over on day one (staff rules, IT charter…): [To fill]\n- Mandatory training (safety, data protection): [To fill]\n- Buddy: [To fill: function]\n- Planned check-ins and who leads them: [To fill]"
+        }
+      }
+    }
+  ]
+}

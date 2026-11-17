@@ -1,0 +1,29 @@
+BANQUE EXEMPLE SA — RELEVÉ DE COMPTE COURANT
+Titulaire : Menuiserie Exemple SA
+IBAN : CH00 0000 0000 0000 0000 0
+Période : 01.10.2026 - 31.10.2026
+Monnaie : CHF
+
+Date        Libellé                                              Débit        Crédit       Solde
+01.10.2026  Solde reporté                                                                  48'215.60
+05.10.2026  Paiement Assurances Exemple SA réf. A-PR-2026-4      3'150.00                  45'065.60
+09.10.2026  Encaissement client Dubois réf. 2026-212                           6'400.00    51'465.60
+15.10.2026  Paiement Bois du Jura Exemple SA réf. BJ-55821       4'860.00                  46'605.60
+20.10.2026  Paiement Transports Exemple Sàrl réf. T-2026-417     1'245.50                  45'360.10
+22.10.2026  Paiement Quincaillerie Exemple SA réf. Q-90377         723.40                  44'636.70
+24.10.2026  Paiement Garage Exemple SA                             415.20                  44'221.50
+25.10.2026  Salaires octobre                                    61'340.00                 -17'118.50
+26.10.2026  Encaissement client Perret réf. 2026-219                          28'750.00    11'631.50
+27.10.2026  Paiement Transports Exemple Sàrl réf. T-2026-417     1'245.50                  10'386.00
+28.10.2026  Paiement Nettoyage Exemple Sàrl réf. N-1188            680.00                   9'706.00
+31.10.2026  Frais de tenue de compte                                12.00                   9'694.00
+
+Solde au 31.10.2026 : CHF 9'694.00
+
+Total des débits : CHF 73'671.60
+Total des crédits : CHF 35'150.00
+
+Remarques de la banque :
+- Le compte a présenté un solde débiteur du 25.10.2026 au 26.10.2026 ; des intérêts débiteurs seront calculés à la fin du trimestre.
+- Les paiements sont exécutés à la date de valeur indiquée. Toute contestation doit être annoncée dans les 30 jours suivant la réception du relevé.
+- Les paiements par carte de crédit de l'entreprise figurent sur le relevé de carte séparé.

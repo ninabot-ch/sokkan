@@ -1,0 +1,320 @@
+{
+  "id": "finance",
+  "order": 30,
+  "level": "project",
+  "claude": false,
+  "i18n": {
+    "fr": {
+      "label": "Finance et comptabilité",
+      "description": "Rapprochements, budget, relances, clôtures mensuelles, TVA et notes de frais.",
+      "project": "Finance"
+    },
+    "en": {
+      "label": "Finance and accounting",
+      "description": "Reconciliations, budget, payment reminders, month-end closing, VAT and expense claims.",
+      "project": "Finance"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Chaque chiffre est cité depuis sa pièce (document et ligne ou page) ; aucun montant n'est inventé ni estimé, et tout calcul est montré."},
+        "en": {"text": "Every figure is quoted from its source document (document and line or page); no amount is invented or estimated, and every calculation is shown."}
+      },
+      "agent": "Quote every amount, rate and date from a named document with its line or page; show every computed figure with its calculation (« 12'400.00 - 11'950.00 = 450.00 »); when a figure is missing, leave it empty and say so — never estimate, round silently or fill a gap with a plausible value."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "L'agent ne passe ni écriture, ni paiement : il prépare, la personne responsable contrôle et comptabilise."},
+        "en": {"text": "The agent books nothing and pays nothing: it prepares, the person in charge checks and books."}
+      },
+      "agent": "Never present an entry, a payment, a write-off or a VAT figure as booked or filed: present it as a proposal for the accountant, and list under « Points to confirm » every entry or account it assumes."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les écarts sont signalés, jamais compensés : un total qui ne tombe pas juste reste visible avec sa différence."},
+        "en": {"text": "Differences are flagged, never offset: a total that does not match stays visible with its difference."}
+      },
+      "agent": "When two documents disagree (invoice and statement, budget and actuals, receipt and claim), show both amounts and the difference; never adjust a figure to make a total balance, and never treat a difference as rounding unless it is below CHF 0.05."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les chiffres de l'entreprise restent dans un projet « Projet » avec le modèle local ; les questions fiscales sont confirmées par la fiduciaire."},
+        "en": {"text": "The company's figures stay in a « Project » project with the local model; tax questions are confirmed by the fiduciary."}
+      },
+      "agent": "Use VAT rates, tax rules and account numbers only as given in the documents or the team's memory, and present any tax treatment as a question for the fiduciary or the accountant, never as a tax opinion."
+    }
+  ],
+  "templates": [
+    {
+      "id": "invoice-reconciliation",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Rapprochement factures / relevé",
+          "description": "Payé, impayé, écarts",
+          "hint": "Quel compte, quelle période ? Ex. « Rapprocher les factures fournisseurs d'octobre avec le relevé bancaire d'octobre »",
+          "attach": "Le relevé bancaire ou postal, la liste des factures (ouvertes ou payées), éventuellement le grand livre",
+          "produces": "Un tableau Excel : facture, fournisseur ou client, montant facturé, montant payé, date de paiement, écart, statut, source",
+          "deliverable": "Rapprochement",
+          "checks": ["Les paiements sans facture et les factures sans paiement", "Les écarts de montant", "Les doublons de paiement"]
+        },
+        "en": {
+          "label": "Invoice / statement reconciliation",
+          "description": "What is paid, what is missing",
+          "hint": "Which account, which period? E.g. “Reconcile October supplier invoices with the October bank statement”",
+          "attach": "The bank or postal statement, the list of invoices (open or paid), the ledger if useful",
+          "produces": "An Excel table: invoice, supplier or customer, amount invoiced, amount paid, payment date, difference, status, source",
+          "deliverable": "Reconciliation",
+          "checks": ["Payments without invoice and invoices without payment", "Differences in amount", "Duplicate payments"]
+        }
+      },
+      "mission": "Reconcile invoices with a bank or postal statement. What the person asked for: {subject}\n\nColumns: N° facture, Tiers, Date facture, Montant facturé (CHF), Date paiement, Montant payé (CHF), Écart (CHF), Statut, Source, À vérifier. Match each statement line to an invoice by reference, then by amount and party; a match on amount only is marked « À vérifier ». Status is one of « payée », « payée partiellement », « non payée », « paiement sans facture », « doublon ». The difference is computed (paid - invoiced) and labelled as computed; end with labelled total rows for invoiced, paid and difference."
+    },
+    {
+      "id": "budget-variance",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Commentaire budget vs réel",
+          "description": "Les écarts expliqués",
+          "hint": "Quelle période, pour qui ? Ex. « Commentaire des écarts budget/réel à fin octobre pour le conseil d'administration »",
+          "attach": "Le budget, l'état des comptes de la période (balance, compte de résultat), les explications reçues des responsables",
+          "produces": "Un rapport : synthèse, tableau des postes avec budget, réel, écart en CHF et en %, explication de chaque écart significatif, points d'attention",
+          "deliverable": "Commentaire budgétaire",
+          "checks": ["Les écarts calculés", "Les explications reprises des responsables", "Le seuil d'écart retenu comme significatif"]
+        },
+        "en": {
+          "label": "Budget vs actual commentary",
+          "description": "The variances explained",
+          "hint": "Which period, for whom? E.g. “Budget/actual variance commentary at end October for the board”",
+          "attach": "The budget, the period's accounts (trial balance, income statement), the explanations received from managers",
+          "produces": "A report: summary, table of lines with budget, actual, variance in CHF and %, explanation of each significant variance, points of attention",
+          "deliverable": "Variance commentary",
+          "checks": ["The computed variances", "The explanations taken from managers", "The threshold used as significant"]
+        }
+      },
+      "mission": "Write the budget vs actual commentary of a period. What the person asked for: {subject}\n\nBuild a table per line (revenue, main cost groups, result) with budget, actual, variance in CHF and in %, each variance computed and labelled. Comment every variance above the threshold in the team's memory, or above 10 % and CHF 5'000.00 when none is set (say which threshold you used). Explain a variance only with what the documents say; otherwise write « explication à obtenir de … ». When the budget covers the year and the actuals a part of it, say how you prorated, or that you did not. End with the points of attention for the rest of the year."
+    },
+    {
+      "id": "payment-reminder",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Relance de paiement",
+          "description": "Rappel courtois ou ferme",
+          "hint": "Quel client, quel niveau ? Ex. « Deuxième rappel à la société Exemple SA pour les factures 2026-118 et 2026-131 »",
+          "attach": "Les factures impayées, le relevé du compte client, les rappels déjà envoyés",
+          "produces": "Une lettre de rappel avec le détail des factures dues, le total, le nouveau délai et les coordonnées de paiement à compléter",
+          "deliverable": "Rappel",
+          "checks": ["Les factures, montants et échéances listés", "Le niveau de rappel et les frais éventuels", "Que le paiement n'est pas déjà arrivé"]
+        },
+        "en": {
+          "label": "Payment reminder",
+          "description": "Courteous or firm reminder",
+          "hint": "Which customer, which level? E.g. “Second reminder to Example Ltd for invoices 2026-118 and 2026-131”",
+          "attach": "The unpaid invoices, the customer account statement, reminders already sent",
+          "produces": "A reminder letter with the invoices due, the total, the new deadline and payment details to complete",
+          "deliverable": "Reminder",
+          "checks": ["The invoices, amounts and due dates listed", "The reminder level and any fees", "That payment has not already arrived"]
+        }
+      },
+      "mission": "Draft a payment reminder. What the person asked for: {subject}\n\nList each unpaid invoice with its number, date, due date and amount as written, and the total with its computation. Match the tone to the level: a first reminder assumes an oversight, a second sets a firm deadline, a last one announces the next step the team's memory names. Add late fees or interest only when the person asks for them and the documents give the rate. Leave the payment details as « [coordonnées de paiement] » unless the memory gives them."
+    },
+    {
+      "id": "month-end-note",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Note de clôture mensuelle",
+          "description": "Le mois en une page",
+          "hint": "Quel mois, pour qui ? Ex. « Note de clôture d'octobre pour la direction, avec la trésorerie »",
+          "attach": "La balance ou le compte de résultat du mois, la trésorerie, la liste des débiteurs et créanciers, vos notes de clôture",
+          "produces": "Une note : chiffres clés du mois, trésorerie, débiteurs en retard, écritures de régularisation proposées, points ouverts",
+          "deliverable": "Note de clôture",
+          "checks": ["Les chiffres clés, contre la balance", "Les régularisations proposées", "Les points ouverts et leur responsable"]
+        },
+        "en": {
+          "label": "Month-end closing note",
+          "description": "The month on one page",
+          "hint": "Which month, for whom? E.g. “October closing note for management, with cash position”",
+          "attach": "The month's trial balance or income statement, the cash position, the receivables and payables lists, your closing notes",
+          "produces": "A note: key figures of the month, cash, overdue receivables, proposed accruals, open points",
+          "deliverable": "Closing note",
+          "checks": ["Key figures, against the trial balance", "The proposed accruals", "Open points and their owner"]
+        }
+      },
+      "mission": "Write the month-end closing note. What the person asked for: {subject}\n\nStart with five key figures of the month (revenue, gross margin, personnel costs, result, cash at month end), each with its source line and, when the documents give it, the previous month or the budget. Then: receivables overdue by more than 30 days (party, amount, days), payables due in the next 30 days, accruals and deferrals proposed with their basis, and the open points. Every proposed entry is a proposal for the accountant, with the accounts left « [à définir] » unless the memory gives the chart of accounts."
+    },
+    {
+      "id": "vat-preparation",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Préparation du décompte TVA",
+          "description": "Chiffre d'affaires et impôt préalable",
+          "hint": "Quel trimestre, quelle méthode ? Ex. « Préparer le décompte TVA du 3e trimestre 2026, méthode effective »",
+          "attach": "Le journal des ventes, le journal des achats ou les factures fournisseurs, le dernier décompte",
+          "produces": "Un tableau Excel : opération, date, montant HT, taux, TVA due ou impôt préalable, chiffre du formulaire concerné, source",
+          "deliverable": "Préparation TVA",
+          "checks": ["Les taux appliqués à chaque ligne", "L'impôt préalable non déductible", "Les totaux par chiffre du décompte"]
+        },
+        "en": {
+          "label": "VAT return preparation",
+          "description": "Turnover and input tax",
+          "hint": "Which quarter, which method? E.g. “Prepare the Q3 2026 VAT return, effective method”",
+          "attach": "The sales journal, the purchase journal or supplier invoices, the last return",
+          "produces": "An Excel table: transaction, date, net amount, rate, VAT due or input tax, return box concerned, source",
+          "deliverable": "VAT preparation",
+          "checks": ["The rate applied to each line", "Non-deductible input tax", "Totals per return box"]
+        }
+      },
+      "mission": "Prepare the figures of a VAT return. What the person asked for: {subject}\n\nColumns: Type (vente/achat), Date, Pièce, Tiers, Montant HT (CHF), Taux (%), TVA (CHF), Montant TTC (CHF), Chiffre du décompte, Source, À vérifier. Use only the rates and return boxes given in the documents or the team's memory. Recompute the VAT of each line from the net amount and the rate; when it differs from the invoice by more than CHF 0.05, mark the row « À vérifier ». Mark also every line whose deductibility is doubtful (private use, entertainment, foreign invoice). End with labelled total rows per return box and the computed balance due or refundable."
+    },
+    {
+      "id": "expense-check",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Contrôle des notes de frais",
+          "description": "Justificatifs et règlement",
+          "hint": "Quelle période, qui ? Ex. « Contrôler les notes de frais de novembre de l'équipe de vente selon notre règlement »",
+          "attach": "Les notes de frais, les justificatifs, le règlement des frais",
+          "produces": "Un tableau Excel : collaborateur·trice, date, nature, montant demandé, justificatif, plafond, montant admis, écart, motif, source",
+          "deliverable": "Contrôle des frais",
+          "checks": ["Les dépenses refusées ou réduites et leur motif", "Les justificatifs manquants", "Les doublons entre notes"]
+        },
+        "en": {
+          "label": "Expense claim check",
+          "description": "Receipts and policy",
+          "hint": "Which period, whom? E.g. “Check the November expense claims of the sales team against our policy”",
+          "attach": "The expense claims, the receipts, the expense policy",
+          "produces": "An Excel table: employee, date, type, amount claimed, receipt, cap, amount allowed, difference, reason, source",
+          "deliverable": "Expense check",
+          "checks": ["Expenses refused or reduced and why", "Missing receipts", "Duplicates between claims"]
+        }
+      },
+      "mission": "Check expense claims against the policy. What the person asked for: {subject}\n\nColumns: Collaborateur·trice, Date, Nature, Montant demandé (CHF), Justificatif (oui/non), Plafond (CHF), Montant admis (CHF), Écart (CHF), Motif, Source, À vérifier. Compare each line with its receipt and with the cap of the expense policy, quoting the rule in Motif. A line without a receipt, above a cap, on a weekend or duplicated in another claim is marked « À vérifier »; the amount allowed is a proposal, not a decision. End with labelled totals per employee and overall."
+    },
+    {
+      "id": "closing-checklist",
+      "brief": "checklist",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Check-list de clôture",
+          "description": "Mensuelle ou annuelle",
+          "hint": "Quelle clôture ? Ex. « Check-list de clôture annuelle 2026, avec les documents à remettre à la fiduciaire »",
+          "attach": "Votre plan comptable, l'ancienne check-list, la liste demandée par la fiduciaire ou l'organe de révision",
+          "produces": "Une check-list par étape : rapprochements, inventaire, régularisations, amortissements, TVA, salaires, pièces à remettre, avec responsables et échéances",
+          "deliverable": "Check-list de clôture",
+          "checks": ["Les échéances (fiduciaire, AG, impôts)", "Les responsables", "Les documents demandés par la fiduciaire"]
+        },
+        "en": {
+          "label": "Closing checklist",
+          "description": "Monthly or year-end",
+          "hint": "Which closing? E.g. “Year-end 2026 closing checklist, with the papers to hand to the fiduciary”",
+          "attach": "Your chart of accounts, the previous checklist, the list requested by the fiduciary or auditor",
+          "produces": "A checklist by step: reconciliations, inventory, accruals, depreciation, VAT, payroll, papers to hand over, with owners and deadlines",
+          "deliverable": "Closing checklist",
+          "checks": ["The deadlines (fiduciary, general meeting, taxes)", "The owners", "The papers requested by the fiduciary"]
+        }
+      },
+      "mission": "Prepare a closing checklist. What the person asked for: {subject}\n\nGroup the items by phase: before closing, reconciliations (bank, receivables, payables, VAT, social insurance), period-end entries (accruals, deferrals, depreciation, provisions), inventory, reporting, papers for the fiduciary or auditor. Each item starts with a verb and names the owner, the deadline and the proof (reconciliation, list, signed report). Take every item requested by the fiduciary from its list, quoting it; items from good practice are marked « (bonne pratique) »."
+    },
+    {
+      "id": "invoice-approval-procedure",
+      "brief": "procedure",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Circuit de validation des factures",
+          "description": "De la réception au paiement",
+          "hint": "Pour quelles factures ? Ex. « Procédure de validation des factures fournisseurs, avec les seuils de signature »",
+          "attach": "Votre règlement des compétences ou de signature, l'ancienne procédure, les outils utilisés",
+          "produces": "Une procédure : réception, contrôle, visa, approbation selon les seuils, saisie, paiement, archivage, avec responsables",
+          "deliverable": "Procédure de validation",
+          "checks": ["Les seuils d'approbation", "La séparation entre qui approuve et qui paie", "Les délais de paiement visés"]
+        },
+        "en": {
+          "label": "Invoice approval workflow",
+          "description": "From receipt to payment",
+          "hint": "For which invoices? E.g. “Supplier invoice approval procedure, with signing thresholds”",
+          "attach": "Your delegation of authority or signature rules, the previous procedure, the tools in use",
+          "produces": "A procedure: receipt, check, initialling, approval by threshold, booking, payment, archiving, with owners",
+          "deliverable": "Approval procedure",
+          "checks": ["The approval thresholds", "Separation between who approves and who pays", "Target payment terms"]
+        }
+      },
+      "mission": "Write the approval procedure for incoming invoices. What the person asked for: {subject}\n\nNumber the steps from receipt to archiving, one action per step with its actor and expected result. Take the approval thresholds and signatories from the documents, as a table (amount band, who approves); when none is given, write « [à définir] » rather than a usual value. Make sure the person who approves an invoice is not the only one who releases its payment, and flag it when the documents allow it. Add what to do with a disputed invoice, a credit note and an invoice received without an order."
+    }
+  ],
+  "notes": [
+    {
+      "name": "finance-plan-comptable-et-taux",
+      "i18n": {
+        "fr": {
+          "title": "Plan comptable, taux et méthode TVA",
+          "description": "Les comptes utilisés, les taux de TVA appliqués et la méthode de décompte — à compléter avec la fiduciaire.",
+          "body": "L'agent n'utilise que les comptes et taux listés ici.\n\n- Plan comptable de référence : [À compléter : ex. PME suisse, adapté]\n- Comptes fréquents (numéro, libellé) : [À compléter]\n- Méthode de décompte TVA (effective, taux de la dette fiscale nette) et périodicité : [À compléter]\n- Taux de TVA appliqués par type de prestation : [À compléter]\n- Fiduciaire ou expert·e comptable (organisation) : [À compléter]\n- Seuil d'écart budgétaire jugé significatif (CHF et %) : [À compléter]"
+        },
+        "en": {
+          "title": "Chart of accounts, rates and VAT method",
+          "description": "The accounts used, the VAT rates applied and the return method — to fill in with the fiduciary.",
+          "body": "The agent uses only the accounts and rates listed here.\n\n- Reference chart of accounts: [To fill: e.g. Swiss SME chart, adapted]\n- Frequent accounts (number, label): [To fill]\n- VAT method (effective, net tax rate) and frequency: [To fill]\n- VAT rates applied by type of service: [To fill]\n- Fiduciary or accountant (organisation): [To fill]\n- Budget variance threshold considered significant (CHF and %): [To fill]"
+        }
+      }
+    },
+    {
+      "name": "finance-relances-et-delais",
+      "i18n": {
+        "fr": {
+          "title": "Conditions de paiement et relances",
+          "description": "Délais de paiement, niveaux de rappel, frais et étape suivante — à compléter par l'équipe.",
+          "body": "L'agent rédige les rappels selon ces règles.\n\n- Délai de paiement standard des factures : [À compléter : ex. 30 jours net]\n- Premier rappel, combien de jours après l'échéance : [À compléter]\n- Deuxième rappel et nouveau délai : [À compléter]\n- Frais de rappel ou intérêt moratoire appliqués : [À compléter]\n- Étape après le dernier rappel (poursuite, agence de recouvrement) et qui la décide : [À compléter]\n- Coordonnées de paiement à mentionner : [À compléter]\n- Clients à ne jamais relancer sans accord de la direction : [À compléter]"
+        },
+        "en": {
+          "title": "Payment terms and reminders",
+          "description": "Payment terms, reminder levels, fees and next step — for the team to fill in.",
+          "body": "The agent drafts reminders with these rules.\n\n- Standard payment term: [To fill: e.g. 30 days net]\n- First reminder, how many days after the due date: [To fill]\n- Second reminder and new deadline: [To fill]\n- Reminder fees or default interest applied: [To fill]\n- Step after the last reminder (debt collection, agency) and who decides it: [To fill]\n- Payment details to mention: [To fill]\n- Customers never to be reminded without management's approval: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "finance-reglement-frais",
+      "i18n": {
+        "fr": {
+          "title": "Règlement des frais",
+          "description": "Plafonds, justificatifs exigés et validation des notes de frais — à compléter par l'équipe.",
+          "body": "L'agent contrôle les notes de frais avec ces règles.\n\n| Nature | Plafond (CHF) | Justificatif exigé |\n|---|---|---|\n| Repas | [À compléter] | [À compléter] |\n| Nuitée | [À compléter] | [À compléter] |\n| Kilomètres en véhicule privé (CHF/km) | [À compléter] | [À compléter] |\n| Transports publics (classe) | [À compléter] | [À compléter] |\n\n- Frais forfaitaires éventuels : [À compléter]\n- Délai de remise des notes de frais : [À compléter]\n- Qui valide les notes de frais, et celles de la direction : [À compléter]"
+        },
+        "en": {
+          "title": "Expense policy",
+          "description": "Caps, required receipts and approval of expense claims — for the team to fill in.",
+          "body": "The agent checks expense claims with these rules.\n\n| Type | Cap (CHF) | Receipt required |\n|---|---|---|\n| Meals | [To fill] | [To fill] |\n| Overnight stay | [To fill] | [To fill] |\n| Mileage in a private car (CHF/km) | [To fill] | [To fill] |\n| Public transport (class) | [To fill] | [To fill] |\n\n- Lump-sum allowances, if any: [To fill]\n- Deadline to hand in expense claims: [To fill]\n- Who approves expense claims, and management's own: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "finance-calendrier-cloture",
+      "i18n": {
+        "fr": {
+          "title": "Calendrier de clôture et échéances",
+          "description": "Dates de clôture mensuelle et annuelle, décomptes TVA et AVS, remise à la fiduciaire — à compléter par l'équipe.",
+          "body": "L'agent place les échéances de clôture avec ce calendrier.\n\n- Clôture mensuelle, jour ouvrable cible : [À compléter : ex. J+8]\n- Exercice comptable (dates) : [À compléter]\n- Échéances des décomptes TVA : [À compléter]\n- Échéances des décomptes AVS et assurances sociales : [À compléter]\n- Date de remise des pièces à la fiduciaire ou à l'organe de révision : [À compléter]\n- Date de l'assemblée générale : [À compléter]\n- Destinataires de la note de clôture : [À compléter]"
+        },
+        "en": {
+          "title": "Closing calendar and deadlines",
+          "description": "Monthly and year-end closing dates, VAT and social security returns, hand-over to the fiduciary — for the team to fill in.",
+          "body": "The agent schedules closing deadlines with this calendar.\n\n- Monthly closing, target working day: [To fill: e.g. D+8]\n- Financial year (dates): [To fill]\n- VAT return deadlines: [To fill]\n- Social security return deadlines: [To fill]\n- Date papers are handed to the fiduciary or auditor: [To fill]\n- Date of the general meeting: [To fill]\n- Recipients of the closing note: [To fill]"
+        }
+      }
+    }
+  ]
+}

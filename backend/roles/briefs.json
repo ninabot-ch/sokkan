@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "about": "One brief per type of deliverable: what a good one looks like. Added to the mission of every kit template (backend/roles.py · deliverable_brief). Instructions for the agent are in English; the work's brief tells it which language to write in.",
+  "types": {
+    "letter": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Courrier ou e-mail"}, "en": {"label": "Letter or e-mail"}},
+      "structure": [
+        "subject line (« Objet : … ») that says what the letter is about in under 12 words",
+        "salutation adapted to the addressee (« Madame, Monsieur, » when unknown)",
+        "first paragraph: why we write, referring to the earlier exchange or document by its date or number",
+        "body: the facts and what we propose or ask, one idea per paragraph",
+        "the expected next step, with who does what and by when",
+        "formal closing and signature block (name, function, organisation) left for the person to complete"
+      ],
+      "length": "A letter fits on one page (150-350 words); an e-mail 80-200 words. Shorter is better when nothing is lost.",
+      "sources": "Every reference, number, amount, date and name comes from the attached documents or the person's request; quote numbers and amounts exactly as written there. Never invent a commitment, a deadline or a discount.",
+      "verify": "List the addressee's exact name and title, every amount and date, and any commitment the letter makes on behalf of the organisation."
+    },
+    "memo": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Note de synthèse"}, "en": {"label": "Briefing note"}},
+      "structure": [
+        "title and one line « for whom / for what decision »",
+        "the answer or recommendation first, in 3 to 5 lines",
+        "key points grouped by theme, each with the document it comes from",
+        "figures, dates and commitments that matter, exactly as written",
+        "what the documents leave open or contradict (both versions shown)"
+      ],
+      "length": "One to two pages (400-900 words). A reader in a hurry must get the essential from the first five lines.",
+      "sources": "Name the source document of each important point « (source : nom du document) ». Nothing that is not in the documents; when two documents disagree, show both.",
+      "verify": "List the figures and dates to check against the originals, and the points where the documents disagree or are silent."
+    },
+    "report": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Rapport ou analyse"}, "en": {"label": "Report or analysis"}},
+      "structure": [
+        "title, scope and period covered",
+        "summary in five lines: the findings and what they mean",
+        "context and method (which documents were used, what was compared)",
+        "findings, one section each, with the figures and their source",
+        "risks, limits and open questions",
+        "recommendations or options, each with its consequence"
+      ],
+      "length": "Two to five pages. Tables for any comparison of more than three figures.",
+      "sources": "Every figure is quoted from a named document, with its period; a computed figure (sum, ratio, variation) shows how it was computed from the source figures. No external figure, benchmark or statistic that is not in the documents.",
+      "verify": "List every computed figure with its calculation, the assumptions made, and the conclusions a human must confirm before the report goes out."
+    },
+    "plan": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Plan, programme ou planning"}, "en": {"label": "Plan, programme or schedule"}},
+      "structure": [
+        "objective and audience in two lines",
+        "the steps or modules in order, each with its owner, duration or date, and deliverable",
+        "a summary table (step, who, when, done-when)",
+        "resources, constraints and dependencies",
+        "risks and what to do if they occur"
+      ],
+      "length": "One to three pages; the summary table must fit on one page.",
+      "sources": "Dates, durations, people and budgets come from the documents or the request; when one is missing, write « [à définir] » rather than a plausible value.",
+      "verify": "List every date and owner that was not given explicitly, and every dependency that could move the schedule."
+    },
+    "table": {
+      "format": "xlsx",
+      "i18n": {"fr": {"label": "Tableau (Excel)"}, "en": {"label": "Table (Excel)"}},
+      "structure": [
+        "one header row with explicit column names (unit in the name: « Montant (CHF) »)",
+        "one row per item, in a meaningful order (date, amount or priority)",
+        "a column « Source » naming the document and page or line each row comes from",
+        "a column « À vérifier » (oui/non or a short reason) when the item is uncertain",
+        "total or subtotal rows labelled as such, at the end"
+      ],
+      "length": "As many rows as the documents justify, no padding rows; at most 12 columns.",
+      "sources": "Every cell value is copied from a named document; a computed cell (total, difference) is labelled as computed in its row. Never fill a missing value with an estimate: leave it empty and mark the row « À vérifier ».",
+      "verify": "In your message, say how many rows are marked « À vérifier », which totals were computed, and what was left empty."
+    },
+    "checklist": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Liste de contrôle"}, "en": {"label": "Checklist"}},
+      "structure": [
+        "title and when to use the checklist",
+        "the items grouped by phase or by owner, each as a checkbox « - [ ] »",
+        "for each item: who, by when, and the proof that it is done",
+        "items that depend on a decision still to take, marked as such"
+      ],
+      "length": "One to two pages; 10 to 40 items. Each item starts with a verb.",
+      "sources": "Items come from the documents (procedures, contracts, regulations given) and the request; an item added from general good practice is marked « (bonne pratique) ».",
+      "verify": "List the items added from good practice rather than from the documents, and the owners or deadlines that are assumed."
+    },
+    "minutes": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Procès-verbal ou compte rendu"}, "en": {"label": "Minutes or meeting report"}},
+      "structure": [
+        "meeting name, date, place, participants and excused (as given)",
+        "agenda items in order, each with the points discussed in neutral wording",
+        "decisions taken, numbered, each in one sentence",
+        "action table: action, owner, deadline",
+        "next meeting, if known"
+      ],
+      "length": "One to three pages. Neutral, factual, past tense; no opinion attributed to a person unless the notes attribute it.",
+      "sources": "Only what the notes or recording transcript say; a name, a decision or a deadline that is not in the notes is not added.",
+      "verify": "List the decisions and deadlines whose wording must be confirmed by the chair, and any participant or owner the notes leave unclear."
+    },
+    "short": {
+      "format": "md",
+      "i18n": {"fr": {"label": "Texte court (publication, annonce)"}, "en": {"label": "Short text (post, announcement)"}},
+      "structure": [
+        "a hook in one sentence",
+        "the message in two to four short paragraphs or bullet points",
+        "the call to action (what the reader should do, where)",
+        "two alternative versions of the hook, clearly marked"
+      ],
+      "length": "Within the channel's limit given in the request (default 120-250 words); no hashtags or emojis unless the team's charter asks for them.",
+      "sources": "Facts, dates, prices and names come from the documents; no claim that cannot be proven from them (« le meilleur », « n°1 »).",
+      "verify": "List every fact or figure the text states, the claims a human must be able to prove, and the people or partners named (consent to be named)."
+    },
+    "procedure": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Procédure ou mode opératoire"}, "en": {"label": "Procedure or how-to"}},
+      "structure": [
+        "purpose, scope and who it is for",
+        "prerequisites (access, documents, tools)",
+        "numbered steps, one action per step, with the expected result",
+        "exceptions and what to do when something goes wrong",
+        "who owns the procedure and when it is reviewed"
+      ],
+      "length": "One to three pages; steps short enough to follow while doing them.",
+      "sources": "Steps come from the documents and the request; a step added from good practice is marked « (bonne pratique) ». Tool names and screens are named as the documents name them.",
+      "verify": "List the steps that were inferred rather than read, and the owners and review date to confirm."
+    },
+    "review": {
+      "format": "docx",
+      "i18n": {"fr": {"label": "Revue de document"}, "en": {"label": "Document review"}},
+      "structure": [
+        "document reviewed (name, version or date), purpose of the review",
+        "summary: the three to five points that matter most",
+        "a table of the clauses or passages reviewed: reference, what it says (quoted), issue, suggested wording or question",
+        "points missing from the document",
+        "questions for the specialist or the counterparty"
+      ],
+      "length": "Two to four pages; quote the exact passage for every issue raised.",
+      "sources": "Quote the document word for word with its article or page; a reference to a law or a standard is given only when the documents provided name it. This is a preparation for a specialist, never a legal or tax opinion.",
+      "verify": "List each issue a qualified person must confirm, and every legal or regulatory reference that must be checked in the current text."
+    }
+  }
+}

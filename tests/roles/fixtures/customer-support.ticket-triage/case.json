@@ -1,0 +1,20 @@
+{
+  "template": "customer-support.ticket-triage",
+  "lang": "fr",
+  "ask": "Trie les tickets ouverts de la boîte support selon notre grille de priorités, urgents d'abord, et signale les doublons.",
+  "documents": [
+    {"name": "Export tickets ouverts 17.11.2026.txt", "source": "export-tickets.txt", "as_docx": false},
+    {"name": "Grille de priorités support.docx", "source": "grille-priorites.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["4812"],
+    ["4818"],
+    ["4823"],
+    ["4819"],
+    ["P1"],
+    ["Dépannage"],
+    ["Comptabilité clients"],
+    ["Support numérique"]
+  ],
+  "min_rows": 12
+}

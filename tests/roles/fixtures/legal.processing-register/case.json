@@ -1,0 +1,19 @@
+{
+  "template": "legal.processing-register",
+  "lang": "fr",
+  "ask": "Établis notre registre des activités de traitement selon la nLPD à partir de l'inventaire des outils et des notes de la séance du 4 novembre.",
+  "documents": [
+    {"name": "Inventaire outils et prestataires 28.10.2026.docx", "source": "inventaire-outils.md", "as_docx": true},
+    {"name": "Notes séance protection des données 04.11.2026.docx", "source": "notes-seance-donnees.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Salarix"],
+    ["Nuagex"],
+    ["MailNova"],
+    ["États-Unis", "Etats-Unis", "USA"],
+    ["Allemagne"],
+    ["10 ans"],
+    ["72 heures", "72 h"]
+  ],
+  "min_rows": 6
+}
