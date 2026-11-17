@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 3.6.8 "Icebreaker"
+## 3.6.8 — 2026-11-17 — "Icebreaker"
 
 - **No shell in an Atelier work, whoever asks.** The rule lived only in the permission callback,
   and the CLI does not always call it: it approves a read-only command by itself (`ls`, `pwd`, a
