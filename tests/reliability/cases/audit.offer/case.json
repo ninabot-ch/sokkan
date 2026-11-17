@@ -1,0 +1,17 @@
+{
+  "template": "",
+  "lang": "fr",
+  "ask": "Fais-moi une offre pour Promotion Riviera, étape 2 des Tilleuls, avec deux variantes (complète et basique sans tablette), chiffrée avec notre tarif 2026.",
+  "documents": [
+    {
+      "name": "Brief client - Résidence Les Tilleuls étape 2.docx",
+      "source": "brief-client.md",
+      "as_docx": true
+    },
+    {
+      "name": "Tarif 2026.xlsx",
+      "source": "tarif-2026.md"
+    }
+  ],
+  "must_contain": []
+}

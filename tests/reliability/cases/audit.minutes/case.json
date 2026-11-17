@@ -1,0 +1,28 @@
+{
+  "template": "",
+  "lang": "fr",
+  "ask": "Fais le PV du comité de ce matin, comme la dernière fois.",
+  "documents": [
+    {
+      "name": "Notes brutes comité de direction 10.12.docx",
+      "source": "notes-10-12.md",
+      "as_docx": true
+    },
+    {
+      "name": "Notes brutes comité de direction 12.11.docx",
+      "source": "notes-12-11.md",
+      "as_docx": true
+    },
+    {
+      "name": "Modèle PV maison.docx",
+      "source": "modele-pv.md",
+      "as_docx": true
+    },
+    {
+      "name": "Procès-verbal du comité de direction du 12 novembre 2026.docx",
+      "source": "pv-12-11.md",
+      "as_docx": true
+    }
+  ],
+  "must_contain": []
+}

@@ -1,0 +1,12 @@
+{
+  "template": "",
+  "lang": "fr",
+  "ask": "Rédige les certificats de travail pour les deux collaborateurs qui partent (certificat complet, selon les usages suisses).",
+  "documents": [
+    {
+      "name": "Collaborateurs sortants.xlsx",
+      "source": "collaborateurs-sortants.md"
+    }
+  ],
+  "must_contain": []
+}

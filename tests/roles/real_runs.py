@@ -123,9 +123,9 @@ def regrade(path: Path) -> None:
     print(table(data["results"]))
 
 
-def cases(only: list[str] | None) -> list[dict]:
+def cases(only: list[str] | None, root: Path | None = None) -> list[dict]:
     out = []
-    for d in sorted(FIXTURES.iterdir()):
+    for d in sorted((root or FIXTURES).iterdir()):
         if not (d / "case.json").is_file():
             continue
         c = json.loads((d / "case.json").read_text(encoding="utf-8"))
@@ -177,8 +177,11 @@ def space_for(base: Path, case: dict) -> dict:
 def prompt_for(case: dict, sp: dict) -> str:
     import playbooks
     import simple
-    mission = (playbooks.render(case["template"], case["ask"], project=sp["project"]) or ("", ""))[0]
-    assert mission, f"unknown template {case['template']}"
+    if not case.get("template"):
+        mission = ""          # a work started without a template (the persona audit's cases)
+    else:
+        mission = (playbooks.render(case["template"], case["ask"], project=sp["project"]) or ("", ""))[0]
+        assert mission, f"unknown template {case['template']}"
     return simple.brief(ask=case["ask"], lang=case.get("lang", "fr"), project=sp["project"],
                         sid=sp["sid"], mission=mission, docs=sp["docs"])
 
@@ -186,8 +189,8 @@ def prompt_for(case: dict, sp: dict) -> str:
 def grade(case: dict, play, sp: dict, files: dict[str, str]) -> dict:
     import roles
     import simple
-    _job, tpl = roles.template(case["template"])
-    fmt = tpl["format"]
+    found = roles.template(case["template"]) if case.get("template") else None
+    fmt = found[1]["format"] if found else "docx"
     want_ext = ".csv" if fmt == "xlsx" else ".md"
     good = {k: v for k, v in files.items() if k.lower().endswith(want_ext)}
     text = "\n".join(good.values())
@@ -227,9 +230,10 @@ async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
     if GATE:
         import playbooks
         import roles
-        found = roles.template(case["template"])
-        level = roles.level_rank(found[0]["level"]) if found else 3
-        mission = (playbooks.render(case["template"], case["ask"], project=sp["project"]) or ("", ""))[0]
+        found = roles.template(case["template"]) if case.get("template") else None
+        level = roles.level_rank(found[0]["level"]) if found else 2      # an ordinary project
+        mission = ((playbooks.render(case["template"], case["ask"], project=sp["project"]) or ("", ""))[0]
+                   if found else "")
         pol = GatedPolicy("atelier", deliverables=sp["deliverables"], memory=sp["memory"],
                           has_documents=bool(sp["docs"]), case=case, sp=sp, mission=mission,
                           level=level)
@@ -279,6 +283,8 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--regrade", default="", help="a roles-runs.json to grade again")
     ap.add_argument("--gate", action="store_true", help="the quality gate before the card")
+    ap.add_argument("--fixtures", default="", help="another folder of cases (tests/reliability/cases)")
+    ap.add_argument("--repeat", type=int, default=1, help="play each case N times")
     a = ap.parse_args()
     global GATE
     GATE = a.gate
@@ -301,8 +307,9 @@ def main() -> int:
                    max_concurrent=int(R.env("PARITY_MAX_CONCURRENT", "2")), model=model)
     with meter as wire:
         R.legacy_env(out_dir / "claude-cfg", wire.url)
-        for c in cases(only):
-            tag = f"roles-{stamp}-{c['id']}"
+        todo = [c for c in cases(only, Path(a.fixtures) if a.fixtures else None) for _ in range(a.repeat)]
+        for n, c in enumerate(todo):
+            tag = f"roles-{stamp}-{c['id']}-{n}"
             wire.tag = tag
             print(f"== {c['id']}", flush=True)
             try:
