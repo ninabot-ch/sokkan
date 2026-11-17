@@ -125,6 +125,25 @@ class GatedPolicy(P.Policy):
         return self.decide(gate)
 
 
+# Anthropic's list prices, USD per million tokens (input, output); cache read = 0.1 × input
+# rounded as published, cache write (5 min) = 1.25 × input
+PRICES = {"claude-sonnet-5-5": (2.00, 10.00, 0.10), "claude-opus-5-5": (4.00, 20.00, 0.20),
+          "claude-haiku-5-5": (0.10, 0.50, 0.01)}
+
+
+def cost_usd(records: list[dict]) -> float:
+    model = R.env("PARITY_MODEL", "")
+    if model not in PRICES:
+        return 0.0
+    pi, po, pr = PRICES[model]
+    total = 0.0
+    for rec in records:
+        u = rec.get("usage_raw") or {}
+        total += (int(u.get("input_tokens") or 0) * pi + int(u.get("cache_creation_input_tokens") or 0) * pi * 1.25
+                  + int(u.get("cache_read_input_tokens") or 0) * pr + int(u.get("output_tokens") or 0) * po) / 1e6
+    return total
+
+
 def regrade(path: Path) -> None:
     """Results of a run made before the cockpit's wording was used: a failure line that is
     only the bench's « already saved » refusal is the product's quiet refusal."""
@@ -338,8 +357,20 @@ def main() -> int:
                    max_concurrent=int(R.env("PARITY_MAX_CONCURRENT", "2")), model=model)
     with meter as wire:
         R.legacy_env(out_dir / "claude-cfg", wire.url)
+        key_file = R.env("PARITY_ANTHROPIC_KEY_FILE")
+        if key_file:
+            # a Claude model through Anthropic's API (calibration): the key is read from a 600
+            # file into the CLI's environment, never on a command line, never printed
+            for line in Path(key_file).read_text(encoding="utf-8").splitlines():
+                if line.startswith("ANTHROPIC_API_KEY="):
+                    os.environ["ANTHROPIC_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
         todo = [c for c in cases(only, Path(a.fixtures) if a.fixtures else None) for _ in range(a.repeat)]
+        cap = float(R.env("PARITY_COST_CAP_USD", "0") or 0)
+        spent = 0.0
         for n, c in enumerate(todo):
+            if cap and spent >= cap:
+                print(f"== COST CAP reached: {spent:.2f} $ >= {cap:.2f} $ — stopping", flush=True)
+                break
             tag = f"roles-{stamp}-{c['id']}-{n}"
             wire.tag = tag
             print(f"== {c['id']}", flush=True)
@@ -349,6 +380,8 @@ def main() -> int:
                 r = {"started": False, "start_error": f"{type(e).__name__}: {e}"[:300]}
             wire.tag = ""
             r["wire"] = W.totals(wire.of(tag))
+            r["cost_usd"] = round(cost_usd(wire.of(tag)), 4)
+            spent += r["cost_usd"]
             wire.forget(tag)
             r["case"] = c["id"]
             r["template"] = c["template"]
