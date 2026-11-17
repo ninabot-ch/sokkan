@@ -205,6 +205,8 @@ def _total_statements(text: str) -> list[tuple[tuple[str, ...], float, str]]:
                 k = _key(label + " " + col)
                 if k:
                     out.append((k, vals[0], f"{label} · {col}".strip(" ·")))
+                else:
+                    out.append((("#row",) + _bare(label), vals[0], label.strip()))
     for i, ln in enumerate(lines):
         if i in in_table or ln.lstrip().startswith("|"):
             continue
@@ -225,11 +227,42 @@ def _total_statements(text: str) -> list[tuple[tuple[str, ...], float, str]]:
         k = _key(label)
         if k:
             out.append((k, vals[0], label.strip(" :—–-")))
+        else:
+            out.append((("#text",) + _bare(label), vals[0], label.strip(" :—–-")))
+    return out
+
+
+def _bare(label: str) -> tuple[str, ...]:
+    """« Total HT », « Total TTC », « Total »: a bare total, told apart only by HT / TTC."""
+    w = re.findall(r"[a-z]+", fold(label))
+    return ("ttc",) if ("ttc" in w or "incl" in w or "inkl" in w) else ("ht",)
+
+
+def _bare_totals(stm: list) -> list[dict]:
+    """A bare « Total HT » cited in the text against the ONE table row of that name (several
+    tables with their own « Total » are not compared with each other)."""
+    out = []
+    for q in (("ht",), ("ttc",)):
+        rows = [(v, lb) for k, v, lb in stm if k == ("#row",) + q]
+        texts = [(v, lb) for k, v, lb in stm if k == ("#text",) + q]
+        if len(rows) != 1 or not texts:
+            continue
+        ref, label = rows[0]
+        wrong = sorted({v for v, _ in texts if not _close(v, ref)})
+        if wrong:
+            out.append(_f("totals", "block",
+                          f"« {label} » : le tableau donne {swiss(ref)}, le texte dit "
+                          + " / ".join(swiss(v) for v in wrong),
+                          f"« {label} »: the table gives {swiss(ref)}, the text says "
+                          + " / ".join(swiss(v) for v in wrong),
+                          label=label, values=[ref, *wrong]))
     return out
 
 
 def _totals(text: str) -> list[dict]:
-    stm = _total_statements(text)
+    allstm = _total_statements(text)
+    bare = _bare_totals(allstm)
+    stm = [x for x in allstm if not x[0][0].startswith("#")]
     keys = sorted({k for k, _, _ in stm}, key=len)
     # a short key merges into the one longer key that contains it (« variante a » into
     # « variante a complete »), never into two (« variante » stays apart from A and B)
@@ -257,7 +290,7 @@ def _totals(text: str) -> list[dict]:
                           f"{len(distinct)} totaux différents pour « {label} » : {said}",
                           f"{len(distinct)} different totals for « {label} »: {said}",
                           label=label, values=distinct))
-    return out
+    return out + bare
 
 
 # ---- 2. tables: lines and sums -----------------------------------------------------------

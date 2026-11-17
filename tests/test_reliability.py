@@ -390,3 +390,23 @@ def test_the_deliverable_carries_the_report_of_its_own_text(tmp_path, monkeypatc
     assert simple.list_deliverables("p1", sid)[0]["check"]["remaining"] == ["x"]
     (d / "Offre.md").write_text("# Offre modifiée\n", encoding="utf-8")
     assert simple.list_deliverables("p1", sid)[0]["check"] is None
+
+
+# ---- with the native formats (backend/outputs.py of seven-seas-formats) ---------------------
+def test_a_total_cited_in_the_text_is_compared_with_the_one_sokkan_computed():
+    pytest.importorskip("outputs")
+    md = ("# Offre\n\n| Poste | Montant CHF |\n|---|---|\n| Matériel | 53'520.00 |\n"
+          "| Programmation | 15'600.00 |\n| Main d'oeuvre | 24'840.00 |\n| **Total HT** | **=SUM(ABOVE)** |\n"
+          "| Remise | =[Inconnu]*2 |\n\nTotal HT : CHF 119'880.00.\n")
+    f = factcheck.check(md, lang="fr", country="CH", name="Offre.md")
+    said = " ".join(x["fr"] for x in factcheck.blocking(f))
+    assert "le tableau donne 93'960, le texte dit 119'880" in said
+    assert "ne comprend pas" in said
+
+
+def test_a_bare_total_in_the_text_matching_its_table_passes():
+    md = ("| Poste | Montant |\n|---|---|\n| A | 1'000 |\n| B | 500 |\n| Total HT | 1'500 |\n\n"
+          "Total HT : CHF 1'500.\n")
+    assert factcheck.blocking(factcheck.check(md, lang="fr", country="CH")) == []
+    two = md + "\n| Poste | Montant |\n|---|---|\n| C | 10 |\n| D | 20 |\n| Total HT | 30 |\n"
+    assert factcheck.blocking(factcheck.check(two, lang="fr", country="CH")) == []
