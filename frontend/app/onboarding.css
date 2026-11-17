@@ -45,7 +45,8 @@
   border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm); cursor: pointer; min-height: var(--sk-target); }
 .sk-ob-level.is-on { border-color: var(--sk-sea); background: var(--sk-sea-soft); }
 .sk-ob-level input { width: 18px; height: 18px; accent-color: var(--sk-sea); flex: none; }
-.sk-ob-level b { color: var(--sk-text-strong); margin-right: var(--sk-s2); }
+.sk-ob-level b { color: var(--sk-text-strong); }
+.sk-ob-level-text { display: flex; flex-direction: column; gap: 2px; }
 .sk-ob-level small { color: var(--sk-text-muted); }
 .sk-ob-claude { display: inline-flex; gap: var(--sk-s1); align-items: center; font-size: var(--sk-fs-xs); color: var(--sk-text-soft); }
 .sk-ob-claude.is-never { color: var(--sk-ok); font-weight: 600; }
@@ -63,6 +64,8 @@
 /* ---- first sign-in -------------------------------------------------------------------------- */
 .sk-ob-welcome { display: flex; flex-direction: column; gap: var(--sk-s4); }
 .sk-ob-welcome h2:focus { outline: none; }
+.sk-ob-head { display: flex; align-items: flex-start; gap: var(--sk-s3); }
+.sk-ob-head .sk-btn { flex: none; }
 .sk-ob-tour { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sk-s3); padding: var(--sk-s5) var(--sk-s4); }
 .sk-ob-tour-ico { width: 64px; height: 64px; border-radius: var(--sk-r-pill); display: grid; place-items: center;
   background: var(--sk-brass-soft); color: var(--sk-brass); }

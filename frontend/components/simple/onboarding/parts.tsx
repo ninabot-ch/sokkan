@@ -64,13 +64,12 @@ export function LevelPicker({ value, onChange, maxClaude = "team", name = "sk-ob
       {LEVELS.map((l) => (
         <label key={l} className={`sk-ob-level${value === l ? " is-on" : ""}`}>
           <input type="radio" name={name} value={l} checked={value === l} onChange={() => onChange(l)} />
-          <span className="sk-grow">
-            <b>{t(`ob.lv.${l}` as OKey)}</b>
-            <small>{t(`ob.lv.${l}.sub` as OKey)}</small>
-          </span>
-          <span className={`sk-ob-claude${claudePossible(l, maxClaude) ? "" : " is-never"}`}>
-            <Icon name={claudePossible(l, maxClaude) ? "globe" : "shield"} small />
-            {t(claudePossible(l, maxClaude) ? "ob.lv.claude.yes" : "ob.lv.claude.no")}
+          <span className="sk-grow sk-ob-level-text">
+            <span><b>{t(`ob.lv.${l}` as OKey)}</b> <small>{t(`ob.lv.${l}.sub` as OKey)}</small></span>
+            <span className={`sk-ob-claude${claudePossible(l, maxClaude) ? "" : " is-never"}`}>
+              <Icon name={claudePossible(l, maxClaude) ? "globe" : "shield"} small />
+              {t(claudePossible(l, maxClaude) ? "ob.lv.claude.yes" : "ob.lv.claude.no")}
+            </span>
           </span>
         </label>
       ))}

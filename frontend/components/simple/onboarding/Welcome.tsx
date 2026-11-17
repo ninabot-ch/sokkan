@@ -62,7 +62,7 @@ export default function Welcome({ ob, name, canStart, onClose, onStarted }: {
       <div className="sk-dialog sk-dialog-wide sk-ob-welcome" role="dialog" aria-modal="true" aria-labelledby="sk-wl-h" ref={box}>
         {part === "role" && (
           <>
-            <div className="sk-row">
+            <div className="sk-ob-head">
               <div className="sk-grow">
                 <div className="sk-xs sk-muted">{name ? t("wl.title", { name }) : t("wl.title.anon")}</div>
                 <h2 className="sk-h2" id="sk-wl-h" tabIndex={-1}>{t("wl.role")}</h2>
