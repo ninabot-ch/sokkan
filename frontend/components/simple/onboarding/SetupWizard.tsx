@@ -94,7 +94,7 @@ function Err({ text }: { text: string }) {
 function OrgStep({ ob, onDone, setLangPref }: { ob: Onboarding; onDone: () => void; setLangPref: (l: LangPref) => void }) {
   const t = useOT();
   const { lang } = useUI();
-  const [name, setName] = useState(ob.org_name === "Mon organisation" ? "" : ob.org_name);
+  const [name, setName] = useState(ob.org_name);
   const [lng, setLng] = useState<"fr" | "en">((ob.org_lang as "fr" | "en") || lang);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

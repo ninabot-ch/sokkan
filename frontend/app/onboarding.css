@@ -12,6 +12,7 @@
 .sk .sk-ob-railbtn { width: 100%; min-height: var(--sk-target); display: flex; align-items: center; gap: var(--sk-s2);
   padding: var(--sk-s2) var(--sk-s3); border-radius: var(--sk-r-sm); text-align: left; color: var(--sk-text-soft); }
 .sk .sk-ob-railbtn:hover { background: var(--sk-sunken); }
+.sk .sk-ob-railbtn .sk-xs { white-space: nowrap; }
 .sk .sk-ob-railbtn[aria-current="step"] { background: var(--sk-sea-soft); color: var(--sk-text-strong); font-weight: 600;
   box-shadow: inset 3px 0 0 var(--sk-sea); }
 .sk-ob-num { width: 24px; height: 24px; flex: none; border-radius: var(--sk-r-pill); display: grid; place-items: center;
@@ -52,7 +53,8 @@
 /* a value shown once */
 .sk-ob-copy { display: flex; flex-direction: column; gap: var(--sk-s1); min-width: 0; }
 .sk-ob-copy-row { display: flex; gap: var(--sk-s2); align-items: stretch; flex-wrap: wrap; }
-.sk-ob-secret { flex: 1 1 260px; min-width: 0; font-family: var(--sk-mono); font-size: var(--sk-fs-sm); padding: var(--sk-s2) var(--sk-s3);
+.sk-ob-copy-row .sk-ob-secret { flex: 1 1 260px; }
+.sk-ob-secret { min-width: 0; font-family: var(--sk-mono); font-size: var(--sk-fs-sm); padding: var(--sk-s2) var(--sk-s3);
   border-radius: var(--sk-r-sm); border: 1px dashed var(--sk-line-strong); background: var(--sk-surface); color: var(--sk-text-strong);
   overflow-wrap: anywhere; user-select: all; }
 .sk-ob-secret.is-text { font-family: var(--sk-body); user-select: text; }

@@ -71,10 +71,13 @@ def test_a_fresh_instance_sends_its_administrator_through_the_six_steps(box):
     assert ob["setup"]["needed"] is True and ob["setup"]["next"] == "org"
     assert [s["id"] for s in ob["setup"]["steps"]] == ["org", "model", "projects", "people", "documents", "first_work"]
     assert ob["setup"]["started_at"] and ob["model"]["kind"] == "none"
+    assert ob["org_name"] == ""                    # never the owner's own name offered as the organisation's
     # the organisation, without .env
     r = c.put("/api/onboarding/org", json={"org_name": "Atelier Exemple", "lang": "fr"})
     assert r.status_code == 200 and r.json() == {"org_name": "Atelier Exemple", "lang": "fr"}
     assert c.get("/api/instance").json()["org_name"] == "Atelier Exemple"
+    import projects
+    assert projects.get("default")["name"] == "Atelier Exemple"     # the common project follows
     st = c.put("/api/onboarding/setup", json={"step": "org", "state": "done"}).json()
     assert st["next"] == "model"
     # every step can be skipped; the next visit resumes at the first one still to do

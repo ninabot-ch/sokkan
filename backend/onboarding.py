@@ -364,10 +364,23 @@ def org_lang() -> str:
     return lang if lang in LANGS else ""
 
 
+def org_name_set() -> bool:
+    """Was the organisation named (here or at install)? `instance.info` falls back on the
+    owner's own name, which the first step must not offer as the organisation's."""
+    import instance
+    return bool((instance._load().get("org_name") or os.environ.get("SOKKAN_ORG_NAME") or "").strip())
+
+
 def set_org(name: str, lang: str, by: str) -> dict:
     import instance
     if name.strip():
+        before = instance.info()["org_name"]
         instance.set_org_name(name)
+        # the common project took the organisation's name at its creation (projects._default_name,
+        # the owner's name when none was given): it follows, unless somebody renamed it since
+        d = projects.get(projects.DEFAULT_PROJECT)
+        if d and d.get("name") in (before, "Default project", auth.OWNER_NAME):
+            projects.update(projects.DEFAULT_PROJECT, name=name.strip()[:80])
     if lang:
         if lang not in LANGS:
             raise ValueError("lang: fr | en")
@@ -745,7 +758,7 @@ def router(require) -> APIRouter:
         me = person(email)
         out: dict = {
             "admin": inst_admin,
-            "org_name": instance.info()["org_name"], "org_lang": org_lang(),
+            "org_name": instance.info()["org_name"] if org_name_set() else "", "org_lang": org_lang(),
             "me": {**me, "needs_welcome": not me["welcomed"] and not inst_admin},
             "auth": {"mode": auth.MODE, "codes": auth.MODE == "local",
                      "sso": auth.MODE in ("oidc", "ldaps")},
