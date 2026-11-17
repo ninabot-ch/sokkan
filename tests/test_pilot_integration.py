@@ -254,9 +254,9 @@ def test_each_click_of_the_simple_approval_card_is_a_line_of_the_journal(box):
                 ("edit", {"decision": "allow", "draft_text": draft + "Jour 2 : graphiques.\n",
                           # the browser never chooses the path nor the raw input: ignored
                           "updated_input": {"file_path": "/etc/passwd", "content": "x"}})):
-            # each decision in its own turn (3.6.7: within ONE turn, a document the person already
-            # approved is not saved again — tests/test_simple_367.py)
-            sess._approved_saves = set()
+            # each decision in its own turn (4.0: within ONE turn, the later saves of a document
+            # follow the person's first decision on it — tests/test_simple_367.py)
+            sess._approved_saves, sess._declined_saves = {}, {}
             tool = _Tool(sess, "Write", {"file_path": target, "content": draft}, ws)
             pid = tool.pid()
             card = _until(ws, "approval", id=pid)

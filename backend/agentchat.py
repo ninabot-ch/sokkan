@@ -243,6 +243,8 @@ class AgentSession:
         self._pending: dict[str, tuple[contract.Gate, dict]] = {}
         self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
+        self._approved_saves: dict[str, str] = {}     # 4.0 rule, reset at each turn
+        self._declined_saves: dict[str, str] = {}
         self._start_lock = asyncio.Lock()
         self.cost_usd = 0.0          # estimated cumulated cost (what each turn.ended reports)
         self._budget_warned = False  # avertissement 80 % émis une seule fois
@@ -590,15 +592,16 @@ class AgentSession:
 
     # ---- journal des validations (hitl_journal) ------------------------------
     def _journal_auto(self, gate: contract.Gate, input_data: dict, allowed: bool,
-                      reason: str) -> None:
+                      reason: str, actor: str = "") -> None:
         """An approval nobody clicked (mode, agent policy, sandbox): told apart from a
-        person's decision in the journal."""
+        person's decision in the journal (``actor``: whose earlier decision a rule carries)."""
         hitl_journal.automatic(
             "question" if gate.kind == "question" else "permission",
             session_id=self.sid, tool=gate.tool, title=_tool_title(gate.tool, input_data),
             input_data=input_data, allowed=allowed, reason=reason, mode=self.mode,
             secrets=self.redact_values, owner=self.user,
-            agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "")
+            agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "",
+            actor=actor)
 
     # ---- the gate (heart of the interactivity) -------------------------------
     async def gate(self, gate: contract.Gate) -> contract.Decision:
@@ -669,21 +672,33 @@ class AgentSession:
             self._journal_auto(gate, input_data, False, "policy:simple_profile_no_shell")
             return contract.Decision.deny(NO_SHELL, **auto)
 
-        # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
-        # of a document in this turn, the agent does not save it again on its own (a « v2 »
-        # nobody asked for meant a second card for one deliverable). A change they ask for
-        # comes with their next message, which opens a new turn.
+        # Atelier, one card per document per turn (3.6.7, changed in 4.0). The FIRST save of a
+        # document in a turn asks the person. Once they approved it, the later saves of the SAME
+        # document in the SAME turn go through without a card — approved by rule, journaled with
+        # the person who approved the first one: a change made in several edits (a question, its
+        # line in the answer key, the count) is the change they approved, not a « v2 ». 3.6.7
+        # refused them, which left the document half-changed (parity bench n°4, A1 quiz). If they
+        # REFUSED the first card, the document is not saved again in this turn. Another document
+        # has its own card. The thread shows one version per document per turn (plain.View), and
+        # the person still validates the deliverable after the turn.
         if gate.kind == "file_write" and not self.policy and self._is_simple_work():
             path = gate.path or str(input_data.get("file_path")
                                     or input_data.get("notebook_path") or "")
-            if path and os.path.abspath(path) in getattr(self, "_approved_saves", set()):
-                self._journal_auto(gate, input_data, False, "policy:simple_one_approval_per_turn")
+            key = os.path.abspath(path) if path else ""
+            if key and key in self._declined_saves:
+                self._journal_auto(gate, input_data, False,
+                                   "policy:simple_same_document_same_turn",
+                                   actor=self._declined_saves[key])
                 return contract.Decision.deny(
-                    "The person already approved this document in this turn: it is saved. Do "
-                    "not save it again and do not offer another version. Tell them in two or "
-                    "three sentences what it contains and what remains to confirm (if a part is "
-                    "still missing, say which one and ask whether to add it); they will ask for "
-                    "a change if they want one. Do not mention this message.", **auto)
+                    "The person declined this document in this turn: it is not saved. Do not "
+                    "save it again in this turn. Tell them in one or two sentences what you "
+                    "would change and ask what they want instead. Do not mention this message.",
+                    **auto)
+            if key and key in self._approved_saves:
+                who = self._approved_saves[key]
+                self._journal_auto(gate, input_data, True,
+                                   "policy:simple_same_document_same_turn", actor=who)
+                return _allow(gate, input_data, by=who or "policy", via="auto_rule")
 
         # a question with choices: rendered as buttons, the answer goes back to the engine
         if gate.kind == "question":
@@ -756,10 +771,13 @@ class AgentSession:
             saved = str(final.get("file_path") or "") or gate.path
             if gate.kind == "file_write" and self._is_simple_work() and not self.policy \
                     and _is_deliverable_path(saved):
-                if not hasattr(self, "_approved_saves"):
-                    self._approved_saves = set()
-                self._approved_saves.add(os.path.abspath(saved))
+                # whoever approved the first save carries the later ones of this turn
+                self._approved_saves[os.path.abspath(saved)] = decision.by or ""
             return _allow(gate, final, by=decision.by, via=decision.via)
+        refused = gate.path or str(input_data.get("file_path") or "")
+        if gate.kind == "file_write" and self._is_simple_work() and not self.policy \
+                and refused and _is_deliverable_path(refused):
+            self._declined_saves[os.path.abspath(refused)] = decision.by or ""
         return contract.Decision.deny(decision.message or "Denied by the user",
                                       by=decision.by, via=decision.via)
 
@@ -1050,7 +1068,9 @@ class AgentSession:
         assert self.harness is not None
         self._busy = True
         self._refusal_said = None
-        self._approved_saves = set()     # 3.6.7: documents the person approved in this turn
+        # documents the person approved / declined in this turn → who decided (4.0 rule)
+        self._approved_saves: dict[str, str] = {}
+        self._declined_saves: dict[str, str] = {}
         self._emit({"type": "status", "state": "working"})
         # study mode: duration and tier of the turn of a consenting participant (never its text)
         turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)

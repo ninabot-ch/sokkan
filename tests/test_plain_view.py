@@ -96,10 +96,13 @@ def test_second_save_is_version_two_and_an_edit_shows_what_changes(tmp_path):
     v, _docs, deliv = _view(tmp_path)
     path = str(deliv / "Plan de formation.md")
     for i in (1, 2):
+        # one save per turn (4.0: the saves of a document in ONE turn are one version)
+        v.feed({"type": "user", "text": f"message {i}"})
         v.feed({"type": "tool_use", "id": f"w{i}", "tool": "Write", "title": path,
                 "input": {"file_path": path, "content": "# Plan\n"}})
         out = v.feed({"type": "tool_result", "tool_use_id": f"w{i}", "text": "ok", "is_error": False})
         assert out[-1]["type"] == "deliverable" and out[-1]["version"] == i
+    v.feed({"type": "user", "text": "message 3"})
     card = v.feed({"type": "permission", "id": "p", "tool": "Edit", "title": path,
                    "input": {"file_path": path, "old_string": "a", "new_string": "Durée : 3 jours"}})[0]
     assert card["version"] == 3 and card["title"] == "Plan de formation"
