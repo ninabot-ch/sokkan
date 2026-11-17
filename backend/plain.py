@@ -445,6 +445,10 @@ class View:
             if ev.get("code") == "four_eyes":
                 # the four-eyes rule refused the owner's approval: the card is sent again
                 return [{"type": "notice", "code": "four_eyes", "detail": _short(msg, 1000)}]
+            if ev.get("code") in ("sandbox_unavailable", "engine_unavailable"):
+                # 4.0: the session's engine did not start (its sandbox, the kernel service):
+                # nothing the person can fix — their own sentence, the detail for the admin
+                return [{"type": "notice", "code": ev["code"], "detail": _short(msg, 1000)}]
             if ev.get("code") in STUDY_NOTICES:
                 # a refusal of the inference gateway about the study (backend/study.py): its
                 # own notice, in the person's language — never « you can send it again »

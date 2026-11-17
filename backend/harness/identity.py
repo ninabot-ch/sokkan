@@ -119,6 +119,16 @@ def handle(kind: str, value: str, *, env: dict | None = None) -> str:
     return h
 
 
+def instance_label(purpose: str = "kernel") -> str:
+    """A stable, opaque name of THIS instance for ``purpose`` (4.0: the ``local.instance`` of
+    the kernel engine, the label of its sandboxes on the docker daemon). Derived from the
+    instance key, never from a path or a host name: the same across upgrades, restarts and a
+    move of the install folder; different for two instances sharing one docker daemon (each
+    has its own key). ``sokkan-`` + 16 hex."""
+    digest = hmac.new(_key(), f"instance:{purpose}".encode(), hashlib.sha256).hexdigest()[:16]
+    return f"sokkan-{digest}"
+
+
 def resolve(h: str) -> tuple[str, str] | None:
     """(kind, value) of a handle minted on this instance, else None."""
     if not h:

@@ -11,6 +11,9 @@
 #   --profile <name>       SOKKAN_PROFILE    community (default) | appliance
 #   --dir <folder>         SOKKAN_DIR        target folder (default ./sokkan; appliance: /opt/sokkan)
 #   --tarball <file>                         a release tarball you already have (offline install)
+#   --kernel <image>       SOKKAN_KERNEL_IMAGE  also switch on the 4.0 kernel engine with that
+#                                            PINNED kernel image (scripts/kernel.sh, docs/KERNEL.md);
+#                                            off by default
 #   SOKKAN_BASE=https://…                    where releases are served (default https://sokkan.ch)
 #   SOKKAN_INSTALL_DOCKER=1                  install Docker without asking (Linux)
 #   SOKKAN_ACCEPT_GEMMA_TERMS=1|0            memory model licence answer (1 EmbeddingGemma, 0 MIT model)
@@ -27,6 +30,7 @@ PROFILE="${SOKKAN_PROFILE:-community}"
 RELEASE="${SOKKAN_RELEASE:-}"
 DIR="${SOKKAN_DIR:-}"
 TARBALL=""
+KERNEL_IMAGE="${SOKKAN_KERNEL_IMAGE:-}"
 DOCKER_FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,7 +38,8 @@ while [ $# -gt 0 ]; do
     --profile) PROFILE="${2:?--profile community|appliance}"; shift ;;
     --dir) DIR="${2:?--dir <folder>}"; shift ;;
     --tarball) TARBALL="${2:?--tarball <file>}"; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    --kernel) KERNEL_IMAGE="${2:?--kernel <pinned kernel image>}"; shift ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "install: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -165,7 +170,8 @@ if [ -e "$DIR" ]; then
       cp "$WORK/src/scripts/upgrade.sh" "$DIR/scripts/.upgrade-$VER.sh"
       ST="$(stage_tarball "$DIR")"
       rc=0
-      SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" sh "$DIR/scripts/.upgrade-$VER.sh" "$ST" || rc=$?
+      SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" \
+        sh "$DIR/scripts/.upgrade-$VER.sh" "$ST" || rc=$?
       rm -f "$DIR/scripts/.upgrade-$VER.sh"; unstage "$ST"
       exit "$rc"
     fi
@@ -219,6 +225,9 @@ if [ "$PROFILE" = community ]; then
   fi
   grep -q 'SOKKAN_DB_PASSWORD' .env.example 2>/dev/null && set_env SOKKAN_DB_PASSWORD "$(rand_hex 18)"
   memory_setup
+  if [ -n "$KERNEL_IMAGE" ]; then
+    sh scripts/kernel.sh enable --image "$KERNEL_IMAGE" || die "the kernel engine could not be enabled (see above)"
+  fi
   chmod 600 .env
   COMPOSE_CMD="docker compose"; [ "$DC" = "sudo docker" ] && COMPOSE_CMD="sudo docker compose"
   say ""
@@ -325,7 +334,8 @@ chmod 600 .env
 # the instance answers as $VER
 ST="$(stage_tarball "$PWD")"
 rc=0
-SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" sh scripts/upgrade.sh "$ST" || rc=$?
+SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" \
+  sh scripts/upgrade.sh "$ST" || rc=$?
 unstage "$ST"
 [ "$rc" = 0 ] || die "SOKKAN $VER is installed in $DIR but did not start — see: cd $DIR && $DC compose ps"
 

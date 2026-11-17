@@ -319,6 +319,13 @@ What differs from the CLI adapter, and why the cockpit does not notice:
   space's rule (`refusals.py`), as the legacy adapter says its own.
 * Refused rather than run wider: a run in plan mode (the kernel's plan mode is read-only, not « a plan
   submitted, then approved »).
+* The model's commands run in a **sandbox container** per session, never in the kernel's
+  (`local.code.backend: docker`, `require_sandbox`), created through the kernel's socket proxy;
+  the kernel's configuration is rendered by the api at every start (`kernel_config.py`: instance
+  label from the instance key, caps, sandbox network, host flags). A session whose sandbox cannot
+  be created (503 `sandbox_unavailable`) is refused with `EngineUnavailable`; the session says it
+  (`error` with that code, a sentence of its own in the simple profile) and tries again at the
+  next message. Install, prerequisites, network modes: `docs/KERNEL.md`.
 * Resume survives a restart of the kernel: its threads, cards and ledger are in SOKKAN's Postgres,
   schema `kernel` (`deploy/kernel/db-init.sql`, services `kernel-db`, `kernel-migrate`). A resume
   of a thread the kernel does not have is refused (the kernel would reopen it empty).

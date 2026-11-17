@@ -359,6 +359,36 @@ def detect() -> tuple[bool, str]:
 
 # ---- the stream --------------------------------------------------------------------------
 
+class EngineUnavailable(ConnectionError):
+    """The kernel refused to open the run's session for a reason the PERSON cannot fix and the
+    administrator can: ``code`` names it (``sandbox_unavailable``: the sandbox of the session
+    could not be created with its caps — kernel host-embed § 1), ``message`` says what to do."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+SANDBOX_UNAVAILABLE = (
+    "The engine's sandbox could not start, so this session cannot run its tools. "
+    "Administrator: docker must apply the sandbox's memory and CPU limits (cgroup controllers "
+    "delegated to docker) and the kernel must reach docker through its socket proxy — see "
+    "docs/KERNEL.md « sandbox_unavailable ». Kernel said: ")
+
+
+def _refusal(status: int, text: str) -> ConnectionError:
+    """The exception for a session the kernel refused to open."""
+    try:
+        err = (httpx.Response(status, text=text).json() or {}).get("error") or {}
+    except ValueError:
+        err = {}
+    code = err.get("code") if isinstance(err, dict) else None
+    if status == 503 and (code == "sandbox_unavailable" or "sandbox_unavailable" in text):
+        detail = (err.get("message") if isinstance(err, dict) else "") or text
+        return EngineUnavailable("sandbox_unavailable", SANDBOX_UNAVAILABLE + str(detail)[:300])
+    return ConnectionError(f"kernel refused the session ({status}): {text[:200]}")
+
+
 class _Stream:
     def __init__(self, h: "KernelHarness") -> None:
         self._h = h
@@ -544,7 +574,7 @@ class KernelHarness(Harness):
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         if r.status_code not in (200, 201):
             await self._close_client()
-            raise ConnectionError(f"kernel refused the session ({r.status_code}): {r.text[:200]}")
+            raise _refusal(r.status_code, r.text)
         out = r.json()
         self._thread = out["thread_id"]
         # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
