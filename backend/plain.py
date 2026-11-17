@@ -82,7 +82,10 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  "declined this document in this turn",             # 4.0
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
-                 "No such tool available")
+                 "No such tool available",
+                 # 4.0: a file tool pointed outside the run's folder, refused by the kernel
+                 # before it ran (`outside_root`, harness/refusals.py)
+                 "Outside this conversation's folder")
 
 
 _ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"

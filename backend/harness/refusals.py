@@ -20,6 +20,12 @@ ATELIER_NO_SHELL = (
     "files with Read. Do not mention this to the person.")
 NO_MEMORY = "This conversation does not write memory files directly (removed from this run)."
 MEMORY_TOOLS = {"memory_note", "memory"}
+# 4.0 (kernel host-3c) — a file tool pointed outside the run's folder: the kernel refuses it
+# (`reason: outside_root`) before anything runs. A rule of the space: plain.POLICY_DENIED
+# recognises these first words, the agent goes on.
+OUTSIDE_ROOT = "Outside this conversation's folder (a rule of the space): not read nor written."
+# a card the person (or a rule of the cockpit) refused, when the decision carried no words
+DECLINED = "The user declined this action."
 
 
 def removed(name: str, classification: str, engine_said: str) -> str:
@@ -30,4 +36,24 @@ def removed(name: str, classification: str, engine_said: str) -> str:
         head = NO_MEMORY
     else:
         head = f"{name} is not in this agent's allowed tools (removed from this run)."
+    return f"{head} {engine_said}".strip()
+
+
+def outside_root(engine_said: str) -> str:
+    """The cockpit's sentence for a file tool the engine refused outside the run's folder."""
+    return f"{OUTSIDE_ROOT} {engine_said}".strip()
+
+
+def declined(cockpit_said: str, engine_said: str) -> str:
+    """The result of a refused card, as the cockpit decided it: its own words first (a rule of
+    the space says it in POLICY_DENIED words, the person's « No » in PERSON_DENIED words), the
+    person's refusal when the decision had none, then the engine's."""
+    head = (cockpit_said or "").strip()
+    try:
+        from plain import PERSON_DENIED, POLICY_DENIED
+        known = any(m in head for m in (*PERSON_DENIED, *POLICY_DENIED))
+    except ImportError:                 # the harness without the cockpit (tests of the contract)
+        known = bool(head)
+    if not known:
+        head = f"{DECLINED} {head}".strip()
     return f"{head} {engine_said}".strip()

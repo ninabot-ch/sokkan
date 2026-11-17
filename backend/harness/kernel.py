@@ -399,6 +399,9 @@ class KernelHarness(Harness):
         self._kturns: set[str] = set()  # kernel turns of this cockpit turn (started, not done)
         self._gates: dict[str, dict] = {}       # gate_id → state
         self._held_calls: dict[str, str] = {}   # call_id → gate_id (placeholder result held)
+        # calls of a refused card whose result is already out (the adapter's own, on a kernel
+        # that publishes none; the kernel's `declined`, host-3c): never a second result
+        self._settled_calls: set[str] = set()
         self._last_text = ""
         self._turn_error: Error | None = None
         self._cancelled = False
@@ -745,10 +748,15 @@ class KernelHarness(Harness):
             self._mail.put_nowait(Error(code=e.code, message=e.message, recoverable=True,
                                         data={"gate_id": gate_id}))
             return False
+        g["decision"] = effective
         if cont is None:                # the kernel no longer had it pending
             self._resolve(gate_id, Decision.deny("settled by the engine", via="engine"))
             return False
         if cont in ("running", "queued"):
+            # an approval runs the tool then continues the turn; a refusal too since kernel
+            # host-3c (202 + continuation: its `tool.result` `declined` comes first, then the
+            # model goes on) — the cockpit turn waits for that continuation. An older kernel
+            # answers a refusal 200 + `none`: the turn ends with the refused call (C3).
             self._expect_done += 1
         self._resolve(gate_id, effective)
         return True
@@ -814,9 +822,11 @@ class KernelHarness(Harness):
                                            message=d.message if d.denied else ""))
         call = g.get("call_id")
         if d.denied and call and self._held_calls.pop(call, None):
-            # the kernel publishes no result for a refused card: the call failed
+            # a kernel before host-3c publishes no result for a refused card; host-3c publishes
+            # its `declined` result, which may come after this: one result, said as refused
+            self._settled_calls.add(call)
             self._mail.put_nowait(ToolResult(call_id=call, ok=False, turn_id=g.get("turn_id"),
-                                             output=d.message or "Refused."))
+                                             output=self._declined_text(g, ""), refused=True))
         self._maybe_end()
 
     async def interrupt(self) -> None:
@@ -1055,19 +1065,39 @@ class KernelHarness(Harness):
             gate_id=gid, kind="question", subject={"tool": "clarify", "input": inp},
             options=(ANSWER, DENY), turn_id=self._turn)))
 
+    def _declined_text(self, g: dict, engine_said: str) -> str:
+        d = g.get("decision")
+        from .refusals import declined
+        return declined(d.message if d is not None and d.denied else "", engine_said)
+
     def _on_tool_result(self, d: dict) -> None:
         call = d.get("call_id")
         out = str(d.get("preview") or d.get("content") or "")
-        if call in self._held_calls and not d.get("approval_id"):
-            return                       # « waiting for approval »: not a result
-        if d.get("approval_id"):
-            self._held_calls.pop(call, None)
         # a refusal of the kernel's gate: `status: "refused"` (kernel host-2a, ed99c612; `ok`
         # and `is_error` unchanged there), or, on an older kernel, a `reason` on a result
         # published as a success — refused before running, never a tool that ran
-        refused = str(d.get("status") or "") == "refused" or bool(d.get("reason"))
+        reason = str(d.get("reason") or "")
+        refused = str(d.get("status") or "") == "refused" or bool(reason)
+        if call in self._held_calls and not d.get("approval_id") and not refused:
+            return                       # « waiting for approval »: not a result
+        if call in self._settled_calls:
+            return                       # its refusal is already out (_announce)
+        gid = self._held_calls.pop(call, None) if (d.get("approval_id") or refused) else None
         ok = not d.get("is_error") and not refused
         name = str(d.get("name") or "")
+        if refused and reason == "declined":
+            # a card refused by the cockpit (kernel host-3c): the person's « No » or a rule of
+            # the space, in the words the cockpit decided it with — not a failure
+            g = self._gates.get(gid or str(d.get("approval_id") or "")) or next(
+                (x for x in self._gates.values() if x.get("call_id") == call), {})
+            out = self._declined_text(g, out)
+            if call:
+                self._settled_calls.add(call)
+        elif refused and reason == "outside_root" and name not in self._removed:
+            # a file tool pointed outside the run's folder (kernel host-3c, docker): a rule of
+            # the space, said as the cockpit's rules are
+            from .refusals import outside_root
+            out = outside_root(out)
         if refused and name in self._removed:
             # a tool the COCKPIT removed from the run: its refusal is a rule of the space,
             # said in the cockpit's words (harness/refusals.py), as the legacy engine's is
