@@ -314,7 +314,7 @@ def test_a_job_that_keeps_its_data_local_refuses_claude(world):
 def test_a_table_deliverable_is_previewed_as_a_table_and_downloaded_as_excel(world):
     """Integration n°2: a kit's Excel deliverable goes through `outputs` (formats) — a Markdown
     source with `format: xlsx`, totals as formulas SOKKAN computes; a « .csv » still works."""
-    import openpyxl
+    openpyxl = pytest.importorskip("openpyxl")      # outputs renders Excel with it (image dependency)
     import simple
     sid = _fx.DEFAULT_SID
     d = simple.deliverable_dir("default", sid)
