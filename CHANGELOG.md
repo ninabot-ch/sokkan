@@ -41,6 +41,14 @@ shell tool of the kernel (`deny_tools`).
   none. No session is counted twice.
 
 ### Added
+- **Native formats for the Atelier's deliverables.** An agent never says « I can only save
+  Markdown » again: the person downloads Excel (real formulas — totals written `=SUM(ABOVE)` or
+  `=[Montant]-[Payé]`, computed by SOKKAN, stored with the formula, Swiss figures), Word on the
+  organisation's own template (`.dotx`/`.docx`, by kind of document, Réglages), PDF, CSV `;`, and
+  one Word or PDF per recipient in one zip (`format: letters`). The source stays the Markdown the
+  card shows and the validation seals; figures computed by SOKKAN are handed back to the agent
+  (`.calc/`). New inputs: csv, eml, msg, jpg/png (local OCR with Tesseract). New dependencies
+  (permissive licences): python-docx, openpyxl, reportlab, olefile; `tesseract-ocr` in the api image.
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of
