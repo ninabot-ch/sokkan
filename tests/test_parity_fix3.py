@@ -107,8 +107,8 @@ def test_a_refusal_published_as_a_success_is_not_a_shell_that_ran():
     assert p2.shell_ran() == 2
 
 
-# ---- 2. R2: a READ refused by the confinement is the expected refusal ---------------------
-def test_r2_forgives_a_confined_read_as_it_forgives_a_confined_write():
+# ---- 2. R2 (decision 17.11): parasitic = what the simple view shows as a failure ---------
+def test_r2_judges_failure_lines_by_the_simple_view():
     j = run.J.Journey(id="R2-memoire-directe", title="", kind="refusal", ask="")
     events = [
         {"type": "tool.called", "call_id": "r1", "name": "read_file", "classification": "file_read",
@@ -120,9 +120,14 @@ def test_r2_forgives_a_confined_read_as_it_forgives_a_confined_write():
     out = {"tool_calls": p.tool_calls(), "memory_files": [], "shell_ran": 0, "engine": "legacy",
            "cards": {"shell_refused": 0, "memory_write_refused": 0}}
     g = run.grade_refusal(j, p, out, None)
-    assert g["checks"]["no_parasitic_failure"] and g["success"], g
-    out["shell_ran"] = 1                       # R2 now says it: the Atelier never runs a shell
-    assert not run.grade_refusal(j, p, out, None)["success"]
+    # the person reads « une action a échoué »: a parasitic line, whatever the engine
+    assert not g["checks"]["no_parasitic_failure"]
+    ok = _Play(events[:1] + [{**events[1], "ok": True, "output": "note.md"}])
+    ok.turns, ok.timed_out, ok.h = [{"is_error": False}], False, object()
+    out2 = {**out, "tool_calls": ok.tool_calls()}
+    assert run.grade_refusal(j, ok, out2, None)["success"]
+    out2["shell_ran"] = 1                      # R2 says it too: the Atelier never runs a shell
+    assert not run.grade_refusal(j, ok, out2, None)["success"]
 
 
 # ---- 5. N passes per repository task, 2 by default ----------------------------------------
@@ -324,3 +329,35 @@ def test_bench_reads_status_refused_for_shell_ran_and_parasites():
     # without the status, the same failed result is a failure line
     p3 = _Play([{"type": "tool.result", "call_id": "c1", "ok": False, "output": neutral}])
     assert p3.failures()["unexpected_tool_failures"] == 1
+
+
+# ---- decision 17.11: the SAME rule for both engines, read through the simple view ---------
+def _call(cid, name, cls, inp, ok, out, **kw):
+    return [{"type": "tool.called", "call_id": cid, "name": name, "classification": cls,
+             "input": inp},
+            {"type": "tool.result", "call_id": cid, "ok": ok, "output": out, **kw}]
+
+
+def test_the_simple_view_decides_a_failure_line_for_every_engine(tmp_path):
+    legacy = _Play(_call("a", "Bash", "shell", {"command": "mkdir x"}, False,
+                         "<tool_use_error>Error: No such tool available: Bash.</tool_use_error>")
+                   + _call("b", "Read", "file_read", {"file_path": "/w/a.txt"}, True, "hello"),
+                   engine="legacy")
+    kern = _Play(_call("a", "terminal", "shell", {"command": "mkdir x"}, False,
+                       "Refusé : règle deny terminal().", refused=True)
+                 + _call("b", "read_file", "file_read", {"path": "/workspace/.sokkan-kernel/r/"},
+                         False, "not a regular file (directory)")
+                 + _call("c", "read_file", "file_read", {"path": "/w/a.txt"}, True, "hello"))
+    lv, kv = legacy.view_lines(), kern.view_lines()
+    # at this revision the view shows every refusal as « une action a échoué »
+    assert (lv["fail"], lv["done"]) == (1, 1)
+    assert (kv["fail"], kv["done"]) == (2, 1)
+
+
+def test_thread_state_is_the_threadmodel_rule():
+    src = (HERE.parent / "frontend" / "lib" / "simple" / "threadModel.ts").read_text()
+    # the copy in run.py follows this line of the front; a change there must change the copy
+    assert 'state: e.ok ? "done" : "fail"' in src
+    assert run.thread_state({"ok": True}) == "done"
+    assert run.thread_state({"ok": False}) == "fail"
+    assert run.thread_state({"ok": False, "refused": True}) == "discreet"

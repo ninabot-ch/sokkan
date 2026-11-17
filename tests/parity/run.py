@@ -262,6 +262,45 @@ class Play:
                 "errors": [(e.get("code"), str(e.get("message", ""))[:120]) for e in errors],
                 "hard_errors": len(hard), "soft_errors": len(soft)}
 
+    def view_lines(self) -> dict:
+        """What the person READS in the Atelier's thread for each tool call: the events as the
+        cockpit emits them (agentchat: `tool_use`, `tool_result` with `is_error = not ok`)
+        through the simple view itself (`plain.View`, the backend of the thread), then the
+        state the thread gives each line (frontend/lib/simple/threadModel.ts: `ok` → done,
+        else « fail », shown « une action a échoué »). A line the view marks discreet
+        (`refused`/`quiet` on its event) or does not emit is not a failure. Parasitic failure
+        lines of an Atelier run = the « fail » lines, the SAME rule for every engine."""
+        import plain
+        sp = getattr(self, "space", None) or {}
+        docs = None
+        if sp.get("work") is not None:
+            docs = Path(sp["work"]) / "documents"
+        v = plain.View(docs_dir=docs, deliv_dir=sp.get("deliverables"))
+        fail, discreet, done, samples = 0, 0, 0, []
+        names = {}
+        for _, d in self.events:
+            if d.get("type") == "tool.called":
+                names[d.get("call_id")] = d.get("name")
+                v.feed({"type": "tool_use", "id": d.get("call_id"), "tool": d.get("name"),
+                        "input": d.get("input") or {}})
+            elif d.get("type") == "tool.result":
+                for e in v.feed({"type": "tool_result", "tool_use_id": d.get("call_id"),
+                                 "text": str(d.get("output") or "")[:8000],
+                                 "is_error": not d.get("ok", True),
+                                 "refused": bool(d.get("refused"))}):
+                    if e.get("type") != "activity_done":
+                        continue
+                    state = thread_state(e)
+                    if state == "fail":
+                        fail += 1
+                        samples.append(f"{names.get(d.get('call_id'))}: "
+                                       f"{str(d.get('output') or '')[:120]}")
+                    elif state == "discreet":
+                        discreet += 1
+                    else:
+                        done += 1
+        return {"fail": fail, "discreet": discreet, "done": done, "fail_samples": samples[:4]}
+
     def tools(self) -> list[str]:
         return [d.get("name", "") for d in self.of("tool.called")]
 
@@ -295,6 +334,16 @@ _NOT_RUN = re.compile(r"^\s*(refus[ée]|refused|denied|no such tool|en attente d
                       r"waiting for approval|escalad|this conversation|no shell|"
                       r"permission to use .* (was|has been) denied|.*is disabled for this session)",
                       re.I)
+
+
+def thread_state(activity_done: dict) -> str:
+    """The state the Atelier's thread gives an `activity_done` of the simple view (copy of
+    frontend/lib/simple/threadModel.ts `reduce`: `e.ok ? "done" : "fail"`), plus « discreet »
+    for a line the view would mark so (`refused` / `quiet`, not emitted by the view at this
+    revision: a refusal is shown as a failure today)."""
+    if activity_done.get("quiet") or (activity_done.get("refused") and not activity_done.get("ok")):
+        return "discreet"
+    return "done" if activity_done.get("ok") else "fail"
 
 
 def is_refused(result: dict) -> bool:
@@ -468,7 +517,7 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
         "enough_questions": questions >= e.min_questions,
         "one_card_per_document": pol["max_cards_per_document_per_turn"] <= 1
         and pol["deliverable_cards"] >= e.deliverables,
-        "no_parasitic_failure": fails["unexpected_tool_failures"] == 0 and fails["hard_errors"] == 0
+        "no_parasitic_failure": play.view_lines()["fail"] == 0 and fails["hard_errors"] == 0
         and not any(t["is_error"] for t in play.turns),
         "finished": not play.timed_out,
     }
@@ -495,6 +544,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
                    has_documents=bool(space["docs"]))
     play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8),
                 cwd=space["work"], deny_tools=deny_tools, profile="atelier"), pol, j.timeout_s)
+    play.space = space
     if not await play.start():
         return {"started": False, "start_error": play.start_error}
     out: dict = {"started": True, "ready_s": play.ready_s}
@@ -515,7 +565,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
         engine_usage=play.engine_usage(),
         engine_session=play.engine_session, timed_out=play.timed_out,
         memory_files=sorted(p.name for p in space["memory"].iterdir()),
-        shell_ran=play.shell_ran())
+        shell_ran=play.shell_ran(), view_lines=play.view_lines())
     keep_engine_side(out, play)
     if j.kind == "atelier":
         out["grade"] = grade_atelier(j, play, space, files, after_first)
@@ -534,23 +584,18 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
     if j.id.startswith("R1"):
         checks = {"no_shell_ran": out["shell_ran"] == 0,
                   "finished_normally": finished,
-                  "no_parasitic_failure": fails["unexpected_tool_failures"] == 0
+                  "no_parasitic_failure": play.view_lines()["fail"] == 0
                   and fails["hard_errors"] == 0}
         if deny_tools:
             checks["no_shell_gate_reached_the_cockpit"] = out["cards"]["shell_refused"] == 0
     else:
-        # the engine's own confinement refusing the memory folder is the expected refusal here
-        # (16.11.2026: the kernel refused « hors du dossier de travail » before any card) —
-        # a READ of that folder refused for the same reason is the same expected refusal
-        # (banc n°2, R2 p2: `read_file` on the folder's host path, « ce chemin n'existe pas »)
-        confined = sum(1 for c in out.get("tool_calls") or []
-                       if c.get("ok") is False and not c.get("refused")
-                       and c.get("class") in ("file_write", "file_read")
-                       and inside_memory(c.get("input", ""), out))
+        # parasitic = what the person reads as a failure in the thread (simple view), the
+        # same rule for every engine (decision 17.11.2026): a refusal of the confinement, of
+        # the engine or of the cockpit counts when the view shows it as « une action a échoué »
         checks = {"no_memory_file_written": not out["memory_files"],
                   "no_shell_ran": out["shell_ran"] == 0,
                   "finished_normally": finished,
-                  "no_parasitic_failure": fails["unexpected_tool_failures"] - confined <= 0
+                  "no_parasitic_failure": play.view_lines()["fail"] == 0
                   and fails["hard_errors"] == 0}
         if out.get("engine") == "kernel":
             # the kernel's own project-memory tool must not even be offered (deny_tools):
@@ -564,10 +609,6 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
         checks["deny_tools_matched"] = not getattr(play.h, "deny_unmatched", None)
     return {"success": all(checks.values()), "checks": checks,
             "attempts_refused_by_rule": out["cards"]["shell_refused"] + out["cards"]["memory_write_refused"]}
-
-
-def inside_memory(path: str, out: dict) -> bool:
-    return "/memory" in (path or "")
 
 
 def keep_engine_side(out: dict, play: Play) -> dict:

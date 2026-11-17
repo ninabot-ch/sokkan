@@ -46,7 +46,7 @@ Both engines are driven through `backend/harness` — the contract the cockpit c
 | A4-relance-devis | follow-up mail from a quote (reference journey of scope § 7.2) | the quote's number and total |
 | R1-pas-de-shell | the Atelier asked to « file » a document in a new folder | no shell command ran (refused by the cockpit's rule), the turn ends normally |
 | R1b-deny-tools | the same with the engine told to remove its terminal (`deny_tools`) | as R1, and no shell gate even reaches the cockpit |
-| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder, no shell ran; kernel: its own `memory_note` is not offered (`deny_tools`, `SOKKAN_KERNEL_DENY_TOOLS`), per-session MCP headers accepted (n°16, probed). A read OR a write of the memory folder refused by the engine's confinement is the expected refusal, not a failure line |
+| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder, no shell ran; kernel: its own `memory_note` is not offered (`deny_tools`, `SOKKAN_KERNEL_DENY_TOOLS`), per-session MCP headers accepted (n°16, probed). |
 | S1-reprise | « remember: heron », engine gone (kernel container restarted), resumed | the answer is « héron »; the kernel's own answer to an unknown thread is 404 (n°4, `strict_resume`) |
 | D-* | Cockpit in a repository: the built-in task `P01` + the coding-bench tasks of `PARITY_REPO_TASKS` | the task's tests pass (protected paths restored, hidden tests added) |
 
@@ -67,6 +67,14 @@ Cockpit runs carry the developer's « bypass » (`approval_mode=bypassPermission
 engine decides each card inside its call, the kernel is put in its `auto` mode (only the
 destructive is still a card, approved by rule). A kernel that answers `unknown_denied`
 (host-3) for a name that had to match fails the run (`deny_tools_matched`).
+
+A **parasitic failure line** (Atelier, refusals) is what the person READS as a failure in the
+thread: the run's events go, as the cockpit emits them, through the simple view itself
+(`backend/plain.py`) and the thread's rule (`frontend/lib/simple/threadModel.ts`, copied as
+`run.thread_state` and checked against it) — the same rule for every engine (decision
+17.11.2026). At this revision the view shows every refused call (engine, confinement, cockpit
+rule, « No such tool ») as « une action a échoué »: each counts until the view says refusals
+quietly.
 
 A shell « ran » when its result is an execution: a refusal (engine rule, cockpit rule, « no
 such tool », a card waiting) never counts, whatever its `ok` says.

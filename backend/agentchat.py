@@ -1162,7 +1162,9 @@ class AgentSession:
             self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
                                     self._turn_model))
         elif isinstance(ev, contract.ToolResult):
-            self._emit(_ws_tool_result(ev.call_id, ev.output, ev.ok))
+            # the engine refused it before running it (a view may say it quietly)
+            self._emit(_ws_tool_result(ev.call_id, ev.output, ev.ok,
+                                       refused=bool(getattr(ev, "refused", False))))
         elif isinstance(ev, contract.TurnStarted):
             self._turn_calls, self._turn_usage = {}, None
             self._turn_started = time.time()
@@ -1523,9 +1525,12 @@ def _ws_tool_use(call_id, name: str, inp: dict, classification: str, model: str 
     return out
 
 
-def _ws_tool_result(call_id, output: str, ok: bool) -> dict:
-    return {"type": "tool_result", "tool_use_id": call_id, "text": output[:8000],
-            "is_error": not ok, "truncated": len(output) > 8000}
+def _ws_tool_result(call_id, output: str, ok: bool, refused: bool = False) -> dict:
+    out = {"type": "tool_result", "tool_use_id": call_id, "text": output[:8000],
+           "is_error": not ok, "truncated": len(output) > 8000}
+    if refused:
+        out["refused"] = True
+    return out
 
 
 def history_events(items: list[contract.HistoryItem]) -> list[dict]:
