@@ -119,6 +119,8 @@ services:
       SOKKAN_ASSISTANT_LLM_FALLBACK_API: ${SOKKAN_ASSISTANT_LLM_FALLBACK_API:-}
       SOKKAN_ASSISTANT_DAILY_LIMIT: ${SOKKAN_ASSISTANT_DAILY_LIMIT:-}
       SOKKAN_ASSISTANT_MAX_TOKENS: ${SOKKAN_ASSISTANT_MAX_TOKENS:-}
+      # 4.0: 1 = Nina keeps the model's reasoning pass (OpenAI door; off = an answer in seconds)
+      SOKKAN_ASSISTANT_THINKING: ${SOKKAN_ASSISTANT_THINKING:-}
       # API flotte : le client gère/étend son infra depuis le cockpit
       SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}

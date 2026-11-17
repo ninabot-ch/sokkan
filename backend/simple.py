@@ -175,8 +175,63 @@ def deliverable_dir(project: str, sid: str) -> Path:
     return documents.project_root(project) / DELIVERABLES / sid
 
 
+def connected_families(user: str, project: str) -> tuple[set[str], bool]:
+    """The connector families (mail, calendar, files) this person has CONNECTED and that the
+    instance enables, and whether sending is allowed — ({…}, False) when the `connectors`
+    feature is off or absent. Read defensively: the brief never fails on a lookup."""
+    try:
+        import connectors
+        if not connectors.enabled():
+            return set(), False
+        from connectors import service
+        st = service.status(service.Ctx(user or "", project=project or "default"))
+        if not st.get("content_allowed", True):
+            return set(), False
+        fams = {f for f, provs in (st.get("families") or {}).items()
+                if any(p.get("enabled") and p.get("connected") for p in provs or [])}
+        return fams, bool(st.get("allow_send"))
+    except Exception:  # noqa: BLE001 — no connector module, no settings: nothing connected
+        return set(), False
+
+
+def capability_lines(user: str = "", project: str = "default") -> list[str]:
+    """4.0 (audit coworker, 18.11) — what THIS workspace really does, said in the brief: the
+    agent of a work told a project manager « I created an automatic task that e-mails it to you
+    every Friday » with no mail channel at all (it had created a hidden agent). The agent may
+    only promise what is in this list, and says plainly what is not."""
+    fams, send = connected_families(user, project)
+    lines = ["- WHAT YOU CAN DO HERE: read the documents of this project, write and save "
+             "documents in the folder below (each save asks the person's approval), search the "
+             "project's memory, and use the other tools you are given — nothing else."]
+    if "mail" in fams:
+        lines.append("- The person's mailbox is connected: you may read their mail and prepare a "
+                     "DRAFT in their mailbox. " + (
+                         "Sending only happens when they approve the sending card in SOKKAN — "
+                         "say « the draft is ready, approve the sending card », never « sent »."
+                         if send else "Nothing can be sent from here: say the draft is ready in "
+                         "their mailbox and that they send it themselves."))
+    if "calendar" in fams:
+        lines.append("- Their calendar is connected: you may read it; a new event only exists "
+                     "once they approve its card.")
+    if "files" in fams:
+        lines.append("- Their shared folders are connected: you may read them; writing a file "
+                     "there only happens once they approve its card.")
+    missing = [w for f, w in (("mail", "send or receive e-mail"), ("calendar", "read or "
+               "change a calendar"), ("files", "reach their shared folders")) if f not in fams]
+    lines.append("- You CANNOT " + ", ".join(missing + [
+        "schedule or repeat a work automatically (every Friday…)",
+        "create tasks, cards, reminders or agents"]
+        + ([] if "mail" in fams else ["contact anyone"])) + ". "
+        "When they ask for one of these, deliver what you can now (the document), then say in "
+        "one sentence what you cannot do and who can (the person who administers SOKKAN).")
+    lines.append("- Never say you did something you did not do in this conversation (« I sent », "
+                 "« I scheduled », « I created a task »): only what a tool really did, after "
+                 "their approval.")
+    return lines
+
+
 def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
-          docs: list[dict] | None = None, recall: str = "") -> str:
+          docs: list[dict] | None = None, recall: str = "", user: str = "") -> str:
     """The first message the agent receives: the internal brief, then what the person typed."""
     d = deliverable_dir(project, sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -217,6 +272,7 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "what remains to confirm. Do NOT save another version they did not ask for and do not "
         "offer a « v2 »: each save asks for their approval.",
     ]
+    lines += capability_lines(user, project)
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():

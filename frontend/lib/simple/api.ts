@@ -58,7 +58,10 @@ export type PlainEvent =
   | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail; reason?: "denied" | "policy" }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
       stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail;
-      tool_id?: string }
+      tool_id?: string;
+      /** 4.0 (backend/approvalcard.py): where it lands, what the person needs to decide (already
+       *  in their language), a change to an existing document as before/after */
+      where?: string; facts?: { label: string; value: string }[]; diff?: { before: string; after: string }[] }
   | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }
