@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import secrets
 import threading
@@ -389,17 +390,38 @@ def set_org(name: str, lang: str, by: str) -> dict:
 
 
 # ---- a person's own progress ----------------------------------------------------------------
+# Their job is NOT kept here: it is the person's jobs of the job kits (`uiprefs` « roles »,
+# backend/roles.py), the one place the home, Settings › My jobs and the admin read. The first
+# of the list is the job the onboarding shows (« position »).
+def _jobs(email: str) -> list[str] | None:
+    import uiprefs
+    return uiprefs.get(email).get("roles")
+
+
 def person(email: str) -> dict:
     p = (_load().get("people") or {}).get(_norm(email)) or {}
-    return {"role_id": p.get("role_id") or "", "tour_done": bool(p.get("tour_done_at")),
+    jobs = _jobs(email) or []
+    return {"role_id": jobs[0] if jobs else "", "tour_done": bool(p.get("tour_done_at")),
             "welcomed": bool(p.get("welcomed_at")), "first_sid": p.get("first_sid") or ""}
 
 
 def set_person(email: str, **kw) -> dict:
+    """``role_id``: the job picked at the first sign-in becomes the person's first job (their
+    other jobs are kept); "" = none picked. ``welcomed`` without any job ever chosen = « later »:
+    the job kits do not ask again (Settings › My jobs stays)."""
+    import roles
+    import uiprefs
+    rid = kw.get("role_id")
+    if rid:
+        if not roles.get(str(rid)):
+            raise ValueError("role_id: unknown job")
+        uiprefs.set_prefs(email, roles=[str(rid)] + [r for r in (_jobs(email) or []) if r != rid])
+    if kw.get("welcomed") and _jobs(email) is None:
+        uiprefs.set_prefs(email, roles=[])
+
     def fn(d: dict) -> None:
         p = d.setdefault("people", {}).setdefault(_norm(email), {})
-        if kw.get("role_id") is not None:
-            p["role_id"] = str(kw["role_id"])[:60]
+        p.pop("role_id", None)                 # an older record: the job kits hold it now
         if kw.get("tour_done"):
             p["tour_done_at"] = p.get("tour_done_at") or time.time()
         if kw.get("welcomed"):
@@ -410,39 +432,27 @@ def set_person(email: str, **kw) -> dict:
     return person(email)
 
 
-# ---- positions (the catalogue's hook) -----------------------------------------------------
+# ---- jobs (the job kits' catalogue, backend/roles.py) ------------------------------------------
 def roles(lang: str = "fr") -> dict:
-    """The positions a person picks from at their first sign-in. The catalogue of positions
-    (module `roles_catalog`, another lot) wins when it is installed; its `catalog(lang)`
-    returns a list of {id, label, description, ...}. Else the starter list."""
+    """The jobs a person picks from at their first sign-in: the job kits' catalogue, the one
+    source (the 9 built-in jobs plus an operator's `SOKKAN_ROLES_DIR`)."""
+    import roles as kits
     lang = lang if lang in LANGS else "fr"
     try:
-        import roles_catalog  # type: ignore[import-not-found]
-        rows = roles_catalog.catalog(lang)
-        if rows:
-            return {"source": "catalog", "roles": [
-                {"id": str(r["id"]), "label": str(r.get("label") or r["id"]),
-                 "description": str(r.get("description") or ""), "sample": bool(r.get("sample", True))}
-                for r in rows if isinstance(r, dict) and r.get("id")]}
-    except Exception:  # noqa: BLE001 — not installed (or broken): the floor
-        pass
-    import onboarding_samples as S
-    return {"source": "starter", "roles": [
-        {"id": rid, "label": S.STARTER[rid][lang]["label"],
-         "description": S.STARTER[rid][lang]["description"], "sample": True} for rid in S.ORDER]}
+        rows = kits.catalog(lang)
+    except Exception as e:  # noqa: BLE001 — a broken extra job file: say it, offer nothing
+        logging.getLogger("sokkan.onboarding").warning("job kits unavailable: %s", e)
+        rows = []
+    return {"source": "catalog", "roles": [
+        {"id": r["id"], "label": r["label"], "description": r["description"], "sample": True,
+         "claude": r["claude"], "templates_count": r["templates_count"]} for r in rows]}
 
 
 def sample_for(role_id: str, lang: str) -> dict:
+    """The first ask and the example document of a job (the fallback for a job without one)."""
     import onboarding_samples as S
     lang = lang if lang in LANGS else "fr"
-    try:
-        import roles_catalog  # type: ignore[import-not-found]
-        s = roles_catalog.sample(role_id, lang)
-        if s and s.get("ask") and s.get("doc"):
-            return {"ask": s["ask"], "name": s["doc"][0], "text": s["doc"][1]}
-    except Exception:  # noqa: BLE001
-        pass
-    r = S.STARTER.get(role_id) or S.STARTER["other"]
+    r = S.SAMPLES.get(role_id or "") or S.SAMPLES[""]
     return {"ask": r[lang]["ask"], "name": r[lang]["doc"][0], "text": r[lang]["doc"][1]}
 
 
@@ -519,7 +529,7 @@ def team() -> list[dict]:
                     {"slug": slug, "name": names[slug], "role": g.get("role")})
     disabled = {a["email"]: a for a in revocation.disabled_accounts()}
     inv = pending_invites()
-    people_d = _load().get("people") or {}
+    import uiprefs
     rl = {r["id"]: r["label"] for r in roles("fr")["roles"]}
     owner = _norm(auth.OWNER_EMAIL)
     out = []
@@ -531,7 +541,7 @@ def team() -> list[dict]:
         name = iam.display_name(e) or (codes.get(e) or {}).get("name") or ""
         if name == e:
             name = ""
-        rid = (people_d.get(e) or {}).get("role_id") or ""
+        jobs = uiprefs.get(e).get("roles") or []
         out.append({
             "email": e, "name": name, "instance_role": role, "owner": e == owner,
             "admin": iam.rank(role) >= iam.rank("admin"),
@@ -539,7 +549,7 @@ def team() -> list[dict]:
             "has_code": e in codes, "last_login": (codes.get(e) or {}).get("last_login"),
             "disabled": e in disabled, "invite_pending": e in inv,
             "invite_expires_at": (inv.get(e) or {}).get("expires_at"),
-            "position": rl.get(rid, rid),
+            "position": " · ".join(rl.get(j, j) for j in jobs),
         })
     out.sort(key=lambda r: (not r["owner"], (r["name"] or r["email"]).lower()))
     return out
@@ -1051,8 +1061,11 @@ def router(require) -> APIRouter:
 
     @r.put("/api/onboarding/me")
     def me_set(body: MeIn, u: dict = Depends(auth.current_user)) -> dict:
-        out = set_person(u["email"], role_id=body.role_id, tour_done=body.tour_done,
-                         welcomed=body.welcomed, first_sid=body.first_sid)
+        try:
+            out = set_person(u["email"], role_id=body.role_id, tour_done=body.tour_done,
+                             welcomed=body.welcomed, first_sid=body.first_sid)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         if body.role_id is not None:
             audit.log(u["email"], "onboarding.position", body.role_id[:60], project="")
         return out

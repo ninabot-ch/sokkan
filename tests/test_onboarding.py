@@ -318,9 +318,13 @@ def test_a_person_picks_a_position_and_gets_an_example_document_once(box):
     fay = _client(box, code)
     fay.headers["x-sokkan-project"] = "clients"
     roles = fay.get("/api/onboarding/roles?lang=fr").json()
-    assert roles["source"] == "starter" and {"finance", "sales", "other"} <= {r["id"] for r in roles["roles"]}
-    assert all(r["label"] and r["description"] for r in roles["roles"])
+    import roles as kits
+    assert roles["source"] == "catalog" and [r["id"] for r in roles["roles"]] == kits.ids()   # one source: the job kits
+    assert len(roles["roles"]) == 9 and all(r["label"] and r["description"] for r in roles["roles"])
+    assert fay.put("/api/onboarding/me", json={"role_id": "nope"}).status_code == 400
     assert fay.put("/api/onboarding/me", json={"role_id": "sales"}).json()["role_id"] == "sales"
+    import uiprefs
+    assert uiprefs.get("fay@example.org")["roles"] == ["sales"]                    # the job kits' own record
     s1 = fay.post("/api/onboarding/sample", json={"role_id": "sales", "lang": "fr"}).json()
     assert s1["ask"] and s1["document"]["name"].endswith(".md")
     s2 = fay.post("/api/onboarding/sample", json={"role_id": "sales", "lang": "fr"}).json()
@@ -331,27 +335,33 @@ def test_a_person_picks_a_position_and_gets_an_example_document_once(box):
     assert fay.get("/api/onboarding").json()["me"]["needs_welcome"] is False
 
 
-def test_the_catalogue_of_positions_wins_when_it_is_installed(monkeypatch):
-    import sys
-    import types
+def test_the_job_picked_at_the_first_sign_in_is_the_job_kits_record(box):
+    """One choice of job: the onboarding's pick is the person's first job of the job kits (other
+    jobs kept); closing the welcome without a job = « later », the kits' picker is not offered."""
     import onboarding
-    fake = types.ModuleType("roles_catalog")
-    fake.catalog = lambda lang: [{"id": "jurist", "label": "Juriste", "description": "Contrats"}]
-    fake.sample = lambda rid, lang: {"ask": "Relis ce contrat.", "doc": ("Contrat.md", "# Contrat")}
-    monkeypatch.setitem(sys.modules, "roles_catalog", fake)
-    assert onboarding.roles("fr") == {"source": "catalog", "roles": [
-        {"id": "jurist", "label": "Juriste", "description": "Contrats", "sample": True}]}
-    assert onboarding.sample_for("jurist", "fr") == {"ask": "Relis ce contrat.", "name": "Contrat.md", "text": "# Contrat"}
+    import uiprefs
+    uiprefs.set_prefs("gus@example.org", roles=["training"])
+    assert onboarding.set_person("gus@example.org", role_id="finance")["role_id"] == "finance"
+    assert uiprefs.get("gus@example.org")["roles"] == ["finance", "training"]
+    assert onboarding.person("gus@example.org")["role_id"] == "finance"
+    assert uiprefs.get("hal@example.org")["roles"] is None
+    onboarding.set_person("hal@example.org", welcomed=True)
+    assert uiprefs.get("hal@example.org")["roles"] == []
+    onboarding.set_person("gus@example.org", welcomed=True)
+    assert uiprefs.get("gus@example.org")["roles"] == ["finance", "training"]
 
 
-def test_every_starter_position_has_both_languages_and_no_real_name():
+def test_every_job_has_an_example_in_both_languages_and_no_real_name():
+    import onboarding
     import onboarding_samples as S
-    assert set(S.ORDER) == set(S.STARTER)
-    for rid, langs in S.STARTER.items():
+    import roles as kits
+    assert set(S.SAMPLES) == set(kits.ids()) | {""}
+    for rid, langs in S.SAMPLES.items():
         for lang in ("fr", "en"):
             r = langs[lang]
-            assert r["label"] and r["description"] and r["ask"] and r["doc"][0].endswith(".md") and len(r["doc"][1]) > 100
+            assert r["ask"] and r["doc"][0].endswith(".md") and len(r["doc"][1]) > 100
             assert "@" not in r["doc"][1]
+    assert onboarding.sample_for("an-operator-job", "en")["ask"] == S.SAMPLES[""]["en"]["ask"]
 
 
 # ---- usage, budget, time to the first validated deliverable ------------------------------------

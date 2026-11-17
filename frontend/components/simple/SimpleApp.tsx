@@ -77,6 +77,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   const [ob, setOb] = useState<Onboarding | null>(null);
   const [welcome, setWelcome] = useState(false);
   const autoSetup = useRef(false);
+  const [obTried, setObTried] = useState(false);
   const [home, setHome] = useState<HomeData | null>(null);
   const [homeFailed, setHomeFailed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -104,12 +105,18 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     });
   }, [ingestOn, home?.project, me, reader]);
 
-  useEffect(() => {
-    if (home?.ask_roles && !demo && home.can_start && !offered.current) { offered.current = true; setPicker("first"); }
-  }, [home?.ask_roles, home?.can_start, demo]);
   const loadOb = useCallback(async () => {
     try { setOb(await fetchOnboarding(lang)); } catch { /* the Atelier works without it */ }
+    setObTried(true);
   }, [lang]);
+  // ONE choice of job at the first sign-in: the onboarding's (the welcome of a person, the first
+  // work of the setup) when it will be shown — it writes the job kits' record —, else the job
+  // kits' picker (an instance already set up, or the onboarding unreachable)
+  const onboardingAsks = !!ob && ((ob.admin && !!ob.setup?.needed) || (!ob.admin && ob.me.needs_welcome));
+  useEffect(() => {
+    if (home?.ask_roles && !demo && home.can_start && obTried && !onboardingAsks && !welcome && !ob?.me.role_id
+      && !offered.current) { offered.current = true; setPicker("first"); }
+  }, [home?.ask_roles, home?.can_start, demo, obTried, onboardingAsks, welcome, ob?.me.role_id]);
   useEffect(() => { if (!demo) loadOb(); }, [loadOb, demo]);
   useEffect(() => {
     if (!ob || autoSetup.current) return;
@@ -230,7 +237,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "admin_usage" && ob?.admin && <UsagePage />}
         {view.name === "admin_validations" && ob?.admin && <ValidationsPage />}
         {welcome && ob && <Welcome ob={ob} name={home?.first_name || ""} canStart={!!home?.can_start}
-          onClose={() => { setWelcome(false); loadOb(); }}
+          onClose={() => { setWelcome(false); loadOb(); loadHome(); }}
           onStarted={(sid) => { setWelcome(false); loadHome(); go({ name: "work", sid }); }} />}
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}

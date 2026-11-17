@@ -5,7 +5,7 @@
 // so closing the page and coming back resumes at the first step still to do.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  addPerson, createSetupProject, currentStep, fetchSample, fetchSetupProjects, fetchTeam, finishSetup, markStep,
+  addPerson, createSetupProject, currentStep, fetchSample, fetchSetupProjects, fetchTeam, finishSetup, markStep, saveMe,
   nextAfter, ObError, openWorkIn, progress, saveModel, saveOrg, startIn, STEPS, testModel, uploadTo, looksLikeEmail,
   duration, type Added, type ModelKind, type Onboarding, type Person, type ProjectRow, type Role, type StepId, type TestResult,
 } from "@/lib/simple/onboarding";
@@ -466,6 +466,8 @@ function FirstWorkStep({ ob, onStarted }: { ob: Onboarding; onStarted: () => Pro
       const s = sample || await fetchSample(role.id, lang, project);
       setSample(s);
       const r = await startIn(project, s.ask, s.document ? [s.document.id] : [], lang, newRequestId());
+      // the job picked for the first work is the admin's own job when they have none yet (one choice)
+      if (!ob.me.role_id) await saveMe({ role_id: role.id }).catch(() => {});
       await onStarted();
       openWorkIn(project, r.session_id);
     } catch (x) { setErr(x instanceof Error && x.message ? t("ob.failed", { why: x.message }) : t("ob.failed.generic")); setBusy(false); }

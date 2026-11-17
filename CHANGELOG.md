@@ -95,9 +95,10 @@ shell tool of the kernel (`deny_tools`).
   position. Every step can be skipped; the state is on the server, the next visit resumes at
   the first step left, the drawer shows « Getting started · n/6 » until it is finished. An
   instance that already has works (an upgrade) is never sent through it.
-- **A person's first sign-in**: their position (read from a list — the catalogue of positions
-  when installed, module `roles_catalog`, else a starter list of seven), a four-card tour, and
-  a first work of their trade on an example document added to their project (once).
+- **A person's first sign-in**: their job (the job kits' catalogue — one choice, stored as the
+  person's first job of the kits; the kits' own picker opens only where the onboarding does not
+  ask), a four-card tour, and a first work of their trade on an example document of that job
+  added to their project (once).
 - **Administration in the Atelier** (instance administrators): **Team** (everyone once, their
   projects and roles, how they sign in, last sign-in, invitation pending, position; add, edit
   projects, make administrator, new code or new link, deactivate / reactivate), **Usage** (per

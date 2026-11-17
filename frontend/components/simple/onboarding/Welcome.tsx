@@ -1,5 +1,6 @@
 "use client";
-// 4.0 — a person's first sign-in: their position (a list read from the server), a tour of
+// 4.0 — a person's first sign-in: their job (the job kits' catalogue — this IS the job kits'
+// first-sign-in choice, saved as the person's first job; closing it = « later »), a tour of
 // four cards (about a minute), a first work of their trade on an example document. Each part
 // can be skipped; « welcomed » is kept on the server, so it shows once per person.
 import { useEffect, useRef, useState } from "react";
@@ -49,13 +50,13 @@ export default function Welcome({ ob, name, canStart, onClose, onStarted }: {
   const go = async () => {
     setBusy(true); setErr("");
     try {
-      const s = sample || await fetchSample(role?.id || "other", lang);
+      const s = sample || await fetchSample(role?.id || "", lang);
       const r = await startIn(currentProject(), s.ask, s.document ? [s.document.id] : [], lang, newRequestId());
       await saveMe({ welcomed: true, first_sid: r.session_id }).catch(() => {});
       onStarted(r.session_id);
     } catch { setErr(t("ob.failed.generic")); setBusy(false); }
   };
-  const fallbackRole: Role = { id: "other", label: "", description: "", sample: true };
+  const fallbackRole: Role = { id: "", label: "", description: "", sample: true };
 
   return (
     <div className="sk-scrim sk-ob-scrim">

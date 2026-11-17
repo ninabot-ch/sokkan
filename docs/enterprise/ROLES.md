@@ -52,9 +52,12 @@ the same words; nothing depends on an engine's own system prompt.
 
 ## Choosing a job
 
-* **First sign-in in the Atelier**: the picker « Quel est votre poste ? » opens once (several jobs
-  possible). « Plus tard » stores an empty choice: not asked again, the four general templates stay.
-  Not offered on the public demo nor to a viewer.
+* **First sign-in in the Atelier**: ONE choice of job. For a person who has not been welcomed yet
+  (and an administrator during the setup), the onboarding asks it ([ONBOARDING.md](ONBOARDING.md):
+  job → tour → first work on an example document of that job) and writes it here as the person's
+  first job; closing it without a job = « Plus tard ». Otherwise the picker « Quel est votre poste ? »
+  opens once (several jobs possible). « Plus tard » stores an empty choice: not asked again, the four
+  general templates stay. Not offered on the public demo nor to a viewer.
 * **Settings › My jobs**: the same picker, any time.
 * **A project per job**: an instance admin (feature `multi_project` on) ticks « Créer un projet pour
   chaque poste choisi »: one project per newly chosen job, named after it, classified at least at the

@@ -2,7 +2,7 @@
 
 From « installed » to « the team's first validated deliverable » without opening `.env`, and the
 administrator's everyday screens — all in the Atelier (simple profile). Code:
-`backend/onboarding.py` (routes, store), `backend/onboarding_samples.py` (starter positions and
+`backend/onboarding.py` (routes, store), `backend/onboarding_samples.py` (an example per job and
 their example documents), `frontend/components/simple/onboarding/`, sentences in
 `frontend/lib/simple/dictOnboarding.ts`.
 
@@ -39,12 +39,15 @@ Once per person (`welcomed`): their **position** (a list from `GET /api/onboardi
 four-card **tour**, then a **first work** of their trade on an example document added to their
 project (once per person and project). Everything can be skipped (« Later »).
 
-The positions come from the catalogue of positions when it is installed: a module
-`roles_catalog` with `catalog(lang) → [{id, label, description, …}]` and, optionally,
-`sample(role_id, lang) → {ask, doc: (name, text)}`. Without it, the seven starter positions of
-`onboarding_samples.py` (management, administration & HR, accounting & finance, sales & customer
-care, communication & marketing, training & teaching, another position). The chosen position is
-kept per person (`onboarding.json`, shown in Team).
+The positions are the **jobs of the job kits** (`backend/roles.py`, [ROLES.md](ROLES.md)): the
+nine built-in jobs plus an operator's `SOKKAN_ROLES_DIR`, one catalogue. `onboarding_samples.py`
+only holds the example document and first ask of each job (a fallback for a job without one).
+The chosen position IS the person's first job of the job kits (`uiprefs` « roles », other jobs
+kept): the home, Settings › My jobs and Team read the same record. Closing the welcome without a
+job = « later » (an empty list), so the job kits' own picker is not offered on top of it. That
+picker opens at the first sign-in only when the onboarding does not ask (an instance already set
+up for an administrator, or the onboarding unreachable). The setup's « first work » step stores
+the job it used as the administrator's job when they have none yet.
 
 ## Invitations (local auth)
 
