@@ -90,11 +90,12 @@ kernel's own (`dockerproxy.py` of its `sandboxd` image) and answers 403 to anyth
   `NOKKER_HOST_WORKSPACE` (the default project, `projects/` and `engine-roots/` of the data
   volume). Named volumes are refused.
 
-SOKKAN starts that proxy through a launcher (`deploy/kernel/dockerproxy_compat.py`) with one
-compatibility rule: the library under the kernel checks once whether Docker applies caps with an
-unlabelled `docker run … <sandbox image> sleep 0`, which the proxy refuses (it accepts `true`
-only) — without the rule no cap is ever applied and every session is refused. The launcher turns
-exactly that command into `true`; every other check of the proxy is unchanged.
+The proxy serves ONE kernel instance: `NOKKER_INSTANCE`, the `local.instance` label the api
+rendered (read from the kernel's configuration by the proxy and the kernel at start). Only
+containers labelled with it are created, listed or touched: two installs on one Docker daemon
+have their own proxy and do not see each other's sandboxes. The proxy and egress come from the
+kernel's `sandboxd` image (`SOKKAN_KERNEL_SANDBOXD_IMAGE`, `kernel.sh enable --sandboxd-image`),
+of the same kernel release.
 
 ## The sandbox's network
 
@@ -144,10 +145,6 @@ without the kernel engine removes `docker-compose.kernel.yml` with the rest of t
 
 ## Known limits
 
-- The socket proxy scopes to `nokker.sandbox`, not to one install: two SOKKAN installs on one
-  Docker daemon do not reap each other's sandboxes (different `local.instance`), but a
-  compromised kernel of one could reach the sandboxes of the other through its proxy. One
-  install per Docker daemon is the recommended setup.
 - Two installs restored from the SAME backup share the instance key, hence the label: give one
   of them a new key (`engine-identity.key`) before running both on one daemon.
 - The kernel image is pulled by Compose; its signature is not yet verified by `upgrade.sh`.

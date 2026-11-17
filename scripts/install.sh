@@ -13,7 +13,8 @@
 #   --tarball <file>                         a release tarball you already have (offline install)
 #   --kernel <image>       SOKKAN_KERNEL_IMAGE  also switch on the 4.0 kernel engine with that
 #                                            PINNED kernel image (scripts/kernel.sh, docs/KERNEL.md);
-#                                            off by default
+#                                            off by default; with SOKKAN_KERNEL_SANDBOXD_IMAGE (its
+#                                            socket proxy + egress image, same kernel release)
 #   SOKKAN_BASE=https://…                    where releases are served (default https://sokkan.ch)
 #   SOKKAN_INSTALL_DOCKER=1                  install Docker without asking (Linux)
 #   SOKKAN_ACCEPT_GEMMA_TERMS=1|0            memory model licence answer (1 EmbeddingGemma, 0 MIT model)
@@ -226,7 +227,8 @@ if [ "$PROFILE" = community ]; then
   grep -q 'SOKKAN_DB_PASSWORD' .env.example 2>/dev/null && set_env SOKKAN_DB_PASSWORD "$(rand_hex 18)"
   memory_setup
   if [ -n "$KERNEL_IMAGE" ]; then
-    sh scripts/kernel.sh enable --image "$KERNEL_IMAGE" || die "the kernel engine could not be enabled (see above)"
+    sh scripts/kernel.sh enable --image "$KERNEL_IMAGE" \
+      ${SOKKAN_KERNEL_SANDBOXD_IMAGE:+--sandboxd-image "$SOKKAN_KERNEL_SANDBOXD_IMAGE"} || die "the kernel engine could not be enabled (see above)"
   fi
   chmod 600 .env
   COMPOSE_CMD="docker compose"; [ "$DC" = "sudo docker" ] && COMPOSE_CMD="sudo docker compose"

@@ -203,7 +203,8 @@ main() {
   # at every upgrade (the docker data root or the install folder may have moved)
   if [ -f scripts/kernel.sh ]; then
     if [ -n "${SOKKAN_KERNEL_ENABLE_IMAGE:-}" ]; then
-      sh scripts/kernel.sh enable --image "$SOKKAN_KERNEL_ENABLE_IMAGE" || exit 1
+      sh scripts/kernel.sh enable --image "$SOKKAN_KERNEL_ENABLE_IMAGE" \
+        ${SOKKAN_KERNEL_SANDBOXD_IMAGE:+--sandboxd-image "$SOKKAN_KERNEL_SANDBOXD_IMAGE"} || exit 1
     elif sed -n 's/^COMPOSE_PROFILES=//p' .env | tail -n 1 | tr ',' '\n' | grep -qx kernel; then
       sh scripts/kernel.sh refresh || exit 1
     fi

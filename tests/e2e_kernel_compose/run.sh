@@ -14,7 +14,7 @@
 #
 #   KC_KERNEL_IMAGE   the kernel image (pinned)         KC_MODEL_URL / KC_MODEL  the real model
 #   KC_HOME           work folder (default /srv/sokkan-kc)   KC_NET_A / KC_NET_B   /24 prefixes,
-#   KC_SANDBOX_IMAGE  the sandboxes' image                    e.g. 10.99.1 and 10.99.2
+#   KC_SANDBOX_IMAGE  the sandboxes' image, KC_SANDBOXD_IMAGE the proxy's                    e.g. 10.99.1 and 10.99.2
 #   KC_KEEP=1         leave everything up at the end
 # Run from the sokkan source tree: bash tests/e2e_kernel_compose/run.sh
 set -uo pipefail
@@ -23,6 +23,7 @@ SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${KC_NET_A:?/24 prefix for instance A}" "${KC_NET_B:?/24 prefix for instance B}"
 KC_HOME="${KC_HOME:-/srv/sokkan-kc}"
 SBI="${KC_SANDBOX_IMAGE:-ghcr.io/nokker-ai/sandbox:0.1.0-rc.9.32}"
+SBD="${KC_SANDBOXD_IMAGE:?sandboxd image of the kernel release}"
 SHA="$(cd "$SRC" && git rev-parse --short HEAD 2>/dev/null || date +%s)"
 API_IMAGE="kc-api:$SHA"
 RES="$KC_HOME/results/$(date +%Y%m%d-%H%M%S)"
@@ -83,7 +84,7 @@ networks:
   kernel-outbound:
     ipam: {config: [{subnet: $net.64/28}]}
 EOF
-  (cd "$d" && sh scripts/kernel.sh enable --image "$KC_KERNEL_IMAGE" --sandbox-image "$SBI") >> "$RES/enable-$x.log" 2>&1 \
+  (cd "$d" && sh scripts/kernel.sh enable --image "$KC_KERNEL_IMAGE" --sandbox-image "$SBI" --sandboxd-image "$SBD") >> "$RES/enable-$x.log" 2>&1 \
     || { cat "$RES/enable-$x.log"; return 1; }
   # the test override on top of what kernel.sh wrote
   local cf; cf="$(sed -n 's/^COMPOSE_FILE=//p' "$d/.env" | tail -n 1)"

@@ -233,6 +233,7 @@ def test_the_api_entrypoint_renders_the_kernels_configuration():
 @pytest.mark.skipif(not shutil.which("docker"), reason="docker CLI absent")
 def test_compose_accepts_the_files_together(tmp_path):
     env = {**os.environ, **ENV, "SOKKAN_KERNEL_IMAGE": "example/kernel:1", "COMPOSE_PROFILES": "kernel",
+           "SOKKAN_KERNEL_SANDBOXD_IMAGE": "example/sandboxd:1",
            "SOKKAN_KERNEL_DB_OWNER_PASSWORD": "a", "SOKKAN_KERNEL_DB_APP_PASSWORD": "b"}
     r = subprocess.run(["docker", "compose", "-f", "docker-compose.yml", "-f", KFILE.name, "config", "--quiet"],
                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
@@ -430,7 +431,11 @@ def test_kernel_sh_enables_and_disables_without_touching_the_rest(install):
     r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:latest"], cwd=d, env=env,
                        capture_output=True, text=True)
     assert r.returncode != 0 and "never latest" in r.stderr
-    r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:1.0", "--net", "registries"],
+    r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:1.0"], cwd=d, env=env,
+                       capture_output=True, text=True)
+    assert r.returncode != 0 and "--sandboxd-image" in r.stderr              # the proxy's image too
+    r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:1.0", "--net", "registries",
+                        "--sandboxd-image", "x/sandboxd:1.0"],
                        cwd=d, env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     e = _dotenv(d)
@@ -464,8 +469,8 @@ def test_kernel_sh_refuses_an_old_docker(install):
     d, env, log = install
     (Path(env["PATH"].split(":")[0]) / "docker").write_text(
         '#!/bin/sh\ncase "$1 $2" in "version --format") echo 24.0.7 ;; esac\nexit 0\n')
-    r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:1.0"], cwd=d, env=env,
-                       capture_output=True, text=True)
+    r = subprocess.run(["sh", "scripts/kernel.sh", "enable", "--image", "x/kernel:1.0",
+                        "--sandboxd-image", "x/sandboxd:1.0"], cwd=d, env=env, capture_output=True, text=True)
     assert r.returncode != 0 and ">= 26" in r.stderr
     assert "COMPOSE_PROFILES=appliance,rerank\n" in (d / ".env").read_text()
 
@@ -481,25 +486,19 @@ def test_the_installers_offer_the_kernel_without_making_it_the_default():
     assert "docker-compose.kernel.yml" in (ROOT / "scripts/rollback.sh").read_text()
 
 
-def test_the_proxy_launcher_accepts_the_cgroup_probe_and_nothing_else(tmp_path, monkeypatch):
-    """deploy/kernel/dockerproxy_compat.py runs the kernel's own proxy with one rule: the
-    library's cgroup probe (`sleep 0`, unlabelled) becomes `true`, the proxy's accepted probe."""
-    fake = tmp_path / "dockerproxy.py"
-    fake.write_text("LABEL = 'nokker.sandbox'\nseen = []\n"
-                    "def check_create(body, cfg):\n    seen.append(body.get('Cmd'))\n    return body\n"
-                    "async def main():\n    pass\n")
-    monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.delitem(sys.modules, "dockerproxy", raising=False)
-    spec = importlib.util.spec_from_file_location("kc_compat", ROOT / "deploy/kernel/dockerproxy_compat.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    import dockerproxy
-    assert dockerproxy.check_create is mod.check_create
-    assert mod.check_create({"Cmd": ["sleep", "0"]}, None)["Cmd"] == ["true"]
-    assert mod.check_create({"Cmd": ["sleep", "10"]}, None)["Cmd"] == ["sleep", "10"]
-    labelled = {"Cmd": ["sleep", "0"], "Labels": {"nokker.sandbox": "t"}}
-    assert mod.check_create(labelled, None)["Cmd"] == ["sleep", "0"]
-    assert dockerproxy.seen == [["true"], ["sleep", "10"], ["sleep", "0"]]   # the proxy still checks all
-    svc = _compose()["services"]["kernel-dockerproxy"]
-    assert svc["command"] == ["python3", "/opt/sokkan/dockerproxy_compat.py"]
-    assert "./deploy/kernel/dockerproxy_compat.py:/opt/sokkan/dockerproxy_compat.py:ro" in svc["volumes"]
+
+def test_the_proxy_and_the_kernel_serve_the_instance_of_the_rendered_configuration():
+    """The kernel's socket proxy serves ONE instance (NOKKER_INSTANCE, kernel n°26): the label
+    the api rendered from the instance key (`local.instance`), read from the same file by the
+    proxy and the kernel — one value, one source."""
+    svcs = _compose()["services"]
+    for name in ("kernel-dockerproxy", "kernel"):
+        cmd = " ".join(svcs[name]["entrypoint"])
+        assert "NOKKER_INSTANCE=" in cmd and "s/^  instance: //p' /etc/kernel/config.yaml" in cmd, name
+        assert "kernel-config:/etc/kernel:ro" in svcs[name]["volumes"], name
+    assert svcs["kernel-dockerproxy"]["depends_on"]["api"]["condition"] == "service_healthy"
+    assert "dockerproxy.py" in " ".join(svcs["kernel-dockerproxy"]["entrypoint"])
+    assert not (ROOT / "deploy/kernel/dockerproxy_compat.py").exists()
+    # the rendered file holds the label on the line the entrypoints read
+    text = yaml.safe_dump(kernel_config.render({}, ENV, "sokkan-0123456789abcdef"), sort_keys=False)
+    assert "\n  instance: sokkan-0123456789abcdef\n" in text

@@ -10,7 +10,8 @@
 # enable options (each also as the .env variable named):
 #   --image <ref>          SOKKAN_KERNEL_IMAGE            the kernel (required the first time)
 #   --sandbox-image <ref>  SOKKAN_KERNEL_SANDBOX_IMAGE    the sandboxes' image
-#   --sandboxd-image <ref> SOKKAN_KERNEL_SANDBOXD_IMAGE   socket proxy + egress image
+#   --sandboxd-image <ref> SOKKAN_KERNEL_SANDBOXD_IMAGE   socket proxy + egress image (required the
+#                                                         first time, same kernel release)
 #   --net none|registries|open  SOKKAN_KERNEL_SANDBOX_NET what a sandbox reaches (default none)
 #   --memory <2g>  --cpus <2>   SOKKAN_KERNEL_SANDBOX_MEMORY / _CPUS, caps of each sandbox
 #   --keep-engine          do not set SOKKAN_ENGINE_RUNTIME=kernel (the service runs, the
@@ -120,6 +121,7 @@ case "$cmd" in
     set_env SOKKAN_KERNEL_IMAGE "$IMAGE"
     [ -n "$SBI" ] && set_env SOKKAN_KERNEL_SANDBOX_IMAGE "$SBI"
     [ -n "$SBD" ] && set_env SOKKAN_KERNEL_SANDBOXD_IMAGE "$SBD"
+    [ -n "$(getenv SOKKAN_KERNEL_SANDBOXD_IMAGE)" ] || die "--sandboxd-image <ref> is required: the kernel's sandboxd image (socket proxy + egress), pinned, from the same kernel release"
     [ -n "$NET" ] && set_env SOKKAN_KERNEL_SANDBOX_NET "$NET"
     [ -n "$MEM" ] && set_env SOKKAN_KERNEL_SANDBOX_MEMORY "$MEM"
     [ -n "$CPUS" ] && set_env SOKKAN_KERNEL_SANDBOX_CPUS "$CPUS"
