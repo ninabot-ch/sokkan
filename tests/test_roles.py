@@ -7,7 +7,6 @@ to Excel. The UI half is tests/nav/simple_roles_test.ts."""
 import copy
 import io
 import json
-import zipfile
 
 import pytest
 
