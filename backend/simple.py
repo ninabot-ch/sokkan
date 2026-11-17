@@ -189,7 +189,10 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "person's language as its name (for example « Plan de formation Excel.md ») and start "
         "it with a `# Title` line. The person is asked to approve the save, then previews, "
         "downloads and validates it: do not paste the whole document in the chat. When they "
-        "ask for a change, update that same file.",
+        "ask for a change, update that same file — in ONE save as well: the complete updated "
+        "file at once, with every part the change touches (for a quiz: the new question, its "
+        "answer in the answer key, the numbering and the count), never one edit per part: only "
+        "the first save of each step is kept, a second one is turned away.",
         "- Write the whole document in ONE save (the complete file at once, not a section at a "
         "time). After saving, tell them in two or three sentences what the document contains and "
         "what remains to confirm. Do NOT save another version they did not ask for and do not "
@@ -217,7 +220,9 @@ def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
         note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday words; update the saved "
-                "document when a change is asked.</sokkan-brief>") if lang in LANG_NAME else ""
+                "document when a change is asked — rewrite it whole in ONE save that carries every "
+                "part the change touches (a new question AND its answer in the key, numbering, "
+                "counts), not one edit per part: only the first save is kept.</sokkan-brief>") if lang in LANG_NAME else ""
         if text.lstrip().startswith("/"):
             # a message that BEGINS with « / » is a slash command for the CLI: the person read
             # « Unknown command: /deep » (in English, nothing sent to a model) when they put the
