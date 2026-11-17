@@ -7,7 +7,7 @@ export type IconName =
   | "home" | "works" | "page" | "crew" | "clip" | "send" | "plus" | "close" | "menu" | "check" | "alert"
   | "chevron" | "download" | "eye" | "shield" | "search" | "pen" | "globe" | "gear" | "stop" | "back"
   | "memory" | "steps" | "seal" | "trash" | "chat" | "plan" | "summary" | "proposal" | "quiz" | "tool"
-  | "upload" | "info" | "logout";
+  | "upload" | "info" | "logout" | "gauge";
 
 const P: Record<IconName, ReactNode> = {
   home: (<><path d="M4 11l8-7 8 7" /><path d="M6 9.5V20h12V9.5" /><path d="M10 20v-5h4v5" /></>),
@@ -43,6 +43,7 @@ const P: Record<IconName, ReactNode> = {
   tool: (<><circle cx="12" cy="12" r="2.5" /><path d="M12 4v3M12 17v3M4 12h3M17 12h3" /></>),
   upload: (<><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5" /><path d="M5 20h14" /></>),
   info: (<><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5M12 7.8v.01" /></>),
+  gauge: (<><path d="M4 18a8 8 0 1 1 16 0" /><path d="M12 18l4-5.5" /><path d="M8 18h8" /></>),
   logout: (<><path d="M14 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H14" /><path d="M10 12h10M16.5 8.5L20 12l-3.5 3.5" /></>),
 };
 

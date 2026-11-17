@@ -459,6 +459,10 @@ class View:
                 # a refusal of the inference gateway about the study (backend/study.py): its
                 # own notice, in the person's language — never « you can send it again »
                 return self._refusal(ev["code"], msg)
+            # 4.0: the model or the engine's sandbox, said in words (llmerrors' codes)
+            human = _human_error(str(ev.get("code") or ""), msg)
+            if human:
+                return [{"type": "notice", "code": human, "detail": _short(msg, 1000)}]
             code = ("busy" if "already running" in low else
                     "budget" if "budget" in low else
                     "read_only" if "lecture seule" in low or "read-only" in low else
@@ -525,4 +529,30 @@ def last_line(events: list[dict], limit: int = 140, lang: str = "fr") -> str:
             out = (sentences[-1] if sentences else last).strip()
             out = re.sub(r"\s+", " ", out)
             return out if len(out) <= limit else out[: limit - 1].rstrip() + "…"
+    return ""
+
+
+# 4.0 — the errors a person can act on (or must hand to the administrator), as notice codes
+_MODEL_NOTICES = {"quota_exhausted": "model_quota", "rate_limited": "model_rate",
+                  "unreachable": "model_unreachable", "overloaded": "model_unreachable",
+                  "auth": "model_auth"}
+
+
+def _human_error(code: str, msg: str) -> str:
+    """`sandbox_unavailable` (the engine cannot open the work's sandbox: docker down), the
+    model's quota / rate / reachability / credentials — else '' (the generic sentence)."""
+    low = (msg or "").lower()
+    if code == "sandbox_unavailable" or "sandbox_unavailable" in low:
+        return "sandbox_unavailable"
+    if code in _MODEL_NOTICES:
+        return _MODEL_NOTICES[code]
+    try:
+        import llmerrors
+        h = llmerrors.from_text(msg)
+    except Exception:  # noqa: BLE001 — never break the stream on a message
+        h = None
+    if h and h.get("code") in _MODEL_NOTICES:
+        return _MODEL_NOTICES[h["code"]]
+    if "kernel events not reachable" in low or "connection refused" in low or "connecterror" in low:
+        return "model_unreachable"
     return ""

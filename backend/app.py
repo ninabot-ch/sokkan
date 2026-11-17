@@ -3448,6 +3448,9 @@ import roles_api  # noqa: E402 — 4.0 job kits of SOKKAN Atelier (backend/roles
 app.include_router(roles_api.router(on_project_created=_sync_project_indexers))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
+# 4.0 — first launch (administrator), first sign-in (person), Team / Usage (onboarding.py)
+import onboarding  # noqa: E402
+app.include_router(onboarding.router(require))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402

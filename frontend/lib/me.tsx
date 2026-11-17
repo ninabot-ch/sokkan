@@ -51,7 +51,9 @@ function LoginScreen() {
   // language, the light theme, no jargon (components/simple/Login.tsx)
   if (info === null)   // not known yet which screen: no flash of the other one
     return <div className="flex h-screen items-center justify-center text-[13px] text-mut">…</div>;
-  if (info.plain) return <PlainLogin mode={info.mode} />;
+  // 4.0: an invitation link always opens the plain screen (it holds the « Enter » button)
+  const invited = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("invite");
+  if (info.plain || (invited && info.mode === "local")) return <PlainLogin mode={info.mode} />;
 
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-9 bg-ink px-6">
