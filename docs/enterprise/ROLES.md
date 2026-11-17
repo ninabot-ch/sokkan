@@ -50,6 +50,19 @@ The mission travels inside the work's first message (`simple.brief`, the text of
 what every engine of the harness contract receives (`Harness.send`): the legacy CLI and the kernel get
 the same words; nothing depends on an engine's own system prompt.
 
+## Mailbox and calendar: no false promise
+
+A template whose work would naturally end in a mail or an invitation (reply to a letter, incoming
+mail digest, meeting agenda, payment reminder, quote follow-up, complaint reply, training
+invitation) declares it: `"uses": ["mail"]` / `["mail", "calendar"]` in its JSON. At the start of
+the work, `roles.connector_rules()` adds to the mission what the connectors
+([CONNECTORS.md](CONNECTORS.md)) really allow this person in this project
+(`connectors.service.capabilities`): **off** (feature off, nothing connected, or the project's
+content may not reach this model) = the agent prepares the text and says the person sends it,
+never « sent »; **read** = a draft in the mailbox / a calendar read, the person sends; **act** = a
+draft and a send or event proposed on a card, nothing leaves before the person's approval. The
+home shows the same state under the chosen template (« Messagerie et agenda »).
+
 ## Choosing a job
 
 * **First sign-in in the Atelier**: ONE choice of job. For a person who has not been welcomed yet

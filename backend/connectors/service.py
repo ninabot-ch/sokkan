@@ -157,6 +157,33 @@ def status(ctx: Ctx) -> dict:
             "scopes": policy.scopes(s, ctx.project)}
 
 
+def capabilities(email: str, project: str = "default", session_id: str = "") -> dict[str, str]:
+    """What a work of this person may really do with each family, for the job kits' promises
+    (never raises): ``off`` (feature off, nothing connected, or the project's content may not
+    reach this model), ``read`` (connected; nothing leaves: mail drafts only, a calendar read
+    only), ``act`` (connected; a send / an event goes on an approval card)."""
+    out = {f: "off" for f in FAMILIES}
+    try:
+        if not enabled() or "@" not in (email or ""):
+            return out
+        st = status(Ctx(email, session_id, project))
+    except Exception:  # noqa: BLE001 — unknown = no promise
+        return out
+    if not st.get("content_allowed"):
+        return out
+    for fam, rows in (st.get("families") or {}).items():
+        live = [r["provider"] for r in rows if r.get("enabled") and r.get("connected")]
+        if not live:
+            continue
+        if fam == "mail":
+            out[fam] = "act" if st.get("allow_send") else "read"
+        elif fam == "calendar":
+            out[fam] = "act" if any(p != "ics" for p in live) else "read"
+        else:
+            out[fam] = "act" if any(p != "ics" for p in live) else "read"
+    return out
+
+
 # ---- provider resolution ------------------------------------------------------------------
 _ORDER = {"mail": ("graph", "imap", "demo"), "calendar": ("graph", "caldav", "ics", "demo"),
           "files": ("graph", "webdav", "folder", "demo")}

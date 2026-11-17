@@ -84,6 +84,9 @@ shell tool of the kernel (`deny_tools`).
   every engine. An instance admin creates one project per job in the same gesture and gives a person
   a default job. A table deliverable (CSV) is previewed as a table and downloaded as Excel. Data in
   `backend/roles/*.json`, extra jobs from `SOKKAN_ROLES_DIR`. Doc: docs/enterprise/ROLES.md.
+  The templates that end in a mail or an invitation (`uses`) say what the connectors really
+  allow: not connected = the agent prepares the text and the person sends it, never « sent »;
+  connected = a draft in the mailbox, the send or the event on the person's card.
 - **Getting started without a file to edit** (Atelier, `backend/onboarding.py`). An instance
   administrator who opens the Atelier on a fresh install lands on six steps — the organisation
   (name, team language), the model (this machine's / SOKKAN Inference / their own key, with a

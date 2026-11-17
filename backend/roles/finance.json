@@ -102,6 +102,7 @@
       "id": "payment-reminder",
       "brief": "letter",
       "format": "docx",
+      "uses": ["mail"],
       "i18n": {
         "fr": {
           "label": "Relance de paiement",

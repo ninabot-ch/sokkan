@@ -154,6 +154,7 @@
       "id": "invitation",
       "brief": "letter",
       "format": "docx",
+      "uses": ["mail", "calendar"],
       "i18n": {
         "fr": {
           "label": "Convocation à une formation",

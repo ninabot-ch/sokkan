@@ -260,6 +260,14 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             raise HTTPException(400, "roles: unknown job " + ", ".join(sorted(set(ids) - set(known))))
         return known
 
+    def _connector_caps(email: str, slug: str, sid: str = "") -> dict[str, str]:
+        """4.0: what the connectors really allow this person here (all « off » without them)."""
+        try:
+            from connectors import service as conn
+            return conn.capabilities(email, slug, sid)
+        except Exception:  # noqa: BLE001 — not installed / broken: no promise
+            return {}
+
     def _kit_templates(email: str, slug: str, lang: str) -> tuple[list[dict], list[dict], str]:
         """(templates of the person's jobs — the project's own job first —, their jobs, the
         project's job). A broken kit file leaves the home as it was (logged, never a 500)."""
@@ -269,7 +277,13 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             bound = simple.project_role(slug)
             order = ([bound] if bound and roles.get(bound) else []) + [r for r in mine if r != bound]
             jobs = [roles.public(roles.get(r), lang, with_templates=False) for r in order if roles.get(r)]
-            return roles.templates_for(order, lang), jobs, bound if roles.get(bound) else ""
+            kit = roles.templates_for(order, lang)
+            if any(t.get("uses") for t in kit):
+                caps = _connector_caps(email, slug)
+                for t in kit:
+                    if t.get("uses"):        # what the work can really do with the mailbox / calendar
+                        t["connectors"] = {f: caps.get(f, "off") for f in t["uses"]}
+            return kit, jobs, bound if roles.get(bound) else ""
         except Exception as e:  # noqa: BLE001
             import logging
             logging.getLogger("sokkan.roles").warning("job kits unavailable: %s", e)
@@ -433,6 +447,11 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         mission = ""
         if pb:
             mission = (playbooks.render(body.playbook, ask, project=slug) or ("", ""))[0]
+            import roles
+            if mission and roles.uses_of(body.playbook):
+                # a reminder, an invitation…: the agent is told what the mailbox / calendar really allow
+                extra = roles.connector_rules(body.playbook, _connector_caps(email, slug, sid))
+                mission = f"{mission}\n\n{extra}" if extra else mission
         # 3.6.7: the notes that match the task directly are given IN FULL (a charter seen as a
         # snippet was ignored by the first draft)
         recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)

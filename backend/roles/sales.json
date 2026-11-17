@@ -76,6 +76,7 @@
       "id": "offer-follow-up",
       "brief": "letter",
       "format": "docx",
+      "uses": ["mail"],
       "i18n": {
         "fr": {
           "label": "Relance d'une offre",

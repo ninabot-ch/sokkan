@@ -264,6 +264,37 @@ def test_a_start_from_a_kit_template_carries_the_mission_and_the_brief(world):
     assert "RULES OF THIS JOB" in text and "PV du comité du 12.11" in text
 
 
+def test_a_reminder_or_an_invitation_never_promises_a_send_the_connectors_cannot_do(world, monkeypatch):
+    """4.0 connectors × job kits: a template that touches the mailbox / calendar (« uses ») tells
+    the agent and the person what the connectors really allow — off = the person sends it."""
+    import roles
+    assert set(roles.uses_of("finance.payment-reminder")) == {"mail"}
+    assert set(roles.uses_of("training.invitation")) == {"mail", "calendar"}
+    assert roles.uses_of("executive-assistant.meeting-minutes") == []
+    c = world["as"]("bob@x")
+    r = c.post("/api/simple/start", json={"ask": "Relance facture 2026-118", "lang": "fr",
+                                          "playbook": "finance.payment-reminder"})
+    assert r.status_code == 200, r.text
+    text = world["turns"][-1][1]
+    assert "MAILBOX AND CALENDAR" in text and "mailbox is NOT connected" in text
+    assert "calendar is NOT connected" not in text                         # only what the template uses
+    # connected with sending on: a draft, sent after the person's card
+    from connectors import service as conn
+    monkeypatch.setattr(conn, "capabilities", lambda e, p="default", s="": {"mail": "act", "calendar": "read",
+                                                                            "files": "off"})
+    c.post("/api/simple/start", json={"ask": "Convocation 3.12", "lang": "fr", "playbook": "training.invitation"})
+    text = world["turns"][-1][1]
+    assert "mail_propose_send" in text and "never « sent »" in text and "calendar is readable" in text
+    # the home says it too, per template
+    c.put("/api/me/prefs", json={"roles": ["training"]})
+    tpl = {x["id"]: x for x in c.get("/api/simple/home").json()["playbooks"]}
+    assert tpl["training.invitation"]["connectors"] == {"mail": "act", "calendar": "read"}
+    assert "connectors" not in tpl["training.quiz"]
+    assert roles.connector_rules("executive-assistant.meeting-minutes", {}) == ""
+    bad = {"roles": {"x": {"templates": [{"id": "a", "uses": ["fax"]}]}}, "briefs": {}}
+    assert any("uses must list" in p for p in roles.check(bad))
+
+
 def test_a_job_that_keeps_its_data_local_refuses_claude(world):
     import roles
     c = world["as"]("bob@x")

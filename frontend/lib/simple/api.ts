@@ -12,7 +12,9 @@ export interface Limits { max_bytes: number; extensions: string[]; max_per_proje
 export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string;
   /** 4.0 job kits (backend/roles.py): what to attach, what the agent produces, what a person checks */
   attach?: string; produces?: string; checks?: string[]; format?: "docx" | "xlsx" | "md"; kind?: string;
-  role?: string; role_label?: string; claude?: boolean }
+  role?: string; role_label?: string; claude?: boolean;
+  /** 4.0 connectors: what the work can really do with the mailbox / calendar it touches */
+  uses?: ("mail" | "calendar" | "files")[]; connectors?: Partial<Record<"mail" | "calendar" | "files", "off" | "read" | "act">> }
 /** 4.0 — a job of SOKKAN Atelier (« Poste ») */
 export interface Job { id: string; label: string; description: string; project: string; level: string; claude: boolean;
   guardrails: string[]; notes: { name: string; title: string; description: string }[]; templates_count: number;

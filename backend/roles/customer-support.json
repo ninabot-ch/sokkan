@@ -50,6 +50,7 @@
       "id": "complaint-reply",
       "brief": "letter",
       "format": "docx",
+      "uses": ["mail"],
       "i18n": {
         "fr": {
           "label": "Réponse à une réclamation",

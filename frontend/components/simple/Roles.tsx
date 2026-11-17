@@ -7,6 +7,7 @@ import { fetchRolePeople, fetchRoles, savePrefs, saveRolesOf, setupRole,
   type Job, type Prefs, type RolesCatalog, type TaskTemplate } from "@/lib/simple/api";
 import { setupPlan, toggle } from "@/lib/simple/roles";
 import { useT, useUI } from "@/lib/simple/i18n";
+import type { Key } from "@/lib/simple/dict";
 import { switchProject } from "@/lib/project";
 import Icon from "./icons";
 
@@ -105,12 +106,15 @@ export function RolePicker({ first, onClose, onSaved }: {
 export function TemplateDetail({ tpl }: { tpl: TaskTemplate }) {
   const t = useT();
   if (!tpl.attach && !tpl.produces) return null;
+  const conn = Object.entries(tpl.connectors || {}).filter(([f]) => f === "mail" || f === "calendar")
+    .map(([f, s]) => t(`roles.conn.${f}.${s}` as Key));
   const fmt = tpl.format === "xlsx" ? t("roles.fmt.xlsx") : tpl.format === "md" ? t("roles.fmt.md") : t("roles.fmt.docx");
   return (
     <dl className="sk-tpl-detail sk-small">
       {tpl.attach && <><dt>{t("roles.attach")}</dt><dd>{tpl.attach}</dd></>}
       {tpl.produces && <><dt>{t("roles.produces")}</dt><dd>{tpl.produces} <span className="sk-muted">({fmt})</span></dd></>}
       {tpl.checks?.length ? <><dt>{t("roles.checks")}</dt><dd>{tpl.checks.join(" · ")}</dd></> : null}
+      {conn.length ? <><dt>{t("roles.conn")}</dt><dd>{conn.join(" ")}</dd></> : null}
     </dl>
   );
 }
