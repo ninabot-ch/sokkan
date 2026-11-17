@@ -318,13 +318,17 @@ def _in_sandbox() -> bool:
     return os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
 
 
-def _outside_sandbox(path: str) -> bool:
-    """In the docker sandbox, an ABSOLUTE path that is not under /workspace (the run's folder as
-    the sandbox mounts it). Relative paths are the run's folder; nothing is outside without it."""
+def _outside_sandbox(path: str, cwd: str = "") -> bool:
+    """In the docker sandbox, an ABSOLUTE path that is neither under /workspace (the run's folder
+    as the sandbox mounts it) nor under ``cwd`` (the run's folder as the kernel sees it — the
+    kernel translates such a path to /workspace). Relative paths are the run's folder."""
     if not _in_sandbox() or not path.startswith("/"):
         return False
     norm = os.path.normpath(path)
-    return not (norm == SANDBOX_ROOT or norm.startswith(SANDBOX_ROOT + "/"))
+    for root in (SANDBOX_ROOT, os.path.normpath(cwd) if cwd.startswith("/") else ""):
+        if root and root != "/" and (norm == root or norm.startswith(root + "/")):
+            return False
+    return True
 
 
 def _headers(extra: dict | None = None) -> dict:
@@ -428,6 +432,7 @@ class KernelHarness(Harness):
         self._sse_ready: asyncio.Event | None = None
         self._last_event_id = 0
         self._thread = ""
+        self._kcwd = ""                 # the run's folder as the kernel sees it
         self._opened = self._finished = self._stopped = False
         # the cockpit turn in progress
         self._turn: str | None = None
@@ -517,6 +522,7 @@ class KernelHarness(Harness):
             await self._close_client()
             raise ConnectionError(f"kernel events not reachable at {_url()}") from None
         body: dict[str, Any] = {"cwd": _cwd_map(spec.cwd)}
+        self._kcwd = body["cwd"]
         if spec.resume:
             # the kernel reopens an unknown thread as an empty one, without a word: a run
             # resumed from a session the kernel does not have is refused here (C4, honestly)
@@ -1078,7 +1084,7 @@ class KernelHarness(Harness):
         call = a.get("call_id")
         self._gates[gid] = {"id": gid, "type": "card", "resolved": False, "options": options,
                             "outside": kind == "file_write" and _outside_sandbox(
-                                str(args.get("path") or "")),
+                                str(args.get("path") or ""), self._kcwd),
                             "rules": rules, "call_id": call, "turn": self._turn,
                             "turn_id": self._turn,
                             "kturn": f"{self._thread}:{a.get('turn_index')}"}

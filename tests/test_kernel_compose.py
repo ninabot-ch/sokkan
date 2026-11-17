@@ -513,6 +513,10 @@ def test_in_the_docker_sandbox_a_write_outside_workspace_is_outside_the_run(monk
     assert kernel._outside_sandbox("/workspace/../etc/passwd")
     assert not kernel._outside_sandbox("/workspace/notes.md") and not kernel._outside_sandbox("/workspace")
     assert not kernel._outside_sandbox("notes.md")
+    # the run's folder as the kernel sees it: the kernel translates it to /workspace
+    assert not kernel._outside_sandbox("/data/projects/p/work/minutes.md", "/data/projects/p/work")
+    assert kernel._outside_sandbox("/data/projects/p/workshop/x", "/data/projects/p/work")
+    assert kernel._outside_sandbox("/data/projects/q/x", "/data/projects/p/work")
     monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", "")
     assert not kernel._outside_sandbox("/data/projects/x/leak.txt")      # local backend: the kernel's rule
 
