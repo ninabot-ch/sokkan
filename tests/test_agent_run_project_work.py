@@ -43,7 +43,10 @@ def run(tmp_path, monkeypatch):
 
 
 def _denied(res) -> bool:
-    return type(res).__name__ == "PermissionResultDeny" and "memory_write" in res.message
+    # 3.6.8: these runs have no memory server (`mcp: []`), so the refusal no longer names
+    # mcp__sokkan-memory__memory_write — it is recognised by its own first sentence
+    return (type(res).__name__ == "PermissionResultDeny"
+            and "does not write memory files directly" in res.message)
 
 
 def test_an_agent_run_writes_in_the_work_folder_of_its_own_project(run):

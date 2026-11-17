@@ -567,8 +567,8 @@ class AgentSession:
         tool the session did not have, and the model called it)."""
         only = (self.policy or {}).get("mcp") if self.policy else None
         if only is None or "sokkan-memory" in only:
-            return ("Use mcp__sokkan-memory__memory_write (the note waits in quarantine until "
-                    "a person approves it).")
+            return ("Use mcp__sokkan-memory__memory_write (the note is quarantined until a "
+                    "person approves it).")
         return ("This session has no tool to write memory: put what should be remembered in "
                 "your answer, a person will decide.")
 
