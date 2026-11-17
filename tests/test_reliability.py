@@ -470,3 +470,10 @@ def test_the_brief_names_the_engine_s_read_tool(tmp_path, monkeypatch):
     b = simple.brief(ask="x", lang="fr", project="p1", sid="d" * 32, read_tool="read_file",
                      docs=[])
     assert "Read tool" not in b
+
+
+def test_a_total_excl_vat_and_a_total_incl_vat_of_one_variant_are_two_totals():
+    # seen on a real run of the offer (27B): the gate had flagged 116'400 / 125'828.40
+    md = ("**Total HT variante A : 116'400.00 CHF**\n**Total TTC variante A : 125'828.40 CHF**\n"
+          "**Total HT variante B : 95'040.00 CHF**\n**Total TTC variante B : 102'738.24 CHF**\n")
+    assert factcheck.blocking(factcheck.check(md, lang="fr", country="CH")) == []

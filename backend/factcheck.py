@@ -268,7 +268,8 @@ def _totals(text: str) -> list[dict]:
     # « variante a complete »), never into two (« variante » stays apart from A and B)
     canon: dict[tuple, tuple] = {}
     for k in keys:
-        longer = [o for o in keys if len(o) > len(k) and set(k) <= set(o)]
+        longer = [o for o in keys if len(o) > len(k) and set(k) <= set(o)
+                  and ("ttc" in k) == ("ttc" in o)]       # a total HT is never a total TTC
         roots = {canon.get(o, o) for o in longer}
         canon[k] = roots.pop() if len(roots) == 1 else k
     groups: dict[tuple, list[tuple[float, str]]] = {}
