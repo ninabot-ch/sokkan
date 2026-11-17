@@ -195,6 +195,7 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "what remains to confirm. Do NOT save another version they did not ask for and do not "
         "offer a « v2 »: each save asks for their approval.",
     ]
+    lines += _format_lines(lang, d)
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():
@@ -210,6 +211,25 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     tail = (f"<sokkan-brief>Every sentence you write to the person, at every step and in the "
             f"document itself, is in {name}.</sokkan-brief>")
     return "\n".join(lines) + "\n\n" + ask.strip() + "\n\n" + tail
+
+
+def _format_lines(lang: str, d: Path) -> list[str]:
+    """4.0 native formats: what the person can get (Excel, Word, PDF, one letter per
+    recipient) and the rule of the figures: SOKKAN computes them (`outputs`)."""
+    try:
+        import outputs
+        import wordtemplates
+        kinds = wordtemplates.kinds()
+    except Exception:  # noqa: BLE001 — the brief never breaks on an optional part
+        return []
+    return outputs.brief_lines(lang, kinds) + [
+        "- Figures: never add up, subtract or multiply in your head. Every total, balance, "
+        "difference or amount derived from others is a FORMULA in a table (`=SUM(ABOVE)`, "
+        "`=[Quantité]*[Prix]`) — in an Excel file AND in a Word document's table. SOKKAN "
+        "computes them: after each save you are given the results (or read the file "
+        f"« {d}/.calc/<file name>.txt »). Quote a computed figure only from there; when you "
+        "cannot, write « see the total in the table ».",
+    ]
 
 
 def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
@@ -328,8 +348,19 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
                     title = plain.title_from_markdown(f.read(4000)) or title
             except OSError:
                 pass
+        fmts, kind = ["docx", "pdf"] if ext in PREVIEW_EXT else [], "document"
+        if st.st_size <= MAX_DELIVERABLE and ext in PREVIEW_EXT + ("csv",):
+            try:
+                import outputs
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    head = f.read(4000)
+                fmts, kind = outputs.formats_for(p.name, head), outputs.kind_of(p.name, head)
+            except Exception:  # noqa: BLE001 — a listing never breaks on a format
+                pass
         out.append({
             "name": p.name, "title": title, "ext": ext, "size": st.st_size,
+            # 4.0: the files the person can download (the asked one first) and what it is
+            "formats": fmts, "kind": kind,
             "updated_at": st.st_mtime, "version": max(1, versions.get(p.name, 1)),
             "previewable": ext in PREVIEW_EXT,
             "validated": bool(current),

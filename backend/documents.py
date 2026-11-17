@@ -45,8 +45,18 @@ from pathlib import Path
 import doctext
 from features import env_num
 
-ALLOWED = ("pdf", "docx", "pptx", "xlsx", "txt", "md")
+ALLOWED = ("pdf", "docx", "pptx", "xlsx", "txt", "md",
+           # 4.0: the inputs of a working day — a bank export, a client's mail, a receipt
+           "csv", "eml", "msg", "jpg", "jpeg", "png")
+TEXT_EXT = ("txt", "md")               # read as they are (the others get a text copy)
+IMAGE_EXT = ("jpg", "jpeg", "png")
 MIME = {
+    "csv": "text/csv; charset=utf-8",
+    "eml": "message/rfc822",
+    "msg": "application/vnd.ms-outlook",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -61,6 +71,7 @@ _BINARY_MAGIC = (b"MZ", b"\x7fELF", b"PK\x03\x04", b"%PDF-", b"\x89PNG", b"\xff\
 MAX_NAME = 120
 MAX_UNZIPPED = 300 * 1024 * 1024
 MAX_MEMBERS = 5000
+MAX_IMAGE_PIXELS = 50_000_000
 DIRNAME = "documents"
 
 DB = Path(os.environ.get("SOKKAN_DOCUMENTS_DB") or os.path.join(
@@ -156,7 +167,7 @@ def text_path_of(doc: dict) -> Path | None:
     """What the agent reads: the file itself for txt / md, its text copy otherwise (None
     when no text could be extracted)."""
     p = path_of(doc)
-    if doc["ext"] in ("txt", "md"):
+    if doc["ext"] in TEXT_EXT:
         return p
     t = p.with_name(p.name + ".txt")
     return t if t.is_file() else None
@@ -223,7 +234,43 @@ def check_content(path: Path, ext: str) -> None:
         except zipfile.BadZipFile:
             bad("damaged package")
         return
-    # txt / md: text, not something else wearing the extension
+    if ext in IMAGE_EXT:
+        magic = b"\x89PNG\r\n\x1a\n" if ext == "png" else b"\xff\xd8\xff"
+        if not head.startswith(magic):
+            bad("no image header")
+        try:
+            from PIL import Image  # type: ignore
+        except ImportError:
+            return
+        try:
+            with Image.open(path) as im:
+                w, h = im.size
+                if im.format not in ("PNG", "JPEG"):
+                    bad("not a PNG / JPEG image")
+                if w * h > MAX_IMAGE_PIXELS:
+                    raise DocumentError(413, "too_large", "image larger than 50 megapixels")
+        except DocumentError:
+            raise
+        except Exception:  # noqa: BLE001 — Pillow cannot read it: not an image
+            bad("damaged image")
+        return
+    if ext == "msg":
+        if not head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+            bad("not an Outlook message")
+        try:
+            import olefile  # type: ignore
+        except ImportError:
+            return
+        try:
+            with olefile.OleFileIO(str(path)) as ole:
+                if not any(e[0].startswith("__substg1.0_") for e in ole.listdir()):
+                    bad("an Office file, not an Outlook message")
+        except DocumentError:
+            raise
+        except Exception:  # noqa: BLE001
+            bad("damaged Outlook message")
+        return
+    # txt / md / csv / eml: text, not something else wearing the extension
     if any(head.startswith(m) for m in _BINARY_MAGIC):
         bad("binary signature")
     utf16 = head.startswith((b"\xff\xfe", b"\xfe\xff"))
@@ -234,6 +281,9 @@ def check_content(path: Path, ext: str) -> None:
                 break
             if not utf16 and b"\x00" in chunk:
                 bad("binary content")
+    if ext == "eml" and not re.search(rb"(?im)^(from|to|subject|date|received|message-id|return-path)\s*:",
+                                      head):
+        bad("no mail header")
 
 
 # ---- add -----------------------------------------------------------------------------------
@@ -283,7 +333,7 @@ def add_file(project: str, raw_name: str, tmp: Path, *, owner: str = "",
     except OSError:
         pass
     text_state, text_chars = "ok", 0
-    if ext in ("txt", "md"):
+    if ext in TEXT_EXT:
         try:
             text_chars = len(doctext.decode_text(dest.read_bytes()[:4_000_000]))
         except OSError:
@@ -418,8 +468,15 @@ def agent_lines(docs: list[dict]) -> list[str]:
             p, t = path_of(d), text_path_of(d)
         except DocumentError:
             continue
-        if t is not None:
+        if t is not None and d.get("ext") in IMAGE_EXT:
+            out.append(f"- « {d['name']} » (a photo; its text was read by character recognition "
+                       f"— check every figure against the person) — read: {t}")
+        elif t is not None:
             out.append(f"- « {d['name']} » — read: {t}")
+        elif d.get("ext") in IMAGE_EXT:
+            out.append(f"- « {d['name']} » — a photo whose text could not be read on this "
+                       f"instance ({d['text_state']}): ask the person for the figures you need, "
+                       f"never guess them. Original file: {p}")
         else:
             out.append(f"- « {d['name']} » — no text copy could be made ({d['text_state']}); "
                        f"original file: {p}")

@@ -320,7 +320,18 @@ class View:
             return {"text": text[:DRAFT_MAX], "partial": True, "truncated": len(text) > DRAFT_MAX}
         else:
             return None
-        return {"text": text[:DRAFT_MAX], "partial": False, "truncated": len(text) > DRAFT_MAX}
+        out = {"text": text[:DRAFT_MAX], "partial": False, "truncated": len(text) > DRAFT_MAX}
+        if text.lstrip("\ufeff").startswith("---") or re.search(r"\|\s*(\*\*)?=", text):
+            # 4.0 native formats: the card shows what the person will get — figures computed,
+            # one section per letter — while an edit still works on the text as written
+            try:
+                import outputs
+                name = Path(str(inp.get("file_path") or inp.get("path") or "")).name
+                out["preview"] = outputs.preview(name, text)[:DRAFT_MAX]
+                out["kind"] = outputs.kind_of(name, text)
+            except Exception:  # noqa: BLE001 — a preview never breaks a card
+                pass
+        return out
 
     # ---- the translation ------------------------------------------------------------------
     def feed(self, ev: dict) -> list[dict]:

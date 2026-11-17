@@ -3430,6 +3430,8 @@ app.include_router(hitl_api.router)
 app.include_router(study_api.router)
 import work_export_api  # noqa: E402 — feature work_export: « Export our work » (admin)
 app.include_router(work_export_api.router)
+import wordtemplates  # noqa: E402 — 4.0: the organisation's Word templates (admin)
+app.include_router(wordtemplates.router())
 import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 

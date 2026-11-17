@@ -203,6 +203,179 @@ def _pdf(path: Path) -> tuple[str, str]:
     return "\n\n".join(out), state
 
 
+def _csv(path: Path) -> str:
+    """A table (a bank export…) as a Markdown table the agent reads row by row."""
+    import outputs
+    rows = outputs.csv_rows(decode_text(path.read_bytes()[: MAX_CHARS * 2]))
+    if not rows:
+        return ""
+    width = max(len(r) for r in rows)
+    esc = lambda c: c.replace("|", "\\|").replace("\n", " ")  # noqa: E731
+    out = ["| " + " | ".join(esc(c) for c in rows[0] + [""] * (width - len(rows[0]))) + " |",
+           "|" + "---|" * width]
+    out += ["| " + " | ".join(esc(c) for c in r + [""] * (width - len(r))) + " |" for r in rows[1:]]
+    return "\n".join(out)
+
+
+_ATTACH_EXT = ("pdf", "docx", "pptx", "xlsx", "csv", "txt", "md")
+MAX_ATTACH = 25 * 1024 * 1024
+
+
+def _attachment_text(name: str, data: bytes, depth: int) -> str:
+    """The text of a mail's attachment of a known type (a temporary copy, removed at once)."""
+    import tempfile
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext not in _ATTACH_EXT or len(data) > MAX_ATTACH or depth > 1:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="sokkan-att-") as d:
+        p = Path(d) / f"a.{ext}"
+        p.write_bytes(data)
+        if ext in ("txt", "md"):
+            return decode_text(data)[:200_000]
+        text, _state = extract(p, ext, _depth=depth + 1)
+        return text[:200_000]
+
+
+def _mail_out(headers: list[tuple[str, str]], body: str, atts: list[tuple[str, bytes | None]],
+              depth: int) -> str:
+    out = [f"{k}: {v}" for k, v in headers if v]
+    out += ["", body.strip()]
+    for name, data in atts:
+        size = f" ({len(data) // 1024} KB)" if data is not None else ""
+        out += ["", f"## Attachment: {name}{size}"]
+        t = _attachment_text(name, data, depth) if data is not None else ""
+        out.append(t.strip() if t.strip() else "(no text copy of this attachment)")
+    return "\n".join(out)
+
+
+def _html_text(h: str) -> str:
+    h = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", h)
+    h = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h[1-6]>", "\n", h)
+    t = html.unescape(_TAG.sub(" ", h))
+    return "\n".join(_WS.sub(" ", ln).strip() for ln in t.splitlines() if ln.strip())
+
+
+def _eml(path: Path, depth: int = 0) -> str:
+    """A mail (.eml): who, to whom, when, the subject, the text, and its attachments'
+    text. The standard library's parser, no network, no HTML rendering."""
+    from email import policy
+    from email.parser import BytesParser
+    msg = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
+    headers = [(k, str(msg.get(k, "") or "")) for k in ("From", "To", "Cc", "Date", "Subject")]
+    body = ""
+    try:
+        part = msg.get_body(preferencelist=("plain", "html"))
+        if part is not None:
+            content = part.get_content()
+            body = _html_text(content) if part.get_content_type() == "text/html" else content
+    except Exception:  # noqa: BLE001 — a malformed body: the headers and attachments still
+        body = ""
+    atts = []
+    for a in msg.iter_attachments():
+        try:
+            data = a.get_payload(decode=True)
+        except Exception:  # noqa: BLE001
+            data = None
+        atts.append((a.get_filename() or "attachment", data))
+    return _mail_out(headers, body, atts, depth)
+
+
+def _msg(path: Path, depth: int = 0) -> str:
+    """An Outlook message (.msg, OLE compound file) through `olefile` (BSD): subject, sender,
+    recipients, date, text and attachments — the plain MAPI properties, no RTF rendering."""
+    try:
+        import olefile  # type: ignore
+    except ImportError as e:
+        raise _Unavailable() from e
+    import struct
+    with olefile.OleFileIO(str(path)) as ole:
+        def prop(code: str, root: str = "") -> str:
+            for typ, enc in (("001F", "utf-16-le"), ("001E", "cp1252")):
+                name = f"{root}__substg1.0_{code}{typ}"
+                if ole.exists(name):
+                    return ole.openstream(name).read(MAX_MEMBER).decode(enc, errors="replace").rstrip("\x00")
+            return ""
+        sender = prop("0C1A")
+        mail = prop("5D01") or prop("0C1F")
+        date = ""
+        if ole.exists("__properties_version1.0"):
+            raw = ole.openstream("__properties_version1.0").read(1 << 20)
+            for off in range(32, len(raw) - 15, 16):
+                tag = struct.unpack_from("<I", raw, off)[0]
+                if tag in (0x00390040, 0x0E060040):           # submit time, delivery time
+                    ft = struct.unpack_from("<Q", raw, off + 8)[0]
+                    if ft:
+                        import datetime as dt
+                        t = dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(microseconds=ft // 10)
+                        date = t.strftime("%d.%m.%Y %H:%M UTC")
+                        break
+        headers = [("From", f"{sender} <{mail}>" if sender and mail else sender or mail),
+                   ("To", prop("0E04")), ("Cc", prop("0E03")), ("Date", date), ("Subject", prop("0037"))]
+        body = prop("1000")
+        if not body.strip():
+            for typ in ("0102", "001F"):
+                n = f"__substg1.0_1013{typ}"
+                if ole.exists(n):
+                    body = _html_text(ole.openstream(n).read(MAX_MEMBER).decode(
+                        "utf-8" if typ == "0102" else "utf-16-le", errors="replace"))
+                    break
+        atts = []
+        roots = sorted({e[0] for e in ole.listdir() if e[0].startswith("__attach_version1.0_")})
+        for r in roots[:50]:
+            name = prop("3707", r + "/") or prop("3704", r + "/") or "attachment"
+            data_name = f"{r}/__substg1.0_37010102"
+            data = None
+            if ole.exists(data_name) and ole.get_size(data_name) <= MAX_ATTACH:
+                data = ole.openstream(data_name).read()
+            atts.append((name, data))
+    return _mail_out(headers, body, atts, depth)
+
+
+class _Unavailable(Exception):
+    pass
+
+
+OCR_TIMEOUT = 90
+
+
+def ocr_languages() -> str:
+    """The OCR languages installed among French, German, Italian, English (« fra+deu+eng »)."""
+    import shutil
+    import subprocess
+    exe = shutil.which("tesseract")
+    if not exe:
+        return ""
+    try:
+        out = subprocess.run([exe, "--list-langs"], capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    have = set(out.split())
+    return "+".join(x for x in ("fra", "deu", "ita", "eng") if x in have) or ("eng" if "eng" in have else "")
+
+
+def _image(path: Path) -> tuple[str, str]:
+    """A photo (a receipt, a scanned letter): its text by OCR with Tesseract (Apache-2.0),
+    on this machine — nothing leaves it, whatever the project's classification. Without
+    Tesseract: « unavailable » (the person is told, the agent asks for the figures)."""
+    import shutil
+    import subprocess
+    langs = ocr_languages()
+    exe = shutil.which("tesseract")
+    if not exe or not langs:
+        return "", "unavailable"
+    try:
+        r = subprocess.run(["nice", "-n", "10", exe, str(path), "-", "-l", langs, "--psm", "3"],
+                           capture_output=True, timeout=OCR_TIMEOUT,
+                           env={"OMP_THREAD_LIMIT": "2", "PATH": "/usr/bin:/bin"})
+    except (OSError, subprocess.SubprocessError):
+        return "", "failed"
+    text = r.stdout.decode("utf-8", errors="replace").strip() if r.returncode == 0 else ""
+    if not text:
+        return "", "empty" if r.returncode == 0 else "failed"
+    return ("(Text read from a photo by character recognition: figures may be misread.)\n\n"
+            + text), "ok"
+
+
 def decode_text(raw: bytes) -> str:
     for enc in ("utf-8-sig", "utf-16"):
         try:
@@ -214,14 +387,27 @@ def decode_text(raw: bytes) -> str:
     return raw.decode("cp1252", errors="replace")
 
 
-def extract(path: str | Path, ext: str) -> tuple[str, str]:
+def extract(path: str | Path, ext: str, _depth: int = 0) -> tuple[str, str]:
     """→ (text, state). Never raises: a document that cannot be read is still stored, the
     state tells the person and the agent why there is no text copy."""
     p = Path(path)
     ext = (ext or "").lower().lstrip(".")
     try:
         state = "ok"
-        if ext in ("txt", "md"):
+        if ext == "csv":
+            text = _csv(p)
+        elif ext == "eml":
+            text = _eml(p, _depth)
+        elif ext == "msg":
+            try:
+                text = _msg(p, _depth)
+            except _Unavailable:
+                return "", "unavailable"
+        elif ext in ("jpg", "jpeg", "png"):
+            text, state = _image(p)
+            if state != "ok":
+                return "", state
+        elif ext in ("txt", "md"):
             text = decode_text(p.read_bytes()[: MAX_CHARS * 4])
         elif ext == "docx":
             text = _docx(p)

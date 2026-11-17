@@ -283,6 +283,32 @@ def confinement_hooks(conf: Confinement | None, *, sid: str, user: str, cwd: str
     return {"PreToolUse": [HookMatcher(matcher=sandbox.HOOK_MATCHER, hooks=[pre_tool])]}
 
 
+def calc_hooks() -> list:
+    """PostToolUse on the file tools (4.0 native formats): after a deliverable of an Atelier
+    work is saved, the figures SOKKAN computed from its formulas are handed to the model as
+    the tool's context — it quotes them instead of computing in its head (`outputs`)."""
+
+    async def after_save(payload, _tool_use_id, _context):
+        payload = payload or {}
+        if payload.get("hook_event_name") != "PostToolUse":
+            return {}
+        inp = payload.get("tool_input") or {}
+        path = str(inp.get("file_path") or "") if isinstance(inp, dict) else ""
+        parts = os.path.abspath(path).split(os.sep) if path else []
+        if len(parts) < 3 or parts[-3] != "deliverables":
+            return {}
+        try:
+            import outputs
+            text = outputs.write_calc(path)
+        except Exception:  # noqa: BLE001 — a save never fails on its figures
+            return {}
+        if not text:
+            return {}
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}
+
+    return [HookMatcher(matcher="Write|Edit|MultiEdit", hooks=[after_save])]
+
+
 def no_shell_hooks(on_refused=None) -> list:
     """PreToolUse matchers refusing every shell tool of the CLI (3.6.8): for the session and
     each of its sub-agents. ``on_refused(tool, input)`` is told of each refusal."""
@@ -480,6 +506,7 @@ class LegacyHarness(Harness):
             hooks = dict(hooks or {})
             hooks["PreToolUse"] = [*no_shell_hooks(self._no_shell),
                                    *(hooks.get("PreToolUse") or [])]
+            hooks["PostToolUse"] = [*calc_hooks(), *(hooks.get("PostToolUse") or [])]
         conf = confinement_hooks(spec.confinement, sid=spec.run_id, user=spec.user,
                                  cwd=spec.cwd, on_denied=self._confined)
         for ev, matchers in conf.items():

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { downloadUrl, fetchDeliverable, validateDeliverable, type Deliverable } from "@/lib/simple/api";
 import { fullDate, useT, useUI } from "@/lib/simple/i18n";
+import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import Icon from "./icons";
@@ -63,8 +64,11 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
           ) : demo ? (
             <p className="sk-small sk-demo-pending" role="status" style={{ flexBasis: "100%" }}><Icon name="info" small />{t("demo.dl.pending")}</p>
           ) : null}
-          {d.previewable && <a className="sk-btn" href={downloadUrl(sid, name, "docx")} download><Icon name="download" />{t("dl.download.word")}</a>}
+          {(d.formats ?? (d.previewable ? ["docx"] : [])).map((f, i) => (
+            <a key={f} className={i === 0 ? "sk-btn" : "sk-btn sk-btn-quiet"} href={downloadUrl(sid, name, f)} download>
+              <Icon name="download" />{t(`dl.download.${f}` as Key)}</a>))}
           <a className="sk-btn sk-btn-quiet" href={downloadUrl(sid, name, "md")} download><Icon name="download" />{t("dl.download.md")}</a>
+          {d.kind && d.kind !== "document" && <p className="sk-xs sk-muted" style={{ flexBasis: "100%" }}>{t(`dl.kind.${d.kind}` as Key)}</p>}
           {d.changed_since_validation && <p className="sk-changed sk-small" role="status" style={{ flexBasis: "100%" }}><Icon name="alert" small />{t("dl.changed")}</p>}
           {!d.validated && canDrive && !d.changed_since_validation && <p className="sk-xs sk-muted" style={{ flexBasis: "100%" }}>{t("dl.validate.hint")}</p>}
         </div>
