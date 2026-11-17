@@ -348,6 +348,10 @@ services:
       SOKKAN_REVIEW_REMOTE_MAX_LEVEL: ${SOKKAN_REVIEW_REMOTE_MAX_LEVEL:-2}
       # 0 = the corrected version is not reviewed again by the model (the deterministic pass still is)
       SOKKAN_REVIEW_RECHECK: ${SOKKAN_REVIEW_RECHECK:-1}
+      # on = the agent also corrects what the model's review found, before the card (off: the
+      # review feeds the card « à vérifier par vous »; figures/names/law and unread documents
+      # always send the agent back)
+      SOKKAN_QUALITY_REWRITE: ${SOKKAN_QUALITY_REWRITE:-off}
       # the organisation's country (Swiss law and formats by default) and address form (vous | tu)
       SOKKAN_ORG_COUNTRY: ${SOKKAN_ORG_COUNTRY:-CH}
       SOKKAN_ORG_ADDRESS_FORM: ${SOKKAN_ORG_ADDRESS_FORM:-vous}

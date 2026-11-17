@@ -50,6 +50,12 @@ MAX_DOC_CHARS = 60_000
 MAX_SOURCE_CHARS = 40_000
 
 
+def rewrite_enabled() -> bool:
+    """The agent is sent back to correct what the model's review found (off by default; the
+    deterministic findings and the unread attached documents always send it back)."""
+    return (os.environ.get("SOKKAN_QUALITY_REWRITE") or "off").strip().lower() in ("on", "1", "true", "yes")
+
+
 def enabled() -> bool:
     return (os.environ.get("SOKKAN_REVIEW") or "on").strip().lower() not in ("off", "0", "false", "no")
 
@@ -324,7 +330,10 @@ def review(*, text: str, name: str, ask: str = "", mission: str = "",
             out["error"] = r.get("error") or "unreadable review"
         else:
             out.update(defects=parsed["defects"], verified=parsed["verified"], to_check=parsed["to_check"])
-    out["needs_fix"] = bool(factcheck.blocking(det) or out["defects"])
+    # 4.0 (calibration du 18.11): the 27B's correction of what only the REVIEW found did not
+    # improve the deliverables (severe grid 0/18 vs 2/18) and cost +47 s; by default the review
+    # only feeds the card (« à vérifier par vous »). SOKKAN_QUALITY_REWRITE=on brings it back.
+    out["needs_fix"] = bool(factcheck.blocking(det) or (out["defects"] and rewrite_enabled()))
     out["ms"] = int((time.monotonic() - t0) * 1000)
     return out
 

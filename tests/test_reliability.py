@@ -244,7 +244,8 @@ def test_a_confidential_project_is_never_sent_to_the_strong_reviewer(monkeypatch
     assert qualitygate.reviewer_for(3) is None
 
 
-def test_the_review_finds_defects_and_the_card_says_what_remains(reviewer):
+def test_the_review_finds_defects_and_the_card_says_what_remains(reviewer, monkeypatch):
+    monkeypatch.setenv("SOKKAN_QUALITY_REWRITE", "on")
     reviewer.answers = ['```json\n{"verdict":"fix","defects":[{"where":"Total","problem":"119\'880 au lieu de 93\'960",'
                         '"fix":"93\'960"}],"verified":["prix du tarif"],"to_check":["nombre de lots"]}\n```']
     text, ask = _case("offre-v1")
@@ -485,3 +486,14 @@ def test_a_filtered_total_and_a_label_are_not_flagged():
           "| C | ouverte | 30 |\n| Total (affaires ouvertes) | | 130 |\n\nPortée Google : 12'000 vues.\n")
     f = factcheck.check(md, primary="Annonces Google, portée 12'000", lang="fr", country="CH")
     assert factcheck.blocking(f) == []
+
+
+def test_by_default_a_defect_found_only_by_the_review_goes_to_the_card_not_back_to_the_agent(reviewer, monkeypatch):
+    monkeypatch.delenv("SOKKAN_QUALITY_REWRITE", raising=False)
+    reviewer.answers = ['{"verdict":"fix","defects":[{"where":"Objet","problem":"date fausse"}]}']
+    res = qualitygate.review(text="# Note\n\nRien.\n", name="n.md", sources=[], lang="fr", level=1)
+    assert res["defects"] and not res["needs_fix"]
+    assert not qualitygate.card(res, corrected=False)["ok"]
+    text, ask = _case("offre-v1")          # a deterministic finding still sends it back
+    reviewer.answers = ['{"verdict":"ok","defects":[]}']
+    assert qualitygate.review(text=text, name="o.md", ask=ask, sources=[], lang="fr", level=1)["needs_fix"]
