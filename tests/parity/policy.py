@@ -12,8 +12,9 @@ Atelier (simple profile):
 * a ``file_write`` to the project's memory from a conversation that was handed documents is
   refused by rule (``policy:documents_memory_write``): a note goes through ``memory_write``
   and its quarantine;
-* a second save of the same deliverable within one turn is refused by rule
-  (``policy:one_card_per_document``, 3.6.7): one card per document;
+* the later saves of a deliverable the person approved in this turn are approved by rule,
+  with the person as decider (``policy:simple_same_document_same_turn``, 4.0 — 3.6.7 refused
+  them, ``policy:one_card_per_document``); one card per document and per turn;
 * any other ``file_write`` is a card the person approves (``person`` / ``rail``);
 * a question is answered with its first choice; other gates are approved.
 
@@ -126,8 +127,9 @@ class Policy:
             if self.deliverables is not None and inside(path, self.deliverables):
                 card.deliverable = True
                 if path in self._saved_this_turn:
-                    card.rule = "policy:one_card_per_document"
-                    return Decision.deny(ONE_CARD, by="policy", via="auto_rule")
+                    # agentchat.py 4.0: the person's first decision carries the later saves
+                    card.rule = "policy:simple_same_document_same_turn"
+                    return Decision.allow(by=PERSON, via="auto_rule")
                 self._saved_this_turn.add(path)
             card.rule = "person"
             return Decision.allow(by=PERSON, via="rail")
@@ -153,17 +155,20 @@ class Policy:
     # ---- what the journal says -------------------------------------------------------------
     def summary(self) -> dict:
         j = self.journal
-        deliv = [c for c in j if c.deliverable and c.decision.startswith("allow")]
+        deliv = [c for c in j if c.deliverable and c.decision.startswith("allow")
+                 and c.via != "auto_rule"]          # cards the person saw
         per_doc: dict[tuple[int, str], int] = {}
         for c in deliv:
             per_doc[(c.turn, c.target)] = per_doc.get((c.turn, c.target), 0) + 1
         return {
             "cards": len(j),
-            "cards_shown_to_person": sum(1 for c in j if c.by == PERSON),
-            "cards_by_rule": sum(1 for c in j if c.by == "policy"),
+            "cards_shown_to_person": sum(1 for c in j if c.by == PERSON and c.via != "auto_rule"),
+            "cards_by_rule": sum(1 for c in j if c.by == "policy" or c.via == "auto_rule"),
             "deliverable_cards": len(deliv),
             "max_cards_per_document_per_turn": max(per_doc.values(), default=0),
             "second_saves_refused": sum(1 for c in j if c.rule == "policy:one_card_per_document"),
+            "same_document_by_rule": sum(
+                1 for c in j if c.rule == "policy:simple_same_document_same_turn"),
             "shell_refused": sum(1 for c in j if c.rule == "policy:simple_profile_no_shell"),
             "memory_write_refused": sum(1 for c in j if c.rule == "policy:documents_memory_write"),
             "non_deliverable_writes_approved": sum(

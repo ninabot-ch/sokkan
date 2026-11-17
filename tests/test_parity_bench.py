@@ -110,12 +110,13 @@ def test_atelier_rules(tmp_path):
     assert p.decide(_gate("file_write", tool="Write", path=str(mem / "n.md"))).kind == "deny"
     doc = str(deliv / "Quiz.md")
     assert p.decide(_gate("file_write", tool="Write", path=doc)).kind == "allow_once"
-    assert p.decide(_gate("file_write", tool="Edit", path=doc)).kind == "deny"   # 2nd save
+    second = p.decide(_gate("file_write", tool="Edit", path=doc))      # 2nd save, same turn
+    assert (second.kind, second.by, second.via) == ("allow_once", policy.PERSON, "auto_rule")
     p.new_turn()
     assert p.decide(_gate("file_write", tool="Edit", path=doc)).kind == "allow_once"
     s = p.summary()
     assert s["shell_refused"] == 1 and s["memory_write_refused"] == 1
-    assert s["second_saves_refused"] == 1 and s["max_cards_per_document_per_turn"] == 1
+    assert s["same_document_by_rule"] == 1 and s["max_cards_per_document_per_turn"] == 1
     assert s["deliverable_cards"] == 2 and s["cards_shown_to_person"] == 2
 
 

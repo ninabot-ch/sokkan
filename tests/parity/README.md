@@ -29,8 +29,9 @@ Both engines are driven through `backend/harness` — the contract the cockpit c
   text copy of a .docx made by `doctext.extract`, deliverables in `deliverables/<32 hex>/`);
 * **the same cockpit rules** (`policy.py`, mirrored from `agentchat.py` 3.6.7): in the Atelier a
   shell gate is refused by rule, a memory file written by a conversation that was handed documents
-  is refused by rule, a second save of a document in the same turn is refused by rule, and the
-  « person » approves the other cards; in the Cockpit every gate is approved by the bypass rule;
+  is refused by rule, the later saves of a document the person approved in the same turn are
+  approved by rule with the person as decider (4.0, `policy:simple_same_document_same_turn`; 3.6.7
+  refused them), and the « person » approves the other cards; in the Cockpit every gate is approved by the bypass rule;
 * **the same model behind the same meter** (`wire.py`): every model request of both engines goes
   through it — tokens are counted on the wire (prompt total, cached part, output), not taken from
   each engine's own ledger; reasoning is off as the product ships it (3.6.7); at most two requests
