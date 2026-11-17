@@ -510,8 +510,12 @@ class KernelHarness(Harness):
         denied = list(dict.fromkeys([*(spec.deny_tools or ()), *no_shell, *_always_denied()]))
         # the names that MUST match an active tool of the session (the others of the shell
         # family are removed in case this kernel has them)
-        expected = set(spec.deny_tools or ()) | set(_always_denied()) | (
-            {"terminal", "memory_note"} if not spec.shell else set())
+        # The kernel's own memory tools are not among them: a kernel without project memory
+        # (`memory_mcp_url` empty, the cockpit's lab and product) has no `memory_note` in its
+        # catalogue at all — absent is not offered, the safe side (mini-run k99: R2 failed on it)
+        from .refusals import MEMORY_TOOLS
+        expected = (set(spec.deny_tools or ()) | set(_always_denied()) | (
+            {"terminal"} if not spec.shell else set())) - MEMORY_TOOLS
         if denied:
             body["deny_tools"] = denied
             self._removed = set(denied)

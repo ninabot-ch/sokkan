@@ -270,9 +270,11 @@ def test_masked_opening_body(mocked, tmp_path, monkeypatch):
 
 
 def test_a_deny_name_the_kernel_did_not_match_is_said(mocked, tmp_path):
-    mocked(unknown=["memory_note", "ssh_run"])     # ssh_run: best effort, not expected
+    # ssh_run: best effort, not expected; memory_note: a kernel without project memory has
+    # none in its catalogue (not offered: nothing to say)
+    mocked(unknown=["terminal", "memory_note", "ssh_run"])
     h, evs = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path), shell=False))
-    assert h.deny_unmatched == ["memory_note"]
+    assert h.deny_unmatched == ["terminal"]
     errs = [e for e in evs if isinstance(e, contract.Error)]
     assert any(e.code == "deny_tools_unmatched" and e.recoverable for e in errs)
     mocked()                                        # older kernel: no field, nothing said
