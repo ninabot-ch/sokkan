@@ -27,7 +27,7 @@ Routes (`backend/orgprofile_api.py`):
 
     GET    /api/org/profile            any member; an administrator sees the IBAN whole
     PUT    /api/org/profile            administrator; 400 {code: iban_invalid | uid_invalid | country_iso2 | …}
-    GET    /api/org/profile/status     {filled, missing, ready} — for the onboarding step
+    GET    /api/org/profile/status     {filled, missing, ready} — the onboarding step shows it
     GET    /api/org/profile/preview    administrator: the exact block a work receives (?ask=…&playbook=…)
     GET|PUT|DELETE /api/org/logo       PUT takes the file as the body, ?name=logo.png
 
@@ -79,3 +79,10 @@ same person in the same request: same journal (`memory.quarantine.approve`, then
 `memory.learn`), the note's level = the deliverable's, the person's clearance checked, a memory
 that could not index it refused (409) before anything is written. Only the person who drives
 the work (or a project admin) can do it.
+
+## One name
+
+The organisation is named in ONE place, `orgprofile.set_name` (`instance.json`; the common project
+follows unless renamed): Settings › Organisation, the first-launch step « Organisation »
+(`PUT /api/org/profile {name}`, plus the logo and the profile's completeness) and the cockpit's
+`POST /api/instance` all go through it. `PUT /api/onboarding/org` only sets the team's language.

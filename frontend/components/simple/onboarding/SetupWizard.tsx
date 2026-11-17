@@ -15,6 +15,7 @@ import { useUI, type LangPref } from "@/lib/simple/i18n";
 import { currentProject } from "@/lib/project";
 import Icon from "../icons";
 import { CopyBox, LevelPicker, Preview, RolePicker } from "./parts";
+import { fetchOrgStatus, saveOrgProfile, uploadOrgLogo } from "@/lib/simple/org";
 
 export default function SetupWizard({ ob, reload, onClose, setLangPref }: {
   ob: Onboarding; reload: () => Promise<void> | void; onClose: () => void; setLangPref: (l: LangPref) => void;
@@ -98,11 +99,22 @@ function OrgStep({ ob, onDone, setLangPref }: { ob: Onboarding; onDone: () => vo
   const [lng, setLng] = useState<"fr" | "en">((ob.org_lang as "fr" | "en") || lang);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [logo, setLogo] = useState<"" | "busy" | "ok">("");
+  const [status, setStatus] = useState<{ filled: string[]; missing: string[] } | null>(null);
+  useEffect(() => { fetchOrgStatus().then(setStatus).catch(() => setStatus(null)); }, []);
+  // one place names the organisation: its profile (PUT /api/org/profile, backend/orgprofile.set_name)
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr("");
-    try { await saveOrg(name.trim(), lng); setLangPref(lng); onDone(); }
-    catch { setErr(t("ob.failed.generic")); } finally { setBusy(false); }
+    try { await saveOrgProfile({ name: name.trim() }); await saveOrg(lng); setLangPref(lng); onDone(); }
+    catch (x) { setErr(x instanceof Error && x.message ? t("ob.failed", { why: x.message }) : t("ob.failed.generic")); }
+    finally { setBusy(false); }
+  };
+  const pickLogo = async (f: File | undefined) => {
+    if (!f) return;
+    setLogo("busy"); setErr("");
+    try { await uploadOrgLogo(f); setLogo("ok"); }
+    catch (x) { setLogo(""); setErr(x instanceof Error && x.message ? t("ob.failed", { why: x.message }) : t("ob.failed.generic")); }
   };
   return (
     <form className="sk-stack" onSubmit={save}>
@@ -116,6 +128,13 @@ function OrgStep({ ob, onDone, setLangPref }: { ob: Onboarding; onDone: () => vo
           <button type="button" aria-pressed={lng === "en"} onClick={() => setLng("en")}>English</button>
         </div>
       </fieldset>
+      <div className="sk-field"><span>{t("ob.org.logo")}</span>
+        <small className="sk-muted">{t("ob.org.logo.sub")}</small>
+        <label className="sk-btn">{logo === "busy" ? <span className="sk-spin" aria-hidden /> : <Icon name={logo === "ok" ? "check" : "clip"} />}
+          {t(logo === "ok" ? "ob.org.logo.ok" : "ob.org.logo.add")}
+          <input type="file" accept="image/png,image/jpeg,image/svg+xml" hidden onChange={(e) => pickLogo(e.target.files?.[0])} /></label>
+      </div>
+      {status && <p className="sk-small sk-muted">{t("ob.org.profile", { n: status.filled.length, total: status.filled.length + status.missing.length })}</p>}
       <Err text={err} />
       <div><button className="sk-btn sk-btn-primary" disabled={busy || name.trim().length < 2}>
         {busy ? <span className="sk-spin" aria-hidden /> : <Icon name="check" />}{t("ob.next")}</button></div>

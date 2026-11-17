@@ -73,9 +73,14 @@ def test_a_fresh_instance_sends_its_administrator_through_the_six_steps(box):
     assert ob["setup"]["started_at"] and ob["model"]["kind"] == "none"
     assert ob["org_name"] == ""                    # never the owner's own name offered as the organisation's
     # the organisation, without .env
-    r = c.put("/api/onboarding/org", json={"org_name": "Atelier Exemple", "lang": "fr"})
+    # one place names the organisation: its profile (orgprofile.set_name); the step sets the language
+    r = c.put("/api/org/profile", json={"name": "Atelier Exemple"})
+    assert r.status_code == 200 and r.json()["name"] == "Atelier Exemple"
+    assert set(c.get("/api/org/profile/status").json()) >= {"filled", "missing", "ready"}
+    r = c.put("/api/onboarding/org", json={"lang": "fr"})
     assert r.status_code == 200 and r.json() == {"org_name": "Atelier Exemple", "lang": "fr"}
     assert c.get("/api/instance").json()["org_name"] == "Atelier Exemple"
+    assert c.get("/api/onboarding").json()["org_name"] == "Atelier Exemple"
     import projects
     assert projects.get("default")["name"] == "Atelier Exemple"     # the common project follows
     st = c.put("/api/onboarding/setup", json={"step": "org", "state": "done"}).json()
@@ -108,7 +113,8 @@ def test_only_an_instance_administrator_reaches_the_setup_and_the_team(box):
     ana = _client(box, code)
     ob = ana.get("/api/onboarding").json()
     assert ob["admin"] is False and "setup" not in ob and ob["me"]["needs_welcome"] is True
-    for method, url, body in (("put", "/api/onboarding/setup", {"step": "org"}), ("put", "/api/onboarding/org", {"org_name": "x"}),
+    for method, url, body in (("put", "/api/onboarding/setup", {"step": "org"}), ("put", "/api/onboarding/org", {"lang": "fr"}),
+                              ("put", "/api/org/profile", {"name": "x"}),
                               ("post", "/api/onboarding/model/test", {"kind": "local"}), ("get", "/api/team", None),
                               ("post", "/api/team", {"email": "z@example.org", "projects": ["clients"]}),
                               ("get", "/api/team/usage", None), ("post", "/api/onboarding/projects", {"name": "Xx"})):

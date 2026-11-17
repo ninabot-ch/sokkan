@@ -31,6 +31,7 @@ async function call<T>(url: string, method = "GET", body?: unknown, raw?: BodyIn
 }
 
 export const fetchOrgProfile = () => call<OrgProfile>("/api/org/profile");
+export const fetchOrgStatus = () => call<{ filled: string[]; missing: string[]; ready: boolean }>("/api/org/profile/status");
 export const saveOrgProfile = (p: Partial<OrgProfile>) => call<OrgProfile>("/api/org/profile", "PUT", p);
 export const fetchOrgPreview = (ask = "") => call<{ text: string; chars: number; tokens_est: number }>(
   `/api/org/profile/preview?ask=${encodeURIComponent(ask)}`);

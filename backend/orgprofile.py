@@ -240,9 +240,26 @@ def update(body: dict, by: str) -> dict:
         _save(d)
     name = _clean(body.get("name"), 80)
     if name:
-        import instance
-        instance.set_org_name(name)
+        set_name(name)
     return get(reveal=True)
+
+
+def set_name(name: str) -> str:
+    """THE way to name the organisation (Settings › Organisation, the first-launch step, the
+    cockpit's /api/instance): `instance.json` holds it; the common project, named after the
+    organisation (or the owner) at its creation, follows unless somebody renamed it since."""
+    import auth
+    import instance
+    import projects
+    name = (name or "").strip()[:80]
+    if not name:
+        return instance.info()["org_name"]
+    before = instance.info()["org_name"]
+    instance.set_org_name(name)
+    d = projects.get(projects.DEFAULT_PROJECT)
+    if d and d.get("name") in (before, "Default project", auth.OWNER_NAME):
+        projects.update(projects.DEFAULT_PROJECT, name=name)
+    return instance.info()["org_name"]
 
 
 def completeness() -> dict:

@@ -1328,7 +1328,8 @@ class InstanceSettings(BaseModel):
 @app.post("/api/instance")
 def instance_set(body: InstanceSettings, u: dict = Depends(require("admin"))) -> dict:
     if body.org_name.strip():
-        instance.set_org_name(body.org_name)
+        import orgprofile  # one way to name the organisation (the common project follows)
+        orgprofile.set_name(body.org_name)
         audit.log(u["email"], "instance.rename", body.org_name)
     if body.budget_session_usd is not None or body.budget_day_usd is not None:
         instance.set_budgets(body.budget_session_usd, body.budget_day_usd)
