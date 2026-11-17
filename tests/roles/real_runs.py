@@ -353,7 +353,7 @@ def main() -> int:
     model = R.pick_model(upstream)
     results = []
     meter = W.Wire(upstream, str(out_dir / "wire.jsonl"), bind="127.0.0.1",
-                   port=int(R.env("PARITY_WIRE_PORT", "18795")), thinking=False,
+                   port=int(R.env("PARITY_WIRE_PORT", "18795")), thinking=R.env("PARITY_THINKING", "0") == "1",
                    max_concurrent=int(R.env("PARITY_MAX_CONCURRENT", "2")), model=model)
     with meter as wire:
         R.legacy_env(out_dir / "claude-cfg", wire.url)
