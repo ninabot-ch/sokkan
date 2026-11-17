@@ -410,3 +410,63 @@ def test_a_bare_total_in_the_text_matching_its_table_passes():
     assert factcheck.blocking(factcheck.check(md, lang="fr", country="CH")) == []
     two = md + "\n| Poste | Montant |\n|---|---|\n| C | 10 |\n| D | 20 |\n| Total HT | 30 |\n"
     assert factcheck.blocking(factcheck.check(two, lang="fr", country="CH")) == []
+
+
+# ---- the attached documents are read before the first save (banc n°5, A4) -----------------
+def test_read_calls_of_both_engines_count():
+    assert qualitygate.is_read("Read") and qualitygate.is_read("read_file")
+    assert qualitygate.is_read("anything", "file_read") and not qualitygate.is_read("Write", "file_write")
+    docs = [{"id": "a1b2c3d4e5f60718", "name": "Devis 2026-117.txt"}]
+    assert qualitygate.unread(docs, []) == ["Devis 2026-117.txt"]
+    assert qualitygate.unread(docs, ["/data/p/documents/a1b2c3d4e5f60718/Devis 2026-117.txt.txt"]) == []
+    assert qualitygate.unread(docs, ["/workspace/documents/x/Devis 2026-117.txt"]) == []      # kernel alias
+    msg = qualitygate.read_first_message(["Devis 2026-117.txt"], "read_file")
+    assert "read_file tool" in msg and "Read tool" not in msg and factcheck.AGENT_MARK in msg
+
+
+def test_a_save_without_reading_the_attached_quote_is_sent_back_once(monkeypatch, tmp_path):
+    from harness_helpers import ask
+    import documents
+    s, journal = _session(monkeypatch, tmp_path)
+    monkeypatch.setattr(documents, "of_session", lambda sid: [{"id": "a1b2c3d4e5f60718", "name": "Devis 2026-117.txt"}])
+    path = str(tmp_path / "deliverables" / s.sid / "Relance.md")
+
+    async def turn():
+        r1 = await ask(s, "Write", {"file_path": path, "content": "# Relance\n\nVotre devis 2026-099…\n"})
+        fut = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# Relance\n"}))
+        while not s._perms:
+            await asyncio.sleep(0.01)
+        s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
+        return r1, await fut
+
+    r1, r2 = asyncio.run(turn())
+    assert r1.denied and "you did not read « Devis 2026-117.txt »" in r1.message
+    assert journal[0] == "policy:read_documents_first" and r2.allowed      # once, never a loop
+
+
+def test_a_save_after_reading_goes_to_the_gate(monkeypatch, tmp_path):
+    from harness_helpers import ask
+    import documents
+    from harness import contract
+    s, journal = _session(monkeypatch, tmp_path)
+    monkeypatch.setattr(documents, "of_session", lambda sid: [{"id": "a1b2c3d4e5f60718", "name": "Devis 2026-117.txt"}])
+    s._note_read(contract.ToolCalled(turn_id="t", call_id="c", name="read_file",
+                                     input={"path": "/workspace/documents/a1b2c3d4e5f60718/Devis 2026-117.txt.txt"},
+                                     classification="file_read"))
+    path = str(tmp_path / "deliverables" / s.sid / "Relance.md")
+
+    async def turn():
+        fut = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# Relance\n"}))
+        while not s._perms:
+            await asyncio.sleep(0.01)
+        s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
+        return await fut
+    assert asyncio.run(turn()).allowed and "policy:read_documents_first" not in journal
+
+
+def test_the_brief_names_the_engine_s_read_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    import simple
+    b = simple.brief(ask="x", lang="fr", project="p1", sid="d" * 32, read_tool="read_file",
+                     docs=[])
+    assert "Read tool" not in b

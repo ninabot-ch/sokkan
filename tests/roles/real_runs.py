@@ -63,6 +63,13 @@ class GatedPolicy(P.Policy):
         self.case, self.sp, self.mission, self.level = case, sp, mission, level
         self.gate_log: list[dict] = []
         self._bounced: dict[str, dict] = {}
+        self.reads: list[str] = []
+        self.unread_bounces = 0
+
+    def on_event(self, ev) -> None:
+        import qualitygate
+        if getattr(ev, "type", "") == "tool.called" and qualitygate.is_read(ev.name, ev.classification):
+            self.reads.append(qualitygate.read_target(ev.input))
 
     async def adecide(self, gate):
         import qualitygate
@@ -71,6 +78,20 @@ class GatedPolicy(P.Policy):
         path = P.real(gate.path or str(gate.input.get("file_path") or ""))
         if not P.inside(path, self.deliverables) or path in self._saved_this_turn:
             return self.decide(gate)
+        missing = qualitygate.unread(self.sp["docs"], self.reads)
+        if missing and ("unread:" + path) not in self._bounced:
+            # the rule of agentchat._unread_documents: read the attached documents first
+            self._bounced["unread:" + path] = {"unread": missing}
+            self.unread_bounces += 1
+            self.gate_log.append({"path": os.path.basename(path), "pass": 0, "unread": missing})
+            from harness.contract import Decision
+            card = P.Card(gate_id=gate.gate_id, kind=gate.kind, tool=gate.tool, target=path[:300],
+                          t=round(time.monotonic() - self._turn_t0, 1), turn=self.turn,
+                          rule="policy:read_documents_first", deliverable=True)
+            d = Decision.deny(qualitygate.read_first_message(missing, "Read"), by="policy", via="auto_rule")
+            card.decision, card.by, card.via = d.kind, d.by, d.via
+            self.journal.append(card)
+            return d
         text = qualitygate.content_after(gate.tool, gate.input, path)
         if text is None:
             return self.decide(gate)
@@ -100,6 +121,7 @@ class GatedPolicy(P.Policy):
             self.journal.append(card)
             return d
         entry["card"] = qualitygate.card(res, corrected=prev is not None, lang=self.case.get("lang", "fr"))
+        entry["unread_at_card"] = qualitygate.unread(self.sp["docs"], self.reads)
         return self.decide(gate)
 
 
@@ -240,6 +262,13 @@ async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
     else:
         pol = P.Policy("atelier", deliverables=sp["deliverables"], memory=sp["memory"],
                        has_documents=bool(sp["docs"]))
+        pol.reads = []
+
+        def on_event(ev, pol=pol):
+            import qualitygate
+            if getattr(ev, "type", "") == "tool.called" and qualitygate.is_read(ev.name, ev.classification):
+                pol.reads.append(qualitygate.read_target(ev.input))
+        pol.on_event = on_event
     play = R.Play("legacy", R.new_harness("legacy"),
                   R.spec_for("legacy", run_id="run-" + uuid.uuid4().hex[:8], cwd=sp["work"],
                              profile="atelier"), pol, timeout_s)
@@ -255,6 +284,8 @@ async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
            "cards": pol.summary(), "tools": play.tools(), "failures": play.failures(),
            "view_lines": play.view_lines(), "shell_ran": play.shell_ran(),
            "answer": play.turns[0]["text"][:1500]}
+    import qualitygate
+    out["unread_at_end"] = qualitygate.unread(sp["docs"], getattr(pol, "reads", []))
     if GATE:
         out["gate"] = pol.gate_log
     out["grade"] = grade(case, play, sp, files)

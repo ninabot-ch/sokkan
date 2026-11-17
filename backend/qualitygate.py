@@ -230,6 +230,44 @@ def call_reviewer(rv: dict, messages: list[dict], timeout: float = 120.0) -> dic
             "ms": int((time.monotonic() - t0) * 1000)}
 
 
+# ---- the attached documents were read (banc n°5: a quote invented instead of read) ---------
+READ_TOOLS = {"Read", "read_file", "NotebookRead"}       # legacy (CLI) · kernel
+READ_TOOL_OF_ENGINE = {"legacy": "Read", "kernel": "read_file"}
+
+
+def is_read(name: str, classification: str = "") -> bool:
+    """A call that reads a file, whatever the engine: the contract's classification, the
+    engines' read tools, or a SOKKAN MCP tool that reads a document."""
+    n = name or ""
+    return classification == "file_read" or n in READ_TOOLS or (
+        n.startswith("mcp__sokkan") and ("read_document" in n or "document_read" in n))
+
+
+def read_target(inp: dict) -> str:
+    return str((inp or {}).get("file_path") or (inp or {}).get("path") or (inp or {}).get("document")
+               or (inp or {}).get("doc_id") or "")
+
+
+def unread(docs: list[dict], read: list[str]) -> list[str]:
+    """The attached documents no read call touched: matched by the document's id (its folder)
+    or its file name, so the kernel's aliases and the sandbox's /workspace count too."""
+    out = []
+    for d in docs:
+        did, name = str(d.get("id") or ""), str(d.get("name") or "")
+        if not any((did and did in r) or (name and name in r) for r in read):
+            out.append(name or did)
+    return out
+
+
+def read_first_message(names: list[str], read_tool: str = "") -> str:
+    how = f" with the {read_tool} tool" if read_tool else ""
+    return ("SOKKAN did not save this document: you did not read "
+            + ", ".join(f"« {n} »" for n in names[:8])
+            + f". Read each attached document{how} now, then write the document again from what "
+            "they say — quote no figure, name, date or subject they do not contain. Do not mention "
+            "this to the person. " + factcheck.AGENT_MARK)
+
+
 # ---- what the agent is about to save -----------------------------------------------------
 _KERNEL = {"write_file": "Write", "patch": "Edit"}
 

@@ -1,0 +1,9 @@
+{
+  "template": "",
+  "lang": "fr",
+  "ask": "Le client n'a pas répondu à ce devis depuis deux semaines. Prépare-moi un mail de relance courtois.",
+  "documents": [
+    {"name": "Devis 2026-117.txt", "source": "devis-2026-117.txt"}
+  ],
+  "must_contain": [["2026-117"], ["5 188", "5188", "5'188"]]
+}

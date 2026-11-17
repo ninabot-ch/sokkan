@@ -219,7 +219,7 @@ def house_rules(lang: str) -> list[str]:
 
 
 def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
-          docs: list[dict] | None = None, recall: str = "") -> str:
+          docs: list[dict] | None = None, recall: str = "", read_tool: str = "") -> str:
     """The first message the agent receives: the internal brief, then what the person typed."""
     d = deliverable_dir(project, sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -240,8 +240,10 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     lines += house_rules(lang)
     doc_lines = documents.agent_lines(docs or [])
     if doc_lines:
-        lines.append("- The person attached these documents. READ each of them (real file "
-                     "reads) before you write anything:")
+        how = f"with the {read_tool} tool " if read_tool else ""
+        lines.append("- The person attached these documents. Read each attached document "
+                     f"{how}before you write anything; quote no figure, name, date or subject "
+                     "that is not in them:")
         lines += ["  " + ln for ln in doc_lines]
     else:
         lines.append("- No document is attached. If the task needs one, say so in one "

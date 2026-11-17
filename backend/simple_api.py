@@ -438,8 +438,13 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)
         session._emit({"type": "user_echo", "text": ask,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
+        # 4.0: the brief names the read tool of the engine that will run the work
+        import qualitygate
+        from harness import registry
+        engine = getattr(getattr(session, "harness", None), "name", "") or registry.selected()
         bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
-                                            mission=mission, docs=docs, recall=recall)))
+                                            mission=mission, docs=docs, recall=recall,
+                                            read_tool=qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))))
         audit.log(email, "session.spawn", sid,
                   f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''}"
                   f"{', claude ' + cmodel if tier == 'claude' else ''})"

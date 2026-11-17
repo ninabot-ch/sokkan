@@ -179,6 +179,8 @@ class Play:
                 self.events.append((self._t(), ev.to_dict()))
                 if ev.type == "run.info" and getattr(ev, "engine_session", None):
                     self.engine_session = ev.engine_session
+                if hasattr(self.pol, "on_event"):
+                    self.pol.on_event(ev)        # what the agent read (the quality gate's rule)
                 if isinstance(ev, GateRequested):
                     if out["first_card_s"] is None:
                         out["first_card_s"] = dt

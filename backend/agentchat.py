@@ -787,6 +787,9 @@ class AgentSession:
             import qualitygate
             if not qualitygate.enabled():
                 return None
+            refused = self._unread_documents(gate, input_data, path)
+            if refused is not None:
+                return refused
             text = qualitygate.content_after(gate.tool, input_data, path)
             if text is None:
                 return None
@@ -827,6 +830,44 @@ class AgentSession:
         except Exception:  # noqa: BLE001
             pass
         return None
+
+    def _note_read(self, ev) -> None:
+        """A read call of the engine (both engines' names, the contract's classification):
+        what it read, for the « read the attached documents first » rule of the gate."""
+        try:
+            import qualitygate
+            if qualitygate.is_read(ev.name, getattr(ev, "classification", "")):
+                if not hasattr(self, "_reads"):
+                    self._reads = []
+                self._reads.append(qualitygate.read_target(ev.input))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _unread_documents(self, gate: contract.Gate, input_data: dict, path: str):
+        """4.0 (banc n°5): a work handed documents whose agent saves its deliverable without
+        having read them is sent back to read, ONCE — it had invented the quote to follow up."""
+        import documents
+        import qualitygate
+        key = "unread:" + os.path.abspath(path)
+        bounced = getattr(self, "_qg_bounced", None)
+        if bounced is None:
+            bounced = self._qg_bounced = {}
+        if key in bounced:
+            return None
+        try:
+            docs = documents.of_session(self.sid)
+        except Exception:  # noqa: BLE001
+            return None
+        missing = qualitygate.unread(docs, getattr(self, "_reads", []))
+        if not docs or not missing:
+            return None
+        bounced[key] = {"unread": missing}
+        engine = getattr(getattr(self, "harness", None), "name", "") or ""
+        message = qualitygate.read_first_message(missing, qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))
+        self._journal_auto(gate, input_data, False, "policy:read_documents_first")
+        if not getattr(getattr(self, "harness", None), "deny_text_reaches_model", True):
+            self._qg_carry = message
+        return contract.Decision.deny(message, by="policy", via="auto_rule")
 
     def _usage_quality_gate(self, res: dict) -> None:
         """The reviewer's tokens: counted with the session's (same project, same meter)."""
@@ -1264,6 +1305,7 @@ class AgentSession:
         elif isinstance(ev, contract.AssistantThink):
             self._emit({"type": "thinking", "text": ev.text})
         elif isinstance(ev, contract.ToolCalled):
+            self._note_read(ev)
             self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
                                     self._turn_model))
         elif isinstance(ev, contract.ToolResult):
