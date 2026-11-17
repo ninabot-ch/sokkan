@@ -207,8 +207,11 @@ def docs_for(case: dict) -> list[dict]:
 
 # ---- grading ---------------------------------------------------------------------------------
 PAID = ("Cèdres", "Chappuis")
-FLAG = re.compile(r"pay[ée]e?s?|sold[ée]e?s?|r[ée]gl[ée]e?s?|encaiss|d[ée]j[àa]|rapprochement|"
-                  r"ne pas envoyer|à ne pas|retir|exclu", re.I)
+# what says « this invoice is paid, do not remind » — not the words of a reminder itself
+# (« n'a pas encore été réglée », « si le paiement a déjà été effectué »)
+FLAG = re.compile(r"(?:pay[ée]e?s?|sold[ée]e?s?|r[ée]gl[ée]e?s?|encaiss[ée]e?s?)\s+(?:le|au|en|depuis|selon|"
+                  r"d'apr[èe]s|int[ée]gralement)\b|d[ée]j[àa]\s+(?:pay|sold|r[ée]gl|encaiss)|rapprochement|"
+                  r"ne pas (?:l')?envoyer|à ne pas envoyer|retir[ée]|exclu|paid|settled", re.I)
 
 
 def sections(text: str) -> list[tuple[str, str]]:
@@ -226,8 +229,9 @@ def grade(case_id: str, text: str, chat: str) -> dict:
     t = text or ""
     both = t + "\n" + (chat or "")
     org = {"org_name": "Morand Domotique SA" in t, "org_city": "Crissier" in t,
-           "no_placeholder": not re.search(r"(?i)\[(nom|adresse|raison sociale)[^\]]*\]|à compléter\s*:?\s*"
-                                           r"(nom|adresse|raison)|\{[a-z_ ]+\}", t)}
+           "no_placeholder": not re.search(r"(?i)\[\s*(vos|votre|notre|nos|nom|adresse|raison sociale|"
+                                           r"coordonn|signataire|soci[ée]t[ée]|entreprise)[^\]]*\]|à compléter|"
+                                           r"\{[a-z_ ]+\}", t)}
     if case_id == "relances":
         letters_to_paid, flagged = [], []
         for name in PAID:
@@ -243,19 +247,25 @@ def grade(case_id: str, text: str, chat: str) -> dict:
                   "iban_in_letters": "CH93 0076 2011 6238 5295 7" in t,
                   "partial_amount_right": "12'350" in t or "12 350" in t or "12350" in t}
         return {"checks": checks, "letters_to_paid": letters_to_paid, "flagged": sorted(set(flagged))}
+    # an internal agenda or minutes need not carry the company's name: said, not graded
+    info = {k: v for k, v in org.items() if k != "no_placeholder"}
     if case_id == "odj":
-        checks = {**{k: v for k, v in org.items() if k != "org_city"},
+        checks = {"no_placeholder": org["no_placeholder"],
                   "uses_pv_1011": bool(re.search(r"(?i)budget\s*(v1|2027)", t)),
                   "pv_actions": sum(bool(re.search(p, t, re.I)) for p in
                                     (r"besoins", r"reprise|programmation|Kevin", r"recrutement|technicien")) >= 2,
-                  "no_no_document": not re.search(r"(?i)(aucun|pas de) document", both)}
-        return {"checks": checks}
+                  # the audit's failure: « I find no document about this committee » (a detail
+                  # « no document says where the hiring stands » is honest, not a failure)
+                  "no_no_document": not re.search(r"(?i)(je ne trouve|je n'ai trouv[ée]|il n'y a) (aucun|pas de) "
+                                                  r"document|aucun document (sur|concernant|à propos de) (ce|le) comit", both)}
+        return {"checks": checks, "info": info}
     if case_id == "pv":
-        checks = {**org, "thomas_bovet": "Thomas Bovet" in t,
+        checks = {"no_placeholder": org["no_placeholder"], "thomas_bovet": "Thomas Bovet" in t,
                   "no_invented_first_name": not re.search(r"\b(Théo|Thierry|Tom|Timothée|Tristan) Bovet", t),
                   "initials_resolved": all(n in t for n in ("Claire Rochat", "David Favre", "Marc Morand")),
-                  "hotel_bellerive": "Hôtel Bellerive" in t or "Hotel Bellerive" in t}
-        return {"checks": checks}
+                  "hotel_bellerive": "Hôtel Bellerive" in t or "Hotel Bellerive" in t,
+                  "swiss_amount_format": not re.search(r"\b\d{1,3} \d{3}(?:[.,]-|\b)", t)}
+        return {"checks": checks, "info": info}
     return {"checks": {}}
 
 
@@ -339,7 +349,14 @@ async def learn_case(timeout_s: float) -> dict:
     t0 = time.monotonic()
     offer = learn.offer(PROJECT, sid, md[0], "fr")
     offer_ms = round((time.monotonic() - t0) * 1000)
-    kept = learn.retain(PROJECT, sid, md[0], offer["facts"], who, clearance=None) if offer["facts"] else {}
+    kept: dict = {}
+    if offer["facts"]:
+        try:
+            kept = learn.retain(PROJECT, sid, md[0], offer["facts"], who, clearance=None)
+        except learn.LearnError as e:
+            # a project other than `default` keeps its notes in the 3.0 store only (Postgres):
+            # the product refuses before writing anything — the same refusal as memory_write
+            kept = {"refused": e.code, "status": e.status, "message": str(e)[:200]}
     notes = {n: (DATA / "projects" / PROJECT / "memory" / f"{n}.md").read_text(encoding="utf-8")
              for n in kept.get("notes", [])}
     return {"started": True, "offer": offer, "offer_ms": offer_ms, "kept": kept, "notes": notes,
@@ -362,12 +379,28 @@ def table(results: list[dict]) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", default="relances,odj,pv")
+    ap.add_argument("--only", default="relances,odj,pv", help="'' = none (with --learn)")
     ap.add_argument("--modes", default="before,after")
     ap.add_argument("--learn", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results"))
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--regrade", default="", help="a runs.json to grade again (no model call)")
     a = ap.parse_args()
+    if a.regrade:
+        path = Path(a.regrade)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for r in data["results"]:
+            if not r.get("started"):
+                continue
+            text = "\n".join(v for k, v in (r.get("deliverables") or {}).items() if k.endswith(".md"))
+            g = grade(r["case"], text, r.get("answer") or "")
+            g["ok"] = all(g["checks"].values())
+            r["grade"] = g
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        md = f"# Vrais runs « le coworker connaît la maison » — moteur hérité, {data['model']}\n\n" + table(data["results"])
+        (path.parent / "runs.md").write_text(md, encoding="utf-8")
+        print(md)
+        return 0
     upstream = R.env("PARITY_UPSTREAM")
     if not upstream:
         print("PARITY_UPSTREAM is not set", file=sys.stderr)
