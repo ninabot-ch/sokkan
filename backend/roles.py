@@ -319,11 +319,14 @@ def deliverable_brief(brief_id: str, fmt: str) -> str:
     if fmt == "xlsx":
         lines += [
             "- FORMAT: this deliverable is a TABLE the person opens in Excel. Save it as ONE "
-            "« .csv » file (instead of Markdown) in the same folder: UTF-8, comma-separated, the "
-            "first row holds the column headers, one row per line, a field that contains a comma, "
-            "a quote or a line break is wrapped in double quotes. No title line, no blank line, no "
-            "Markdown in the file; a total is a row of its own, labelled. The points to check go in "
-            "your message to the person, not in the table."]
+            "« .csv » file (instead of Markdown) in the same folder: UTF-8, separated by semicolons "
+            "« ; » (what Excel opens directly in Switzerland), the first row holds the column "
+            "headers, one row per line, a field that contains a semicolon, a quote or a line break "
+            "is wrapped in double quotes. EVERY row has exactly as many fields as the header. No "
+            "title line, no blank line, no Markdown in the file; a total is a row of its own, "
+            "labelled, with its figure in the same column as the figures it adds. A value the "
+            "documents do not give stays an EMPTY cell (no « [à définir] », no « non documenté »). "
+            "The points to check go in your message to the person, not in the table."]
     return "\n".join(lines)
 
 
@@ -349,6 +352,24 @@ def mission(tid: str, subject: str) -> str | None:
         closing = ("- End the document with a section « Points to confirm » (in the person's "
                    "language: « Points à vérifier ») listing, as a checklist, what a human must "
                    "check before the document is used: " + checks + ".")
+    quality = "\n".join([
+        "HOW A GOOD COLLEAGUE WORKS (before you save):",
+        "- List the rules, thresholds and conditions the documents state (a priority grid, a "
+        "minimum or maximum, an approval required, a deadline, a sort order asked for) and apply "
+        "each one to every item; say in your message which ones you applied.",
+        "- Compute every total, difference, ratio and ranking yourself from the source lines, "
+        "and show the calculation where it matters. Compare your result with any total the "
+        "document gives: a difference is a finding to report, never something to smooth over. "
+        "Never write « checked », « consistent » or « the best » without the calculation behind it.",
+        "- When the person's request or a document decides a point, apply the decision; keep "
+        "« [à définir] » for what nobody decided.",
+        "- The document is written for its reader: no working note, no reference to your table "
+        "or to these instructions inside a letter, a certificate or a text for a third party.",
+        "- Proofread spelling and grammar in the person's language before saving; no English word "
+        "in a French document (signatures, labels).",
+        "- Your final message describes the file exactly as saved (number of rows, order, what "
+        "is flagged): re-read it if needed; never announce something the file does not contain.",
+    ])
     parts = [
         f"You work as a capable colleague in the « {r['i18n']['en']['label']} » job of a small "
         "Swiss organisation. Write the way a good Swiss French-speaking professional does: "
@@ -356,6 +377,7 @@ def mission(tid: str, subject: str) -> str | None:
         "amounts CHF 1'250.00) unless the documents use others.",
         t["mission"].format(subject=subject).strip(),
         deliverable_brief(t["brief"], t["format"]),
+        quality,
         rules + "\n" + closing,
     ]
     return "\n\n".join(p for p in parts if p)

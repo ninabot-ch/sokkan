@@ -121,7 +121,8 @@ def test_a_kit_template_resolves_as_a_playbook_with_its_brief_and_rules():
             for g in r["guardrails"]:
                 assert g["agent"].strip() in prompt
             if t["format"] == "xlsx":
-                assert ".csv" in prompt and "in your message to the person" in prompt
+                assert ".csv" in prompt and "semicolons" in prompt and "in your message to the person" in prompt
+                assert "HOW A GOOD COLLEAGUE WORKS" in prompt
             else:
                 assert "Points to confirm" in prompt
     # the technical spawn form is unchanged, an unknown kit id is unknown
