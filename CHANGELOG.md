@@ -20,6 +20,24 @@ lives in the adapters: the legacy one takes every shell tool of the CLI out of t
 one called anyway by a hook (journaled as a rule of the space); the kernel one removes every
 shell tool of the kernel (`deny_tools`).
 
+### Added — the coworker knows the house (audit coworker 17.11, points 2, 8, 9)
+- **Organisation profile** (Settings › Organisation, `GET|PUT /api/org/profile`, logo
+  `/api/org/logo`; doc `docs/enterprise/ORGANISATION.md`): legal name and form, address, UID
+  (checked), VAT, IBAN (mod 97, masked for non-admins, in a work's context only when it is about
+  a payment: invoice, reminder, offer), signatories, a short directory « initials → exact name,
+  role », language, « vous », Swiss formats, house tone. Every Atelier work receives it as a
+  fixed block — the legacy engine in its system prompt (cached prefix), the kernel in front of
+  the first turn (contract `project` block); never shown in the thread.
+- **Continuity between works of a project**: the same head lists the project's recently
+  VALIDATED deliverables (title, who validated, when, sections, first lines, the path of the
+  full text; 6 at most, ≈ 1 000 tokens at most, filtered by the person's clearance and the
+  Claude cap), with the rule to read the one about the same subject and to flag a contradiction
+  (an invoice it shows as paid) instead of following blindly. `RunSpec.head` in the contract.
+- **« Remember for next time? »** under a deliverable just validated: 1 to 3 facts from the
+  work (the person's own corrections, the template it followed, the validated structure),
+  editable, kept in ONE click — written to the quarantine and approved by that person in the
+  same request, journaled (`memory.quarantine.approve`, `memory.learn`); « Not now » is kept.
+
 ### Changed
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
   changes for a user: same pane, same approval cards, same costs, same « Write with Claude ».
