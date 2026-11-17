@@ -182,7 +182,11 @@ class Play:
                 if isinstance(ev, GateRequested):
                     if out["first_card_s"] is None:
                         out["first_card_s"] = dt
-                    d = self.pol.decide(ev.gate)
+                    if hasattr(self.pol, "adecide"):
+                        # the cockpit may check a deliverable before its card (qualitygate)
+                        d = await self.pol.adecide(ev.gate)
+                    else:
+                        d = self.pol.decide(ev.gate)
                     card = self.pol.journal[-1]
                     if card.deliverable and out["first_deliverable_s"] is None:
                         out["first_deliverable_s"] = dt

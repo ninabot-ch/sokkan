@@ -38,6 +38,7 @@ import run as R  # noqa: E402  (the parity bench's runner: Play, spec_for, gradi
 import wire as W  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
+GATE = False          # --gate: the quality gate before the card (backend/qualitygate.py)
 
 # the cockpit's own words when a document is saved a second time in one turn (agentchat.py,
 # 3.6.7): the Atelier's thread says it quietly (plain.py: a rule of the space, not a failure).
@@ -49,6 +50,57 @@ PRODUCT_ONE_CARD = ("The person already approved this document in this turn: it 
                     "a change if they want one. Do not mention this message.")
 P.ONE_CARD = PRODUCT_ONE_CARD
 BENCH_ONE_CARD = "This document was already saved in this step"
+
+
+class GatedPolicy(P.Policy):
+    """The Atelier's rules + the quality gate before the card of a deliverable
+    (backend/qualitygate.py, the same calls as agentchat.py): the first save of a document
+    that the gate finds defective is refused with the defects; the corrected save goes to the
+    card with what was checked and what remains."""
+
+    def __init__(self, *a, case=None, sp=None, mission="", level=None, **kw):
+        super().__init__(*a, **kw)
+        self.case, self.sp, self.mission, self.level = case, sp, mission, level
+        self.gate_log: list[dict] = []
+        self._bounced: dict[str, dict] = {}
+
+    async def adecide(self, gate):
+        import qualitygate
+        if gate.kind != "file_write" or self.deliverables is None:
+            return self.decide(gate)
+        path = P.real(gate.path or str(gate.input.get("file_path") or ""))
+        if not P.inside(path, self.deliverables) or path in self._saved_this_turn:
+            return self.decide(gate)
+        text = qualitygate.content_after(gate.tool, gate.input, path)
+        if text is None:
+            return self.decide(gate)
+        prev = self._bounced.get(path)
+        srcs = [(d["name"], t) for d, t in zip(self.sp["docs"], self.sp["sources"])]
+        t0 = time.monotonic()
+        res = await asyncio.to_thread(
+            qualitygate.review, text=text, name=os.path.basename(path), ask=self.case["ask"],
+            mission=self.mission, sources=srcs, lang=self.case.get("lang", "fr"), level=self.level,
+            previous=prev)
+        entry = {"path": os.path.basename(path), "pass": 2 if prev else 1,
+                 "wall_s": round(time.monotonic() - t0, 1), "review_ms": res["review_ms"],
+                 "reviewer": res["reviewer"], "route": res["route"],
+                 "tokens_in": res["tokens_in"], "tokens_out": res["tokens_out"],
+                 "findings": [f"{f['severity']}:{f['kind']}: {f['fr']}" for f in res["findings"]],
+                 "defects": res["defects"], "verified": res["verified"], "to_check": res["to_check"],
+                 "error": res["error"], "needs_fix": res["needs_fix"]}
+        self.gate_log.append(entry)
+        if res["needs_fix"] and prev is None:
+            self._bounced[path] = res
+            card = P.Card(gate_id=gate.gate_id, kind=gate.kind, tool=gate.tool, target=path[:300],
+                          t=round(time.monotonic() - self._turn_t0, 1), turn=self.turn,
+                          rule="policy:quality_gate", deliverable=True)
+            from harness.contract import Decision
+            d = Decision.deny(qualitygate.agent_message(res), by="policy", via="auto_rule")
+            card.decision, card.by, card.via = d.kind, d.by, d.via
+            self.journal.append(card)
+            return d
+        entry["card"] = qualitygate.card(res, corrected=prev is not None, lang=self.case.get("lang", "fr"))
+        return self.decide(gate)
 
 
 def regrade(path: Path) -> None:
@@ -172,8 +224,18 @@ def grade(case: dict, play, sp: dict, files: dict[str, str]) -> dict:
 async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
     sp = space_for(base, case)
     prompt = prompt_for(case, sp)
-    pol = P.Policy("atelier", deliverables=sp["deliverables"], memory=sp["memory"],
-                   has_documents=bool(sp["docs"]))
+    if GATE:
+        import playbooks
+        import roles
+        found = roles.template(case["template"])
+        level = roles.level_rank(found[0]["level"]) if found else 3
+        mission = (playbooks.render(case["template"], case["ask"], project=sp["project"]) or ("", ""))[0]
+        pol = GatedPolicy("atelier", deliverables=sp["deliverables"], memory=sp["memory"],
+                          has_documents=bool(sp["docs"]), case=case, sp=sp, mission=mission,
+                          level=level)
+    else:
+        pol = P.Policy("atelier", deliverables=sp["deliverables"], memory=sp["memory"],
+                       has_documents=bool(sp["docs"]))
     play = R.Play("legacy", R.new_harness("legacy"),
                   R.spec_for("legacy", run_id="run-" + uuid.uuid4().hex[:8], cwd=sp["work"],
                              profile="atelier"), pol, timeout_s)
@@ -189,6 +251,8 @@ async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
            "cards": pol.summary(), "tools": play.tools(), "failures": play.failures(),
            "view_lines": play.view_lines(), "shell_ran": play.shell_ran(),
            "answer": play.turns[0]["text"][:1500]}
+    if GATE:
+        out["gate"] = pol.gate_log
     out["grade"] = grade(case, play, sp, files)
     out["deliverable_texts"] = {k: v[:12000] for k, v in files.items()}
     return out
@@ -214,7 +278,10 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "tests" / "roles" / "results"))
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--regrade", default="", help="a roles-runs.json to grade again")
+    ap.add_argument("--gate", action="store_true", help="the quality gate before the card")
     a = ap.parse_args()
+    global GATE
+    GATE = a.gate
     if a.regrade:
         regrade(Path(a.regrade))
         return 0
@@ -223,7 +290,7 @@ def main() -> int:
     if not upstream:
         print("PARITY_UPSTREAM is not set", file=sys.stderr)
         return 2
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = time.strftime("%Y%m%d-%H%M%S") + ("-gate" if GATE else "-raw")
     out_dir = Path(a.out) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(R.env("PARITY_WORKDIR", str(out_dir / "ws")))
