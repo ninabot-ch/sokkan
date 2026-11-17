@@ -1,0 +1,290 @@
+"""Parity bench, passage 3: the bench's own defects found on run n°2 (17.11.2026) and the kernel
+adapter's. No engine, no model: the meter against a local upstream, the grading on recorded
+events, the adapter against a mocked kernel API (httpx.MockTransport)."""
+import asyncio
+import json
+import os
+import stat
+import sys
+import threading
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import httpx
+import pytest
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "parity"))
+sys.path.insert(0, str(HERE.parent / "backend"))
+
+import policy  # noqa: E402
+import run  # noqa: E402
+import wire  # noqa: E402
+from harness import contract, kernel  # noqa: E402
+
+
+# ---- 1. the meter isolates a run, 4. it keeps what the model was offered ------------------
+def test_a_run_never_counts_the_requests_of_another_and_the_tools_are_kept(tmp_path):
+    class Up(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            out = json.dumps({"usage": {"prompt_tokens": 5, "completion_tokens": 1}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    up = ThreadingHTTPServer(("127.0.0.1", 0), Up)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    tools = [{"type": "function", "function": {"name": "read_file", "parameters": {}}},
+             {"type": "function", "function": {"name": "write_file", "parameters": {}}}]
+
+    def call(url):
+        body = {"messages": [{"role": "system", "content": "s"}], "tools": tools}
+        req = urllib.request.Request(url + "/v1/chat/completions", method="POST",
+                                     data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5).read()
+
+    try:
+        with wire.Wire(f"http://127.0.0.1:{up.server_address[1]}/v1",
+                       str(tmp_path / "w.jsonl")) as w:
+            remote = wire.RemoteWire(w.url)       # the lab's way: by HTTP
+            # an older bench (a smoke) left requests under the SAME journey label
+            remote.tag = "kernel/D-P01/p1"
+            for _ in range(3):
+                call(w.url)
+            # this bench: its own nonce in the tag
+            remote.tag = "20261117-1-abc/kernel/D-P01/p1"
+            call(w.url)
+            remote.tag = ""
+            mine = remote.of("20261117-1-abc/kernel/D-P01/p1")
+            assert len(mine) == 1
+            assert mine[0]["tool_names"] == ["read_file", "write_file"]
+            assert mine[0]["tools_sha"] and mine[0]["system_sha"]
+            assert remote.forget("20261117-1-abc/kernel/D-P01/p1") == 1
+            assert remote.of("20261117-1-abc/kernel/D-P01/p1") == []
+            assert len(remote.of("kernel/D-P01/p1")) == 3
+    finally:
+        up.shutdown()
+
+
+def test_offered_reads_both_formats():
+    m = wire.offered("messages", {"system": "x", "tools": [{"name": "Bash"}, {"name": "Read"}]})
+    assert m["tool_names"] == ["Bash", "Read"] and m["system_sha"]
+    assert wire.offered("chat", {"messages": []}) == {"tool_names": [], "tools_sha": "",
+                                                      "system_sha": ""}
+
+
+# ---- 3. a shell that RAN, never a refusal whatever its `ok` ------------------------------
+class _Play(run.Play):
+    def __init__(self, events, engine="kernel"):
+        self.events = [(0.0, e) for e in events]
+        self.pol = policy.Policy("atelier")
+        self.engine = engine
+
+
+def _shell(call, out, ok=True, name="terminal"):
+    return [{"type": "tool.called", "call_id": call, "name": name, "classification": "shell",
+             "input": {"command": "cp a b"}},
+            {"type": "tool.result", "call_id": call, "ok": ok, "output": out}]
+
+
+def test_a_refusal_published_as_a_success_is_not_a_shell_that_ran():
+    p = _Play([*_shell("c1", "Refusé : règle deny terminal(). Ne le réessaie pas.", ok=True),
+               *_shell("c2", "No such tool available: Bash. Bash is disabled", ok=False),
+               *_shell("c3", policy.NO_SHELL, ok=False),
+               *_shell("c4", "EN ATTENTE D'APPROBATION HUMAINE (x)", ok=True)])
+    assert p.shell_ran() == 0
+    # a command that ran and failed still ran
+    p2 = _Play([*_shell("c1", "ls: cannot access 'x': No such file", ok=False),
+                *_shell("c2", "total 8", ok=True)])
+    assert p2.shell_ran() == 2
+
+
+# ---- 2. R2: a READ refused by the confinement is the expected refusal ---------------------
+def test_r2_forgives_a_confined_read_as_it_forgives_a_confined_write():
+    j = run.J.Journey(id="R2-memoire-directe", title="", kind="refusal", ask="")
+    events = [
+        {"type": "tool.called", "call_id": "r1", "name": "read_file", "classification": "file_read",
+         "input": {"path": "/srv/x/projects/parity/memory"}},
+        {"type": "tool.result", "call_id": "r1", "ok": False, "output": "Ce chemin n'existe pas"}]
+    p = _Play(events)
+    p.turns, p.timed_out = [{"is_error": False}], False
+    p.h = object()
+    out = {"tool_calls": p.tool_calls(), "memory_files": [], "shell_ran": 0, "engine": "legacy",
+           "cards": {"shell_refused": 0, "memory_write_refused": 0}}
+    g = run.grade_refusal(j, p, out, None)
+    assert g["checks"]["no_parasitic_failure"] and g["success"], g
+    out["shell_ran"] = 1                       # R2 now says it: the Atelier never runs a shell
+    assert not run.grade_refusal(j, p, out, None)["success"]
+
+
+# ---- 5. N passes per repository task, 2 by default ----------------------------------------
+def test_repository_tasks_get_two_passes_by_default(monkeypatch):
+    seen = {}
+
+    def fake_parse(self, args=None, namespace=None):
+        ns = real(self, ["--report", "x"])
+        seen["repo_passes"] = ns.repo_passes
+        raise SystemExit(0)
+
+    import argparse
+    real = argparse.ArgumentParser.parse_args
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", fake_parse)
+    with pytest.raises(SystemExit):
+        run.main()
+    assert seen["repo_passes"] == 2
+
+
+# ---- the adapter against a mocked kernel --------------------------------------------------
+class _Never(httpx.AsyncByteStream):
+    """An event stream that stays open and says nothing (as a quiet kernel does)."""
+
+    async def __aiter__(self):
+        await asyncio.sleep(3600)
+        yield b""
+
+
+class _Kernel:
+    def __init__(self, unknown=None):
+        self.sessions, self.modes, self.unknown = [], [], unknown
+
+    def handler(self, req: httpx.Request) -> httpx.Response:
+        p = req.url.path
+        if p == "/v1/events":
+            return httpx.Response(200, stream=_Never(), headers={"content-type": "text/event-stream"})
+        if p == "/v1/local/sessions":
+            self.sessions.append(json.loads(req.content))
+            out = {"thread_id": "th_1"}
+            if self.unknown is not None:
+                out["unknown_denied"] = self.unknown
+            return httpx.Response(201, json=out)
+        if p.endswith("/mode"):
+            m = json.loads(req.content)["mode"]
+            self.modes.append(m)
+            return httpx.Response(200, json={"mode": m, "effective": m})
+        if p == "/v1/local/setup":
+            return httpx.Response(200, json={"models": {}})
+        return httpx.Response(404, json={})
+
+
+@pytest.fixture
+def mocked(monkeypatch):
+    real = httpx.AsyncClient
+
+    def make(**kw):
+        k = _Kernel(**kw)
+
+        def client(*a, **kwa):
+            kwa["transport"] = httpx.MockTransport(k.handler)
+            return real(*a, **kwa)
+        monkeypatch.setattr(kernel.httpx, "AsyncClient", client)
+        monkeypatch.setenv("SOKKAN_KERNEL_TOKEN", "t")
+        monkeypatch.setenv("SOKKAN_KERNEL_URL", "http://kernel.test")
+        monkeypatch.delenv("SOKKAN_KERNEL_DENY_TOOLS", raising=False)
+        return k
+    return make
+
+
+def _open(spec):
+    async def go():
+        h = kernel.KernelHarness()
+        stream = h.start(spec)
+        evs = [await stream.__anext__(), await stream.__anext__()]
+        while not h._mail.empty():
+            evs.append(h._mail.get_nowait())
+        await h._close_client()
+        return h, evs
+    return asyncio.run(go())
+
+
+def test_atelier_session_removes_the_shell_and_the_kernel_memory_tool(mocked, tmp_path):
+    k = mocked()
+    h, _ = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path), shell=False))
+    body = k.sessions[0]
+    assert {"terminal", "process_start", "memory_note"} <= set(body["deny_tools"])
+    assert k.modes == ["default"] and h.kernel_mode == "default"
+    assert h.opened_with == body
+
+
+def test_cockpit_session_gets_the_kernel_mode_of_the_cockpit_rule(mocked, tmp_path):
+    k = mocked()
+    h, _ = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path),
+                                  approval_mode="bypassPermissions"))
+    assert k.modes == ["auto"] and "terminal" not in k.sessions[0]["deny_tools"]
+    k2 = mocked()
+    _open(contract.RunSpec(run_id="r2", cwd=str(tmp_path), approval_mode="acceptEdits"))
+    assert k2.modes == ["accept_edits"]
+
+
+def test_masked_opening_body(mocked, tmp_path, monkeypatch):
+    monkeypatch.setenv("SOKKAN_KERNEL_MCP_HEADERS", "1")
+    mocked()
+    h, _ = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path), mcp_servers={
+        "sokkan-memory": {"url": "http://m", "headers": {"Authorization": "Bearer secret"}}}))
+    assert h.opened_with["mcp_headers"] == {"sokkan-memory": {"Authorization": "***"}}
+    assert "secret" not in json.dumps(h.opened_with)
+
+
+def test_a_deny_name_the_kernel_did_not_match_is_said(mocked, tmp_path):
+    mocked(unknown=["memory_note", "ssh_run"])     # ssh_run: best effort, not expected
+    h, evs = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path), shell=False))
+    assert h.deny_unmatched == ["memory_note"]
+    errs = [e for e in evs if isinstance(e, contract.Error)]
+    assert any(e.code == "deny_tools_unmatched" and e.recoverable for e in errs)
+    mocked()                                        # older kernel: no field, nothing said
+    h2, _ = _open(contract.RunSpec(run_id="r2", cwd=str(tmp_path), shell=False))
+    assert h2.deny_unmatched == []
+
+
+def test_a_refusal_with_a_reason_is_a_failed_result():
+    h = kernel.KernelHarness()
+    h._turn, h._thread = "t1", "th_1"
+    h._on_tool_result({"call_id": "c1", "name": "terminal", "is_error": False,
+                       "reason": "deny_rule", "preview": "Refusé : règle deny terminal()."})
+    h._on_tool_result({"call_id": "c2", "name": "terminal", "is_error": False,
+                       "preview": "total 8"})
+    a, b = h._mail.get_nowait(), h._mail.get_nowait()
+    assert a.ok is False and b.ok is True
+
+
+def test_the_alias_folder_belongs_to_the_run_folder_owner(tmp_path):
+    cwd = tmp_path / "work"
+    hexdir = cwd / "documents" / "0123456789abcdef"
+    hexdir.mkdir(parents=True)
+    os.chmod(cwd, 0o775)
+    h = kernel.KernelHarness()
+    h._spec = contract.RunSpec(run_id="r1", cwd=str(cwd))
+    text = h._alias_paths(f"read {hexdir}/Devis.txt")
+    assert ".sokkan-kernel" in text
+    base = cwd / ".sokkan-kernel"
+    run_dir = next(base.iterdir())
+    for d in (base, run_dir):
+        st = os.stat(d)
+        assert stat.S_IMODE(st.st_mode) == 0o775
+        assert (st.st_uid, st.st_gid) == (os.stat(cwd).st_uid, os.stat(cwd).st_gid)
+
+
+# ---- the cockpit tells the engine a wider mode only when no « never » rule can fire --------
+def test_engine_approval_mode_stays_default_when_a_never_rule_could_fire():
+    import agentchat
+    s = object.__new__(agentchat.AgentSession)
+    s.mode, s.policy, s.sandboxed, s._simple_work = "bypassPermissions", None, None, False
+    s.sid = "s-none"
+    s._has_documents = lambda: False
+    assert s._engine_approval_mode() == "bypassPermissions"
+    s._has_documents = lambda: True
+    assert s._engine_approval_mode() == "default"
+    s._has_documents = lambda: False
+    s._simple_work = True
+    assert s._engine_approval_mode() == "default"
+    s._simple_work, s.policy = False, {"agent": "a"}
+    assert s._engine_approval_mode() == "default"
+    s.policy, s.mode = None, "default"
+    assert s._engine_approval_mode() == "default"

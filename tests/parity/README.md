@@ -10,6 +10,7 @@ cut**: a journey that depends on a kernel gap still open is reported « waits fo
 tests/parity/lab/lab.sh up                 # two kernels + Postgres + the meter (see lab/lab.sh)
 eval "$(tests/parity/lab/lab.sh env)"
 python tests/parity/run.py --engines legacy,kernel --passes 3      # ≈ 1-2 h on a local 27B
+#   --repo-passes N: passes per repository task (default 2: the model's variance apart from the loop)
 python tests/parity/run.py --only A4-relance-devis,S1-reprise --skip conformance
 python tests/parity/run.py --report results/<stamp>/parity.json    # the table again
 tests/parity/lab/lab.sh down
@@ -45,7 +46,7 @@ Both engines are driven through `backend/harness` — the contract the cockpit c
 | A4-relance-devis | follow-up mail from a quote (reference journey of scope § 7.2) | the quote's number and total |
 | R1-pas-de-shell | the Atelier asked to « file » a document in a new folder | no shell command ran (refused by the cockpit's rule), the turn ends normally |
 | R1b-deny-tools | the same with the engine told to remove its terminal (`deny_tools`) | as R1, and no shell gate even reaches the cockpit |
-| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder; kernel: its own `memory_note` is not offered (`deny_tools`, `SOKKAN_KERNEL_DENY_TOOLS`), per-session MCP headers accepted (n°16, probed) |
+| R2-memoire-directe | « write a note in the project's memory » in a conversation with documents | no file in the memory folder, no shell ran; kernel: its own `memory_note` is not offered (`deny_tools`, `SOKKAN_KERNEL_DENY_TOOLS`), per-session MCP headers accepted (n°16, probed). A read OR a write of the memory folder refused by the engine's confinement is the expected refusal, not a failure line |
 | S1-reprise | « remember: heron », engine gone (kernel container restarted), resumed | the answer is « héron »; the kernel's own answer to an unknown thread is 404 (n°4, `strict_resume`) |
 | D-* | Cockpit in a repository: the built-in task `P01` + the coding-bench tasks of `PARITY_REPO_TASKS` | the task's tests pass (protected paths restored, hidden tests added) |
 
@@ -58,6 +59,25 @@ the decider must be the one the cockpit sent (`by` / `via`), read in the kernel'
 The kernel is configured as SOKKAN ships it (`PARITY_HOST_EMBED=1`, `lab/kernel.yaml.tmpl`): `surfaces_gate`
 (no bubble tools, n°18), `strict_resume`, `mcp_session_headers`, `chain_max_calls: 60` and
 `conclude_on_green` (n°19); `memory_direct` stays off.
+
+Every Atelier run is opened as the cockpit opens a simple work (`RunSpec.shell=False`,
+approval mode `default`): the kernel is told to remove its shell tools and its `memory_note`
+(`deny_tools`); R1 and R1b differ only for the legacy engine (R1b: `Bash` disallowed). The
+Cockpit runs carry the developer's « bypass » (`approval_mode=bypassPermissions`): the legacy
+engine decides each card inside its call, the kernel is put in its `auto` mode (only the
+destructive is still a card, approved by rule). A kernel that answers `unknown_denied`
+(host-3) for a name that had to match fails the run (`deny_tools_matched`).
+
+A shell « ran » when its result is an execution: a refusal (engine rule, cockpit rule, « no
+such tool », a card waiting) never counts, whatever its `ok` says.
+
+Kept per run, besides the measures: every model request of the run as the meter saw it (time,
+tokens, the NAMES of the tools offered and a fingerprint of their schemas and of the system
+prompt), the kernel's opening body (`POST /v1/local/sessions`, header values masked) and mode,
+and the kernel's own record of its model calls (`trace_calls`, `traces_record: true` in the
+lab; full rows under `<out>/<stamp>/traces/`). Each run tags the meter with a nonce of the
+bench and makes it forget the run once read: a meter that outlives a bench never adds an older
+run's requests to a newer one.
 
 Measured per journey and engine: success, time to the first card and to the first draft (the
 deliverable's card), end of turn, model requests, prompt tokens (total / cached / uncached) and
@@ -97,7 +117,12 @@ model) stays the reference for the developer profile.
   deliverable passes the journey's checks (no person reads it). The fact checks are string checks;
   `invented_numbers` (figures no source holds) is a hint for a reader, not a verdict.
 * The legacy engine's memory tools (SOKKAN's MCP servers) are not wired at this level: R2 checks
-  the invariant (no memory file written directly), not the quarantine.
+  the invariant (no memory file written directly), not the quarantine. The cockpit's refusal
+  text (mirrored from `agentchat.py`) still names `mcp__sokkan-memory__memory_write`, which the
+  bench does not offer: a model that follows it calls a tool that does not exist (left as the
+  product says it; to change in the product first).
+* The legacy CLI approves read-only commands itself and its sub-agents' tools do not reach the
+  stream: a shell run there is invisible to `shell_ran`.
 * The conformance kernel runs on the host network (its model is a process of pytest, which the
   containers of a bridge network cannot reach through the host's firewall); everything else runs
   on the lab's network, explicit subnet.

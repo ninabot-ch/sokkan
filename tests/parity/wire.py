@@ -13,7 +13,14 @@ differently: seen on 15.11.2026, the kernel's ledger counted the cache inside th
   benchmark's own: requests over the cap wait here, their wait is logged apart).
 * One JSON line per request: who (``tag`` set by the runner), when, how long (first byte,
   end), HTTP status, and the model's usage normalised to
-  ``prompt_total`` / ``prompt_cached`` / ``prompt_uncached`` / ``output`` / ``reasoning``.
+  ``prompt_total`` / ``prompt_cached`` / ``prompt_uncached`` / ``output`` / ``reasoning``;
+  and what the model was OFFERED: the names of the ``tools`` of the request and a fingerprint
+  of their schemas (``tools_sha``), a fingerprint of the system prompt (``system_sha``) — a
+  catalogue is proven on the wire, not inferred from a token count.
+* A run is isolated by its tag: the runner gives every run a tag of its own (a nonce of the
+  bench's invocation in it), reads the run's lines, then tells the meter to forget them
+  (``/_parity/forget``) — a meter that outlives a bench never adds an older run's requests
+  to a newer one (16.11.2026: a smoke's requests were added to the full run's D-P01).
 
 vLLM's ``/v1/messages`` reports ``input_tokens`` INCLUDING the cached part in a one-piece
 answer (checked on 16.11.2026: same prompt twice, ``input_tokens`` unchanged,
@@ -84,6 +91,31 @@ def usage_from_sse(fmt: str, raw: bytes) -> dict:
         elif ev.get("usage"):
             usage = ev["usage"]
     return usage
+
+
+def _sha(obj) -> str:
+    import hashlib
+    raw = json.dumps(obj, ensure_ascii=False, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def offered(fmt: str, body: dict) -> dict:
+    """What the request offers the model: its tools (names + fingerprint of the schemas) and a
+    fingerprint of its system prompt. Never the text itself (it may carry a document)."""
+    tools = body.get("tools") or []
+    names = []
+    for t in tools if isinstance(tools, list) else []:
+        if not isinstance(t, dict):
+            continue
+        n = t.get("name") or (t.get("function") or {}).get("name") or ""
+        names.append(str(n))
+    if fmt == "messages":
+        system = body.get("system")
+    else:
+        system = [m.get("content") for m in body.get("messages") or []
+                  if isinstance(m, dict) and m.get("role") == "system"]
+    return {"tool_names": names, "tools_sha": _sha(tools) if tools else "",
+            "system_sha": _sha(system) if system else ""}
 
 
 def shape(fmt: str, body: dict, *, thinking: bool) -> dict:
@@ -160,6 +192,9 @@ class Wire:
         elif path.path == "/_parity/records":
             tag = (urllib.parse.parse_qs(path.query).get("tag") or [""])[0]
             out = {"records": self.of(tag)}
+        elif path.path == "/_parity/forget" and raw is not None:
+            tag = str((json.loads(raw or b"{}") or {}).get("tag") or "")
+            out = {"forgotten": self.forget(tag)}
         else:
             out = {"error": "unknown"}
         data = json.dumps(out).encode()
@@ -196,6 +231,8 @@ class Wire:
             headers["Content-Length"] = str(len(raw))
         rec = {"tag": self.tag, "path": path.split("?")[0], "format": fmt,
                "stream": bool(body and body.get("stream")), "t_arrive": time.time()}
+        if body is not None:
+            rec.update(offered(fmt, body))
         waited = time.monotonic()
         self._sem.acquire()
         try:
@@ -279,6 +316,15 @@ class Wire:
         with self._lock:
             return [r for r in self.records if r["tag"] == tag and r.get("format")]
 
+    def forget(self, tag: str) -> int:
+        """Drop the lines of one run (read already): the meter keeps no run past its reading."""
+        if not tag:
+            return 0
+        with self._lock:
+            n = len(self.records)
+            self.records = [r for r in self.records if r["tag"] != tag]
+            return n - len(self.records)
+
     def __enter__(self) -> "Wire":
         threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
         return self
@@ -331,6 +377,9 @@ class RemoteWire:
 
     def of(self, tag: str) -> list[dict]:
         return self._call("/_parity/records?" + urllib.parse.urlencode({"tag": tag}))["records"]
+
+    def forget(self, tag: str) -> int:
+        return int(self._call("/_parity/forget", {"tag": tag}).get("forgotten") or 0)
 
     def __enter__(self) -> "RemoteWire":
         return self

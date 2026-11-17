@@ -23,6 +23,10 @@ route:
   classifier: rules
   code_to_deep: false
 judge_enabled: false
+# every model call kept by the kernel itself (`trace_calls`: exact prompt, tools offered): the
+# bench reads them per run (run.py `kernel_trace_calls`) — the catalogue is proven, not inferred
+traces_record: true
+traces_target: lokkal
 judge_review: false
 web_search_enabled: false
 context_enabled: @CONTEXT@

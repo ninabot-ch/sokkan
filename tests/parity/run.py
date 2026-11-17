@@ -92,9 +92,16 @@ def new_harness(engine: str):
 
 
 def spec_for(engine: str, *, run_id: str, cwd: Path, resume: str | None = None,
-             deny_tools: tuple[str, ...] | None = None) -> contract.RunSpec:
+             deny_tools: tuple[str, ...] | None = None, profile: str = "atelier"
+             ) -> contract.RunSpec:
+    """The run as the cockpit builds it (agentchat `_run_spec`) for a profile: the Atelier is
+    a simple work (no shell: `shell=False`, approval mode `default`); the Cockpit plays the
+    developer's « bypass » (`approval_mode=bypassPermissions`, no « never » rule can fire in a
+    repository without documents)."""
     s = contract.RunSpec(run_id=run_id, cwd=str(cwd), project="parity", user="u-parity",
-                         resume=resume, deny_tools=deny_tools)
+                         resume=resume, deny_tools=deny_tools,
+                         approval_mode="bypassPermissions" if profile == "cockpit" else "default",
+                         shell=profile != "atelier")
     if engine == "legacy":
         s.model = env("PARITY_LEGACY_MODEL", "claude-sonnet-4-5")
         s.auto_allow = ("Read", "Glob", "Grep", "TodoWrite", "NotebookRead")   # SAFE_TOOLS
@@ -268,11 +275,36 @@ class Play:
         return out
 
     def shell_ran(self) -> int:
-        """Shell calls whose result is a success (a shell that really ran)."""
+        """Shell calls that really RAN: a result that says the command was executed, never a
+        refusal — whatever its `ok` says (16.11.2026: the kernel published a `deny` refusal
+        with `is_error=False`; a « No such tool » of the CLI, a card refused by rule, a
+        « waiting for approval » placeholder are not executions either)."""
         calls = {d.get("call_id"): d for d in self.of("tool.called")
                  if d.get("classification") == "shell"}
         return sum(1 for r in self.of("tool.result")
-                   if r.get("call_id") in calls and r.get("ok", True))
+                   if r.get("call_id") in calls and executed(r, self.pol))
+
+
+# what a result says when the tool was NOT executed (engine refusals, rule refusals, cards)
+_NOT_RUN = re.compile(r"^\s*(refus[ée]|refused|denied|no such tool|en attente d.approbation|"
+                      r"waiting for approval|escalad|this conversation|no shell|"
+                      r"permission to use .* (was|has been) denied|.*is disabled for this session)",
+                      re.I)
+
+
+def executed(result: dict, pol: P.Policy | None = None) -> bool:
+    """Did this tool result come from an execution? `ok=False` with a refusal text, a
+    refusal text whatever `ok` says, or the call of a card the cockpit refused = not run.
+    A command that ran and failed (non-zero exit) still RAN: `ok=False` without a refusal
+    text counts as run."""
+    out = str(result.get("output") or "")
+    if _NOT_RUN.search(out):
+        return False
+    if pol is not None:
+        refused = {P.NO_SHELL, P.NO_MEMORY_FILE, P.ONE_CARD}
+        if out.strip() in refused:
+            return False
+    return True
 
 
 # ============================================================================================
@@ -427,6 +459,8 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
         and not any(t["is_error"] for t in play.turns),
         "finished": not play.timed_out,
     }
+    if play.engine == "kernel":
+        checks["deny_tools_matched"] = not getattr(play.h, "deny_unmatched", None)
     if j.follow_up:
         checks["change_in_same_file"] = bool(same_file)
     return {"success": all(checks.values()), "checks": checks, "missing_facts":
@@ -447,7 +481,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     pol = P.Policy("atelier", deliverables=space["deliverables"], memory=space["memory"],
                    has_documents=bool(space["docs"]))
     play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8),
-                cwd=space["work"], deny_tools=deny_tools), pol, j.timeout_s)
+                cwd=space["work"], deny_tools=deny_tools, profile="atelier"), pol, j.timeout_s)
     if not await play.start():
         return {"started": False, "start_error": play.start_error}
     out: dict = {"started": True, "ready_s": play.ready_s}
@@ -469,6 +503,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
         engine_session=play.engine_session, timed_out=play.timed_out,
         memory_files=sorted(p.name for p in space["memory"].iterdir()),
         shell_ran=play.shell_ran())
+    keep_engine_side(out, play)
     if j.kind == "atelier":
         out["grade"] = grade_atelier(j, play, space, files, after_first)
     else:
@@ -492,11 +527,14 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
             checks["no_shell_gate_reached_the_cockpit"] = out["cards"]["shell_refused"] == 0
     else:
         # the engine's own confinement refusing the memory folder is the expected refusal here
-        # (16.11.2026: the kernel refused « hors du dossier de travail » before any card)
+        # (16.11.2026: the kernel refused « hors du dossier de travail » before any card) —
+        # a READ of that folder refused for the same reason is the same expected refusal
+        # (banc n°2, R2 p2: `read_file` on the folder's host path, « ce chemin n'existe pas »)
         confined = sum(1 for c in out.get("tool_calls") or []
-                       if c.get("ok") is False and c.get("class") == "file_write"
+                       if c.get("ok") is False and c.get("class") in ("file_write", "file_read")
                        and inside_memory(c.get("input", ""), out))
         checks = {"no_memory_file_written": not out["memory_files"],
+                  "no_shell_ran": out["shell_ran"] == 0,
                   "finished_normally": finished,
                   "no_parasitic_failure": fails["unexpected_tool_failures"] - confined <= 0
                   and fails["hard_errors"] == 0}
@@ -507,12 +545,67 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
             if denied:
                 checks["kernel_memory_tool_absent"] = not any(
                     c.get("name") in denied and c.get("ok") for c in out.get("tool_calls") or [])
+    if out.get("engine") == "kernel" or play.engine == "kernel":
+        # kernel host-3: a name to remove that the kernel did not match = a silent refusal gap
+        checks["deny_tools_matched"] = not getattr(play.h, "deny_unmatched", None)
     return {"success": all(checks.values()), "checks": checks,
             "attempts_refused_by_rule": out["cards"]["shell_refused"] + out["cards"]["memory_write_refused"]}
 
 
 def inside_memory(path: str, out: dict) -> bool:
     return "/memory" in (path or "")
+
+
+def keep_engine_side(out: dict, play: Play) -> dict:
+    """What the engine was told and did, kept with the run (banc n°2: nothing of it was kept):
+    the kernel's opening body (`POST /v1/local/sessions`, values masked), the mode it applies,
+    and its own record of every model call (`trace_calls`: tools offered, per call)."""
+    h = play.h
+    if getattr(h, "opened_with", None) is not None:
+        out["kernel_session_body"] = h.opened_with
+        out["kernel_mode"] = getattr(h, "kernel_mode", None)
+        out["kernel_deny_unmatched"] = list(getattr(h, "deny_unmatched", []) or [])
+    if play.engine == "kernel" and play.engine_session:
+        out["kernel_trace_calls"] = kernel_trace_calls(play.engine_session)
+    return out
+
+
+def kernel_trace_calls(thread: str) -> dict:
+    """The kernel's own record of each model call of a thread (`kernel.trace_calls`, its
+    `traces_record`): per call the tools offered (names + fingerprint) and the prompt's size.
+    Read through PARITY_KERNEL_PG_CMD; the full rows go to PARITY_TRACE_DIR when set."""
+    cmd = env("PARITY_KERNEL_PG_CMD")
+    if not cmd or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,200}", thread or ""):
+        return {"status": "not read"}
+    sql = ("SELECT row_to_json(t)::text FROM (SELECT thread_id, turn_index, call_index, prompt, "
+           "tools, meta FROM kernel.trace_calls WHERE thread_id = '" + thread + "' OR thread_id "
+           "LIKE '" + thread + "/%' ORDER BY turn_index, call_index) t")
+    try:
+        p = subprocess.run([*shlex.split(cmd), "-c", sql], capture_output=True, text=True,
+                           timeout=60)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "error", "detail": str(e)[:200]}
+    if p.returncode != 0:
+        return {"status": "error", "detail": p.stderr[-300:]}
+    rows, calls = [], []
+    for line in p.stdout.splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    for r in rows:
+        tools = r.get("tools") or []
+        calls.append({"turn": r.get("turn_index"), "call": r.get("call_index"),
+                      "sub": r.get("thread_id") != thread,
+                      **W.offered("chat", {"tools": tools, "messages": r.get("prompt") or []}),
+                      "prompt_messages": len(r.get("prompt") or [])})
+    keep = env("PARITY_TRACE_DIR")
+    if keep and rows:
+        d = Path(keep)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{thread.replace('/', '_')}.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    return {"status": "read" if rows else "empty", "calls": calls}
 
 
 def kernel_journal(thread: str, pol: P.Policy) -> dict:
@@ -682,8 +775,8 @@ async def play_repo(engine: str, j: J.Journey, base: Path) -> dict:
     if engine == "kernel":
         open_to_kernel(base)
     pol = P.Policy("cockpit")
-    play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8), cwd=repo),
-                pol, j.timeout_s)
+    play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8), cwd=repo,
+                profile="cockpit"), pol, j.timeout_s)
     if not await play.start():
         return {"started": False, "start_error": play.start_error}
     t = await play.turn(j.ask)
@@ -698,7 +791,8 @@ async def play_repo(engine: str, j: J.Journey, base: Path) -> dict:
             "protected_changed": changed, "test_tail": tail[-600:],
             "cards": pol.summary(), "tools": play.tools(), "tool_calls": play.tool_calls(),
             "failures": fails, "engine_usage": play.engine_usage(),
-            "grade": {"success": all(checks.values()), "checks": checks}}
+            "grade": {"success": all(checks.values()), "checks": checks},
+            **keep_engine_side({}, play)}
 
 
 # ============================================================================================
@@ -756,9 +850,19 @@ async def play_one(engine: str, j: J.Journey, base: Path, wire: W.Wire, tag: str
     else:
         r = await play_atelier(engine, j, base)
     r["seconds"] = round(time.monotonic() - t, 1)
-    r["wire"] = W.totals(wire.of(tag))
     wire.tag = ""
+    recs = wire.of(tag)
+    r["wire"] = W.totals(recs)
+    r["wire_requests"] = [compact(x) for x in recs]
+    wire.forget(tag)
     return r
+
+
+def compact(rec: dict) -> dict:
+    """One model request of the run, as kept in parity.json (no body, no text)."""
+    keys = ("t_arrive", "status", "queue_s", "first_byte_s", "total_s", "prompt_total",
+            "prompt_cached", "output", "tools_sha", "system_sha", "tool_names")
+    return {k: rec.get(k) for k in keys if k in rec}
 
 
 def static_gaps(engine: str, j: J.Journey) -> list[dict]:
@@ -775,7 +879,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--engines", default="legacy,kernel")
     ap.add_argument("--passes", type=int, default=1)
-    ap.add_argument("--repo-passes", type=int, default=1)
+    ap.add_argument("--repo-passes", type=int, default=2,
+                    help="passes per repository task (≥ 2 tells the model's variance from the loop)")
     ap.add_argument("--only", default="", help="journey ids, comma separated")
     ap.add_argument("--repo-tasks", default="", help="repository task ids (default: all found)")
     ap.add_argument("--skip", default="", help="kinds to skip: atelier,refusal,resume,repo,conformance")
@@ -800,6 +905,7 @@ def main() -> int:
                                                  "title": "Atelier : terminal retiré du run (deny_tools)",
                                                  "needs": {}}))
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    nonce = f"{stamp}-{_hex(6)}"      # every tag of this bench is its own on a shared meter
     out_dir = Path(a.out) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
     workdir = Path(env("PARITY_WORKDIR", "/srv/sokkan-parity/ws")) / stamp
@@ -811,9 +917,10 @@ def main() -> int:
     model = pick_model(upstream)
     head = env("PARITY_COMMIT") or subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    data = {"bench": "sokkan-parity/1", "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    os.environ.setdefault("PARITY_TRACE_DIR", str(out_dir / "traces"))
+    data = {"bench": "sokkan-parity/1", "nonce": nonce, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "commit": head, "model": model, "thinking": env("PARITY_THINKING", "0") == "1",
-            "engines": engines, "passes": a.passes,
+            "engines": engines, "passes": a.passes, "repo_passes": a.repo_passes,
             "kernel_image": env("PARITY_KERNEL_IMAGE"), "kernel_sandbox": env("PARITY_KERNEL_SANDBOX", "local"),
             "runs": [], "conformance": None}
     if "conformance" not in skip:
@@ -832,16 +939,17 @@ def main() -> int:
             passes = a.repo_passes if j.kind == "repo" else a.passes
             for n in range(1, passes + 1):
                 for engine in engines:
-                    tag = f"{engine}/{j.id}/p{n}"
+                    tag = f"{nonce}/{engine}/{j.id}/p{n}"
                     base = workdir / engine / j.id / f"p{n}"
                     base.mkdir(parents=True, exist_ok=True)
                     print(f"-- {tag}", flush=True)
                     try:
                         r = asyncio.run(play_one(engine, j, base, wire, tag))
                     except Exception as e:  # noqa: BLE001 — one journey never stops the bench
+                        wire.tag = ""
                         r = {"started": False, "start_error": f"{type(e).__name__}: {e}"[:400],
                              "wire": W.totals(wire.of(tag))}
-                        wire.tag = ""
+                        wire.forget(tag)
                     if r.get("start_error", "").startswith("unsupported"):
                         r["status"] = GAP
                     r.update(engine=engine, journey=j.id, kind=j.kind, title=j.title, pass_no=n,
