@@ -50,8 +50,9 @@ services:
       SOKKAN_KERNEL_TOKEN_FILE: ${SOKKAN_KERNEL_TOKEN_FILE:-}
       SOKKAN_KERNEL_CWD_MAP: ${SOKKAN_KERNEL_CWD_MAP:-}
       SOKKAN_KERNEL_MCP_STDIO: ${SOKKAN_KERNEL_MCP_STDIO:-}
-      # kernel tools no cockpit session gets, comma list (the kernel's own memory tool)
-      SOKKAN_KERNEL_DENY_TOOLS: ${SOKKAN_KERNEL_DENY_TOOLS:-memory_note}
+      # kernel tools no cockpit session gets, comma list; unset = memory_note, set empty = none
+      # (the Atelier's shell + memory_note stay removed by the code whatever this says)
+      SOKKAN_KERNEL_DENY_TOOLS: ${SOKKAN_KERNEL_DENY_TOOLS-memory_note}
       # 1 = the kernel's local.mcp_session_headers is on: per-session headers for the MCP servers
       SOKKAN_KERNEL_MCP_HEADERS: ${SOKKAN_KERNEL_MCP_HEADERS:-}
       # docker = the kernel runs a run's tools in a sandbox (paths handed as /workspace)

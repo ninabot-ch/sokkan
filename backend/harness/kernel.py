@@ -67,6 +67,9 @@ DEFAULT_TOKEN_FILE = "/run/kernel/local-token"
 # ---- the kernel's tool vocabulary → the contract's ---------------------------------------
 
 _SHELL = {"terminal", "process_start", "process_stop", "ssh_run", "execute_code"}
+# what a run without a shell (the Atelier) never has, whatever SOKKAN_KERNEL_DENY_TOOLS says:
+# every shell tool and the kernel's own memory tool (a note goes through SOKKAN's quarantine)
+ATELIER_DENIED = (*sorted(_SHELL), "memory_note")
 _WRITE = {"write_file", "patch", "checkpoint_restore", "ssh_copy"}
 _READ = {"read_file", "search_files", "checkpoint_list", "checkpoint_diff", "lsp_diagnostics"}
 _SUBAGENT = {"delegate", "delegate_status", "delegate_cancel"}
@@ -166,7 +169,9 @@ def _always_denied() -> list[str]:
     Default ``memory_note``: the kernel's own project-memory tool writes outside the cockpit's
     quarantine; a note of a conversation goes through SOKKAN's ``memory_write`` (MCP) instead.
     The kernel removes these from the catalogue of the thread and refuses them if called
-    (``deny_tools``, kernel host-embed § 2). An empty value sends no list at all."""
+    (``deny_tools``, kernel host-embed § 2). Absent = ``memory_note``; set EMPTY = no extra
+    list (the Atelier's list, :data:`ATELIER_DENIED`, is imposed by the code whatever this
+    says). The compose file keeps the same meaning (``${…-memory_note}``)."""
     raw = os.environ.get("SOKKAN_KERNEL_DENY_TOOLS", "memory_note")
     return [n.strip() for n in raw.split(",") if n.strip()]
 
@@ -369,12 +374,12 @@ class KernelHarness(Harness):
         # the cockpit refuses a shell gate, but a gate never reached in the `default` mode (a
         # read-only command passes, parity bench n°2, R2) or a model that keeps trying costs
         # failure lines; removed, the tool is not even offered.
-        no_shell = sorted(_SHELL) if not spec.shell else []
+        no_shell = list(ATELIER_DENIED) if not spec.shell else []
         denied = list(dict.fromkeys([*(spec.deny_tools or ()), *no_shell, *_always_denied()]))
         # the names that MUST match an active tool of the session (the others of the shell
         # family are removed in case this kernel has them)
         expected = set(spec.deny_tools or ()) | set(_always_denied()) | (
-            {"terminal"} if not spec.shell else set())
+            {"terminal", "memory_note"} if not spec.shell else set())
         if denied:
             body["deny_tools"] = denied
             self._removed = set(denied)

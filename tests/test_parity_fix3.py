@@ -218,6 +218,32 @@ def test_atelier_session_removes_the_shell_and_the_kernel_memory_tool(mocked, tm
     assert h.opened_with == body
 
 
+def test_the_deny_variable_absent_empty_or_set_and_the_atelier_list_stays(mocked, tmp_path, monkeypatch):
+    """SOKKAN_KERNEL_DENY_TOOLS: absent = memory_note, set EMPTY = no extra list, set = that
+    list; the Atelier's list (every shell tool + memory_note) is the code's, whatever it says.
+    The compose file keeps the same meaning (`${…-memory_note}`, not `:-`)."""
+    monkeypatch.delenv("SOKKAN_KERNEL_DENY_TOOLS", raising=False)
+    assert kernel._always_denied() == ["memory_note"]
+    monkeypatch.setenv("SOKKAN_KERNEL_DENY_TOOLS", "")
+    assert kernel._always_denied() == []
+    monkeypatch.setenv("SOKKAN_KERNEL_DENY_TOOLS", "web_search, memory_note")
+    assert kernel._always_denied() == ["web_search", "memory_note"]
+    compose = (HERE.parent / "docker-compose.yml").read_text()
+    assert "SOKKAN_KERNEL_DENY_TOOLS: ${SOKKAN_KERNEL_DENY_TOOLS-memory_note}" in compose
+    for env in ("", None):
+        k = mocked()                      # (clears the variable)
+        if env is not None:
+            monkeypatch.setenv("SOKKAN_KERNEL_DENY_TOOLS", env)
+        _open(contract.RunSpec(run_id="ra", cwd=str(tmp_path), shell=False))
+        assert set(kernel.ATELIER_DENIED) <= set(k.sessions[0]["deny_tools"]), env
+        k2 = mocked()
+        if env is not None:
+            monkeypatch.setenv("SOKKAN_KERNEL_DENY_TOOLS", env)
+        _open(contract.RunSpec(run_id="rc", cwd=str(tmp_path)))
+        got = k2.sessions[0].get("deny_tools") or []
+        assert got == ([] if env == "" else ["memory_note"]), (env, got)
+
+
 def test_cockpit_session_gets_the_kernel_mode_of_the_cockpit_rule(mocked, tmp_path):
     k = mocked()
     h, _ = _open(contract.RunSpec(run_id="r1", cwd=str(tmp_path),

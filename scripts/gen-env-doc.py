@@ -38,7 +38,8 @@ def parse_api_block() -> list[dict]:
             continue
         fresh = False
         name, val = m.group(1), m.group(2).split("  #")[0].strip()
-        d = re.match(r'^"?\$\{([A-Z0-9_]+):-(.*)\}"?$', val)
+        # `${X:-d}` (unset or empty = d) and `${X-d}` (unset = d, empty stays empty)
+        d = re.match(r'^"?\$\{([A-Z0-9_]+):?-(.*)\}"?$', val)
         if d:
             source, default = d.group(1), d.group(2)
         else:
