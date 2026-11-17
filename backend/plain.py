@@ -72,6 +72,8 @@ DRAFT_MAX = 120_000
 # an Atelier work, a memory file written directly, a second save of a document already
 # approved in this turn…) were both shown in orange as « this step did not succeed ». They
 # are told apart from a real failure by what the session wrote back to the agent.
+# 4.0: a tool the cockpit REMOVED from the run (deny_tools) is said in these words by both
+# engines' adapters (harness/refusals.py), so it reads as a rule of the space too.
 PERSON_DENIED = ("Denied by the user", "The user doesn't want to proceed",
                  "The user declined", "user rejected")
 POLICY_DENIED = ("No shell in this conversation", "does not write memory files directly",

@@ -267,8 +267,8 @@ class Play:
         cockpit emits them (agentchat: `tool_use`, `tool_result` with `is_error = not ok`)
         through the simple view itself (`plain.View`, the backend of the thread), then the
         state the thread gives each line (frontend/lib/simple/threadModel.ts: `ok` → done,
-        else « fail », shown « une action a échoué »). A line the view marks discreet
-        (`refused`/`quiet` on its event) or does not emit is not a failure. Parasitic failure
+        else « fail », shown « cette étape n'a pas abouti »). A call a rule of the space turned
+        away (« skipped », not shown) or the person refused is not a failure. Parasitic failure
         lines of an Atelier run = the « fail » lines, the SAME rule for every engine."""
         import plain
         sp = getattr(self, "space", None) or {}
@@ -295,7 +295,7 @@ class Play:
                         fail += 1
                         samples.append(f"{names.get(d.get('call_id'))}: "
                                        f"{str(d.get('output') or '')[:120]}")
-                    elif state == "discreet":
+                    elif state in ("skipped", "denied"):
                         discreet += 1
                     else:
                         done += 1
@@ -337,13 +337,18 @@ _NOT_RUN = re.compile(r"^\s*(refus[ée]|refused|denied|no such tool|en attente d
 
 
 def thread_state(activity_done: dict) -> str:
-    """The state the Atelier's thread gives an `activity_done` of the simple view (copy of
-    frontend/lib/simple/threadModel.ts `reduce`: `e.ok ? "done" : "fail"`), plus « discreet »
-    for a line the view would mark so (`refused` / `quiet`, not emitted by the view at this
-    revision: a refusal is shown as a failure today)."""
-    if activity_done.get("quiet") or (activity_done.get("refused") and not activity_done.get("ok")):
-        return "discreet"
-    return "done" if activity_done.get("ok") else "fail"
+    """The state the Atelier's thread gives an `activity_done` of the simple view — copy of
+    frontend/lib/simple/threadModel.ts `reduce` (3.6.7): done, « denied » (the person's No,
+    neutral), « skipped » (a rule of the space turned the call away: NOT shown), else « fail »
+    (« cette étape n'a pas abouti »). Only « fail » is a failure line."""
+    e = activity_done
+    if e.get("ok"):
+        return "done"
+    if e.get("reason") == "denied":
+        return "denied"
+    if e.get("reason") == "policy":
+        return "skipped"
+    return "fail"
 
 
 def is_refused(result: dict) -> bool:

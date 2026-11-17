@@ -310,6 +310,7 @@ class KernelHarness(Harness):
         # names of `deny_tools` the kernel did not match (`unknown_denied`, kernel host-3) that
         # were EXPECTED to be active tools: a refusal that would pass in silence
         self.deny_unmatched: list[str] = []
+        self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -376,6 +377,7 @@ class KernelHarness(Harness):
             {"terminal"} if not spec.shell else set())
         if denied:
             body["deny_tools"] = denied
+            self._removed = set(denied)
         # the cockpit has no bubble surface: a kernel with `surfaces_gate` drops its bubble
         # tools from the thread (they would fail with « bubble not found »)
         body["surfaces"] = []
@@ -911,6 +913,12 @@ class KernelHarness(Harness):
         # published as a success — refused before running, never a tool that ran
         refused = str(d.get("status") or "") == "refused" or bool(d.get("reason"))
         ok = not d.get("is_error") and not refused
+        name = str(d.get("name") or "")
+        if refused and name in self._removed:
+            # a tool the COCKPIT removed from the run: its refusal is a rule of the space,
+            # said in the cockpit's words (harness/refusals.py), as the legacy engine's is
+            from .refusals import removed
+            out = removed(name, classify(name), out)
         if not ok and classify(str(d.get("name"))) == "file_write" and (
                 d.get("reason") == "outside_root" or any(w in out.lower() for w in _OUTSIDE)):
             self._mail.put_nowait(Error(code="confined", recoverable=True, message=out[:300],

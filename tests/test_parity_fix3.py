@@ -332,32 +332,83 @@ def test_bench_reads_status_refused_for_shell_ran_and_parasites():
 
 
 # ---- decision 17.11: the SAME rule for both engines, read through the simple view ---------
+# (3.6.7: a call a rule of the space turns away is not shown; a real failure still is)
 def _call(cid, name, cls, inp, ok, out, **kw):
     return [{"type": "tool.called", "call_id": cid, "name": name, "classification": cls,
              "input": inp},
             {"type": "tool.result", "call_id": cid, "ok": ok, "output": out, **kw}]
 
 
-def test_the_simple_view_decides_a_failure_line_for_every_engine(tmp_path):
-    legacy = _Play(_call("a", "Bash", "shell", {"command": "mkdir x"}, False,
-                         "<tool_use_error>Error: No such tool available: Bash.</tool_use_error>")
-                   + _call("b", "Read", "file_read", {"file_path": "/w/a.txt"}, True, "hello"),
+def test_the_simple_view_decides_a_failure_line_for_every_engine():
+    from harness import refusals
+    legacy = _Play(_call("a", "Bash", "shell", {"command": "mkdir x"}, False, policy.NO_SHELL)
+                   + _call("b", "Bash", "shell", {"command": "mkdir x"}, False,
+                           refusals.removed("Bash", "shell", "No such tool available: Bash."))
+                   + _call("c", "Read", "file_read", {"file_path": "/w/a.txt"}, True, "hello"),
                    engine="legacy")
     kern = _Play(_call("a", "terminal", "shell", {"command": "mkdir x"}, False,
-                       "Refusé : règle deny terminal().", refused=True)
+                       refusals.removed("terminal", "shell", "Refusé : règle deny terminal()."),
+                       refused=True)
                  + _call("b", "read_file", "file_read", {"path": "/workspace/.sokkan-kernel/r/"},
                          False, "not a regular file (directory)")
                  + _call("c", "read_file", "file_read", {"path": "/w/a.txt"}, True, "hello"))
     lv, kv = legacy.view_lines(), kern.view_lines()
-    # at this revision the view shows every refusal as « une action a échoué »
-    assert (lv["fail"], lv["done"]) == (1, 1)
-    assert (kv["fail"], kv["done"]) == (2, 1)
+    assert (lv["fail"], lv["discreet"], lv["done"]) == (0, 2, 1)
+    # the kernel's rule refusal is hidden like the CLI's; a read of a folder is a real failure
+    assert (kv["fail"], kv["discreet"], kv["done"]) == (1, 1, 1)
+    # an engine's own refusal of a tool the cockpit did NOT remove stays a failure line
+    other = _Play(_call("a", "terminal", "shell", {"command": "x"}, False, "Refusé : hardline"))
+    assert other.view_lines()["fail"] == 1
 
 
 def test_thread_state_is_the_threadmodel_rule():
     src = (HERE.parent / "frontend" / "lib" / "simple" / "threadModel.ts").read_text()
     # the copy in run.py follows this line of the front; a change there must change the copy
-    assert 'state: e.ok ? "done" : "fail"' in src
+    assert ('e.ok ? "done" : e.reason === "denied" ? "denied" : e.reason === "policy" ? '
+            '"skipped" : "fail"') in src
     assert run.thread_state({"ok": True}) == "done"
     assert run.thread_state({"ok": False}) == "fail"
-    assert run.thread_state({"ok": False, "refused": True}) == "discreet"
+    assert run.thread_state({"ok": False, "reason": "policy"}) == "skipped"
+    assert run.thread_state({"ok": False, "reason": "denied"}) == "denied"
+
+
+def test_kernel_adapter_says_a_removed_tool_in_the_cockpit_words():
+    from harness import refusals
+    h = kernel.KernelHarness()
+    h._turn, h._thread, h._removed = "t1", "th_1", {"terminal", "memory_note"}
+    h._on_tool_result({"call_id": "c1", "name": "terminal", "is_error": False,
+                       "status": "refused", "preview": "Refusé : règle deny terminal()."})
+    h._on_tool_result({"call_id": "c2", "name": "write_file", "is_error": False,
+                       "reason": "hardline", "preview": "Refusé : hardline."})
+    a, b = h._mail.get_nowait(), h._mail.get_nowait()
+    assert a.refused and a.output.startswith(refusals.NO_SHELL) and "deny terminal" in a.output
+    assert b.refused and b.output == "Refusé : hardline."
+
+
+def test_legacy_adapter_says_a_removed_tool_in_the_cockpit_words():
+    from claude_agent_sdk.types import AssistantMessage, ToolResultBlock, ToolUseBlock, UserMessage
+    from harness import legacy, refusals
+    h = legacy.LegacyHarness(client=object())
+    h._removed = {"Bash"}
+    h.translate(AssistantMessage(content=[ToolUseBlock(id="u1", name="Bash",
+                                                       input={"command": "mkdir x"})],
+                                 model="m"))
+    evs = h.translate(UserMessage(content=[ToolResultBlock(
+        tool_use_id="u1", content="<tool_use_error>Error: No such tool available: Bash.",
+        is_error=True)]))
+    r = [e for e in evs if isinstance(e, contract.ToolResult)][0]
+    assert r.refused and r.output.startswith(refusals.NO_SHELL) and not r.ok
+
+
+def test_the_view_hides_a_rule_of_the_space_and_keeps_a_real_failure(tmp_path):
+    import plain
+    v = plain.View()
+    out = []
+    for e in ({"type": "tool_use", "id": "t1", "tool": "Bash", "input": {"command": "mkdir x"}},
+              {"type": "tool_result", "tool_use_id": "t1", "text": policy.NO_SHELL, "is_error": True},
+              {"type": "tool_use", "id": "t2", "tool": "Read", "input": {"file_path": "/nope"}},
+              {"type": "tool_result", "tool_use_id": "t2", "text": "File does not exist.",
+               "is_error": True}):
+        out += v.feed(e)
+    done = [e for e in out if e["type"] == "activity_done"]
+    assert done[0]["reason"] == "policy" and "reason" not in done[1]

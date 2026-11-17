@@ -338,6 +338,8 @@ class LegacyHarness(Harness):
         # `client`: an already connected SDK client (tests hand a scripted one)
         self._client = client
         self._connected = client is not None
+        self._called: dict[str | None, str] = {}   # tool call id → tool name
+        self._removed: set[str] = set()             # tools removed from the run (deny_tools)
         self._connect_tried = False
         self._spec: RunSpec | None = None
         self._mail = _Mailbox()
@@ -439,6 +441,7 @@ class LegacyHarness(Harness):
             # defence in depth: an `allow` rule of the user or project settings bypasses
             # can_use_tool; disallowed_tools always wins
             kw["disallowed_tools"] = list(spec.deny_tools)
+            self._removed = set(spec.deny_tools)
         if spec.budget_usd and "max_budget_usd" in _OPTION_FIELDS:
             kw["max_budget_usd"] = spec.budget_usd
         hooks = recall_hooks(spec.context, self._mail.put, lambda: self._turn)
@@ -570,12 +573,22 @@ class LegacyHarness(Harness):
                 out.append(AssistantThink(turn_id=turn, text=getattr(b, "thinking", "") or ""))
             elif isinstance(b, ToolUseBlock):
                 name = getattr(b, "name", "tool")
+                if isinstance(getattr(self, "_called", None), dict):
+                    self._called[getattr(b, "id", None)] = name
                 out.append(ToolCalled(turn_id=turn, call_id=getattr(b, "id", None), name=name,
                                       input=getattr(b, "input", {}) or {},
                                       classification=classify(name)))
             elif isinstance(b, ToolResultBlock):
-                out.append(ToolResult(call_id=getattr(b, "tool_use_id", None),
-                                      output=_text_of(getattr(b, "content", "")),
+                call = getattr(b, "tool_use_id", None)
+                said = _text_of(getattr(b, "content", ""))
+                name = getattr(self, "_called", {}).get(call, "")
+                refused = bool(name) and name in getattr(self, "_removed", set()) and "No such tool available" in said
+                if refused:
+                    # a tool the cockpit removed from the run (disallowed_tools): a rule of
+                    # the space, said in the cockpit's words (harness/refusals.py)
+                    from .refusals import removed
+                    said = removed(name, classify(name), said)
+                out.append(ToolResult(call_id=call, output=said, refused=refused,
                                       ok=not bool(getattr(b, "is_error", False)), turn_id=turn))
         return out
 
