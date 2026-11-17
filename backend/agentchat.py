@@ -809,7 +809,7 @@ class AgentSession:
             bounced[key] = res
             message = qualitygate.agent_message(res)
             self._journal_auto(gate, input_data, False, "policy:quality_gate")
-            if not getattr(self.harness, "deny_text_reaches_model", True):
+            if not getattr(getattr(self, "harness", None), "deny_text_reaches_model", True):
                 # an engine that ends the turn on a refusal without telling its model why:
                 # the defects go in a follow-up turn of their own (`_carry_turn`)
                 self._qg_carry = message
