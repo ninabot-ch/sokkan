@@ -193,6 +193,8 @@ def grade(case: dict, play, sp: dict, files: dict[str, str], O) -> dict:
                 computed = _numbers(body)
                 detail["formula_cells"] = len(re.findall(r"\|\s*(\*\*)?=", text))
                 checks["native_file_opens"] = True
+                # the totals hold because SOKKAN computes them, not because the model was lucky
+                checks["totals_computed_by_sokkan"] = detail["formula_cells"] >= 2
         except Exception as e:  # noqa: BLE001
             checks["native_file_opens"] = False
             detail["render_error"] = f"{type(e).__name__}: {e}"[:300]
@@ -260,6 +262,29 @@ def table(results: list[dict]) -> str:
     return f"**{ok}/{len(results)} OK**\n\n" + "\n".join(lines) + "\n"
 
 
+class _Played:
+    """What grading needs of a run, read back from runs.json."""
+
+    def __init__(self, r: dict):
+        self.turns = [{"text": r.get("answer") or "", "is_error": False}]
+        self.timed_out = False
+
+
+def regrade(path: Path) -> int:
+    O = _own_outputs()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    by_id = {c["id"]: c for c in CASES}
+    for r in data["results"]:
+        if r.get("started") and r["case"] in by_id:
+            r["grade"] = grade(by_id[r["case"]], _Played(r), {}, r.get("deliverable_texts") or {}, O)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    md = f"# Vrais runs formats natifs — {data.get('label')}, moteur hérité, {data.get('model')} (regradé)\n\n" \
+        + table(data["results"])
+    (path.parent / "runs.md").write_text(md, encoding="utf-8")
+    print(md)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=str(OWN))
@@ -267,7 +292,10 @@ def main() -> int:
     ap.add_argument("--label", default="after")
     ap.add_argument("--out", default=str(HERE / "results"))
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--regrade", default="", help="a runs.json to grade again with this tree's grader")
     a = ap.parse_args()
+    if a.regrade:
+        return regrade(Path(a.regrade))
     src = Path(a.src).resolve()
     sys.path.insert(0, str(src / "tests" / "parity"))
     sys.path.insert(0, str(src / "backend"))
