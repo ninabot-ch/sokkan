@@ -477,3 +477,11 @@ def test_a_total_excl_vat_and_a_total_incl_vat_of_one_variant_are_two_totals():
     md = ("**Total HT variante A : 116'400.00 CHF**\n**Total TTC variante A : 125'828.40 CHF**\n"
           "**Total HT variante B : 95'040.00 CHF**\n**Total TTC variante B : 102'738.24 CHF**\n")
     assert factcheck.blocking(factcheck.check(md, lang="fr", country="CH")) == []
+
+
+def test_a_filtered_total_and_a_label_are_not_flagged():
+    # seen on real runs: a total of the open deals only, « Portée Google » read as a person
+    md = ("| Affaire | Statut | Montant |\n|---|---|---|\n| A | ouverte | 100 |\n| B | gagnée | 50 |\n"
+          "| C | ouverte | 30 |\n| Total (affaires ouvertes) | | 130 |\n\nPortée Google : 12'000 vues.\n")
+    f = factcheck.check(md, primary="Annonces Google, portée 12'000", lang="fr", country="CH")
+    assert factcheck.blocking(f) == []

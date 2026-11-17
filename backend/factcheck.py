@@ -337,8 +337,9 @@ def _tables_check(text: str) -> list[dict]:
                         acc.append(vals[0])
                     continue
                 if _TOTAL.search(label):
-                    if len(vals) != 1 or len(acc) < 2:
-                        break
+                    if len(vals) != 1 or len(acc) < 2 or len(_key(label)) > 2 or re.search(
+                            r"\(|\b(hors|sauf|excl|ouvert|seulement|uniquement|filtr)", fold(label)):
+                        break      # a total of SOME lines (« affaires ouvertes ») is not a sum check
                     whole = sum(v for i2, v in enumerate(acc) if i2 != sub_at)
                     from_sub = sum(acc[sub_at:]) if sub_at is not None else whole
                     if not (_close(vals[0], whole) or _close(vals[0], from_sub)):
@@ -498,6 +499,8 @@ def _people(text: str, primary: str, secondary: str) -> list[dict]:
     p, s = fold(primary), fold(secondary)
     for first, last in _name_pairs(text):
         full = f"{first} {last}"
+        if re.search(rf"(?<![\w]){re.escape(first.lower())}(?![\w])", primary + "\n" + text):
+            continue           # « Portée Google »: a common noun at the head of a label
         if not (_word_in(last, p) or _word_in(last, s)):
             continue           # a name the sources do not know at all: not ours to judge
         if _word_in(full, p) or re.search(
