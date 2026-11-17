@@ -497,7 +497,8 @@ def deliverable_files(folder: Path) -> dict[str, str]:
 
 _KEY_HEAD = re.compile(r"^#+ .*(corrig|correction|r[ée]ponses?\b|solutions?\b|bar[èe]me|answer)",
                        re.I | re.M)
-_ITEM = re.compile(r"^\W*(?:Q(?:uestion)?\s*)?(\d{1,2})\b", re.I | re.M)
+_ITEM = re.compile(r"^\W*(?:(?:r[ée]ponse|answer)\s+(?:[àa]\s+la\s+|to\s+)?)?(?:Q(?:uestion)?\s*)?(\d{1,2})\b",
+                   re.I | re.M)
 
 
 def _numbered_run(text: str) -> int:

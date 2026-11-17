@@ -172,6 +172,9 @@ def test_a_quiz_counts_its_numbered_stems_and_its_answer_key():
     assert c["has_key"] and c["key_entries"] == 1
     c = run.quiz_counts("# Quiz\n### Question 1\nQuoi ?\n### Question 2\nQui ?\n## Barème\n| 1 | a |\n| 2 | b |\n")
     assert c["has_key"] and c["key_entries"] == 2
+    c = run.quiz_counts("# Quiz\n**Question 1**\nQuoi ?\n## Réponses et explications\n"
+                        "**Réponse à la question 1**\nB\n")
+    assert c["key_entries"] == 1
     c = run.quiz_counts("# Quiz\n1. Quoi ?\n2. Qui ?\n\n**Pour l'animateur**\n1. a\n2. b\n")
     assert c == {"questions": 2, "numbered": 2, "key_entries": 2, "has_key": True}
     assert journeys.ATELIER[0].expect.questions_after_change == 9
