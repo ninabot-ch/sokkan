@@ -128,6 +128,19 @@ def _kernel_post(path: str, body: dict, timeout: float = 10.0):
         return e.code, (e.read() or b"")[:300].decode(errors="replace")
 
 
+def _kernel_delete(path: str, timeout: float = 10.0) -> int:
+    from harness import kernel
+    req = urllib.request.Request(os.environ["SOKKAN_KERNEL_URL"] + path, method="DELETE",
+                                 headers=kernel._headers())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except OSError:
+        return 0
+
+
 # ============================================================================================
 # one run: start, turns, stop — the contract only
 # ============================================================================================
@@ -831,7 +844,12 @@ def probe_mcp_headers(work: Path) -> dict:
     st, body = _kernel_post("/v1/local/sessions",
                             {"cwd": str(work), "mcp_headers": {"sokkan-memory": {"X-Sokkan-Run": "probe"}}})
     if st in (200, 201):
-        return {"status": "pass", "http": st}
+        # kernel host-2: the session's sandbox is created at the opening (caps set) and lives
+        # until the session is closed — the probe closes what it opened (bench n°5 left one)
+        closed = None
+        if isinstance(body, dict) and body.get("thread_id"):
+            closed = _kernel_delete(f"/v1/local/sessions/{body['thread_id']}")
+        return {"status": "pass", "http": st, "closed_http": closed}
     return {"status": GAP, "gap": 16, "http": st, "detail": str(body)[:200]}
 
 
