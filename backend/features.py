@@ -551,8 +551,7 @@ REGISTRY: tuple[Feature, ...] = (
             vars=_t("connectors"),
             config=("SOKKAN_CONNECTORS_DEMO", "SOKKAN_CONNECTORS_MODEL_ZONE",
                     "SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE", "SOKKAN_CONNECTORS_GRAPH_URL",
-                    "SOKKAN_CONNECTORS_LOGIN_URL", "SOKKAN_CONNECTORS_ALLOW_PLAIN",
-                    "SOKKAN_CONNECTORS_DB"),
+                    "SOKKAN_CONNECTORS_LOGIN_URL", "SOKKAN_CONNECTORS_ALLOW_PLAIN"),
             doc="docs/enterprise/CONNECTORS.md"),
     Feature("connect_ai", "Connect your AI",
             "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
