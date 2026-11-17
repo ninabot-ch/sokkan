@@ -116,7 +116,7 @@ def main() -> int:
         for f in sorted(d.rglob("*.ts*")):
             src = f.read_text(encoding="utf-8")
             rel = f.relative_to(ROOT)
-            if f.name == "dict.ts":
+            if f.name in ("dict.ts", "dictOnboarding.ts"):
                 continue
             for m in re.finditer(r'className=(?:"([^"]*)"|\{`([^`]*)`\})', src):
                 for cls in re.sub(r"\$\{[^}]*\}", " ", m.group(1) or m.group(2) or "").split():
@@ -135,11 +135,26 @@ def main() -> int:
     fr, en = dict(keys(fr_part)), dict(keys(en_part))
     if set(fr) != set(en):
         errs.append(f"dictionaries differ: {sorted(set(fr) ^ set(en))[:8]}")
+    # 4.0: the first launch / administration sentences live apart (dictOnboarding.ts), same rules
+    ob_path = ROOT / "frontend" / "lib" / "simple" / "dictOnboarding.ts"
+    if ob_path.exists():
+        ob_fr_part, ob_en_part = ob_path.read_text(encoding="utf-8").split("export const obEn", 1)
+        ob_fr, ob_en = dict(keys(ob_fr_part)), dict(keys(ob_en_part))
+        if set(ob_fr) != set(ob_en):
+            errs.append(f"onboarding dictionaries differ: {sorted(set(ob_fr) ^ set(ob_en))[:8]}")
+        errs += [f"empty translation: {lang}.{k}" for lang, d in (("fr", ob_fr), ("en", ob_en)) for k, v in d.items() if not v.strip()]
+        fr = {**fr, **ob_fr}
+        en = {**en, **ob_en}
+    ob_css = ROOT / "frontend" / "app" / "onboarding.css"
+    if ob_css.exists():
+        body = re.sub(r"/\*.*?\*/", "", ob_css.read_text(encoding="utf-8"), flags=re.S)
+        if HEX.search(body) or COLOR_FN.search(body):
+            errs.append("frontend/app/onboarding.css: literal colour (tokens only)")
     errs += [f"empty translation: {lang}.{k}" for lang, d in (("fr", fr), ("en", en)) for k, v in d.items() if not v.strip()]
     used = set()
     for d in DIRS:
         for f in d.rglob("*.tsx"):
-            used |= set(re.findall(r'\bt\(\s*"([\w.]+)"', f.read_text(encoding="utf-8")))
+            used |= set(re.findall(r'\b(?:t|ot)\(\s*"([\w.]+)"', f.read_text(encoding="utf-8")))
     errs += [f"key used but not in the dictionary: {k}" for k in sorted(used - set(fr))]
 
     for e in errs:

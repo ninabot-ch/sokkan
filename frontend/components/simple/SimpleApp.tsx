@@ -21,8 +21,16 @@ import Nina from "./Nina";
 import { Documents, Team, Works } from "./Pages";
 import Settings from "./Settings";
 import Thread from "./Thread";
+import SetupWizard from "./onboarding/SetupWizard";
+import Welcome from "./onboarding/Welcome";
+import { TeamPage, UsagePage, ValidationsPage } from "./onboarding/AdminPages";
+import { fetchOnboarding, progress, type Onboarding } from "@/lib/simple/onboarding";
+import { useOT } from "@/lib/simple/dictOnboarding";
 
-type View = { name: "home" | "works" | "documents" | "memory" | "team" | "review" } | { name: "work"; sid: string };
+// 4.0: « setup » (the administrator's first launch) and the administration pages
+type AdminView = "setup" | "admin_team" | "admin_usage" | "admin_validations";
+const ADMIN_VIEWS: AdminView[] = ["setup", "admin_team", "admin_usage", "admin_validations"];
+type View = { name: "home" | "works" | "documents" | "memory" | "team" | "review" | AdminView } | { name: "work"; sid: string };
 
 function readView(): View {
   if (typeof window === "undefined") return { name: "home" };
@@ -30,6 +38,7 @@ function readView(): View {
   const w = q.get("w");
   if (w && /^[0-9a-f]{8,64}$/.test(w)) return { name: "work", sid: w };
   const v = q.get("v");
+  if (ADMIN_VIEWS.includes(v as AdminView)) return { name: v as AdminView };
   return v === "works" || v === "documents" || v === "memory" || v === "team" || v === "review" ? { name: v } : { name: "home" };
 }
 
@@ -57,10 +66,15 @@ export default function SimpleApp({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (
 
 function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }) {
   const t = useT();
-  const { lang } = useUI();
+  const ot = useOT();
+  const { lang, setLangPref } = useUI();
   const me = useMe();
   const feats = useFeatures();
   const [view, setView] = useState<View>(readView);
+  // 4.0 — first launch (administrator) and first sign-in (person): backend/onboarding.py
+  const [ob, setOb] = useState<Onboarding | null>(null);
+  const [welcome, setWelcome] = useState(false);
+  const autoSetup = useRef(false);
   const [home, setHome] = useState<HomeData | null>(null);
   const [homeFailed, setHomeFailed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -85,6 +99,19 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     });
   }, [ingestOn, home?.project, me, reader]);
 
+  const loadOb = useCallback(async () => {
+    try { setOb(await fetchOnboarding(lang)); } catch { /* the Atelier works without it */ }
+  }, [lang]);
+  useEffect(() => { if (!demo) loadOb(); }, [loadOb, demo]);
+  useEffect(() => {
+    if (!ob || autoSetup.current) return;
+    autoSetup.current = true;
+    const named = new URLSearchParams(window.location.search);
+    // an administrator whose setup is not finished lands on it — unless the address names a page
+    if (ob.admin && ob.setup?.needed && !named.has("v") && !named.has("w")) setView({ name: "setup" });
+    if (!ob.admin && ob.me.needs_welcome && !named.has("w")) setWelcome(true);
+  }, [ob]);
+
   const loadHome = useCallback(() => {
     fetchHome(lang).then((h) => { setHome(h); setHomeFailed(false); }).catch(() => setHomeFailed(true));
   }, [lang]);
@@ -102,10 +129,12 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
   }, []);
   useEffect(() => {
     const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", memory: "nav.memory", team: "nav.team", review: "nav.review" } as const;
+    const admin = { setup: "ob.nav.setup", admin_team: "ob.nav.team", admin_usage: "ob.nav.usage", admin_validations: "ob.nav.validations" } as const;
     const work = view.name === "work" ? home?.recents.find((r) => r.sid === view.sid)?.title : "";
     if (view.name === "work" && !work) return;   // named once the work is known, never « My work » meanwhile
-    document.title = `${view.name === "work" ? work : t(titles[view.name])} — SOKKAN`;
-  }, [view, home, t]);
+    document.title = `${view.name === "work" ? work : view.name in admin ? ot(admin[view.name as AdminView])
+      : t(titles[view.name as keyof typeof titles])} — SOKKAN`;
+  }, [view, home, t, ot]);
   useEffect(() => {
     if (!drawer) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawer(false); };
@@ -139,6 +168,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
             </button>
           ))}
         </div>
+        {ob?.admin && !demo && <AdminNav ob={ob} view={view.name} go={(v) => go({ name: v })} />}
         {home && home.recents.length > 0 && (
           <>
             <div className="sk-drawer-label" id="sk-recents">{t("nav.recents")}</div>
@@ -184,7 +214,16 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "home" && (demo && home && !home.can_start
           ? <DemoHome home={home} onOpen={(sid) => go({ name: "work", sid })} />
           : <Home home={home} failed={homeFailed} retry={loadHome}
+              top={ob?.admin && ob.setup?.needed ? <ResumeSetup ob={ob} onResume={() => go({ name: "setup" })} /> : null}
               onStarted={(sid) => { loadHome(); go({ name: "work", sid }); }} />)}
+        {view.name === "setup" && ob?.admin && <SetupWizard ob={ob} reload={loadOb} setLangPref={setLangPref}
+          onClose={() => { loadOb(); go({ name: "home" }); }} />}
+        {view.name === "admin_team" && ob?.admin && <TeamPage />}
+        {view.name === "admin_usage" && ob?.admin && <UsagePage />}
+        {view.name === "admin_validations" && ob?.admin && <ValidationsPage />}
+        {welcome && ob && <Welcome ob={ob} name={home?.first_name || ""} canStart={!!home?.can_start}
+          onClose={() => { setWelcome(false); loadOb(); }}
+          onStarted={(sid) => { setWelcome(false); loadHome(); go({ name: "work", sid }); }} />}
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
@@ -220,8 +259,8 @@ function RecentLine({ r }: { r: Recent }) {
   return line ? <span className="sk-recent-line">{line}</span> : null;
 }
 
-function Home({ home, failed, retry, onStarted }: {
-  home: HomeData | null; failed: boolean; retry: () => void; onStarted: (sid: string) => void;
+function Home({ home, failed, retry, onStarted, top }: {
+  home: HomeData | null; failed: boolean; retry: () => void; onStarted: (sid: string) => void; top?: React.ReactNode;
 }) {
   const t = useT();
   const { lang } = useUI();
@@ -247,6 +286,7 @@ function Home({ home, failed, retry, onStarted }: {
   const model = cmodel || gate?.default_model || "";
   return (
     <div className="sk-scroll"><div className="sk-page">
+      {top}
       <h1 className="sk-h1">{home.first_name ? t("home.hello", { name: home.first_name }) : t("home.hello.anon")}</h1>
       {!can && <div className="sk-notice" role="status"><Icon name="info" /><span>{t("home.viewer")}</span></div>}
       <Composer autoFocus disabled={!can} canAttach={!!home.limits} limits={home.limits}
@@ -371,5 +411,44 @@ function ProjectPicker({ last, only }: { last: string; only: string[] | null }) 
         {list.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
       </select>
     </label>
+  );
+}
+
+/** 4.0 — the administration part of the drawer (instance administrators only). */
+function AdminNav({ ob, view, go }: { ob: Onboarding; view: string; go: (v: AdminView) => void }) {
+  const t = useOT();
+  const p = ob.setup ? progress(ob.setup.steps) : null;
+  const items: { id: AdminView; icon: IconName; label: string }[] = [
+    ...(ob.setup && !ob.setup.finished ? [{ id: "setup" as const, icon: "steps" as const,
+      label: t("ob.nav.setup.n", { n: p?.settled || 0, total: p?.total || 6 }) }] : []),
+    { id: "admin_team", icon: "crew", label: t("ob.nav.team") },
+    { id: "admin_usage", icon: "gauge", label: t("ob.nav.usage") },
+    { id: "admin_validations", icon: "seal", label: t("ob.nav.validations") },
+  ];
+  return (
+    <>
+      <div className="sk-drawer-label" id="sk-admin-nav">{t("ob.nav.admin")}</div>
+      <div className="sk-nav" role="group" aria-labelledby="sk-admin-nav">
+        {items.map((n) => (
+          <button key={n.id} className="sk-nav-item" aria-current={view === n.id ? "page" : undefined} onClick={() => go(n.id)}>
+            <Icon name={n.icon} />{n.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** 4.0 — on the home page, while the first launch is not finished: where it stands, and « Resume ». */
+function ResumeSetup({ ob, onResume }: { ob: Onboarding; onResume: () => void }) {
+  const t = useOT();
+  const p = progress(ob.setup?.steps || []);
+  return (
+    <div className="sk-notice is-info sk-ob-resume" role="status">
+        <Icon name="steps" />
+        <div className="sk-grow"><b>{t("ob.resume.title", { n: p.settled, total: p.total })}</b>
+          <div className="sk-small">{t("ob.resume.text")}</div></div>
+        <button className="sk-btn sk-btn-primary" onClick={onResume}><Icon name="chevron" />{t("ob.resume.cta")}</button>
+    </div>
   );
 }
