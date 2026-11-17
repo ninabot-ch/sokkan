@@ -139,7 +139,7 @@ def test_start_a_work_with_documents_and_a_template(world):
     # what the agent got: the brief, the mission, the files to read, the save folder — then the ask
     (turn_sid, seed), = world["turns"]
     assert turn_sid == sid and seed.startswith("<sokkan-brief>")
-    assert seed.rstrip().endswith("is in French.</sokkan-brief>")
+    assert seed.rstrip().endswith("is in French, with « vous ».</sokkan-brief>")
     assert "Write to them in French" in seed and "Write a training plan" in seed
     assert f"documents/{d1['id']}/Brief client.docx.txt" in seed and f"documents/{d2['id']}/Notes.txt" in seed
     assert f"deliverables/{sid}" in seed
