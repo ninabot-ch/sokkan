@@ -416,3 +416,19 @@ def test_with_sso_an_invitation_is_the_grants_only(box, monkeypatch):
     assert projects.effective_role({"email": "gil@example.org", "role": "none"}, "clients") == "dev"
     import localaccounts
     assert not localaccounts.has("gil@example.org")
+
+
+def test_the_validations_page_shows_validated_deliverables_and_exports_them(box):
+    import audit
+    import board
+    c = _owner(box)
+    board.add_sdk_session("v" * 32, "x", title="w", project="default", owner="ana@example.org")
+    audit.log("ana@example.org", "deliverable.validate", "v" * 32, "Synthèse.md · sha256 abc", project="default")
+    rows = c.get("/api/team/validations").json()["entries"]
+    assert rows[0] | {"at": 0} == {"kind": "deliverable", "decision": "validate", "title": "Synthèse.md",
+                                   "actor": "ana@example.org", "owner": "ana@example.org", "project": "default",
+                                   "session_id": "v" * 32, "at": 0, "auto": False, "edited": False}
+    assert c.get("/api/team/validations?decision=deny").json()["entries"] == []
+    assert c.get("/api/team/validations?actor=bob@example.org").json()["entries"] == []
+    csv = c.get("/api/team/validations?format=csv")
+    assert csv.headers["content-type"].startswith("text/csv") and "Synthèse.md" in csv.text

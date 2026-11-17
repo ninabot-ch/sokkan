@@ -663,6 +663,59 @@ def usage_view(days: int = 30) -> dict:
             "project_budgets": budgets.enabled(), "alerts": alerts}
 
 
+# ---- the validations journal, readable --------------------------------------------------------
+def validations(project: str = "", actor: str = "", since: float | None = None,
+                decision: str = "", limit: int = 2000) -> list[dict]:
+    """What a person validated, newest first: the deliverables they signed off (« Validate the
+    deliverable », action journal) AND the approvals they gave or refused while the agent worked
+    (journal of human validations, hitl_journal). One shape for both."""
+    import board
+    import hitl_journal
+    out: list[dict] = []
+    if decision in ("", "validate"):
+        for e in audit.recent(limit=1000, q="deliverable.validate"):
+            if e.get("action") != "deliverable.validate":
+                continue
+            if project and e.get("project") != project:
+                continue
+            if since is not None and float(e.get("ts") or 0) < since:
+                continue
+            sid = e.get("resource") or ""
+            owner = _norm(board.get_session_owner(sid) if sid else "")
+            who = _norm(e.get("user") or "")
+            if actor and _norm(actor) not in (who, owner):
+                continue
+            out.append({"kind": "deliverable", "decision": "validate", "title": (e.get("detail") or "").split(" · ")[0],
+                        "actor": who, "owner": owner, "project": e.get("project") or "", "session_id": sid,
+                        "at": float(e.get("ts") or 0), "auto": False, "edited": False})
+    if decision != "validate":
+        for r in hitl_journal.query(project=project or None, actor=actor, since=since,
+                                    decision=decision, limit=limit):
+            out.append({"kind": r.get("kind") or "permission", "decision": r.get("decision") or "",
+                        "title": r.get("title") or r.get("tool") or "", "actor": r.get("actor") or "",
+                        "owner": r.get("owner") or "", "project": r.get("project") or "",
+                        "session_id": r.get("session_id") or "",
+                        "at": float(r.get("decided_at") or r.get("requested_at") or 0),
+                        "auto": bool(r.get("auto")), "edited": bool(r.get("edited")),
+                        "auto_reason": r.get("auto_reason") or ""})
+    out.sort(key=lambda x: -x["at"])
+    return out[:limit]
+
+
+def validations_csv(rows: list[dict]) -> str:
+    import csv
+    import datetime
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    cols = ["at_iso", "kind", "decision", "title", "actor", "owner", "project", "session_id", "auto", "edited"]
+    w.writerow(cols)
+    for r in rows:
+        iso = datetime.datetime.fromtimestamp(r["at"], datetime.timezone.utc).isoformat(timespec="seconds")
+        w.writerow([iso, *(int(r[c]) if isinstance(r[c], bool) else r[c] for c in cols[1:])])
+    return buf.getvalue()
+
+
 # ---- routes ---------------------------------------------------------------------------------
 class StepIn(BaseModel):
     step: str = ""
@@ -974,6 +1027,23 @@ def router(require) -> APIRouter:
             instance.set_budgets(day_usd=body.day if body.day is not None else None)
             audit.log(u["email"], "instance.budgets", f"day={body.day}", project="")
         return usage_view(30)
+
+    @r.get("/api/team/validations")
+    def team_validations(project: str = "", actor: str = "", since: str = "", decision: str = "",
+                         format: str = "json", u: dict = Depends(admin)):  # noqa: A002
+        import hitl_journal
+        from fastapi.responses import PlainTextResponse
+        try:
+            t0 = hitl_journal.parse_when(since)
+        except ValueError:
+            raise HTTPException(400, "since: an ISO date or epoch seconds")
+        rows = validations(project, actor, t0, decision)
+        audit.log(u["email"], "hitl.journal.read", project or "*",
+                  f"{len(rows)} rows (team)" + (" (csv)" if format == "csv" else ""), project="")
+        if format == "csv":
+            return PlainTextResponse(validations_csv(rows), media_type="text/csv", headers={
+                "content-disposition": 'attachment; filename="validations.csv"'})
+        return {"entries": rows, "count": len(rows)}
 
     @r.get("/api/onboarding/roles")
     def roles_list(lang: str = "fr", _u: dict = Depends(auth.current_user)) -> dict:

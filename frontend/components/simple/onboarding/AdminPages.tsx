@@ -281,8 +281,8 @@ export function ValidationsPage() {
   useEffect(() => { fetchTeam().then((d) => { setProjects(d.projects); setPeople(d.people.map((p) => ({ email: p.email, name: p.name }))); }).catch(() => {}); }, []);
   const load = useCallback(() => {
     setFailed(""); setRows(null);
-    fetchValidations({ project, actor, since, decision, limit: 2000 })
-      .then((r) => { setRows(r.entries.filter((e) => e.decision !== "pending" || !decision)); setShown(PAGE); })
+    fetchValidations({ project, actor, since, decision })
+      .then((r) => { setRows(r.entries); setShown(PAGE); })
       .catch((e) => setFailed(e instanceof ObError && e.status === 403 ? "forbidden" : "error"));
   }, [project, actor, since, decision]);
   useEffect(load, [load]);
@@ -290,12 +290,13 @@ export function ValidationsPage() {
   const pname = (s: string) => projects.find((p) => p.slug === s)?.name || s;
   const fmt = (ts?: number) => ts ? new Date(ts * 1000).toLocaleString(lang === "fr" ? "fr-CH" : "en-GB",
     { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  const dlabel = (v: Validation) => v.edited ? t("va.d.edit") : t(`va.d.${["allow", "deny", "answer", "pending"].includes(v.decision) ? v.decision : "allow"}` as OKey);
+  const dlabel = (v: Validation) => v.edited ? t("va.d.edit")
+    : t(`va.d.${["validate", "allow", "deny", "answer", "pending"].includes(v.decision) ? v.decision : "allow"}` as OKey);
   return (
     <div className="sk-scroll"><div className="sk-page sk-page-wide">
       <div className="sk-row sk-ob-wrap">
         <div className="sk-grow"><h1 className="sk-h1">{t("va.title")}</h1><p className="sk-lede">{t("va.lede")}</p></div>
-        <a className="sk-btn" href={validationsCsvUrl({ project, actor, since })} download><Icon name="download" />{t("va.export")}</a>
+        <a className="sk-btn" href={validationsCsvUrl({ project, actor, since, decision })} download><Icon name="download" />{t("va.export")}</a>
       </div>
       <div className="sk-ob-filters">
         <label className="sk-field"><span>{t("va.filter.period")}</span>
@@ -309,7 +310,7 @@ export function ValidationsPage() {
             <option value="">{t("va.all")}</option>{people.map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}</select></label>
         <label className="sk-field"><span>{t("va.filter.decision")}</span>
           <select className="sk-input sk-select" value={decision} onChange={(e) => setDecision(e.target.value)}>
-            <option value="">{t("va.all")}</option>{["allow", "deny", "answer"].map((d) => <option key={d} value={d}>{t(`va.d.${d}` as OKey)}</option>)}</select></label>
+            <option value="">{t("va.all")}</option>{["validate", "allow", "deny", "answer"].map((d) => <option key={d} value={d}>{t(`va.d.${d}` as OKey)}</option>)}</select></label>
       </div>
       {failed === "forbidden" ? <p className="sk-muted">{t("va.forbidden")}</p> : failed ? <Failed retry={load} /> : rows === null ? <Loading /> :
         rows.length === 0 ? <p className="sk-muted">{t("va.empty")}</p> : (
@@ -317,18 +318,18 @@ export function ValidationsPage() {
             <div className="sk-small sk-muted" role="status">{t("va.count", { n: rows.length })}</div>
             <ul className="sk-plain-list sk-ob-journal">
               {rows.slice(0, shown).map((v, i) => (
-                <li key={`${v.id ?? i}`} className="sk-ob-jrow">
+                <li key={`${v.at}-${i}`} className="sk-ob-jrow">
                   <span className={`sk-pill ${v.decision === "deny" ? "sk-pill-wait" : v.decision === "pending" ? "sk-pill-idle" : "sk-pill-ok"}`}>
-                    <Icon name={v.decision === "deny" ? "close" : v.decision === "pending" ? "info" : "check"} small />{dlabel(v)}</span>
+                    <Icon name={v.decision === "deny" ? "close" : v.decision === "pending" ? "info" : v.decision === "validate" ? "seal" : "check"} small />{dlabel(v)}</span>
                   <div className="sk-grow sk-ob-who">
-                    <b>{String(v.title || v.tool || v.kind || "")}</b>
+                    <b>{v.title || t(v.kind === "deliverable" ? "va.k.deliverable" : "va.k.action")}</b>
                     <span className="sk-small sk-muted">
                       {v.auto ? t("va.auto") : nameOf(String(v.actor || ""))}
                       {v.owner && v.owner !== v.actor ? ` · ${t("va.on", { owner: nameOf(String(v.owner)) })}` : ""}
                       {v.project ? ` · ${pname(String(v.project))}` : ""}
                     </span>
                   </div>
-                  <span className="sk-small sk-muted sk-ob-when">{fmt(Number(v.decided_at || v.requested_at) || undefined)}</span>
+                  <span className="sk-small sk-muted sk-ob-when">{fmt(v.at || undefined)}</span>
                 </li>
               ))}
             </ul>

@@ -34,9 +34,8 @@ export interface Usage { days: number; from: string; to: string; people: (UsageR
   projects: (UsageRow & { slug: string; name: string; budget: Budget | null })[]; total: UsageRow;
   instance_budget: { budget_day_usd: number; budget_session_usd: number }; today_total: number; project_budgets: boolean;
   alerts: { project: string; name: string; state: "warn" | "stop"; pct_day?: number; pct_month?: number; currency?: string }[] }
-export interface Validation { id?: number; project: string; session_id: string; actor: string; owner?: string; decision: string;
-  kind?: string; title?: string; subject?: string; tool?: string; auto: boolean; edited: boolean;
-  requested_at?: number; decided_at?: number; decided_at_iso?: string; [k: string]: unknown }
+export interface Validation { kind: string; decision: string; title: string; actor: string; owner: string; project: string;
+  session_id: string; at: number; auto: boolean; edited: boolean; auto_reason?: string }
 
 export class ObError extends Error {
   status: number;
@@ -93,15 +92,15 @@ export const saveMe = (p: { role_id?: string; tour_done?: boolean; welcomed?: bo
   send<Onboarding["me"]>("/api/onboarding/me", "PUT", p);
 export const fetchSample = (role_id: string, lang: string, project?: string) =>
   send<{ ask: string; document: { id: string; name: string } | null }>("/api/onboarding/sample", "POST", { role_id, lang }, project);
-export const fetchValidations = (q: { project?: string; actor?: string; since?: string; decision?: string; limit?: number }) => {
+export const fetchValidations = (q: { project?: string; actor?: string; since?: string; decision?: string }) => {
   const s = new URLSearchParams();
   for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") s.set(k, String(v));
-  return get<{ entries: Validation[]; count: number }>(`/api/hitl/journal?${s}`);
+  return get<{ entries: Validation[]; count: number }>(`/api/team/validations?${s}`);
 };
-export const validationsCsvUrl = (q: { project?: string; actor?: string; since?: string }) => {
+export const validationsCsvUrl = (q: { project?: string; actor?: string; since?: string; decision?: string }) => {
   const s = new URLSearchParams({ format: "csv" });
   for (const [k, v] of Object.entries(q)) if (v) s.set(k, v);
-  return `/api/hitl/journal?${s}`;
+  return `/api/team/validations?${s}`;
 };
 /** A work started in a NAMED project (the wizard's first work may not be the one on screen). */
 export function startIn(project: string, ask: string, documents: string[], lang: string, requestId: string) {
