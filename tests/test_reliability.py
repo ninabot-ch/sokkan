@@ -157,10 +157,10 @@ def test_wrong_vat_and_the_old_swiss_rate():
 
 
 def test_a_weekday_that_does_not_match_its_date():
-    f = factcheck.check("Prochain comité : jeudi 14.01.2027 à 9h00.\n", lang="fr", country="CH")
-    assert f and f[0]["kind"] == "weekday" and "mercredi" in f[0]["fr"]
-    assert factcheck.check("Prochain comité : jeudi 14 janvier 2027.\n", lang="fr", country="CH") != []
-    assert factcheck.check("Prochain comité : mercredi 14.01.2027.\n", lang="fr", country="CH") == []
+    f = factcheck.check("Prochain comité : mercredi 14.01.2027 à 9h00.\n", lang="fr", country="CH")
+    assert f and f[0]["kind"] == "weekday" and "jeudi" in f[0]["fr"]
+    assert factcheck.check("Prochain comité : vendredi 14 janvier 2027.\n", lang="fr", country="CH") != []
+    assert factcheck.check("Prochain comité : jeudi 14.01.2027.\n", lang="fr", country="CH") == []
 
 
 def test_swiss_numbers_are_read():

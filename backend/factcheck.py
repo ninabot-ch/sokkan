@@ -607,7 +607,7 @@ def _law(text: str, ask: str, sources: str, country: str) -> list[dict]:
             if lawf in ("RGPD", "GDPR", "DSGVO"):
                 continue        # said by law_eu
             known = (lawf == "CO" and num in CO_KNOWN) or (lawf == "nLPD" and any(
-                num in arts for rx, arts, _ in NLPD_TOPICS if rx.search(fl)))
+                num in arts for _, arts, _ in NLPD_TOPICS))
             in_src = re.search(rf"\bart(?:icle)?s?\.?\s*{re.escape(num)}\b", s) is not None
             hedged = re.search(r"verifi|a confirmer|to be checked|zu pruefen|zu prufen", fl)
             if not (known or in_src or hedged):
