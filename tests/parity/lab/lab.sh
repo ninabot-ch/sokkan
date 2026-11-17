@@ -18,7 +18,8 @@
 # flags on, as SOKKAN ships them), PARITY_SANDBOX_IMAGE (the sandbox image when
 # PARITY_KERNEL_SANDBOX=docker; the kernel then reaches the host's docker socket),
 # PARITY_SANDBOX_MEMORY (e.g. 4g) and PARITY_SANDBOX_CPUS (e.g. 4): the sandbox's caps (kernel
-# host-2, docker sandbox only; unset = no cap).
+# host-2, docker sandbox only; unset = no cap), PARITY_CONF_SANDBOX (local | docker: the
+# conformance kernel's sandbox).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_HOME:=/srv/sokkan-parity}"
@@ -36,12 +37,15 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_SANDBOX_IMAGE:=}"
 : "${PARITY_SANDBOX_MEMORY:=}"
 : "${PARITY_SANDBOX_CPUS:=}"
+: "${PARITY_CONF_SANDBOX:=local}"
 PARITY_DOCKER_SOCK=/dev/null
+PARITY_CONF_DOCKER_SOCK=/dev/null
 PARITY_DOCKER_GID=65534
-if [ "$PARITY_KERNEL_SANDBOX" = docker ]; then
-    PARITY_DOCKER_SOCK=/var/run/docker.sock
+if [ "$PARITY_KERNEL_SANDBOX" = docker ] || [ "$PARITY_CONF_SANDBOX" = docker ]; then
     PARITY_DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 65534)
 fi
+[ "$PARITY_KERNEL_SANDBOX" = docker ] && PARITY_DOCKER_SOCK=/var/run/docker.sock
+[ "$PARITY_CONF_SANDBOX" = docker ] && PARITY_CONF_DOCKER_SOCK=/var/run/docker.sock
 export PARITY_HOME PARITY_PROJECT PARITY_KERNEL_PORT PARITY_CONF_PORT PARITY_KERNEL_MEM PARITY_PG_PORT
 
 compose() {
@@ -109,7 +113,9 @@ up)
     R_SANDBOX=$PARITY_KERNEL_SANDBOX R_INSTANCE=$PARITY_PROJECT-kernel
     render "$HERE/kernel.yaml.tmpl" "$PARITY_HOME/kernel/config.yaml" \
         "http://meter:18790/v1" "$PARITY_MODEL" "$PARITY_HOME/ws" true 60 0.0.0.0 8742
-    R_SANDBOX=local R_INSTANCE=$PARITY_PROJECT-conf     # the conformance kernel: scripted model, host network, no sandbox
+    # the conformance kernel: scripted model, host network; no sandbox unless
+    # PARITY_CONF_SANDBOX=docker (C1-C9 played with the kernel's docker sandbox: C3 outside_root)
+    R_SANDBOX=$PARITY_CONF_SANDBOX R_INSTANCE=$PARITY_PROJECT-conf
     render "$HERE/kernel.yaml.tmpl" "$PARITY_HOME/kconf/config.yaml" \
         "http://127.0.0.1:$PARITY_CONF_UPSTREAM_PORT/v1" scripted "$PARITY_HOME/conf-ws/root" false 20 \
         127.0.0.1 "$PARITY_CONF_PORT"
@@ -131,6 +137,7 @@ PARITY_THINKING=$PARITY_THINKING
 PARITY_MAX_CONCURRENT=$PARITY_MAX_CONCURRENT
 PARITY_DOCKER_SOCK=$PARITY_DOCKER_SOCK
 PARITY_DOCKER_GID=$PARITY_DOCKER_GID
+PARITY_CONF_DOCKER_SOCK=$PARITY_CONF_DOCKER_SOCK
 EOF
     compose up -d --wait kernel kernel-conf
     compose ps
@@ -152,6 +159,7 @@ export SOKKAN_KERNEL_TEST_URL=http://127.0.0.1:$PARITY_CONF_PORT
 export SOKKAN_KERNEL_TEST_TOKEN_FILE=$PARITY_HOME/kconf/token/local-token
 export SOKKAN_KERNEL_TEST_ROOT=$PARITY_HOME/conf-ws/root
 export SOKKAN_KERNEL_TEST_UPSTREAM_PORT=$PARITY_CONF_UPSTREAM_PORT
+export SOKKAN_KERNEL_TEST_SANDBOX=$PARITY_CONF_SANDBOX
 export SOKKAN_KERNEL_TEST_RESTART_CMD='docker restart $PARITY_PROJECT-kernel-conf-1'
 EOF
     ;;
@@ -164,5 +172,5 @@ purge)
     rm -rf -- "${PARITY_HOME:?}/kernel" "${PARITY_HOME:?}/kconf" "${PARITY_HOME:?}/ws" "${PARITY_HOME:?}/conf-ws"
     ;;
 *)
-    sed -n '2,21p' "$0"; exit 2 ;;
+    sed -n '2,23p' "$0"; exit 2 ;;
 esac

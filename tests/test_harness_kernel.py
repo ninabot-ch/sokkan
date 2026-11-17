@@ -94,6 +94,9 @@ def kernel_rig(upstream, monkeypatch):
     monkeypatch.setenv("SOKKAN_KERNEL_URL", os.environ["SOKKAN_KERNEL_TEST_URL"])
     monkeypatch.setenv("SOKKAN_KERNEL_TOKEN_FILE", os.environ["SOKKAN_KERNEL_TEST_TOKEN_FILE"])
     monkeypatch.delenv("SOKKAN_KERNEL_TOKEN", raising=False)
+    # a conformance kernel with a docker sandbox (lab PARITY_CONF_SANDBOX=docker): the adapter
+    # hands it /workspace paths, as the product does
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", os.environ.get("SOKKAN_KERNEL_TEST_SANDBOX", "local"))
     rig = KernelRig(upstream, Path(os.environ["SOKKAN_KERNEL_TEST_ROOT"]))
     yield rig
     rig.cleanup()

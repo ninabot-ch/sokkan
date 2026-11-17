@@ -158,6 +158,9 @@ services:
       - ${PARITY_HOME}/kconf/state:/opt/data
       - ${PARITY_HOME}/kconf/token:/run/kernel
       - ${PARITY_HOME}/conf-ws:${PARITY_HOME}/conf-ws
+      # PARITY_CONF_SANDBOX=docker: the host's docker socket; /dev/null otherwise
+      - ${PARITY_CONF_DOCKER_SOCK:-/dev/null}:/var/run/docker.sock
+    group_add: ["${PARITY_DOCKER_GID:-65534}"]
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
