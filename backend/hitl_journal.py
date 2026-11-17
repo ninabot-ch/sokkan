@@ -271,9 +271,11 @@ def decided(request_id: str, decision: str, *, actor: str = "", origin: str = ""
 def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_data=None,
               allowed: bool, reason: str, mode: str = "",
               secrets: dict[str, str] | None = None, owner: str = "",
-              agent_run: str = "", model: str = "") -> None:
+              agent_run: str = "", model: str = "", actor: str = "") -> None:
     """An approval nobody clicked: auto-approved by the session's mode, or refused by an
-    agent's policy / the sandbox. One row, asked and decided at the same instant."""
+    agent's policy / the sandbox. One row, asked and decided at the same instant. ``actor``:
+    the person whose earlier decision the rule carries (4.0, the later saves of a document
+    they approved in the turn); '' otherwise."""
     try:
         import uuid
         project, board_owner = _session_facts(session_id)
@@ -284,9 +286,9 @@ def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_d
             "INSERT INTO hitl(request_id, kind, session_id, project, owner, actor, origin, tool,"
             " title, input_summary, input_sha256, mode, requested_at, decided_at, delay_ms,"
             " decision, auto, auto_reason, agent_run, model)"
-            " VALUES(?,?,?,?,?,'','system',?,?,?,?,?,?,?,0,?,1,?,?,?)",
+            " VALUES(?,?,?,?,?,?,'system',?,?,?,?,?,?,?,0,?,1,?,?,?)",
             (uuid.uuid4().hex, kind, session_id, project,
-             board_owner or (owner or "").lower().strip(), tool,
+             board_owner or (owner or "").lower().strip(), (actor or "").lower().strip(), tool,
              str(mask(title or "", secrets))[:300], summary, digest, mode, now, now,
              "auto_allow" if allowed else "auto_deny", reason, agent_run or "", (model or "")[:120]))
         con.commit()

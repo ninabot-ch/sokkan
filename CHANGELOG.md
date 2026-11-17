@@ -12,7 +12,7 @@ today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature
 Built on 3.6.7 « Icebreaker » and the 3.6.8 fixes below it (everything here comes on top of them). What 3.6.7 did inside the
 session moved onto the contract, for every engine: an idle session's engine is stopped and
 resumed at the next turn (`SOKKAN_SESSION_IDLE_CLOSE_S`; the CLI's process is reaped by its
-adapter), one approval per document is read from the gate (`file_write` and its path), a call
+adapter), the card per document and per turn is read from the gate (`file_write` and its path), a call
 to a tool the cockpit removed from a run is said by both adapters in the words of the space's
 rule (`harness/refusals.py`), so the Atelier hides it as 3.6.7 does, and the Atelier demo's
 threads are read back by their engine (`history()`). 3.6.8's « no shell in an Atelier work »
@@ -21,6 +21,19 @@ one called anyway by a hook (journaled as a rule of the space); the kernel one r
 shell tool of the kernel (`deny_tools`).
 
 ### Changed
+- **Atelier: the later saves of a document the person approved in this turn go through.** 3.6.7
+  refused every save of a document after the first approved one in a turn, so a change the model
+  made in several edits was cut short: asked to add a question to a quiz, both engines saved the
+  question, then had its line in the answer key and the count refused — the quiz announced 9
+  questions over 8, or a 9th question without its answer (parity bench, journey A1). Now, for both
+  engines: the first save of a document in a turn keeps its card; once approved, the later saves of
+  the same document in the same turn are approved by rule (journal: `policy:simple_same_document_same_turn`,
+  decider = who approved the first card, `via: auto_rule`), without a card or a line in the thread;
+  if the first card was refused, the document is not saved again in the turn; another document has
+  its own card. The thread shows one version per document per turn, the document as it stands at the
+  end of the turn. The brief and the note of every later message ask for a change in ONE save of the
+  whole file (and to add is to add); the quiz template says a quiz without its answer key is not
+  finished. [docs/enterprise/SIMPLE-PROFILE.md](docs/enterprise/SIMPLE-PROFILE.md).
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
   changes for a user: same pane, same approval cards, same costs, same « Write with Claude ».
   Underneath, the cockpit no longer knows the SDK of the engine it drives.

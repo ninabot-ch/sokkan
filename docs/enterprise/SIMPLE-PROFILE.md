@@ -42,6 +42,17 @@ waits for the person.
    shell command, and no shell runs in it: the shell tools are out of the work's catalogue (its sub-agents
    included), a `PreToolUse` hook refuses one called anyway — before the CLI's own approval of read-only
    commands — and the agent is told to use the file tools (3.6.8).
+   **One card per document per turn** (4.0, both engines, read from the gate: `file_write` and its
+   path): the first save of a document in a turn asks the person. Once they approved it, the later saves
+   of the SAME document in the SAME turn go through without a new card — approved by rule, journaled as
+   `policy:simple_same_document_same_turn` with the person who approved the first card as decider
+   (`via: auto_rule`), discreet in the thread like every rule of the space. A change made in several
+   edits (a question, its line in the answer key, the count) is the change they approved. If they
+   refused the first card, the document is not saved again in that turn (the agent is told to ask what
+   they want instead). Another document has its own card. The thread shows one version per document
+   per turn — the document as it stands at the end of the turn — and the person still validates the
+   deliverable afterwards. The brief still asks for a change in ONE save of the whole file; this rule is
+   the net. (3.6.7 refused the later saves, which left a document half-changed.)
 4. **Deliverable** — preview, *Télécharger en Word* (or the text), *Valider le livrable*: who, when and
    the SHA-256 of exactly what was validated go to the journal; a later change shows « modified since
    your validation ».

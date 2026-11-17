@@ -35,7 +35,7 @@ def _transcript_dir(world, monkeypatch, sid):
 
 
 def _five_saves(deliv):
-    """One Write then four Edits of the same document, one refused Edit in between."""
+    """One Write then four Edits of the same document, one refused Edit in between — one turn."""
     path = str(deliv / "Plan de cours.md")
     lines = [{"type": "user", "uuid": "u0", "message": {"role": "user", "content": "Prépare le plan de cours."}}]
     ids = ["toolu_w1", "toolu_e2", "toolu_x", "toolu_e3", "toolu_e4", "toolu_e5"]
@@ -86,17 +86,19 @@ def test_replayed_deliverables_keep_the_version_of_each_save_after_a_restart(wor
                         live.feed({"type": "tool_result", "tool_use_id": m["id"], **m["result"]}):
                     if o["type"] == "deliverable":
                         got.append(o["version"])
-        assert got == [1, 2, 3, 4, 5]
+        # 4.0: the saves of one document in ONE turn are one version (the card shows the
+        # document as it stands at the end of the turn); 3.6.4-3.6.7 numbered each save
+        assert got == [1, 1, 1, 1, 1]
     d = _transcript_dir(world, monkeypatch, RADIO_SID)
     (d / f"{CSID}.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
     monkeypatch.setattr(agentchat, "_registry", {})          # what a restart leaves
 
     first = _versions(RADIO_SID)
-    assert first == [("Plan de cours.md", n) for n in (1, 2, 3, 4, 5)], first
+    assert first == [("Plan de cours.md", 1)] * 5, first
     # opened again (another tab, a reconnection): the same numbers, nothing counted twice
     assert _versions(RADIO_SID) == first
     item, = simple.list_deliverables("radio", RADIO_SID)
-    assert item["version"] == 5
+    assert item["version"] == 1
 
 
 def test_a_follow_up_sent_twice_with_the_same_id_is_taken_once(world):

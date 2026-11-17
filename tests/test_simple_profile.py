@@ -401,3 +401,28 @@ def test_a_simple_work_never_asks_to_approve_a_shell_command(world):
     # a technical session of the same person still gets the ordinary request
     t = agentchat.get_or_create(DEFAULT_SID, user="bob@x")
     assert simple.get_work(DEFAULT_SID) is None and t._is_simple_work() is False
+
+
+def test_a_change_is_asked_as_one_save_of_the_whole_document(tmp_path, monkeypatch):
+    """Parity bench n°4 (17.11.2026), A1 quiz from a .docx: asked to add one question, both
+    engines made the change in two or three edits (the question, then its line in the answer
+    key, then the count). The Atelier keeps ONE approved save per document per step (3.6.7), so
+    every edit after the first was turned away and the quiz was left announcing 9 questions with
+    8, or a 9th question without its answer. The first message and every later one say that a
+    change is one save of the complete file."""
+    import simple
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    first = simple.brief(ask="8 questions", lang="fr", project="p", sid="a" * 32)
+    later = simple.follow_up("Ajoute une question sur l'actualisation.", [], "fr")
+    for text in (first, later):
+        assert "ONE save" in text and "answer in the" in text and "one edit per part" in text
+    assert later.startswith("Ajoute une question") and plain_ok(later)
+    assert "to add is to add" in later      # « Ajoute » reworded an existing question (mini-run n°5)
+    import playbooks
+    quiz = playbooks.render("assessment-quiz", "8 questions", project="p")[0]
+    assert "without its key is not finished" in quiz and "key entry follows in the same save" in quiz
+
+
+def plain_ok(sent: str) -> bool:
+    import plain
+    return plain.strip_brief(sent) == "Ajoute une question sur l'actualisation."

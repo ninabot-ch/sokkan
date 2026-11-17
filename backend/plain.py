@@ -78,7 +78,8 @@ PERSON_DENIED = ("Denied by the user", "The user doesn't want to proceed",
                  "The user declined", "user rejected")
 POLICY_DENIED = ("No shell in this conversation", "does not write memory files directly",
                  "is not in this agent's allowed tools", "This is an unattended agent run",
-                 "already approved this document in this turn",
+                 "already approved this document in this turn",     # 3.6.7 (replayed threads)
+                 "declined this document in this turn",             # 4.0
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
                  "No such tool available")
@@ -172,6 +173,10 @@ class View:
         self._refused: str | None = None        # study refusal already said in this turn
         self._asked: dict[str, str] = {}        # permission id → tool_use id it gates
         self._denied: set[str] = set()          # tool_use ids the person said no to
+        # 4.0: deliverables already saved in this turn — the later saves of the same document
+        # in the turn (approved by rule once the person approved the first) are the SAME
+        # version: one card, showing the document as it stands at the end of the turn
+        self._turn_saved: set[str] = set()
 
     # ---- paths ---------------------------------------------------------------------------
     def _resolve(self, p: str) -> Path | None:
@@ -359,6 +364,7 @@ class View:
             return [out]
         if t in ("user_echo", "user"):
             self._refused = None                # a new turn: a refusal is said again
+            self._turn_saved = set()            # … and a save is a new version again
         if t == "user_echo":
             return [{"type": "user", "text": ev.get("text") or "",
                      "documents": ev.get("documents") or []}]
@@ -391,10 +397,14 @@ class View:
             if ok and c.get("deliverable"):
                 name = c["deliverable"]
                 model = c.get("model") or ""
-                try:
-                    version = int(self.on_write(name, tid, model) or 1)
-                except TypeError:           # a two-argument callback (before 3.6.5)
-                    version = int(self.on_write(name, tid) or 1)
+                if name in self._turn_saved and name in self._writes:
+                    version = self._writes[name]    # same document, same turn: same version
+                else:
+                    try:
+                        version = int(self.on_write(name, tid, model) or 1)
+                    except TypeError:           # a two-argument callback (before 3.6.5)
+                        version = int(self.on_write(name, tid) or 1)
+                    self._turn_saved.add(name)
                 self._writes[name] = version
                 card = {"type": "deliverable", "name": name,
                         "title": self._deliverable_title(name), "version": version}
