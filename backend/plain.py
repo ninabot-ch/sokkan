@@ -66,6 +66,9 @@ _KERNEL_TOOLS = {"read_file": "Read", "search_files": "Grep", "write_file": "Wri
                  "patch": "Edit", "terminal": "Bash", "process_start": "Bash",
                  "delegate": "Task", "todo": "TodoWrite"}
 _DETAIL_MAX = 4000
+# what an approved call of these kinds changes stays in the instance (SOKKAN's own stores)
+INSIDE_KINDS = ("write_draft", "write_file", "save_memory", "board_card", "board_change",
+                "create_agent", "agent_change")
 DRAFT_MAX = 120_000
 # 3.6.7 — a tool call that did not run because SOMEONE said no is not a failure. The person's
 # own « No » (the card's Refuse) and a rule of the space that turned a call away (no shell in
@@ -81,7 +84,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  "already approved this document in this turn",
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
-                 "No such tool available")
+                 "No such tool available",
+                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
+                 "Not available in this conversation: the person works in SOKKAN Atelier")
 
 
 _ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"
@@ -159,13 +164,15 @@ class View:
     None); ``on_write(name, tool_id)`` registers a saved deliverable and returns its version."""
 
     def __init__(self, *, docs_dir: Path | str | None = None, deliv_dir: Path | str | None = None,
-                 doc_lookup=None, on_write=None, attached: int = 0, lang: str = "fr"):
+                 doc_lookup=None, on_write=None, attached: int = 0, lang: str = "fr",
+                 project: str = ""):
         self.docs_dir = Path(docs_dir).resolve() if docs_dir else None
         self.deliv_dir = Path(deliv_dir).resolve() if deliv_dir else None
         self.doc_lookup = doc_lookup or (lambda _id: None)
         self.on_write = on_write or (lambda name, tool_id: 1)
         self.attached = attached
         self.lang = lang if lang in ("fr", "en") else "fr"
+        self.project = project                  # the project's name, said on a card (4.0)
         self._tools: dict[str, dict] = {}       # tool_use id → {kind, deliverable}
         self._used: dict[str, dict] = {}        # doc id → source (documents the agent opened)
         self._writes: dict[str, int] = {}       # deliverable name → version seen in this view
@@ -417,13 +424,21 @@ class View:
             tid = self._gated(tool, inp)
             if tid and ev.get("id"):
                 self._asked[ev["id"]] = tid
-            return [{"type": "approval", "id": ev.get("id") or "", "kind": c["kind"],
+            # 4.0 (audit coworker): what, where, with what — never a blind « an action »
+            import approvalcard
+            card = approvalcard.describe(tool, inp, {**c, "subject": title}, self.lang,
+                                         self.project)
+            if draft is None and card["preview"]:
+                # a note to retain, a mail draft: read before deciding (not editable here)
+                draft = {"text": card["preview"], "partial": False, "truncated": False}
+            return [{"type": "approval", "id": ev.get("id") or "", "kind": card["kind"],
                      "tool_id": tid,
-                     "title": title, "version": version,
+                     "title": card["subject"], "version": version,
+                     "where": card["where"], "facts": card["facts"], "diff": card["diff"],
                      "sources": sorted(self._used.values(), key=lambda s: s["name"].lower()),
                      "attached": self.attached,
                      # a save in the person's own space sends nothing outside the instance
-                     "stays_inside": c["kind"] in ("write_draft", "write_file", "save_memory"),
+                     "stays_inside": card["kind"] in INSIDE_KINDS,
                      "draft": draft, "detail": self._detail(ev)}]
         if t == "permission_resolved":
             out = {"type": "approval_resolved", "id": ev.get("id") or ""}

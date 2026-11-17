@@ -68,7 +68,17 @@ def make_view(sid: str) -> plain.View:
     return plain.View(docs_dir=documents.docs_dir(project), deliv_dir=deliv, doc_lookup=lookup,
                       on_write=lambda name, tool_id, model="": simple.note_write(sid, name, tool_id, model),
                       attached=len(documents.of_session(sid)),
-                      lang=(simple.get_work(sid) or {}).get("lang") or "fr")
+                      lang=(simple.get_work(sid) or {}).get("lang") or "fr",
+                      project=_project_label(project))
+
+
+def _project_label(slug: str) -> str:
+    """The project's name as its people read it (« Direction »), else its slug."""
+    try:
+        p = projects.get(slug) or {}
+        return str(p.get("name") or p.get("label") or slug)
+    except Exception:  # noqa: BLE001 — a card never fails on a name
+        return slug
 
 
 def edited_input(session, permission_id: str, draft_text) -> dict | None:
@@ -389,7 +399,8 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         session._emit({"type": "user_echo", "text": ask,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
         bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
-                                            mission=mission, docs=docs, recall=recall)))
+                                            mission=mission, docs=docs, recall=recall,
+                                            user=email)))
         audit.log(email, "session.spawn", sid,
                   f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''}"
                   f"{', claude ' + cmodel if tier == 'claude' else ''})"

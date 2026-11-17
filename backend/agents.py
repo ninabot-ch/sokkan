@@ -1050,6 +1050,25 @@ def pending_approvals(user: dict) -> dict:
     return {"agents": agents_, "runs": runs}
 
 
+def waiting_elsewhere(user: dict) -> list[dict]:
+    """4.0 (audit coworker) — an instance admin acting in one project did not see an agent
+    waiting for approval in another one (« the agent of David, invisible »): the deck is per
+    project. Names and projects only — reading or approving it still means acting in that
+    project (`can_read` / `approval_check` unchanged)."""
+    if iam.rank(user.get("role", "")) < iam.rank("admin") or user.get("project") is None:
+        return []
+    con = _con()
+    try:
+        rows = con.execute("SELECT id, name, project, owner, status, pending_change FROM agents"
+                           " WHERE (status='pending' OR (pending_change IS NOT NULL"
+                           " AND pending_change<>'')) AND project<>? ORDER BY project, name",
+                           (user.get("project"),)).fetchall()
+    finally:
+        con.close()
+    return [{"id": r["id"], "name": r["name"], "project": r["project"] or "default",
+             "owner": r["owner"], "change": r["status"] != "pending"} for r in rows]
+
+
 def runs_by_incident(user: dict, incident_ids: list[int]) -> dict[int, list[dict]]:
     """Agent runs started by an Operate incident (run.context.incident), for the
     links Ops → Crew. Only the agents `user` may see."""

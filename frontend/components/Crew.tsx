@@ -193,6 +193,16 @@ export default function Crew({ onOpenSession, onOpenIncident }: {
               ))}
             </div>
           )}
+          {(data?.elsewhere?.length || 0) > 0 && (
+            <div role="status" className="flex flex-wrap items-center gap-1.5 rounded-lg border border-brass/40 bg-brass/10 px-2 py-1 text-[11.5px] text-brass">
+              <b>{data!.elsewhere!.length} waiting in other projects:</b>
+              {data!.elsewhere!.map((a) => (
+                <span key={`e${a.id}`} title={`proposed by ${a.owner} — switch to project “${a.project}” to review it`} className="rounded border border-brass/40 px-1.5">
+                  {a.change ? "change to" : "new"} {a.name} · {a.project}
+                </span>
+              ))}
+            </div>
+          )}
           <label className="ml-auto flex items-center gap-1 text-[11px] text-mut">
             <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> archived
           </label>

@@ -374,6 +374,22 @@ html[data-sk-theme] body {
 .sk-sources { display: flex; flex-wrap: wrap; gap: var(--sk-s2); }
 .sk-source-age.is-old { color: var(--sk-warn); font-weight: 600; }
 .sk-actions { display: flex; flex-wrap: wrap; gap: var(--sk-s2); }
+/* 4.0: what the card is about — where, the facts, a change, what each answer does */
+.sk-ap-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--sk-s1) var(--sk-s3); margin: 0;
+  font-size: var(--sk-fs-sm); }
+.sk-ap-facts dt { color: var(--sk-text-soft); font-weight: 600; }
+.sk-ap-facts dd { margin: 0; color: var(--sk-text-strong); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 480px) { .sk-ap-facts { grid-template-columns: 1fr; } .sk-ap-facts dd { margin-bottom: var(--sk-s2); } }
+.sk-ap-diff { display: flex; flex-direction: column; gap: var(--sk-s2); max-height: 280px; overflow: auto; }
+.sk-ap-diff p { margin: 0; padding: var(--sk-s2) var(--sk-s3); border-radius: var(--sk-r-sm); font-size: var(--sk-fs-sm);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.sk-ap-diff .is-del { background: var(--sk-danger-soft); color: var(--sk-text-strong); text-decoration: line-through;
+  text-decoration-color: var(--sk-danger); }
+.sk-ap-diff .is-add { background: var(--sk-ok-soft); color: var(--sk-text-strong); }
+.sk-ap-diff .sk-ap-tag { font-weight: 600; text-decoration: none; display: block; font-size: var(--sk-fs-xs); }
+.sk-ap-then { display: flex; flex-direction: column; gap: var(--sk-s1); margin: 0; padding: 0; list-style: none;
+  font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
+.sk-ap-then b { color: var(--sk-text-strong); }
 
 .sk-deliv-card { width: 100%; display: flex; align-items: center; gap: var(--sk-s3); flex-wrap: wrap;
   background: var(--sk-surface); border: 1px solid var(--sk-line); border-radius: var(--sk-r-md); padding: var(--sk-s3) var(--sk-s4);

@@ -168,7 +168,8 @@ def test_reasoning_is_never_shown_and_an_exhausted_budget_is_said(monkeypatch):
         'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
         'data: [DONE]'], "Create a project with me please")
     assert [k for k, _ in ev] == ["done"]
-    assert "answer budget" in ev[0][1] and "SOKKAN_ASSISTANT_MAX_TOKENS" in ev[0][1]
+    # 4.0: said in the person's words, never a setting's name (the operator's hint is in the log)
+    assert "shorter sentence" in ev[0][1] and "SOKKAN_" not in ev[0][1]
     assert "We need" not in ev[0][1] and saved == [ev[0][1]]
 
 

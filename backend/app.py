@@ -1094,7 +1094,7 @@ def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
                                                        "waiting_for_human")}
              for a in agents.list_agents(u, include_archived=archived)]
     return {"agents": items, "pending": agents.pending_approvals(u),
-            "scheduler": _scheduler_state()}
+            "elsewhere": agents.waiting_elsewhere(u), "scheduler": _scheduler_state()}
 
 
 def _scheduler_state() -> dict:

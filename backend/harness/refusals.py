@@ -18,6 +18,17 @@ ATELIER_NO_SHELL = (
     "No shell in this conversation: the person is not a developer. The folder for the document "
     "already exists — save the document with the Write tool (and change it with Edit), read "
     "files with Read. Do not mention this to the person.")
+# 4.0 (audit coworker, 18.11) — the Atelier has no task board, no agent team, no monitoring: those
+# are the Cockpit's (a developer's). A call to one in an Atelier work is refused with what to do
+# instead; never « I have created a task » for something that does not exist for this person.
+ATELIER_NO_COCKPIT = (
+    "Not available in this conversation: the person works in SOKKAN Atelier, which has no task "
+    "board, no team of automatic agents and no monitoring. Do not create, plan or schedule "
+    "anything there and never say you did. If they want a work repeated automatically (every "
+    "Friday…), say in one sentence that the person who administers SOKKAN sets that up; deliver "
+    "this time's document now. Do not mention this message.")
+# the cockpit's MCP servers an Atelier work never has (agentchat.ATELIER_MCP_OFF)
+ATELIER_MCP_OFF = ("sokkan-board", "sokkan-agents", "sokkan-observability")
 NO_MEMORY = "This conversation does not write memory files directly (removed from this run)."
 MEMORY_TOOLS = {"memory_note", "memory"}
 

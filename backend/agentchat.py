@@ -178,6 +178,15 @@ _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # shell at all (RunSpec.shell=False): each adapter takes its engine's shell tools away
 # (harness/legacy.py SHELL_TOOLS + a PreToolUse hook, harness/kernel.py ATELIER_DENIED).
 from harness.refusals import ATELIER_NO_SHELL as NO_SHELL  # noqa: E402
+from harness.refusals import ATELIER_MCP_OFF, ATELIER_NO_COCKPIT  # noqa: E402
+
+
+def atelier_mcp_off(tool: str) -> bool:
+    """4.0 — a tool of a Cockpit server (task board, agent team, monitoring) that an Atelier
+    work never has. Both namings: ``mcp__<server>__<tool>`` (CLI) and ``<server>__<tool>``
+    (the kernel)."""
+    name = tool[5:] if tool.startswith("mcp__") else tool
+    return any(name.startswith(srv + "__") for srv in ATELIER_MCP_OFF)
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
 
 # titre court d'une carte d'outil (aligné sur transcript.py)
@@ -342,6 +351,12 @@ class AgentSession:
                               only=pol.get("mcp") if pol else None,
                               agent_run=({"agent": pol.get("agent"), "run": pol.get("run")}
                                          if pol else False))
+        if not pol and self._is_simple_work():
+            # 4.0 (audit coworker): the Atelier's catalogue has no task board, no agent team,
+            # no monitoring — an agent of a work created a kanban card in the developers'
+            # board and an automatic agent nobody could see, behind an opaque card. Removed
+            # from the run; the gate below refuses them anyway (an engine that has its own).
+            mcp = {k: v for k, v in mcp.items() if k not in ATELIER_MCP_OFF}
         # memory recall at every turn + for every sub-agent (3.0, P0-3)
         recall = memrecall.provider(self.sid, projects=self._recall_scope())
         # per-instance model configuration (BYOK / managed inference) + the vault (the
@@ -668,6 +683,12 @@ class AgentSession:
             # nobody clicked: told apart from a person's refusal in the journal of validations
             self._journal_auto(gate, input_data, False, "policy:simple_profile_no_shell")
             return contract.Decision.deny(NO_SHELL, **auto)
+
+        # 4.0: a Cockpit tool (board, agents, monitoring) in an Atelier work — out of its
+        # catalogue (_run_spec); refused here for an engine that brings its own servers
+        if not self.policy and atelier_mcp_off(tool_name) and self._is_simple_work():
+            self._journal_auto(gate, input_data, False, "policy:simple_profile_no_cockpit")
+            return contract.Decision.deny(ATELIER_NO_COCKPIT, **auto)
 
         # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
         # of a document in this turn, the agent does not save it again on its own (a « v2 »

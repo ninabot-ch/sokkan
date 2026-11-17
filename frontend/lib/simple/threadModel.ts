@@ -4,6 +4,13 @@
 import type { AgentQuestion } from "@/lib/agent";
 import type { Engine, PlainEvent, TechDetail } from "@/lib/simple/api";
 
+/** 4.0 — every kind of approval card the backend sends (backend/approvalcard.py): each has its
+ *  headline (`ap.<kind>`) and what « Allow » does (`ap.yes.<kind>`) in both dictionaries; an
+ *  unknown kind falls back on `ap.other` and still shows its facts, never a blind « an action ». */
+export const APPROVAL_KINDS = ["write_draft", "write_file", "save_memory", "run_command", "web_search", "web_read",
+  "delegate", "board_card", "board_change", "create_agent", "agent_change", "mail_draft", "calendar_event",
+  "shared_file", "tool"];
+
 /** `denied` = the person said no (neutral, never orange); `skipped` = a rule of the space
  *  turned the call away and the agent went on otherwise (not shown in the thread) — 3.6.7 */
 export interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail" | "denied" | "skipped"; detail: TechDetail }
