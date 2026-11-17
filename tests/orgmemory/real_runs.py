@@ -229,9 +229,11 @@ def grade(case_id: str, text: str, chat: str) -> dict:
     t = text or ""
     both = t + "\n" + (chat or "")
     org = {"org_name": "Morand Domotique SA" in t, "org_city": "Crissier" in t,
-           "no_placeholder": not re.search(r"(?i)\[\s*(vos|votre|notre|nos|nom|adresse|raison sociale|"
-                                           r"coordonn|signataire|soci[ée]t[ée]|entreprise)[^\]]*\]|à compléter|"
-                                           r"\{[a-z_ ]+\}", t)}
+           # a gap about the ORGANISATION (its name, address, contact, signatory, bank) — a
+           # client's address the documents do not hold is an honest gap, not this one
+           "no_placeholder": not re.search(r"(?i)\[\s*(vos|votre|notre|nos)\b[^\]]*\]|\[[^\]]*(raison sociale|"
+                                           r"nom de (l'|la )?(entreprise|soci[ée]t[ée])|signataire|iban|"
+                                           r"coordonn[ée]es bancaires)[^\]]*\]|\{[a-z_ ]+\}", t)}
     if case_id == "relances":
         letters_to_paid, flagged = [], []
         for name in PAID:
