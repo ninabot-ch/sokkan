@@ -113,9 +113,14 @@ def kind_of(title: str, playbook_label: str = "") -> str:
     return t.strip(" ,;:—–-") or (title or "").strip()
 
 
+_GENERIC_SECTION = re.compile(r"(?i)points? (à|a) (confirmer|v[ée]rifier)|points? to (confirm|check)|sources?$")
+
+
 def _sections(text: str) -> list[str]:
-    return [re.sub(r"[*_`]", "", m.group(1)).strip()[:50]
-            for m in re.finditer(r"^##\s+(.+)$", text or "", re.M)][:8]
+    """The section titles that make THIS kind of document (« Points to confirm » is in all)."""
+    out = [re.sub(r"[*_`]", "", m.group(1)).strip()[:50]
+           for m in re.finditer(r"^##\s+(.+)$", text or "", re.M)]
+    return [x for x in out if not _GENERIC_SECTION.search(x)][:8]
 
 
 def _clip(s: str, n: int = MAX_FACT_CHARS) -> str:
@@ -161,7 +166,7 @@ def candidates(project: str, sid: str, name: str, lang: str = "fr") -> list[dict
                     "text": _clip(T["template"].format(kind=kind, doc=tpl["name"]))})
     # 3. the validated structure, when no template says it already
     secs = _sections(text)
-    if tpl is None and len(secs) >= 3:
+    if tpl is None and len(secs) >= 2:
         out.append({"kind": "structure", "why": T["why.structure"],
                     "text": _clip(T["structure"].format(kind=kind, sections=" · ".join(secs)))})
     for i, f in enumerate(out):
