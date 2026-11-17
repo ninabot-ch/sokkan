@@ -70,7 +70,7 @@ def router(*, on_project_created=None) -> APIRouter:
         pu = projectgate.project_user(user, slug)
         return {"roles": cat, "mine": prefs.get("roles"), "project": slug,
                 "project_role": simple.project_role(slug),
-                "can_create_project": _admin(user) and projects.multi_project(),
+                "can_create_project": _admin(user) and features.enabled("multi_project"),
                 "can_setup_here": bool(pu) and iam.rank(pu["role"]) >= iam.rank("admin")}
 
     @r.post("/api/simple/roles/{rid}/setup")
@@ -88,7 +88,7 @@ def router(*, on_project_created=None) -> APIRouter:
                 raise HTTPException(403, {"code": "admin", "message": (
                     "Seule la personne qui administre SOKKAN crée un projet." if lang == "fr"
                     else "Only the person who administers SOKKAN creates a project.")})
-            if not projects.multi_project():
+            if not features.enabled("multi_project"):
                 raise HTTPException(409, {"code": "single_project", "message": (
                     "Cette instance n'a qu'un projet : installez le poste dans celui-ci." if lang == "fr"
                     else "This instance has one project: set the job up in it.")})

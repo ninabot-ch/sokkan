@@ -704,3 +704,4 @@ html[data-sk-theme] body {
 .sk-role-guard { display: flex; gap: var(--sk-s2); align-items: flex-start; color: var(--sk-text-muted); }
 .sk-role-person { display: flex; gap: var(--sk-s2); align-items: center; flex-wrap: wrap; }
 @media (max-width: 520px) { .sk-tpl-detail { grid-template-columns: 1fr; } }
+.sk-role-local { display: inline-flex; align-items: center; gap: var(--sk-s1); color: var(--sk-text-muted); }

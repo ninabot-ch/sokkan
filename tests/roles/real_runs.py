@@ -39,6 +39,37 @@ import wire as W  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 
+# the cockpit's own words when a document is saved a second time in one turn (agentchat.py,
+# 3.6.7): the Atelier's thread says it quietly (plain.py: a rule of the space, not a failure).
+# The parity bench words it its own way, which the thread would show as a failure line.
+PRODUCT_ONE_CARD = ("The person already approved this document in this turn: it is saved. Do "
+                    "not save it again and do not offer another version. Tell them in two or "
+                    "three sentences what it contains and what remains to confirm (if a part is "
+                    "still missing, say which one and ask whether to add it); they will ask for "
+                    "a change if they want one. Do not mention this message.")
+P.ONE_CARD = PRODUCT_ONE_CARD
+BENCH_ONE_CARD = "This document was already saved in this step"
+
+
+def regrade(path: Path) -> None:
+    """Results of a run made before the cockpit's wording was used: a failure line that is
+    only the bench's « already saved » refusal is the product's quiet refusal."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for r in data["results"]:
+        g, v = r.get("grade") or {}, r.get("view_lines") or {}
+        if not g or g["checks"].get("no_failure_line", True):
+            continue
+        real = [x for x in v.get("fail_samples", []) if BENCH_ONE_CARD not in x]
+        if not real and v.get("fail", 0) == len(v.get("fail_samples", [])):
+            g["checks"]["no_failure_line"] = True
+            g["second_save_refused_quietly"] = v["fail"]
+            g["ok"] = all(g["checks"].values())
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    (path.parent / "roles-runs.md").write_text(
+        f"# Vrais runs des kits métiers — moteur hérité, {data['model']}\n\n" + table(data["results"]),
+        encoding="utf-8")
+    print(table(data["results"]))
+
 
 def cases(only: list[str] | None) -> list[dict]:
     out = []
@@ -182,7 +213,11 @@ def main() -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--out", default=str(ROOT / "tests" / "roles" / "results"))
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--regrade", default="", help="a roles-runs.json to grade again")
     a = ap.parse_args()
+    if a.regrade:
+        regrade(Path(a.regrade))
+        return 0
     only = [x.strip() for x in a.only.split(",") if x.strip()] or None
     upstream = R.env("PARITY_UPSTREAM")
     if not upstream:

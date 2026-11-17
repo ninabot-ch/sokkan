@@ -230,6 +230,18 @@ def test_setting_up_a_job_takes_the_right_role(world):
     assert world["as"]("admin@x").post("/api/simple/roles/astronaut/setup", json={}).status_code == 404
 
 
+def test_a_project_for_a_job_needs_the_multi_project_feature_not_a_second_project(world, monkeypatch):
+    import projects
+    projects.update("radio", archived=True)          # one work project left: still allowed
+    a = world["as"]("admin@x")
+    assert a.get("/api/simple/roles").json()["can_create_project"] is True
+    assert a.post("/api/simple/roles/sales/setup", json={"project": ""}).status_code == 200
+    monkeypatch.setenv("SOKKAN_FEATURE_MULTI_PROJECT", "0")
+    r = a.post("/api/simple/roles/sales/setup", json={"project": ""})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "single_project"
+    assert a.post("/api/simple/roles/sales/setup", json={"project": "default"}).status_code == 200
+
+
 def test_a_team_job_does_not_lower_a_project(world):
     import projects
     projects.set_level("radio", 3)

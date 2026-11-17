@@ -31,8 +31,9 @@ waits for the person.
 ## What a person does in it
 
 1. **Home** — « Bonjour Camille. Sur quoi travaille-t-on ? »: one text area, *Joindre des documents*
-   (picker or drag and drop), four task templates (training plan, summary, client proposal, assessment
-   quiz — playbooks with `audience: simple` in `backend/playbooks.py`), *Lancer*.
+   (picker or drag and drop), the task templates of the person's jobs (4.0 job kits, [ROLES.md](ROLES.md))
+   then four general ones (training plan, summary, client proposal, assessment quiz — playbooks with
+   `audience: simple` in `backend/playbooks.py`), *Lancer*.
 2. **Thread** — what the agent does, in sentences (« L'agent lit "Brief client.docx"… »). No tool name,
    no path, no internal brief; the raw material is under *Détail technique*, folded.
 3. **Approval card** — « L'agent veut enregistrer "Plan de formation – v2" », the person's documents the
