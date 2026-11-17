@@ -906,14 +906,17 @@ class KernelHarness(Harness):
             return                       # « waiting for approval »: not a result
         if d.get("approval_id"):
             self._held_calls.pop(call, None)
-        # a refusal published as a success (`reason` set, `is_error` false) is a refusal
-        ok = not d.get("is_error") and not d.get("reason")
+        # a refusal of the kernel's gate: `status: "refused"` (kernel host-2a, ed99c612; `ok`
+        # and `is_error` unchanged there), or, on an older kernel, a `reason` on a result
+        # published as a success — refused before running, never a tool that ran
+        refused = str(d.get("status") or "") == "refused" or bool(d.get("reason"))
+        ok = not d.get("is_error") and not refused
         if not ok and classify(str(d.get("name"))) == "file_write" and (
                 d.get("reason") == "outside_root" or any(w in out.lower() for w in _OUTSIDE)):
             self._mail.put_nowait(Error(code="confined", recoverable=True, message=out[:300],
                                         data={"tool": d.get("name"), "shell_off": False}))
         self._mail.put_nowait(ToolResult(call_id=call, output=out, ok=ok, turn_id=self._turn,
-                                         duration_ms=d.get("ms")))
+                                         duration_ms=d.get("ms"), refused=refused))
 
 
 class _Refused(Exception):

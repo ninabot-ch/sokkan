@@ -465,6 +465,9 @@ class ToolResult(Event):
     ok: bool = True
     duration_ms: int | None = None
     turn_id: str | None = None
+    # the engine refused the call BEFORE running it (its gate: a rule, a removed tool, the
+    # plan mode): `ok` is False, and it is an expected refusal, not a failure of the tool
+    refused: bool = False
 
 
 @_event

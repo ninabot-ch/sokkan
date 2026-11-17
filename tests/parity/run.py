@@ -247,12 +247,16 @@ class Play:
     def failures(self) -> dict:
         """Lines a person would read as « something failed »."""
         results = self.of("tool.result")
-        failed = [r for r in results if not r.get("ok", True)]
+        # a call the ENGINE refused before running it (its gate: `status: "refused"`) is an
+        # expected refusal, like a card the cockpit refused by rule — not a failure line
+        engine_refused = [r for r in results if is_refused(r)]
+        failed = [r for r in results if not r.get("ok", True) and not is_refused(r)]
         refused = sum(1 for c in self.pol.journal if c.decision == "deny")
         errors = self.of("error")
         hard = [e for e in errors if not e.get("recoverable")]
         soft = [e for e in errors if e.get("recoverable")]
         return {"failed_tool_results": len(failed), "refused_by_rule": refused,
+                "refused_by_engine": len(engine_refused),
                 "unexpected_tool_failures": max(0, len(failed) - refused),
                 "unexpected_failure_samples": [str(r.get("output", ""))[:160] for r in failed][:4],
                 "errors": [(e.get("code"), str(e.get("message", ""))[:120]) for e in errors],
@@ -271,7 +275,8 @@ class Play:
             inp = d.get("input") or {}
             view = inp.get("command") or inp.get("path") or inp.get("file_path") or ""
             out.append({"name": d.get("name"), "class": d.get("classification"),
-                        "input": str(view)[:200], "ok": r.get("ok") if r else None})
+                        "input": str(view)[:200], "ok": r.get("ok") if r else None,
+                        "refused": is_refused(r) if r else None})
         return out
 
     def shell_ran(self) -> int:
@@ -292,11 +297,19 @@ _NOT_RUN = re.compile(r"^\s*(refus[ée]|refused|denied|no such tool|en attente d
                       re.I)
 
 
+def is_refused(result: dict) -> bool:
+    """The engine refused the call before running it: the contract's `refused` (the kernel's
+    `status: "refused"`, host-2a), or that status read raw."""
+    return bool(result.get("refused")) or str(result.get("status") or "") == "refused"
+
+
 def executed(result: dict, pol: P.Policy | None = None) -> bool:
     """Did this tool result come from an execution? `ok=False` with a refusal text, a
     refusal text whatever `ok` says, or the call of a card the cockpit refused = not run.
     A command that ran and failed (non-zero exit) still RAN: `ok=False` without a refusal
     text counts as run."""
+    if is_refused(result):
+        return False
     out = str(result.get("output") or "")
     if _NOT_RUN.search(out):
         return False
@@ -531,7 +544,8 @@ def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
         # a READ of that folder refused for the same reason is the same expected refusal
         # (banc n°2, R2 p2: `read_file` on the folder's host path, « ce chemin n'existe pas »)
         confined = sum(1 for c in out.get("tool_calls") or []
-                       if c.get("ok") is False and c.get("class") in ("file_write", "file_read")
+                       if c.get("ok") is False and not c.get("refused")
+                       and c.get("class") in ("file_write", "file_read")
                        and inside_memory(c.get("input", ""), out))
         checks = {"no_memory_file_written": not out["memory_files"],
                   "no_shell_ran": out["shell_ran"] == 0,

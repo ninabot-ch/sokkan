@@ -288,3 +288,39 @@ def test_engine_approval_mode_stays_default_when_a_never_rule_could_fire():
     assert s._engine_approval_mode() == "default"
     s.policy, s.mode = None, "default"
     assert s._engine_approval_mode() == "default"
+
+
+# ---- kernel host-2a: a gate refusal says `status: "refused"` (ok / is_error unchanged) -----
+def test_adapter_reads_status_refused_and_stays_compatible():
+    h = kernel.KernelHarness()
+    h._turn, h._thread = "t1", "th_1"
+    h._on_tool_result({"call_id": "c1", "name": "terminal", "ok": True, "is_error": False,
+                       "status": "refused", "preview": "Refusé : règle deny terminal()."})
+    h._on_tool_result({"call_id": "c2", "name": "terminal", "is_error": False,
+                       "reason": "deny_rule", "preview": "Refusé."})        # older kernel
+    h._on_tool_result({"call_id": "c3", "name": "terminal", "is_error": True,
+                       "preview": "exit 1"})                                 # ran, failed
+    h._on_tool_result({"call_id": "c4", "name": "terminal", "is_error": False,
+                       "preview": "total 8"})                                # ran
+    a, b, c, d = (h._mail.get_nowait() for _ in range(4))
+    assert (a.ok, a.refused) == (False, True) and (b.ok, b.refused) == (False, True)
+    assert (c.ok, c.refused) == (False, False) and (d.ok, d.refused) == (True, False)
+    assert a.to_dict()["refused"] is True
+
+
+def test_bench_reads_status_refused_for_shell_ran_and_parasites():
+    neutral = "Action non permise ici."         # a refusal text the regex does not know
+    for res in ({"refused": True}, {"status": "refused"}):
+        p = _Play([{"type": "tool.called", "call_id": "c1", "name": "terminal",
+                    "classification": "shell", "input": {"command": "cp a b"}},
+                   {"type": "tool.result", "call_id": "c1", "ok": True, "output": neutral, **res}])
+        assert p.shell_ran() == 0
+        p2 = _Play([{"type": "tool.called", "call_id": "c1", "name": "terminal",
+                     "classification": "shell", "input": {"command": "cp a b"}},
+                    {"type": "tool.result", "call_id": "c1", "ok": False, "output": neutral,
+                     **res}])
+        f = p2.failures()
+        assert f["unexpected_tool_failures"] == 0 and f["refused_by_engine"] == 1
+    # without the status, the same failed result is a failure line
+    p3 = _Play([{"type": "tool.result", "call_id": "c1", "ok": False, "output": neutral}])
+    assert p3.failures()["unexpected_tool_failures"] == 1
