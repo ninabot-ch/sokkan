@@ -393,6 +393,15 @@ class AgentSession:
                 self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
                             "message": sandbox.BASH_OFF})
         model = eng_model if eng_model is not None else (self.model or llm.session_model())
+        # 4.0: an Atelier work knows the house from its first token — the organisation's
+        # profile and the project's validated work (househead), fixed for the run
+        head: tuple = ()
+        if not pol and self._is_simple_work():
+            try:
+                import househead
+                head = tuple(househead.blocks(self.sid, email=self.user or "", project=proj))
+            except Exception as e:  # noqa: BLE001 — a head never stops a work
+                print(f"[sokkan] head of {self.sid} skipped: {e!r}", file=sys.stderr)
         legacy_opts: dict[str, Any] = {"setting_sources": setting_sources_for(proj)}
         if claude_env.get("ANTHROPIC_MODEL"):
             # the Claude model the person chose: the engine shapes its requests for it (the
@@ -419,8 +428,8 @@ class AgentSession:
             approval_mode=self._engine_approval_mode(),
             # the Atelier never runs a command: an engine that can remove its shell does
             shell=not (not pol and self._is_simple_work()),
-            budget_usd=self._sdk_max_budget(), context=recall, confinement=confinement,
-            options={"legacy": legacy_opts})
+            budget_usd=self._sdk_max_budget(), context=recall, head=head,
+            confinement=confinement, options={"legacy": legacy_opts})
 
     async def ensure_started(self) -> None:
         async with self._start_lock:

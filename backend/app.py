@@ -3446,6 +3446,8 @@ app.include_router(documents_api.router)
 app.include_router(simple_api.router(bg=_bg, preseed=_memory_preseed, shown_name=_shown_name))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
+import orgprofile_api  # noqa: E402 — 4.0: the organisation's profile, given to every work
+app.include_router(orgprofile_api.router(require))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402

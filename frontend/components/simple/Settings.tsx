@@ -13,6 +13,7 @@ import { switchProject } from "@/lib/project";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
+import OrgProfile from "./OrgProfile";
 
 export default function Settings({ prefs, onPrefs, onClose, project, projectName }: {
   prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
@@ -106,6 +107,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
             </div>
           </fieldset>
         )}
+        {!demo && <OrgProfile />}
         {claudeOn && instAdmin && <ClaudeAdmin />}
         {claudeOn && instAdmin && <ProjectLevel project={project} />}
         {claudeOn && instAdmin && <NewProject />}

@@ -686,3 +686,16 @@ html[data-sk-theme] body {
   border: 1px solid var(--sk-line-strong); background: var(--sk-surface); color: inherit; min-height: 36px; }
 .sk-newproj-people { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
 .sk-newproj-people label { display: flex; gap: var(--sk-s2); align-items: center; }
+/* 4.0 — Settings › Organisation (OrgProfile.tsx) and « remember for next time » (LearnOffer.tsx) */
+.sk-org-field { display: flex; flex-direction: column; gap: 2px; }
+.sk-org-person { gap: var(--sk-s2); flex-wrap: wrap; }
+.sk-org-person input { flex: 1 1 120px; min-width: 0; }
+.sk-org-person input[size] { flex: 0 0 64px; }
+.sk-org-logo { max-height: 48px; max-width: 200px; object-fit: contain; align-self: flex-start; }
+.sk-org-preview pre { white-space: pre-wrap; margin: 0; max-height: 240px; overflow-y: auto; }
+.sk-learn { display: flex; flex-direction: column; gap: var(--sk-s2); padding-top: var(--sk-s2);
+  border-top: 1px solid var(--sk-line-strong); }
+.sk-learn-fact { display: flex; flex-direction: column; gap: 4px; }
+.sk-learn-fact textarea { font: inherit; padding: 6px 8px; border-radius: var(--sk-r-sm); resize: vertical;
+  border: 1px solid var(--sk-line-strong); background: var(--sk-surface); color: inherit; min-height: 40px; }
+.sk-learn-fact .sk-row { gap: var(--sk-s2); align-items: center; }

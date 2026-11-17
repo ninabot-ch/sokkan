@@ -117,6 +117,17 @@ class MessageIn(BaseModel):
     request_id: str = ""
 
 
+class LearnFact(BaseModel):
+    text: str = ""
+    kind: str = ""
+
+
+class LearnIn(BaseModel):
+    facts: list[LearnFact] = []
+    dismiss: bool = False
+    lang: str = "fr"
+
+
 class SaveIn(BaseModel):
     title: str = ""
     text: str
@@ -439,6 +450,11 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         session._emit({"type": "user_echo", "text": text,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
         lang = (simple.get_work(sid) or {}).get("lang") or ""
+        try:   # 4.0: what the person corrected is offered to the memory at validation (learn)
+            import learn
+            learn.note_message(sid, email, text)
+        except Exception:  # noqa: BLE001 — a nicety, never a refusal
+            pass
         bg(session.handle_user(simple.follow_up(text, docs, lang)))
         audit.log(email, "session.send", sid, f"{len(text)} chars · {len(docs)} document(s)",
                   project=project)
@@ -517,5 +533,42 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         audit.log(pu.get("email") or "", "deliverable.validate", sid,
                   f"{name} · sha256 {v['sha256'][:16]}", project=project)
         return {"ok": True, "deliverables": simple.list_deliverables(project, sid)}
+
+    # ---- 4.0: « remember for next time », offered once a deliverable is validated ------------
+    @r.get("/api/simple/sessions/{sid}/deliverables/{name}/learn")
+    def learn_offer(sid: str, name: str, request: Request, lang: str = "fr",
+                    _f=Depends(_feature)) -> dict:
+        import learn
+        pu, project = _session(request, sid, drive=True)
+        try:
+            out = learn.offer(project, sid, name, lang if lang in ("fr", "en") else "fr")
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "not found")
+        return out
+
+    @r.post("/api/simple/sessions/{sid}/deliverables/{name}/learn")
+    def learn_retain(sid: str, name: str, body: LearnIn, request: Request,
+                     _f=Depends(_feature)) -> dict:
+        import classification
+        import learn
+        pu, project = _session(request, sid, drive=True)
+        email = (pu.get("email") or "").lower()
+        try:
+            if body.dismiss:
+                out = learn.dismiss(project, sid, name, email)
+                audit.log(email, "memory.learn.dismiss", sid, name, project=project)
+                return out
+            clearance = pu.get("clearance") if "clearance" in pu else classification.ctx_clearance()
+            out = learn.retain(project, sid, name, [f.model_dump() for f in body.facts], email,
+                               clearance=clearance, lang=body.lang if body.lang in ("fr", "en") else "fr")
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "not found")
+        except learn.LearnError as e:
+            raise HTTPException(e.status, {"code": e.code, "message": str(e)})
+        # the same two steps as the review screen, journaled as such: written, then approved
+        for n in out["notes"]:
+            audit.log(email, "memory.quarantine.approve", n, f"atelier.learn · {name}", project=project)
+        audit.log(email, "memory.learn", sid, f"{name} · {len(out['notes'])} note(s)", project=project)
+        return out
 
     return r

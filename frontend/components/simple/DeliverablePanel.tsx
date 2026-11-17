@@ -10,6 +10,7 @@ import { useFeatures } from "@/lib/features";
 import Icon from "./icons";
 import Markdown from "./Markdown";
 import EngineBadge from "./EngineBadge";
+import LearnOffer from "./LearnOffer";
 
 export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, onChanged }: {
   /** changes when the file changed on disk (a new version was saved): the preview reloads */
@@ -67,6 +68,7 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
           <a className="sk-btn sk-btn-quiet" href={downloadUrl(sid, name, "md")} download><Icon name="download" />{t("dl.download.md")}</a>
           {d.changed_since_validation && <p className="sk-changed sk-small" role="status" style={{ flexBasis: "100%" }}><Icon name="alert" small />{t("dl.changed")}</p>}
           {!d.validated && canDrive && !d.changed_since_validation && <p className="sk-xs sk-muted" style={{ flexBasis: "100%" }}>{t("dl.validate.hint")}</p>}
+          {d.validated && canDrive && !demo && <LearnOffer sid={sid} name={name} validatedAt={d.validated_at} />}
         </div>
       )}
     </aside>

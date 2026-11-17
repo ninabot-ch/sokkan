@@ -473,6 +473,13 @@ class LegacyHarness(Harness):
             # can_use_tool; disallowed_tools always wins
             kw["disallowed_tools"] = denied
             self._removed = set(denied)
+        head = "\n\n".join(b.text for b in (spec.head or ()) if b.text)
+        if head and "system_prompt" in _OPTION_FIELDS:
+            # 4.0: the run's fixed context (organisation, project's validated work) is the
+            # system prompt — empty otherwise (`--system-prompt ""`): first in the prefix the
+            # model caches, never a message of the conversation, never shown in a thread
+            kw["system_prompt"] = head
+            self._head_chars = len(head)
         if spec.budget_usd and "max_budget_usd" in _OPTION_FIELDS:
             kw["max_budget_usd"] = spec.budget_usd
         hooks = recall_hooks(spec.context, self._mail.put, lambda: self._turn)
@@ -521,6 +528,11 @@ class LegacyHarness(Harness):
                 run_id=spec.run_id, harness=NAME, sid=spec.run_id, cwd=spec.cwd,
                 engine=spec.model_engine, model=spec.model, project=spec.project,
                 resumed_from=spec.resume))
+            for b in (spec.head or ()):
+                if b.text and "system_prompt" in _OPTION_FIELDS:
+                    self._mail.put(ContextInjected(turn_id=None, source="native",
+                                                   note_names=tuple(b.note_names),
+                                                   chars=len(b.text), channel="head"))
 
     def _no_shell(self, tool: str, inp: dict) -> None:
         """A shell call of a run without a shell, refused by the hook: the cockpit journals
