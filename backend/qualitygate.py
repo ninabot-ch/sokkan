@@ -138,7 +138,8 @@ Answer with ONE JSON object and nothing else:
  "verified": ["<what you recomputed or checked and found right, short>"],
  "to_check": ["<what only the person can confirm (not in the sources)>"]}
 "verdict" is "fix" when there is at least one defect. At most 8 defects, the most serious first;
-at most 6 items in each other list. Write the texts of the lists in {lang}."""
+at most 6 items in each other list; each text at most 35 words, no repetition. Write the texts of
+the lists in {lang}."""
 
 
 def _clip(s: str, n: int) -> str:
@@ -202,12 +203,21 @@ def call_reviewer(rv: dict, messages: list[dict], timeout: float = 120.0) -> dic
                                  headers={"Content-Type": "application/json",
                                           **({"Authorization": f"Bearer {rv['key']}"} if rv.get("key") else {})})
     t0 = time.monotonic()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 — configured endpoint
-            d = json.loads(r.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:300],
-                "ms": int((time.monotonic() - t0) * 1000), "tokens_in": 0, "tokens_out": 0}
+    d: dict = {}
+    for wait in (2, 6, 0):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 — configured endpoint
+                d = json.loads(r.read().decode("utf-8", "replace"))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 502, 503) and wait and time.monotonic() - t0 < timeout / 2:
+                time.sleep(wait)        # a busy upstream: twice, briefly
+                continue
+            err = f"HTTP {e.code}"
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            err = f"{type(e).__name__}: {e}"[:300]
+        return {"ok": False, "error": err, "ms": int((time.monotonic() - t0) * 1000),
+                "tokens_in": 0, "tokens_out": 0}
     u = d.get("usage") or {}
     msg = ((d.get("choices") or [{}])[0].get("message") or {})
     return {"ok": True, "content": msg.get("content") or "",
