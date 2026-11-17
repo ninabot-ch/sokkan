@@ -195,9 +195,9 @@ def blocks(sid: str, *, email: str, project: str) -> list:
         w = {}
     try:
         import orgprofile
-        shown = _who(email) if email else ""
-        txt = orgprofile.block(email=email, display_name="" if shown == email else shown,
-                               ask=w.get("ask") or "", playbook=w.get("playbook") or "")
+        # no person here: the same head for everyone of the project (one cached prefix);
+        # who the work is for goes with its first message (orgprofile.person_line)
+        txt = orgprofile.block(ask=w.get("ask") or "", playbook=w.get("playbook") or "")
         if txt:
             out.append(ContextBlock(text=txt, source="organisation"))
     except Exception as e:  # noqa: BLE001

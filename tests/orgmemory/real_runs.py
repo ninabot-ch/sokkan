@@ -281,6 +281,9 @@ async def play(case_id: str, mode: str, timeout_s: float) -> dict:
     simple.add_work(sid, PROJECT, who, case["ask"], "", "fr")
     docs = docs_for(case)
     prompt = simple.brief(ask=case["ask"], lang="fr", project=PROJECT, sid=sid, docs=docs)
+    if mode == "after":
+        import orgprofile
+        prompt = orgprofile.person_line(who, PEOPLE[who]) + "\n" + prompt
     head = tuple(househead.blocks(sid, email=who, project=PROJECT)) if mode == "after" else ()
     import documents
     work = documents.project_root(PROJECT)
@@ -335,7 +338,9 @@ async def learn_case(timeout_s: float) -> dict:
     pl = R.Play("legacy", R.new_harness("legacy"), spec, pol, timeout_s)
     if not await pl.start():
         return {"started": False, "start_error": pl.start_error}
-    await pl.turn(simple.brief(ask=case["ask"], lang="fr", project=PROJECT, sid=sid, docs=docs))
+    import orgprofile
+    await pl.turn(orgprofile.person_line(who, PEOPLE[who]) + "\n"
+                  + simple.brief(ask=case["ask"], lang="fr", project=PROJECT, sid=sid, docs=docs))
     correction = ("Dans le procès-verbal, écris toujours les décisions en gras et termine par le tableau "
                   "des actions (qui, quoi, quand), pas par une liste.")
     learn.note_message(sid, who, correction)

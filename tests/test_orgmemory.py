@@ -212,6 +212,7 @@ def test_an_atelier_work_starts_with_the_house_in_its_head(world):
     s = agentchat.AgentSession(new, cwd=str(world["workspace"]), user="bob@x")
     spec = _run(s._run_spec())
     assert [b.source for b in spec.head] == ["organisation", "project"]
+    assert "working with" not in spec.head[0].text          # one head per project: cached once
     assert "Morand Domotique SA" in spec.head[0].text and "Procès-verbal" in spec.head[1].text
     # an ordinary (Cockpit) session gets no head
     import board
@@ -343,3 +344,16 @@ def test_the_org_dictionaries_hold_the_same_keys_none_empty():
     for f in (Path(__file__).resolve().parent.parent / "frontend" / "components" / "simple").glob("*.tsx"):
         used |= set(re.findall(r'\borgT\(\s*"([\w.]+)"', f.read_text(encoding="utf-8")))
     assert used and used <= set(fr), sorted(used - set(fr))
+
+
+def test_the_first_message_says_who_the_work_is_for(world):
+    import orgprofile
+    orgprofile.update(PROFILE, "admin@x")
+    c = world["as"]("bob@x")
+    r = c.post("/api/simple/start", json={"ask": "Prépare l'ordre du jour", "lang": "fr"})
+    assert r.status_code == 200, r.text
+    sid, text = world["turns"][-1]
+    assert sid == r.json()["session_id"]
+    assert text.startswith("<sokkan-brief>You are working with: Bob Martin, Assistant de direction.")
+    import plain
+    assert plain.strip_brief(text).startswith("Prépare l'ordre du jour")

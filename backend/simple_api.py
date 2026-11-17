@@ -399,8 +399,15 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)
         session._emit({"type": "user_echo", "text": ask,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
-        bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
-                                            mission=mission, docs=docs, recall=recall)))
+        first = simple.brief(ask=ask, lang=lang, project=slug, sid=sid, mission=mission,
+                             docs=docs, recall=recall)
+        try:   # 4.0: who the work is for, as the organisation's directory knows them
+            import orgprofile
+            me = orgprofile.person_line(email, (shown_name(request, pu) or "").strip())
+            first = (me + "\n" + first) if me else first
+        except Exception:  # noqa: BLE001 — a nicety, never a refusal
+            pass
+        bg(session.handle_user(first))
         audit.log(email, "session.spawn", sid,
                   f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''}"
                   f"{', claude ' + cmodel if tier == 'claude' else ''})"

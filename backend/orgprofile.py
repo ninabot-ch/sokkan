@@ -401,11 +401,23 @@ def block(*, email: str = "", display_name: str = "", ask: str = "", playbook: s
     if p["tone"]:
         lines.append(f"- House tone: {p['tone']}")
     lines += _fmt_rules(p)
-    me = _who(p, email, display_name)
+    me = _who(p, email, display_name) if email or display_name else ""
     if me:
         lines.append(f"- You are working with: {me}. Do not ask for their own name.")
     lines.append("</sokkan-house>")
     return "\n".join(lines)
+
+
+def person_line(email: str, display_name: str = "") -> str:
+    """« You are working with: Sophie Chevalley, Assistante de direction » — for the FIRST
+    message of a work, not for the head: the head is then the same for everyone of a project,
+    and the model's cached prefix with it (measured: a head that names the person costs the
+    whole prefix — tools included — uncached at each person's first work)."""
+    p = get(reveal=False)
+    me = _who(p, email, display_name)
+    if not me:
+        return ""
+    return f"<sokkan-brief>You are working with: {me}. Do not ask for their own name.</sokkan-brief>"
 
 
 def _example(people: list[dict]) -> str:
