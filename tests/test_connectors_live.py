@@ -157,3 +157,63 @@ def test_webdav_read_write_and_ingest_mirror(live, tmp_path, monkeypatch):
     assert rep["synced"] == ["Qualite"] and rep["fetched"] >= 2
     rels = sorted(f.rel for f in src.iter_files())
     assert "Qualite/procedure.txt" in rels and not any(r.startswith("Prive") for r in rels)
+
+
+def test_atelier_mail_draft_card_then_greenmail_draft_never_sent(live, monkeypatch):
+    """Integration n°2 (cards × connectors): in an Atelier work, the agent's `mail_draft` is a
+    CARD the person reads (to whom, subject, the text) — not run before they approve, never
+    taken for a Cockpit tool; once approved, the MCP tool writes exactly that draft in the
+    person's real mailbox (Greenmail) and nothing reaches the recipient."""
+    import asyncio
+
+    import agentchat
+    import board
+    import connectors_mcp
+    import plain
+    import simple
+    from harness_helpers import ask
+    c = live["as"]("bob@x")
+    assert c.post("/api/connectors/imap/connect", json={"login": "alice@exemple.test",
+                                                        "password": "alicepw"}).status_code == 200
+    inp = {"to": ["bob@exemple.test"], "subject": "Relance facture 2026-118",
+           "body": "Bonjour,\nnotre facture 2026-118 du 14.10.2026 reste ouverte."}
+    tool = "mcp__sokkan-connectors__mail_draft"
+    # the card the person sees
+    ev = plain.View(lang="fr", project="Comptabilité").feed(
+        {"type": "permission", "id": "p1", "tool": tool, "input": inp})[0]
+    assert ev["type"] == "approval" and ev["kind"] == "mail_draft"
+    assert ev["title"] == inp["subject"] and {"label": "À", "value": "bob@exemple.test"} in ev["facts"]
+    assert ev["draft"]["text"] == inp["body"]
+    # the gate of an Atelier work asks the person (a card), even in bypass mode; not refused
+    assert not agentchat.atelier_mcp_off(tool)
+    sid = agentchat.new_sid()
+    board.add_sdk_session(sid, "docs", title="t", project="default", owner="bob@x")
+    simple.add_work(sid, "default", "bob@x", "Relance la facture 2026-118.", "finance.payment-reminder", "fr")
+    s = agentchat.AgentSession(sid, cwd=str(live["workspace"]), user="bob@x")
+
+    async def go():
+        fut = asyncio.ensure_future(ask(s, tool, inp))
+        for _ in range(2000):
+            if s._perms:
+                break
+            await asyncio.sleep(0)
+        assert s._perms, "no card for mail_draft"
+        assert not fut.done()                                    # nothing ran before the person
+        s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
+        return await fut
+    res = asyncio.run(go())
+    assert res.allowed
+    assert [e for e in s.events if e.get("type") == "permission"]
+    # the approved call, through the MCP tool of the session, as the person
+    monkeypatch.setenv("SOKKAN_SESSION_USER", "bob@x")
+    monkeypatch.setenv("SOKKAN_SESSION_ID", sid)
+    monkeypatch.setenv("SOKKAN_SESSION_PROJECT", "default")
+    d = connectors_mcp.mail_draft(inp["body"], to=inp["to"], subject=inp["subject"])
+    assert "error" not in d, d
+    drafts = service.mail_list(ctx(), "Drafts")["messages"]
+    got = [x for x in drafts if x["subject"] == inp["subject"]]
+    assert got and got[0]["is_draft"]
+    th = service.mail_thread(ctx(), got[0]["id"], mailbox="")["messages"]
+    assert "2026-118" in th[0]["body"]
+    time.sleep(1)
+    assert not [x for x in _inbox("bob@exemple.test", "bobpw") if x["Subject"] == inp["subject"]]
