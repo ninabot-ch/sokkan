@@ -537,6 +537,23 @@ REGISTRY: tuple[Feature, ...] = (
                     "SOKKAN_DOC_INGEST_MAX_MINUTES_PER_PASS",
                     "SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE", "SOKKAN_DOC_INGEST_AUTO_RESUME"),
             check=_doc_ingest_check, doc="docs/enterprise/DOC-INGEST.md"),
+    Feature("connectors", "Connectors (mail, calendar, shared documents)",
+            "The coworker works where things are: the person's mailbox (Microsoft 365 or "
+            "IMAP/SMTP), calendar (Microsoft 365, CalDAV, ICS) and shared documents (SharePoint / "
+            "OneDrive, WebDAV, a network folder mounted on the host), read on demand by a session "
+            "AS the person (delegated OAuth per person or their own login, credentials encrypted). "
+            "A reply is written as a DRAFT in the person's own mailbox; sending a mail, creating an "
+            "event or depositing a deliverable in a shared folder only happens on an approval card "
+            "the person decides in SOKKAN, journaled. The project's classification decides whether "
+            "content may reach the session's model (confidential and above: Swiss or local model "
+            "only). A demo provider (invented data) for trainings and tests.",
+            status="experimental", defaults=_both(False),
+            vars=_t("connectors"),
+            config=("SOKKAN_CONNECTORS_DEMO", "SOKKAN_CONNECTORS_MODEL_ZONE",
+                    "SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE", "SOKKAN_CONNECTORS_GRAPH_URL",
+                    "SOKKAN_CONNECTORS_LOGIN_URL", "SOKKAN_CONNECTORS_ALLOW_PLAIN",
+                    "SOKKAN_CONNECTORS_DB"),
+            doc="docs/enterprise/CONNECTORS.md"),
     Feature("connect_ai", "Connect your AI",
             "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
             "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "

@@ -52,6 +52,7 @@ _MEM_SRV = os.path.join(_HERE, "..", "memory", "memory_search_server.py")
 _BOARD_SRV = os.path.join(_HERE, "board_mcp.py")
 _OBS_SRV = os.path.join(_HERE, "observability_mcp.py")
 _AGENTS_SRV = os.path.join(_HERE, "agents_mcp.py")
+_CONNECTORS_SRV = os.path.join(_HERE, "connectors_mcp.py")
 _PY = os.environ.get("SOKKAN_PYTHON", sys.executable)
 
 
@@ -115,6 +116,8 @@ MCP_SERVERS = {
     "sokkan-observability": {"command": _PY, "args": [os.path.abspath(_OBS_SRV)]},
     # 3.1 « Crew up » : créer / piloter des agents depuis une session (HITL)
     "sokkan-agents": {"command": _PY, "args": [os.path.abspath(_AGENTS_SRV)]},
+    # 4.0 connectors: the person's mail, calendar and shared documents (feature `connectors`)
+    "sokkan-connectors": {"command": _PY, "args": [os.path.abspath(_CONNECTORS_SRV)]},
 }
 
 
@@ -140,8 +143,21 @@ def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
     for name, cfg in MCP_SERVERS.items():
         if only is not None and name not in only:
             continue
+        if name == "sokkan-connectors" and not _connectors_on():
+            continue
         out[name] = {**cfg, "env": {**cfg.get("env", {}), **who}}
     return out
+from connectors.tools import read_tools as _connector_read_tools  # noqa: E402
+
+
+def _connectors_on() -> bool:
+    try:
+        import connectors
+        return connectors.enabled()
+    except Exception:  # noqa: BLE001 — a broken registry never adds a server
+        return False
+
+
 MODEL = os.environ.get("SOKKAN_AGENT_MODEL") or None  # None → défaut du CLI
 # lectures auto-approuvées (UX fluide) ; tout le reste passe par les boutons.
 # Les outils MCP SOKKAN en lecture (mémoire RAG, board) sont sûrs → le seed
@@ -165,6 +181,9 @@ SAFE_TOOLS = [
     # pour une création, par l'approbation humaine dans l'onglet Crew
     "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent",
     "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
+    # 4.0 connectors: reads, and the proposals (they only store a card the person decides in
+    # SOKKAN — connectors/tools.py); a draft in the mailbox keeps the engine's permission
+    *_connector_read_tools("legacy"),
 ]
 # modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
 VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
