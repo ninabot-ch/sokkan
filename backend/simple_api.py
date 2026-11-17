@@ -54,11 +54,10 @@ import uiprefs
 
 
 def _org_logo() -> bytes | None:
-    """4.0: the organisation profile's logo (PNG/JPG) for the Word and PDF files."""
+    """4.0: the organisation profile's logo for the Word and PDF files."""
     try:
         import orgprofile
-        p = orgprofile.logo_path()
-        return p.read_bytes() if p is not None and p.suffix.lower() in (".png", ".jpg", ".jpeg") else None
+        return orgprofile.document_logo()
     except Exception:  # noqa: BLE001 — no logo, never a failed download
         return None
 

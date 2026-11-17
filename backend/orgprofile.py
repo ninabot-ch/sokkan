@@ -274,6 +274,14 @@ def completeness() -> dict:
 
 
 # ---- logo ---------------------------------------------------------------------------------
+def document_logo() -> bytes | None:
+    """The logo as Word and PDF can carry it (PNG / JPG; an SVG stays on screen only)."""
+    p = logo_path()
+    if p is None or p.suffix.lower().lstrip(".") not in ("png", "jpg", "jpeg"):
+        return None
+    return p.read_bytes()
+
+
 def logo_path() -> Path | None:
     for ext in LOGO_EXT:
         p = _data_dir() / f"orgprofile-logo.{ext}"

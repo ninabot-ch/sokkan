@@ -513,3 +513,26 @@ def test_two_templates_in_one_source_give_every_letter():
 def test_a_balance_column_of_formulas_takes_the_amounts_format():
     wb, _v = _xlsx("R.md", RUN_SUMMARY)
     assert wb["Résumé"]["B4"].number_format == "#,##0.00"
+
+
+def test_the_organisation_logo_goes_into_word_and_pdf(tmp_path, monkeypatch):
+    """Integration n°2 (orgmemory × formats): the logo of the organisation profile is in the
+    header of a Word document without template and on the PDF."""
+    import zipfile as _zip
+    from PIL import Image
+    import orgprofile
+    import outputs
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    buf = io.BytesIO()
+    Image.new("RGB", (120, 40), (20, 90, 160)).save(buf, "PNG")
+    orgprofile.save_logo(buf.getvalue(), "logo.png")
+    logo = orgprofile.document_logo()
+    assert logo and logo[:8] == b"\x89PNG\r\n\x1a\n"
+    data, _n, _m = outputs.render("docx", "Offre.md", "# Offre\n\nTexte.", org="Exemple SA", logo=logo)
+    z = _zip.ZipFile(io.BytesIO(data))
+    assert any(n.startswith("word/media/") for n in z.namelist())
+    rels = " ".join(z.read(n).decode() for n in z.namelist() if n.startswith("word/_rels/header"))
+    assert "media/" in rels
+    pdf, _n, _m = outputs.render("pdf", "Offre.md", "# Offre\n\nTexte.", org="Exemple SA", logo=logo)
+    plain, _n, _m = outputs.render("pdf", "Offre.md", "# Offre\n\nTexte.", org="Exemple SA")
+    assert b"/Subtype /Image" in pdf and b"/Subtype /Image" not in plain
