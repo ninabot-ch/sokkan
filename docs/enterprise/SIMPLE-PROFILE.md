@@ -39,7 +39,9 @@ waits for the person.
    agent actually opened with their age, *Autoriser / Voir le brouillon / Refuser*.
    *Voir le brouillon* also lets the person **correct the text** before allowing: the save then carries
    their text (the agent's path untouched). A work opened from the simple profile never asks to approve a
-   shell command: it is refused to the agent, which is told to use the file tools.
+   shell command, and no shell runs in it: the shell tools are out of the work's catalogue (its sub-agents
+   included), a `PreToolUse` hook refuses one called anyway — before the CLI's own approval of read-only
+   commands — and the agent is told to use the file tools (3.6.8).
 4. **Deliverable** — preview, *Télécharger en Word* (or the text), *Valider le livrable*: who, when and
    the SHA-256 of exactly what was validated go to the journal; a later change shows « modified since
    your validation ».

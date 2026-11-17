@@ -9,13 +9,16 @@ Lot 0 of the change of engine: the session layer becomes a contract, today's eng
 rewritten on it, nothing changes for a user. New variables `SOKKAN_ENGINE_RUNTIME` (empty =
 today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature switch.
 
-Built on 3.6.7 « Icebreaker » (everything below comes on top of it). What 3.6.7 did inside the
+Built on 3.6.7 « Icebreaker » and the 3.6.8 fixes below it (everything here comes on top of them). What 3.6.7 did inside the
 session moved onto the contract, for every engine: an idle session's engine is stopped and
 resumed at the next turn (`SOKKAN_SESSION_IDLE_CLOSE_S`; the CLI's process is reaped by its
 adapter), one approval per document is read from the gate (`file_write` and its path), a call
 to a tool the cockpit removed from a run is said by both adapters in the words of the space's
 rule (`harness/refusals.py`), so the Atelier hides it as 3.6.7 does, and the Atelier demo's
-threads are read back by their engine (`history()`).
+threads are read back by their engine (`history()`). 3.6.8's « no shell in an Atelier work »
+lives in the adapters: the legacy one takes every shell tool of the CLI out of the run and refuses
+one called anyway by a hook (journaled as a rule of the space); the kernel one removes every
+shell tool of the kernel (`deny_tools`).
 
 ### Changed
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
@@ -105,6 +108,22 @@ threads are read back by their engine (`history()`).
   and `restore.sh` installed the garbage as the vault key. `backup.sh` now writes the key
   behind a known first line (MANIFEST `key_tag: sokkan-key/1`) and `restore.sh` checks it
   before anything is touched. Sets made by an older `backup.sh` restore as before.
+
+## Unreleased — 3.6.8 "Icebreaker"
+
+- **No shell in an Atelier work, whoever asks.** The rule lived only in the permission callback,
+  and the CLI does not always call it: it approves a read-only command by itself (`ls`, `pwd`, a
+  `… 2>/dev/null || echo …` check) and a sub-agent's command goes the same way. Both were seen
+  running in an Atelier work without any card. A work of the simple profile now starts with every
+  shell tool of the CLI out of its catalogue (`Bash`, `Monitor`, `BashOutput`, `KillShell`, …;
+  the CLI applies it to sub-agents too), a `PreToolUse` hook refuses one called anyway (hooks run
+  before any allow rule and for sub-agents), and the callback refusal stays as a third line. Each
+  refusal is in the journal of validations as a rule of the space. The Cockpit is unchanged.
+- A shell call turned away is no longer an orange « this step did not succeed » line in the
+  Atelier: « No such tool available » joins the refusals that are not failures.
+- A refusal no longer names a tool the session does not have: « use
+  mcp__sokkan-memory__memory_write » is said only when the session has the memory server (an
+  agent run without it is told to put what should be remembered in its answer).
 
 ## 3.6.7 — 2026-11-15 — "Icebreaker"
 

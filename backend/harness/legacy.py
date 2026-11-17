@@ -52,6 +52,7 @@ except ImportError:  # pragma: no cover
     )
 
 from .base import Harness
+from .refusals import ATELIER_NO_SHELL
 from .contract import (
     ALLOW_ONCE, ANSWER, DENY, EDIT,
     AssistantText, AssistantThink, Capabilities, Confinement, ContextInjected,
@@ -89,7 +90,14 @@ except Exception:  # noqa: BLE001
 
 # ---- the engine's tool vocabulary → the contract's ---------------------------------------
 
-_SHELL = {"Bash"}
+# 3.6.8 — every tool of the CLI that runs a shell command (Monitor runs one per watch) or only
+# serves one (output, stop). A run without a shell (`RunSpec.shell=False`, an Atelier work) has
+# none of them: out of its catalogue (`disallowed_tools`, which the CLI applies to sub-agents
+# too), and refused by a PreToolUse hook if one is called anyway — hooks run before any allow
+# rule and before the CLI's own approval of a read-only command, which never reaches
+# can_use_tool (parity bench, 16.11.2026: `ls …` and a sub-agent's `pwd && ls` ran unasked).
+SHELL_TOOLS = ("Bash", "Monitor", "BashOutput", "KillShell", "KillBash", "PowerShell")
+_SHELL = set(SHELL_TOOLS)
 _FILE_WRITE = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 _FILE_READ = {"Read", "Glob", "Grep", "NotebookRead"}
 _NET = {"WebFetch", "WebSearch"}
@@ -275,6 +283,26 @@ def confinement_hooks(conf: Confinement | None, *, sid: str, user: str, cwd: str
     return {"PreToolUse": [HookMatcher(matcher=sandbox.HOOK_MATCHER, hooks=[pre_tool])]}
 
 
+def no_shell_hooks(on_refused=None) -> list:
+    """PreToolUse matchers refusing every shell tool of the CLI (3.6.8): for the session and
+    each of its sub-agents. ``on_refused(tool, input)`` is told of each refusal."""
+
+    async def no_shell(payload, _tool_use_id, _context):
+        payload = payload or {}
+        tool = str(payload.get("tool_name") or "Bash")
+        inp = payload.get("tool_input") or {}
+        if on_refused is not None:
+            try:
+                on_refused(tool, inp if isinstance(inp, dict) else {})
+            except Exception:  # noqa: BLE001 — the refusal stands regardless
+                pass
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                       "permissionDecision": "deny",
+                                       "permissionDecisionReason": ATELIER_NO_SHELL}}
+
+    return [HookMatcher(matcher="|".join(SHELL_TOOLS), hooks=[no_shell])]
+
+
 # ---- the adapter -------------------------------------------------------------------------
 
 class _Mailbox:
@@ -437,14 +465,21 @@ class LegacyHarness(Harness):
             setting_sources=list(mine.get("setting_sources") or []),
             mcp_servers=spec.mcp_servers,
         )
-        if spec.deny_tools is not None:
+        denied = list(spec.deny_tools) if spec.deny_tools is not None else None
+        if not spec.shell:
+            denied = list(dict.fromkeys([*(denied or []), *SHELL_TOOLS]))
+        if denied is not None:
             # defence in depth: an `allow` rule of the user or project settings bypasses
             # can_use_tool; disallowed_tools always wins
-            kw["disallowed_tools"] = list(spec.deny_tools)
-            self._removed = set(spec.deny_tools)
+            kw["disallowed_tools"] = denied
+            self._removed = set(denied)
         if spec.budget_usd and "max_budget_usd" in _OPTION_FIELDS:
             kw["max_budget_usd"] = spec.budget_usd
         hooks = recall_hooks(spec.context, self._mail.put, lambda: self._turn)
+        if not spec.shell:
+            hooks = dict(hooks or {})
+            hooks["PreToolUse"] = [*no_shell_hooks(self._no_shell),
+                                   *(hooks.get("PreToolUse") or [])]
         conf = confinement_hooks(spec.confinement, sid=spec.run_id, user=spec.user,
                                  cwd=spec.cwd, on_denied=self._confined)
         for ev, matchers in conf.items():
@@ -486,6 +521,13 @@ class LegacyHarness(Harness):
                 run_id=spec.run_id, harness=NAME, sid=spec.run_id, cwd=spec.cwd,
                 engine=spec.model_engine, model=spec.model, project=spec.project,
                 resumed_from=spec.resume))
+
+    def _no_shell(self, tool: str, inp: dict) -> None:
+        """A shell call of a run without a shell, refused by the hook: the cockpit journals
+        it as a rule of the space (nobody clicked, no card)."""
+        self._mail.put(Error(code="policy_denied", message=ATELIER_NO_SHELL, recoverable=True,
+                             data={"tool": tool, "input": inp,
+                                   "rule": "simple_profile_no_shell"}))
 
     def _confined(self, tool: str, reason: str, shell_off: bool) -> None:
         self._mail.put(Error(code="confined", message=reason, recoverable=True,

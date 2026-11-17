@@ -173,6 +173,11 @@ _BUILTIN_TOOLS = ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", 
                   "WebFetch", "WebSearch", "Task", "Agent", "Skill"]
 # outils traités comme « édition de fichier » par le mode acceptEdits
 _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+# 3.6.8 — what the agent of an Atelier work is told when it calls a shell anyway (it names only
+# tools the work has; plain.POLICY_DENIED recognises its first words). An Atelier run has no
+# shell at all (RunSpec.shell=False): each adapter takes its engine's shell tools away
+# (harness/legacy.py SHELL_TOOLS + a PreToolUse hook, harness/kernel.py ATELIER_DENIED).
+from harness.refusals import ATELIER_NO_SHELL as NO_SHELL  # noqa: E402
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
 
 # titre court d'une carte d'outil (aligné sur transcript.py)
@@ -527,6 +532,17 @@ class AgentSession:
         except Exception:  # noqa: BLE001
             return []
 
+    def _memory_write_way(self) -> str:
+        """How a note reaches the memory from this session — the MCP tool only when the
+        session really has that server (an agent run lists its own; 3.6.8: a refusal named a
+        tool the session did not have, and the model called it)."""
+        only = (self.policy or {}).get("mcp") if self.policy else None
+        if only is None or "sokkan-memory" in only:
+            return ("Use mcp__sokkan-memory__memory_write (the note waits in quarantine until "
+                    "a person approves it).")
+        return ("This session has no tool to write memory: put what should be remembered in "
+                "your answer, a person will decide.")
+
     # ---- politique d'agent (3.1) ----------------------------------------------
     def _allowed_tools(self) -> list[str]:
         """Outils approuvés sans demander. Session humaine : SAFE_TOOLS. Run
@@ -625,9 +641,8 @@ class AgentSession:
                     gate.path, session_project(self.sid)):
                 self._journal_auto(gate, input_data, False, "policy:memory_write")
                 return contract.Decision.deny(
-                    "An agent run does not write memory files directly: use "
-                    "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
-                    "approves it).", **auto)
+                    "An agent run does not write memory files directly. "
+                    + self._memory_write_way(), **auto)
 
         # 3.6 pilot: a session that was handed documents (feature `documents`) does not write
         # memory files directly — what it learnt from a dropped document reaches the memory
@@ -639,21 +654,20 @@ class AgentSession:
             self._journal_auto(gate, input_data, False, "policy:documents_memory_write")
             return contract.Decision.deny(
                 "This conversation was handed documents: it does not write memory files "
-                "directly. Use mcp__sokkan-memory__memory_write — the note waits in quarantine "
-                "until a person approves it.", **auto)
+                "directly. " + self._memory_write_way(), **auto)
 
         # 3.6 simple profile: a work opened from it belongs to someone who is not a developer —
         # they are never asked to approve a shell command (seen on a timed journey: « the agent
         # wants to carry out a technical operation » for a `mkdir`). Refused here, with what to
         # do instead; file tools keep their approval card.
+        # 3.6.8: only a last line of defence — an Atelier run has no shell (RunSpec.shell=False:
+        # the legacy adapter removes every shell tool of the CLI, sub-agents included, and a
+        # PreToolUse hook refuses one called anyway; the kernel adapter sends them in
+        # deny_tools)
         if gate.kind == "shell" and not self.policy and self._is_simple_work():
             # nobody clicked: told apart from a person's refusal in the journal of validations
             self._journal_auto(gate, input_data, False, "policy:simple_profile_no_shell")
-            return contract.Decision.deny(
-                "No shell in this conversation: the person is not a developer. The folder for "
-                "the document already exists — save the document with the Write tool (and "
-                "change it with Edit), read files with Read. Do not mention this to the person.",
-                **auto)
+            return contract.Decision.deny(NO_SHELL, **auto)
 
         # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
         # of a document in this turn, the agent does not save it again on its own (a « v2 »
@@ -1188,6 +1202,15 @@ class AgentSession:
                 # told once when it is the shell that is off (hooks-only sandbox)
                 if ev.data.get("shell_off"):
                     self._sandbox_bash_off()
+            elif ev.code == "policy_denied":
+                # a call the engine refused by a rule of the space (3.6.8: a shell in an
+                # Atelier work, refused by the legacy adapter's hook): nobody clicked, no card
+                self._journal_auto(contract.Gate(
+                    gate_id=uuid.uuid4().hex, kind="shell",
+                    subject={"tool": str(ev.data.get("tool") or ""),
+                             "input": dict(ev.data.get("input") or {})}),
+                    dict(ev.data.get("input") or {}), False,
+                    "policy:" + str(ev.data.get("rule") or "engine"))
             elif ev.code == "mcp_unavailable":
                 # the engine runs without the cockpit's tool servers: said once, as what it is
                 self._emit({"type": "error", "code": ev.code, "message": ev.message})
