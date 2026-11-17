@@ -309,7 +309,7 @@ function DraftPanel({ ev, pending, onClose, onDecide }: {
             <label className="sk-visually-hidden" htmlFor={`sk-draft-${ev.id}`}>{t("ap.edit.label")}</label>
             <textarea id={`sk-draft-${ev.id}`} className="sk-draft-edit" value={text} onChange={(e) => setText(e.target.value)} />
           </>
-        ) : <Markdown text={text} />}
+        ) : <Markdown text={text === original && ev.draft?.preview ? ev.draft.preview : text} />}
       </div>
       {pending && (
         <div className="sk-panel-foot">

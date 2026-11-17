@@ -13,7 +13,7 @@
     GET  /api/simple/sessions/{sid}/deliverables
     POST /api/simple/sessions/{sid}/deliverables            {title, text} keep an answer
     GET  /api/simple/sessions/{sid}/deliverables/{name}     preview (text)
-    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx|xlsx
+    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx|pdf|xlsx|csv|letters_docx|letters_pdf
     POST /api/simple/sessions/{sid}/deliverables/{name}/validate
 
 Everything under /api/simple answers 404 when the feature is off. As for the documents,
@@ -51,6 +51,25 @@ import projectgate
 import projects
 import simple
 import uiprefs
+
+
+def _org_logo() -> bytes | None:
+    """4.0: the organisation profile's logo (PNG/JPG) for the Word and PDF files."""
+    try:
+        import orgprofile
+        p = orgprofile.logo_path()
+        return p.read_bytes() if p is not None and p.suffix.lower() in (".png", ".jpg", ".jpeg") else None
+    except Exception:  # noqa: BLE001 — no logo, never a failed download
+        return None
+
+
+def _org_name(instance) -> str:
+    """The organisation shown in a Word / PDF header — not the placeholder of a fresh instance."""
+    try:
+        n = str(instance.info().get("org_name") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    return "" if n in ("Mon organisation", "My organisation") else n
 
 
 def make_view(sid: str) -> plain.View:
@@ -577,9 +596,15 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         text = ""
         if d["previewable"]:
             try:
-                text = simple.preview_text(name, simple.read_deliverable(project, sid, name))
+                text = simple.read_deliverable(project, sid, name)
             except (FileNotFoundError, ValueError):
                 raise HTTPException(404, "not found")
+            try:
+                # 4.0: what the person reads — figures computed, one section per letter
+                import outputs
+                text = outputs.preview(name, text)
+            except Exception:  # noqa: BLE001 — the source as written, never an error page
+                pass
         return {**d, "text": text}
 
     @r.get("/api/simple/sessions/{sid}/deliverables/{name}/download")
@@ -591,18 +616,22 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             p = simple.deliverable_path(project, sid, name)
         except (FileNotFoundError, ValueError):
             raise HTTPException(404, "not found")
-        stem = name.rsplit(".", 1)[0]
-        if format == "xlsx":
-            if d["ext"] != "csv":
-                raise HTTPException(400, "Excel export is for table deliverables")
-            data = simple.csv_to_xlsx(simple.read_deliverable(project, sid, name),
-                                      sheet=d.get("title") or stem)
-            out_name, mime = f"{stem}.xlsx", documents.MIME["xlsx"]
-        elif format == "docx":
-            if d["ext"] not in ("md", "markdown", "txt"):
-                raise HTTPException(400, "Word export is for text deliverables")
-            data = simple.markdown_to_docx(simple.read_deliverable(project, sid, name))
-            out_name, mime = f"{stem}.docx", documents.MIME["docx"]
+        if format in ("docx", "pdf", "xlsx", "csv", "letters_docx", "letters_pdf"):
+            if format not in (d.get("formats") or []) and not (format == "docx" and d["previewable"]):
+                raise HTTPException(400, {"code": "format", "message": f"no {format} for this deliverable"})
+            import instance
+            import outputs
+            import wordtemplates
+            try:
+                data, out_name, mime = outputs.render(
+                    format, name, p.read_text(encoding="utf-8", errors="replace"),
+                    template_for=wordtemplates.path_for,
+                    org=_org_name(instance), logo=_org_logo())
+            except outputs.Unavailable as e:
+                raise HTTPException(503, {"code": "format_unavailable",
+                                          "message": f"{format}: {e} is not installed on this instance"})
+            except ValueError as e:
+                raise HTTPException(400, {"code": "format", "message": str(e)})
         else:
             data = p.read_bytes()
             out_name = name

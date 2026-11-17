@@ -901,6 +901,41 @@ class AgentSession:
         except Exception as e:  # noqa: BLE001
             self._emit({"type": "error", "message": f"set_mode: {e}"})
 
+    # ---- 4.0 native formats: the figures of a saved deliverable, computed by SOKKAN --------
+    def _note_deliverable_call(self, ev) -> None:
+        """A write of a deliverable (either engine): remember its file until its result."""
+        try:
+            if ev.classification != "file_write" and ev.name not in ("Write", "Edit", "MultiEdit",
+                                                                   "write_file", "patch"):
+                return
+            raw = str((ev.input or {}).get("file_path") or (ev.input or {}).get("path") or "")
+            if not raw or not ev.call_id:
+                return
+            if raw == "/workspace" or raw.startswith("/workspace/"):
+                raw = os.path.join(self.cwd, raw[len("/workspace"):].lstrip("/"))
+            elif not os.path.isabs(raw):
+                raw = os.path.join(self.cwd, raw)
+            path = os.path.realpath(raw)
+            if _is_deliverable_path(path):
+                if not hasattr(self, "_deliv_calls"):
+                    self._deliv_calls = {}
+                self._deliv_calls[ev.call_id] = path
+        except Exception:  # noqa: BLE001 — never in the way of the stream
+            pass
+
+    def _deliverable_saved(self, ev) -> None:
+        """Its result: SOKKAN computes the document's formulas and writes them where the agent
+        reads them (``<deliverables>/.calc/<name>.txt``; the legacy engine also gets them in the
+        tool result's context, harness/legacy.py `calc_hooks`)."""
+        path = (getattr(self, "_deliv_calls", None) or {}).pop(ev.call_id, None)
+        if not path or not ev.ok:
+            return
+        try:
+            import outputs
+            outputs.write_calc(path)
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] calc of {path}: {e!r}", file=sys.stderr)
+
     def _is_simple_work(self) -> bool:
         """Opened from the simple profile (simple.works)? Looked up once per session."""
         v = getattr(self, "_simple_work", None)
@@ -1244,7 +1279,9 @@ class AgentSession:
         elif isinstance(ev, contract.ToolCalled):
             self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
                                     self._turn_model))
+            self._note_deliverable_call(ev)
         elif isinstance(ev, contract.ToolResult):
+            self._deliverable_saved(ev)
             # the engine refused it before running it (a view may say it quietly)
             self._emit(_ws_tool_result(ev.call_id, ev.output, ev.ok,
                                        refused=bool(getattr(ev, "refused", False))))
