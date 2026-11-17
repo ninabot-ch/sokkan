@@ -54,7 +54,7 @@ CUR="$(sed -n 's/^SOKKAN_VERSION=//p' .env | tail -n 1)"
 # not in this list and not in the target release is yours: it is never removed.
 # tests/test_packaging_scripts.py fails when a release ships a top-level entry missing here.
 RELEASE_ENTRIES="backend frontend memory magnitude cli deploy docker scripts examples docs tests
-  docker-compose.yml docker-compose.doc-ingest.yml VERSION CHANGELOG.md CONTRIBUTING.md LICENSE
+  docker-compose.yml docker-compose.doc-ingest.yml docker-compose.kernel.yml VERSION CHANGELOG.md CONTRIBUTING.md LICENSE
   README.md SECURITY.md pyproject.toml requirements-dev.txt .env.example .forgejo .github
   .gitattributes .gitignore"
 WS="$(sed -n 's/^SOKKAN_WORKSPACE=//p' .env | tail -n 1 | sed 's|^\./||; s|/$||')"
