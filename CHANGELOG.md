@@ -9,6 +9,14 @@ Lot 0 of the change of engine: the session layer becomes a contract, today's eng
 rewritten on it, nothing changes for a user. New variables `SOKKAN_ENGINE_RUNTIME` (empty =
 today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature switch.
 
+Built on 3.6.7 « Icebreaker » (everything below comes on top of it). What 3.6.7 did inside the
+session moved onto the contract, for every engine: an idle session's engine is stopped and
+resumed at the next turn (`SOKKAN_SESSION_IDLE_CLOSE_S`; the CLI's process is reaped by its
+adapter), one approval per document is read from the gate (`file_write` and its path), a call
+to a tool the cockpit removed from a run is said by both adapters in the words of the space's
+rule (`harness/refusals.py`), so the Atelier hides it as 3.6.7 does, and the Atelier demo's
+threads are read back by their engine (`history()`).
+
 ### Changed
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
   changes for a user: same pane, same approval cards, same costs, same « Write with Claude ».
