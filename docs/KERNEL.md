@@ -46,7 +46,7 @@ name of the sandbox network (one per install), and two host paths:
 
 Then the model endpoints: copy `deploy/kernel/config.example.yaml` to
 `deploy/kernel/config.yaml` and set `tiers` (the appliance's router is the default). The key, if
-any, goes in `.env` as `SOKKAN_KERNEL_MODEL_KEY`.
+any, goes in `.env` as `SOKKAN_KERNEL_MODEL_KEY` (default `local`: the kernel counts a tier as a model only when it has a key, and a local model takes any).
 
 ## What runs
 

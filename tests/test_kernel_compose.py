@@ -163,6 +163,8 @@ def test_the_kernel_never_gets_the_docker_socket_and_nothing_publishes_a_port():
     k = svcs["kernel"]
     assert k["environment"]["DOCKER_HOST"] == "tcp://kernel-dockerproxy:2375"
     assert k["user"] == "1000:1000" and "group_add" not in k
+    # a tier without a key is « no model » for the kernel: never empty by default
+    assert k["environment"]["SOKKAN_KERNEL_MODEL_KEY"].endswith(":-local}")
     for name in ("kernel", "kernel-migrate", "kernel-dockerproxy", "kernel-egress-filter", "kernel-egress"):
         s = svcs[name]
         assert s["read_only"] is True and s["cap_drop"] == ["ALL"], name

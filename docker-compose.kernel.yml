@@ -161,7 +161,10 @@ services:
       NOKKER_CONFIG: /etc/kernel/config.yaml
       NOKKER_HOME: /opt/data
       NOKKER_ALLOWED_HOSTS: kernel:8742,127.0.0.1:8742   # the api, and the healthcheck
-      SOKKAN_KERNEL_MODEL_KEY: ${SOKKAN_KERNEL_MODEL_KEY:-}
+      # the key of the model tiers (deploy/kernel/config.yaml `api_key_env`). The kernel counts a
+      # tier as a model only when it HAS a key (otherwise every turn ends « no model configured »):
+      # a local model or the appliance's router takes any value, hence the default
+      SOKKAN_KERNEL_MODEL_KEY: ${SOKKAN_KERNEL_MODEL_KEY:-local}
       # threads, cards and ledger in SOKKAN's Postgres, schema `kernel` (a session survives a
       # restart of the kernel); the role owns nothing and is subject to the kernel's row policies
       NOKKER_PG_DSN: postgresql://kernel_app:${SOKKAN_KERNEL_DB_APP_PASSWORD:?}@db:5432/sokkan

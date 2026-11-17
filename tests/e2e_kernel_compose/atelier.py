@@ -51,7 +51,8 @@ async def follow(sid: str, cookie: str, timeout: float, c: httpx.Client) -> dict
                 await ws.send(json.dumps({"type": "permission", "id": ev.get("id"), "decision": "allow"}))
             if t == "error":
                 out["errors"].append({"code": ev.get("code"), "message": str(ev.get("message"))[:300]})
-                if ev.get("code") in ("sandbox_unavailable", "engine_unavailable"):
+                if ev.get("code") in ("sandbox_unavailable", "engine_unavailable") or \
+                        str(ev.get("message") or "").startswith("no_model"):
                     break
             d = c.get(f"/api/simple/sessions/{sid}/deliverables").json().get("deliverables") or []
             if d and (t in ("result", None) or out["cards"]):
