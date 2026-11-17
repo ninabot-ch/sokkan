@@ -318,6 +318,15 @@ def _in_sandbox() -> bool:
     return os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
 
 
+def _outside_sandbox(path: str) -> bool:
+    """In the docker sandbox, an ABSOLUTE path that is not under /workspace (the run's folder as
+    the sandbox mounts it). Relative paths are the run's folder; nothing is outside without it."""
+    if not _in_sandbox() or not path.startswith("/"):
+        return False
+    norm = os.path.normpath(path)
+    return not (norm == SANDBOX_ROOT or norm.startswith(SANDBOX_ROOT + "/"))
+
+
 def _headers(extra: dict | None = None) -> dict:
     return {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json",
             **(extra or {})}
@@ -760,6 +769,16 @@ class KernelHarness(Harness):
             return False
         g["resolved"] = True            # applied once: a second decision is refused
         effective = decision
+        if g.get("outside") and not decision.denied:
+            # docker sandbox: an absolute path outside /workspace is not the run's folder — the
+            # kernel would write it INSIDE the sandbox (lost, never on the host) without a word
+            # (kernel gap n°27). The cockpit refuses the card itself, and says it like a confinement
+            effective = Decision.deny("outside the run's space: only /workspace is the run's folder",
+                                      by=decision.by, via="engine")
+            self._mail.put_nowait(Error(
+                code="confined", recoverable=True,
+                message="write refused: the path is outside the run's folder (/workspace)",
+                data={"gate_id": gate_id, "shell_off": False}))
         if decision.kind not in g["options"]:
             effective = Decision.deny(f"decision {decision.kind!r} is not offered for this "
                                       "request", by=decision.by, via="engine")
@@ -1058,6 +1077,8 @@ class KernelHarness(Harness):
         options = (ALLOW_ONCE, ALLOW_SESSION, DENY) if rules else (ALLOW_ONCE, DENY)
         call = a.get("call_id")
         self._gates[gid] = {"id": gid, "type": "card", "resolved": False, "options": options,
+                            "outside": kind == "file_write" and _outside_sandbox(
+                                str(args.get("path") or "")),
                             "rules": rules, "call_id": call, "turn": self._turn,
                             "turn_id": self._turn,
                             "kturn": f"{self._thread}:{a.get('turn_index')}"}

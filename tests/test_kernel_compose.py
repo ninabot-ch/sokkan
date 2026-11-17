@@ -502,3 +502,37 @@ def test_the_proxy_and_the_kernel_serve_the_instance_of_the_rendered_configurati
     # the rendered file holds the label on the line the entrypoints read
     text = yaml.safe_dump(kernel_config.render({}, ENV, "sokkan-0123456789abcdef"), sort_keys=False)
     assert "\n  instance: sokkan-0123456789abcdef\n" in text
+
+
+
+def test_in_the_docker_sandbox_a_write_outside_workspace_is_outside_the_run(monkeypatch):
+    """Kernel gap n°27: in the docker sandbox, an absolute path outside /workspace is written
+    INSIDE the sandbox (lost) without a refusal — the adapter refuses such a card itself."""
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", "docker")
+    assert kernel._outside_sandbox("/data/projects/x/leak.txt")
+    assert kernel._outside_sandbox("/workspace/../etc/passwd")
+    assert not kernel._outside_sandbox("/workspace/notes.md") and not kernel._outside_sandbox("/workspace")
+    assert not kernel._outside_sandbox("notes.md")
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", "")
+    assert not kernel._outside_sandbox("/data/projects/x/leak.txt")      # local backend: the kernel's rule
+
+
+def test_the_adapter_refuses_an_outside_card_and_says_confined(monkeypatch):
+    from harness import contract
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", "docker")
+    h = kernel.KernelHarness()
+    h._thread, h._turn = "th", "t1"
+    h._on_card({"id": "c1", "tool_name": "write_file", "arguments": {"path": "/elsewhere/leak.txt"},
+                "call_id": "k1", "turn_index": 0})
+    sent = {}
+
+    async def fake(g, d):
+        sent["d"] = d
+        return "running"
+    monkeypatch.setattr(h, "_decide_card", fake)
+    ok = asyncio.new_event_loop().run_until_complete(h.decide("c1", contract.Decision.allow(by="p")))
+    assert ok and sent["d"].denied
+    evs = []
+    while not h._mail.empty():
+        evs.append(h._mail.get_nowait())
+    assert [e.code for e in evs if isinstance(e, contract.Error)] == ["confined"]
