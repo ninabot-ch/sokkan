@@ -757,6 +757,32 @@ def _csv(text: str) -> tuple[str, list[dict]]:
     return "\n".join(md) + "\n", out
 
 
+def with_computed(name: str, text: str) -> tuple[str, list[dict]]:
+    """4.0 native formats (backend/outputs.py, when present): a table total is a FORMULA that
+    SOKKAN computes. The checks read the document with each formula replaced by its value, so
+    a total CITED in the text is compared with the computed one; a formula SOKKAN could not
+    understand is a defect (the file would carry it as text)."""
+    try:
+        import outputs
+    except ImportError:
+        return text, []
+    out: list[dict] = []
+    try:
+        summ = outputs.calc_summary(name or "document.md", text)
+        bad = [ln[2:] for ln in summ.splitlines() if "FORMULA NOT UNDERSTOOD" in ln]
+        if bad:
+            out.append(_f("formula", "block",
+                          f"{len(bad)} formule(s) que SOKKAN ne comprend pas : "
+                          + "; ".join(b.split(" (=")[0] for b in bad[:4])
+                          + " — nom de colonne, libellé de ligne, SUM(ABOVE) ou A1 du tableau",
+                          f"{len(bad)} formula(s) SOKKAN does not understand: "
+                          + "; ".join(b.split(" (=")[0] for b in bad[:4]), cells=bad))
+        _meta, body = outputs.front_matter(text)
+        return outputs.computed_markdown(body), out
+    except Exception:  # noqa: BLE001 — the computation never breaks the check
+        return text, out
+
+
 def check(text: str, *, primary: str = "", secondary: str = "", ask: str = "", lang: str = "fr",
           country: str | None = None, form: str | None = None, name: str = "") -> list[dict]:
     """The findings on one deliverable. ``primary`` = the text of the sources a person gave or
@@ -773,6 +799,8 @@ def check(text: str, *, primary: str = "", secondary: str = "", ask: str = "", l
     findings: list[dict] = []
     if name.lower().endswith(".csv"):
         text, findings = _csv(text)
+    text, computed = with_computed(name, text)
+    findings += computed
     for fn in (lambda: _totals(text), lambda: _tables_check(text), lambda: _vat(text, country),
                lambda: _weekdays(text), lambda: _people(text, primary_all, secondary or ""),
                lambda: _orgs(text, primary_all), lambda: _law(text, ask, primary_all, country),
