@@ -3,6 +3,22 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 3.6.8 "Icebreaker"
+
+- **No shell in an Atelier work, whoever asks.** The rule lived only in the permission callback,
+  and the CLI does not always call it: it approves a read-only command by itself (`ls`, `pwd`, a
+  `… 2>/dev/null || echo …` check) and a sub-agent's command goes the same way. Both were seen
+  running in an Atelier work without any card. A work of the simple profile now starts with every
+  shell tool of the CLI out of its catalogue (`Bash`, `Monitor`, `BashOutput`, `KillShell`, …;
+  the CLI applies it to sub-agents too), a `PreToolUse` hook refuses one called anyway (hooks run
+  before any allow rule and for sub-agents), and the callback refusal stays as a third line. Each
+  refusal is in the journal of validations as a rule of the space. The Cockpit is unchanged.
+- A shell call turned away is no longer an orange « this step did not succeed » line in the
+  Atelier: « No such tool available » joins the refusals that are not failures.
+- A refusal no longer names a tool the session does not have: « use
+  mcp__sokkan-memory__memory_write » is said only when the session has the memory server (an
+  agent run without it is told to put what should be remembered in its answer).
+
 ## 3.6.7 — 2026-11-15 — "Icebreaker"
 
 Finishes of the simple interface, from a filmed run of a real work. Three new variables

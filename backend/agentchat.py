@@ -187,6 +187,15 @@ _BUILTIN_TOOLS = ["Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", 
                   "WebFetch", "WebSearch", "Task", "Agent", "Skill"]
 # outils traités comme « édition de fichier » par le mode acceptEdits
 _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+# 3.6.8 — every tool of the CLI that runs a shell command (Monitor runs one per watch) or only
+# serves one (output, stop). An Atelier work has none of them: removed from its catalogue, for
+# its sub-agents too, and refused by a PreToolUse hook if one is called anyway.
+SHELL_TOOLS = ("Bash", "Monitor", "BashOutput", "KillShell", "KillBash", "PowerShell")
+# what the agent of an Atelier work is told when it calls one anyway (it names only tools the
+# work has; plain.POLICY_DENIED recognises its first words)
+NO_SHELL = ("No shell in this conversation: the person is not a developer. The folder for "
+            "the document already exists — save the document with the Write tool (and "
+            "change it with Edit), read files with Read. Do not mention this to the person.")
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
 
 # titre court d'une carte d'outil (aligné sur transcript.py)
@@ -342,11 +351,23 @@ class AgentSession:
                 # défense en profondeur : une règle « allow » des settings utilisateur ou
                 # projet court-circuite can_use_tool ; disallowed_tools l'emporte toujours
                 opts_kwargs["disallowed_tools"] = self._disallowed_tools()
+            elif self._is_simple_work():
+                # 3.6.8: no shell in an Atelier work, whoever asks. The refusal in
+                # _can_use_tool was not enough: the CLI approves a read-only command (`ls`,
+                # `pwd`) by itself without calling can_use_tool, and a sub-agent's call does not
+                # reach it either (parity bench, 16.11.2026). Removed from the catalogue (the CLI
+                # applies it to sub-agents as well); the hook below refuses one called anyway.
+                opts_kwargs["disallowed_tools"] = list(SHELL_TOOLS)
             sdk_budget = self._sdk_max_budget()
             if sdk_budget and "max_budget_usd" in _OPTION_FIELDS:
                 opts_kwargs["max_budget_usd"] = sdk_budget
             # memory recall at every turn + for every sub-agent (3.0, P0-3)
             hooks = memrecall.sdk_hooks(self.sid, projects=self._recall_scope())
+            if not pol and self._is_simple_work():
+                # a PreToolUse hook runs before any allow rule and before the CLI's own
+                # read-only approval, for the session and for each of its sub-agents
+                hooks = dict(hooks or {})
+                hooks["PreToolUse"] = [*self._no_shell_hooks(), *(hooks.get("PreToolUse") or [])]
             # config LLM par instance (BYOK / inférence gérée) + coffre de secrets
             # (le vibecoder opère sa prod : $STRIPE_KEY & co dans les shells, sans
             # que la valeur ne soit jamais lue par l'UI ni le LLM) injectés par session
@@ -519,6 +540,38 @@ class AgentSession:
         except Exception:  # noqa: BLE001
             return []
 
+    def _no_shell_hooks(self) -> list:
+        """PreToolUse matchers that refuse every shell tool of an Atelier work (3.6.8)."""
+        from claude_agent_sdk import HookMatcher  # type: ignore
+
+        async def no_shell(payload, _tool_use_id, _context):
+            return self._refuse_shell(str((payload or {}).get("tool_name") or "Bash"),
+                                      (payload or {}).get("tool_input") or {})
+
+        return [HookMatcher(matcher="|".join(SHELL_TOOLS), hooks=[no_shell])]
+
+    def _refuse_shell(self, tool_name: str, input_data: dict) -> dict:
+        """The hook's answer: deny, journaled as a rule (nobody clicked), no card."""
+        try:
+            self._journal_auto(tool_name, input_data if isinstance(input_data, dict) else {},
+                               False, "policy:simple_profile_no_shell")
+        except Exception:  # noqa: BLE001 — the refusal stands even if the journal fails
+            pass
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                       "permissionDecision": "deny",
+                                       "permissionDecisionReason": NO_SHELL}}
+
+    def _memory_write_way(self) -> str:
+        """How a note reaches the memory from this session — the MCP tool only when the
+        session really has that server (an agent run lists its own; 3.6.8: a refusal named a
+        tool the session did not have, and the model called it)."""
+        only = (self.policy or {}).get("mcp") if self.policy else None
+        if only is None or "sokkan-memory" in only:
+            return ("Use mcp__sokkan-memory__memory_write (the note waits in quarantine until "
+                    "a person approves it).")
+        return ("This session has no tool to write memory: put what should be remembered in "
+                "your answer, a person will decide.")
+
     # ---- politique d'agent (3.1) ----------------------------------------------
     def _allowed_tools(self) -> list[str]:
         """Outils approuvés sans demander. Session humaine : SAFE_TOOLS. Run
@@ -610,9 +663,8 @@ class AgentSession:
                     session_project(self.sid)):
                 self._journal_auto(tool_name, input_data, False, "policy:memory_write")
                 return PermissionResultDeny(message=(
-                    "An agent run does not write memory files directly: use "
-                    "mcp__sokkan-memory__memory_write (the note is quarantined until a human "
-                    "approves it)."))
+                    "An agent run does not write memory files directly. "
+                    + self._memory_write_way()))
 
         # 3.6 pilot: a session that was handed documents (feature `documents`) does not write
         # memory files directly — what it learnt from a dropped document reaches the memory
@@ -625,20 +677,18 @@ class AgentSession:
             self._journal_auto(tool_name, input_data, False, "policy:documents_memory_write")
             return PermissionResultDeny(message=(
                 "This conversation was handed documents: it does not write memory files "
-                "directly. Use mcp__sokkan-memory__memory_write — the note waits in quarantine "
-                "until a person approves it."))
+                "directly. " + self._memory_write_way()))
 
         # 3.6 simple profile: a work opened from it belongs to someone who is not a developer —
         # they are never asked to approve a shell command (seen on a timed journey: « the agent
         # wants to carry out a technical operation » for a `mkdir`). Refused here, with what to
         # do instead; file tools keep their approval card.
-        if tool_name == "Bash" and not self.policy and self._is_simple_work():
+        # 3.6.8: every shell tool, and only a second line of defence — the tools are out of
+        # the work's catalogue and a PreToolUse hook refuses them (ensure_started).
+        if tool_name in SHELL_TOOLS and not self.policy and self._is_simple_work():
             # nobody clicked: told apart from a person's refusal in the journal of validations
             self._journal_auto(tool_name, input_data, False, "policy:simple_profile_no_shell")
-            return PermissionResultDeny(message=(
-                "No shell in this conversation: the person is not a developer. The folder for "
-                "the document already exists — save the document with the Write tool (and "
-                "change it with Edit), read files with Read. Do not mention this to the person."))
+            return PermissionResultDeny(message=NO_SHELL)
 
         # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
         # of a document in this turn, the agent does not save it again on its own (a « v2 »

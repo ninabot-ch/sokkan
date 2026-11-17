@@ -68,7 +68,10 @@ PERSON_DENIED = ("Denied by the user", "The user doesn't want to proceed",
                  "The user declined", "user rejected")
 POLICY_DENIED = ("No shell in this conversation", "does not write memory files directly",
                  "is not in this agent's allowed tools", "This is an unattended agent run",
-                 "already approved this document in this turn")
+                 "already approved this document in this turn",
+                 # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
+                 # anyway — the CLI turns it away before anything runs; the agent goes on
+                 "No such tool available")
 
 
 _ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"
