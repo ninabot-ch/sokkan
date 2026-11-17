@@ -130,15 +130,19 @@ dc a restart api >/dev/null 2>&1; wait_healthy a api 180 >/dev/null
 check "K1 label stable across a re-render" test "$(label a)" = "$LA"
 
 # ---- K2: conformance against A's kernel ---------------------------------------------------
-WSA="$(sed -n 's/^SOKKAN_KERNEL_WORKSPACE_HOST=//p' "$KC_HOME/inst-a/.env")"
+# the conformance root: a PROJECT folder (/data/projects/conf), at the same path for the test
+# and the kernel — not under /workspace, the sandbox's own mount point (an absolute
+# /workspace/… path would be read as a sandbox path)
+DHA="$(sed -n 's/^SOKKAN_KERNEL_DATA_HOST=//p' "$KC_HOME/inst-a/.env")"
+mkdir -p "$DHA/projects/conf" && chown 1000:1000 "$DHA/projects/conf"
 docker rm -f kc-a-conf >/dev/null 2>&1
 "${N[@]}" docker run --name kc-a-conf --network kc-a_default --user 1000:1000 \
   --group-add "$(getent group docker | cut -d: -f3)" --memory 2g --cpus 2 \
-  -v "$KC_HOME/inst-a:/src:ro" -v "$WSA:/workspace" -v kc-a_kernel-token:/run/kernel:ro \
+  -v "$KC_HOME/inst-a:/src:ro" -v "$DHA/projects:/data/projects" -v kc-a_kernel-token:/run/kernel:ro \
   -v /usr/bin/docker:/usr/bin/docker:ro -v /var/run/docker.sock:/var/run/docker.sock \
   -w /src -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 \
   -e SOKKAN_KERNEL_TEST_URL=http://kernel:8742 -e SOKKAN_KERNEL_TEST_TOKEN_FILE=/run/kernel/local-token \
-  -e SOKKAN_KERNEL_TEST_ROOT=/workspace/conf -e SOKKAN_KERNEL_TEST_UPSTREAM_PORT=18099 \
+  -e SOKKAN_KERNEL_TEST_ROOT=/data/projects/conf -e SOKKAN_KERNEL_TEST_UPSTREAM_PORT=18099 \
   -e SOKKAN_KERNEL_TEST_UPSTREAM_HOST=0.0.0.0 -e SOKKAN_KERNEL_SANDBOX=docker \
   -e SOKKAN_KERNEL_TEST_RESTART_CMD="docker restart $KA" \
   ssint-test:full python -m pytest -q -rs -p no:cacheprovider tests/test_harness_kernel.py \
