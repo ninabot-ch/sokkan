@@ -329,6 +329,28 @@ services:
       SOKKAN_PROFILE_LOCKED: ${SOKKAN_PROFILE_LOCKED:-0}
       # 4.0 job kits of the Atelier: a folder of extra job files (*.json) read after the built-in ones
       SOKKAN_ROLES_DIR: ${SOKKAN_ROLES_DIR:-}
+      # 4.0 quality gate before the card of a deliverable (backend/qualitygate.py): off = no check
+      SOKKAN_REVIEW: ${SOKKAN_REVIEW:-on}
+      # the strong reviewer (OpenAI-compatible /v1, e.g. the Router's Deep); empty = no strong review
+      SOKKAN_REVIEW_URL: ${SOKKAN_REVIEW_URL:-}
+      SOKKAN_REVIEW_MODEL: ${SOKKAN_REVIEW_MODEL:-}
+      SOKKAN_REVIEW_KEY: ${SOKKAN_REVIEW_KEY:-}
+      SOKKAN_REVIEW_KEY_FILE: ${SOKKAN_REVIEW_KEY_FILE:-}
+      # JSON merged into each review request (e.g. {"reasoning_effort":"none"})
+      SOKKAN_REVIEW_EXTRA: ${SOKKAN_REVIEW_EXTRA:-}
+      # the machine's own model: reviews the projects whose data stays on the machine
+      SOKKAN_REVIEW_LOCAL_URL: ${SOKKAN_REVIEW_LOCAL_URL:-}
+      SOKKAN_REVIEW_LOCAL_MODEL: ${SOKKAN_REVIEW_LOCAL_MODEL:-}
+      SOKKAN_REVIEW_LOCAL_KEY: ${SOKKAN_REVIEW_LOCAL_KEY:-}
+      SOKKAN_REVIEW_LOCAL_KEY_FILE: ${SOKKAN_REVIEW_LOCAL_KEY_FILE:-}
+      SOKKAN_REVIEW_LOCAL_EXTRA: ${SOKKAN_REVIEW_LOCAL_EXTRA:-}
+      # highest project level sent to the strong reviewer (0 public … 2 project; 3 confidential = never)
+      SOKKAN_REVIEW_REMOTE_MAX_LEVEL: ${SOKKAN_REVIEW_REMOTE_MAX_LEVEL:-2}
+      # 0 = the corrected version is not reviewed again by the model (the deterministic pass still is)
+      SOKKAN_REVIEW_RECHECK: ${SOKKAN_REVIEW_RECHECK:-1}
+      # the organisation's country (Swiss law and formats by default) and address form (vous | tu)
+      SOKKAN_ORG_COUNTRY: ${SOKKAN_ORG_COUNTRY:-CH}
+      SOKKAN_ORG_ADDRESS_FORM: ${SOKKAN_ORG_ADDRESS_FORM:-vous}
       # « Export our work »: an admin's zip of notes, tools and deliverables (docs/enterprise/OPERATIONS.md)
       SOKKAN_FEATURE_WORK_EXPORT: ${SOKKAN_FEATURE_WORK_EXPORT:-}
       # helm — 3.3 (docs/HELM.md) : hiérarchie de cartes, avancement calculé, suggestions de

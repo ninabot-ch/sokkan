@@ -54,11 +54,10 @@ def enabled() -> bool:
     return (os.environ.get("SOKKAN_REVIEW") or "on").strip().lower() not in ("off", "0", "false", "no")
 
 
-def _key(prefix: str) -> str:
-    k = os.environ.get(prefix + "_KEY") or ""
+def _key(k: str, f: str) -> str:
+    """A key given as is, or the file that holds it."""
     if k:
         return k.strip()
-    f = os.environ.get(prefix + "_KEY_FILE") or ""
     if f:
         try:
             raw = open(f, encoding="utf-8").read().strip()
@@ -70,9 +69,8 @@ def _key(prefix: str) -> str:
     return ""
 
 
-def _extra(prefix: str, default: dict) -> dict:
-    raw = os.environ.get(prefix + "_EXTRA")
-    if raw is None:
+def _extra(raw: str | None, default: dict) -> dict:
+    if not raw:
         return default
     try:
         v = json.loads(raw)
@@ -93,11 +91,14 @@ def reviewer_for(level: int | None) -> dict | None:
     to leave the machine, else the local one; None when none is configured."""
     strong = {"url": os.environ.get("SOKKAN_REVIEW_URL") or "",
               "model": os.environ.get("SOKKAN_REVIEW_MODEL") or "",
-              "key": _key("SOKKAN_REVIEW"), "extra": _extra("SOKKAN_REVIEW", {}), "route": "strong"}
+              "key": _key(os.environ.get("SOKKAN_REVIEW_KEY") or "", os.environ.get("SOKKAN_REVIEW_KEY_FILE") or ""),
+              "extra": _extra(os.environ.get("SOKKAN_REVIEW_EXTRA"), {}), "route": "strong"}
     local = {"url": os.environ.get("SOKKAN_REVIEW_LOCAL_URL") or "",
              "model": os.environ.get("SOKKAN_REVIEW_LOCAL_MODEL") or "",
-             "key": _key("SOKKAN_REVIEW_LOCAL"),
-             "extra": _extra("SOKKAN_REVIEW_LOCAL", {"chat_template_kwargs": {"enable_thinking": False}}),
+             "key": _key(os.environ.get("SOKKAN_REVIEW_LOCAL_KEY") or "",
+                         os.environ.get("SOKKAN_REVIEW_LOCAL_KEY_FILE") or ""),
+             "extra": _extra(os.environ.get("SOKKAN_REVIEW_LOCAL_EXTRA"),
+                             {"chat_template_kwargs": {"enable_thinking": False}}),
              "route": "local"}
     lv = 3 if level is None else int(level)        # unknown level: treated as confidential
     if strong["url"] and strong["model"] and lv <= remote_max_level():
