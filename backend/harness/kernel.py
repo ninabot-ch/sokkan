@@ -380,6 +380,9 @@ class _Stream:
 
 class KernelHarness(Harness):
     name = NAME
+    #: a card's reject reaches the kernel without its text (`/approvals/{id}/decide` takes no
+    #: reason): the cockpit says a refusal's reason in a turn of its own (agentchat, 4.0)
+    deny_text_reaches_model = False
 
     def __init__(self) -> None:
         self._spec: RunSpec | None = None

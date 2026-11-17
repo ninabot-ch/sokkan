@@ -39,7 +39,12 @@ export interface Doc { id: string; name: string; ext: string; size: number; owne
   created_at: number; modified_at: number; text_state: string; text_chars: number; uses: number }
 export interface Deliverable { name: string; title: string; ext: string; size: number; updated_at: number; version: number;
   previewable: boolean; validated: boolean; validated_by: string; validated_at: number | null;
-  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null }
+  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null;
+  /** 4.0 — the quality gate's report on this very text (null: not checked, or changed since) */
+  check?: QualityCheck | null }
+/** 4.0 — what the session checked before the card (backend/qualitygate.py · card) */
+export interface QualityCheck { reviewed_by: "strong" | "local" | "rules"; review_failed: boolean; corrected: boolean;
+  ok: boolean; remaining: string[]; verified: string[]; to_check: string[] }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
   documents: Doc[]; deliverables: Deliverable[];
   engine?: { tier: "claude" | "local"; model: string; label: string; destination: string } }
@@ -56,7 +61,7 @@ export type PlainEvent =
   | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail; reason?: "denied" | "policy" }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
       stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail;
-      tool_id?: string }
+      tool_id?: string; check?: QualityCheck | null }
   | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }

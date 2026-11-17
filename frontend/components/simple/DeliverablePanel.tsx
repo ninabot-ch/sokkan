@@ -9,6 +9,7 @@ import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import Icon from "./icons";
 import Markdown from "./Markdown";
+import QualityCheck from "./QualityCheck";
 import EngineBadge from "./EngineBadge";
 
 export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, onChanged }: {
@@ -45,6 +46,7 @@ export default function DeliverablePanel({ sid, name, rev, canDrive, onClose, on
         </div>
         <button className="sk-btn sk-btn-quiet sk-btn-icon" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
       </div>
+      {d?.check && !d.validated && <div className="sk-panel-check"><QualityCheck check={d.check} /></div>}
       <div className="sk-panel-body sk-paper" tabIndex={0}>
         {failed ? (
           <div className="sk-empty"><Icon name="alert" /><p>{t("dl.failed")}</p><button className="sk-btn" onClick={load}>{t("retry")}</button></div>

@@ -18,6 +18,7 @@ import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
+import QualityCheck from "./QualityCheck";
 import EngineBadge, { engineText } from "./EngineBadge";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
@@ -388,6 +389,7 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
           })}
         </ul>
       )}
+      {isDoc && <QualityCheck check={ev.check} />}
       {canDrive ? (
         <div className="sk-actions">
           <button className="sk-btn sk-btn-primary" onClick={() => onDecide("allow")}><Icon name="check" />{t("ap.allow")}</button>

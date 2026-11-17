@@ -17,7 +17,7 @@ Two passes, then at most ONE correction by the agent:
    Deep tier reviews what Ship wrote), with a severe grid: the kit's own brief (its structure,
    sources and « to check » lines come with the mission) + recomputing every figure + the
    colleague's rules. A project whose data must stay on the machine (classified above
-   ``SOKKAN_REVIEW_REMOTE_MAX_LEVEL``, default « team ») is reviewed by the local model with
+   ``SOKKAN_REVIEW_REMOTE_MAX_LEVEL``, default « project »: a confidential project never) is reviewed by the local model with
    the same grid — never sent to the remote one.
 
 When either pass finds a defect, the agent is told once, precisely, and saves the corrected
@@ -31,7 +31,8 @@ Configuration (all optional; without a reviewer the deterministic pass still run
   SOKKAN_REVIEW_EXTRA                     JSON merged into its request (e.g. reasoning_effort)
   SOKKAN_REVIEW_LOCAL_URL / _MODEL / _KEY[_FILE] / _EXTRA   the machine's own model
   SOKKAN_REVIEW_REMOTE_MAX_LEVEL          highest classification level sent to the strong
-                                          reviewer (0 public, 1 team, 2 project, 3 confidential)
+                                          reviewer (0 public, 1 team, 2 project — the default,
+                                          3 confidential: never, unless raised here)
   SOKKAN_REVIEW_RECHECK=0                 do not review the corrected version again
 """
 from __future__ import annotations
@@ -82,9 +83,9 @@ def _extra(prefix: str, default: dict) -> dict:
 
 def remote_max_level() -> int:
     try:
-        return int(os.environ.get("SOKKAN_REVIEW_REMOTE_MAX_LEVEL", "1"))
+        return int(os.environ.get("SOKKAN_REVIEW_REMOTE_MAX_LEVEL", "2"))
     except ValueError:
-        return 1
+        return 2
 
 
 def reviewer_for(level: int | None) -> dict | None:
@@ -127,9 +128,12 @@ Check, in this order:
 5. FORM — an absurd or broken sentence, a spelling mistake, English words in a French document,
    « tu » where « vous » is due, non-Swiss formats (Swiss: 17.11.2026, CHF 8'120.50), the EU GDPR
    in a Swiss matter (Swiss law: nLPD, CO) unless the request is about the EU.
-Do not report: a matter of taste, something the document already lists under « Points à
-vérifier / Points to confirm », a missing piece of information the sources do not hold (only
-report it if the document invents it instead of flagging it).
+Report ONLY what a severe reviewer would refuse to sign: a wrong or contradictory figure, an
+invented fact, a misapplied rule of the sources, a section the task requires that is missing, a
+broken table, the wrong law, a broken or absurd sentence, a spelling mistake. Do NOT report: style,
+word choice, tone preferences, the length of a line, a vague wording that states nothing false,
+something the document already lists under « Points à vérifier / Points to confirm », a piece of
+information the sources do not hold (unless the document invents it instead of flagging it).
 
 Answer with ONE JSON object and nothing else:
 {"verdict": "ok" | "fix",
@@ -326,3 +330,65 @@ def card(res: dict, *, corrected: bool, lang: str = "fr") -> dict:
         "verified": (res.get("verified") or [])[:6],
         "to_check": (res.get("to_check") or [])[:6],
     }
+
+
+# ---- the context of a work (product side: agentchat.py) ------------------------------------
+RECALL_FILE = ".recall.md"       # the memory recalled in the brief, kept beside the deliverables
+
+
+def work_context(sid: str, project: str) -> dict:
+    """What the gate compares a deliverable with: the request and the task (simple.works), the
+    project's documents (their text copies), the memory recalled for this work, and the earlier
+    deliverables of the project as second-hand sources."""
+    import documents
+    import simple
+    w = simple.get_work(sid) or {}
+    ask, lang, playbook = w.get("ask") or "", w.get("lang") or "fr", w.get("playbook") or ""
+    mission = ""
+    if playbook:
+        try:
+            import playbooks
+            mission = (playbooks.render(playbook, ask, project=project) or ("", ""))[0] or ""
+        except Exception:  # noqa: BLE001 — no task brief: the generic grid stays
+            mission = ""
+    sources: list[tuple[str, str]] = []
+    budget = 400_000
+    try:
+        docs = documents.list_project(project)
+    except Exception:  # noqa: BLE001
+        docs = []
+    for d in docs:
+        try:
+            tp = documents.text_path_of(d)
+            if tp is None:
+                continue
+            body = tp.read_text(encoding="utf-8", errors="replace")[:budget]
+        except (OSError, KeyError):
+            continue
+        budget -= len(body)
+        sources.append((d.get("name") or tp.name, body))
+        if budget <= 0:
+            break
+    try:
+        rec = simple.deliverable_dir(project, sid) / RECALL_FILE
+        if rec.is_file():
+            sources.append(("mémoire du projet", rec.read_text(encoding="utf-8", errors="replace")[:60_000]))
+    except (OSError, ValueError):
+        pass
+    secondary = []
+    try:
+        root = documents.project_root(project) / simple.DELIVERABLES
+        for p in sorted(root.glob("*/*"), key=lambda x: x.stat().st_mtime, reverse=True)[:30]:
+            if p.parent.name == sid or p.name.startswith(".") or p.suffix.lower() not in (".md", ".csv", ".txt"):
+                continue
+            secondary.append(p.read_text(encoding="utf-8", errors="replace")[:40_000])
+    except OSError:
+        pass
+    level = None
+    try:
+        import claudetier
+        level = claudetier.project_level(project)     # the project's classification
+    except Exception:  # noqa: BLE001 — unknown level = treated as confidential
+        level = None
+    return {"ask": ask, "lang": lang, "mission": mission, "sources": sources,
+            "secondary": "\n".join(secondary), "level": level}

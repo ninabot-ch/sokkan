@@ -81,7 +81,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  "already approved this document in this turn",
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
-                 "No such tool available")
+                 "No such tool available",
+                 # 4.0: the quality gate sent a deliverable back to be corrected before its card
+                 "(Check before the card.)")
 
 
 _ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"
@@ -424,7 +426,9 @@ class View:
                      "attached": self.attached,
                      # a save in the person's own space sends nothing outside the instance
                      "stays_inside": c["kind"] in ("write_draft", "write_file", "save_memory"),
-                     "draft": draft, "detail": self._detail(ev)}]
+                     "draft": draft, "detail": self._detail(ev),
+                     # 4.0: what the quality gate checked before this card (None: not checked)
+                     "check": ev.get("check")}]
         if t == "permission_resolved":
             out = {"type": "approval_resolved", "id": ev.get("id") or ""}
             if ev.get("decision") in ("allow", "deny"):

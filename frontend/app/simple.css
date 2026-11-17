@@ -705,3 +705,13 @@ html[data-sk-theme] body {
 .sk-role-person { display: flex; gap: var(--sk-s2); align-items: center; flex-wrap: wrap; }
 @media (max-width: 520px) { .sk-tpl-detail { grid-template-columns: 1fr; } }
 .sk-role-local { display: inline-flex; align-items: center; gap: var(--sk-s1); color: var(--sk-text-muted); }
+
+/* 4.0 — the quality gate's report (QualityCheck.tsx): on the approval card and the deliverable */
+.sk-qc { border: 1px solid var(--sk-line); border-left: 3px solid var(--sk-ok); background: var(--sk-ok-soft);
+  border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.sk-qc.is-warn { border-left-color: var(--sk-warn); background: var(--sk-warn-soft); }
+.sk-qc-title { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+.sk-qc-sub { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); margin-top: 2px; }
+.sk-qc-list { margin: 0; padding-left: 1.2em; font-size: var(--sk-fs-sm, 0.875rem); overflow-wrap: anywhere; }
+.sk-qc-more summary { cursor: pointer; font-size: var(--sk-fs-sm, 0.875rem); }
+.sk-panel-check { padding: 8px 16px 0; }
