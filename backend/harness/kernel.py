@@ -70,7 +70,9 @@ DEFAULT_TOKEN_FILE = "/run/kernel/local-token"
 _SHELL = {"terminal", "process_start", "process_stop", "ssh_run", "execute_code"}
 # what a run without a shell (the Atelier) never has, whatever SOKKAN_KERNEL_DENY_TOOLS says:
 # every shell tool and the kernel's own memory tool (a note goes through SOKKAN's quarantine)
-ATELIER_DENIED = (*sorted(_SHELL), "memory_note")
+# (`process_logs` too: the kernel's HOST-EMBED doc lists it with the shell family to forbid
+# execution — it reads what a started process prints)
+ATELIER_DENIED = (*sorted(_SHELL | {"process_logs"}), "memory_note")
 _WRITE = {"write_file", "patch", "checkpoint_restore", "ssh_copy"}
 _READ = {"read_file", "search_files", "checkpoint_list", "checkpoint_diff", "lsp_diagnostics"}
 _SUBAGENT = {"delegate", "delegate_status", "delegate_cancel"}
