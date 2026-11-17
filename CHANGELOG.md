@@ -41,6 +41,31 @@ shell tool of the kernel (`deny_tools`).
   none. No session is counted twice.
 
 ### Added
+- **Getting started without a file to edit** (Atelier, `backend/onboarding.py`). An instance
+  administrator who opens the Atelier on a fresh install lands on six steps — the organisation
+  (name, team language), the model (this machine's / SOKKAN Inference / their own key, with a
+  one-token connection test: nothing is saved until it answers, and a refusal is said in words),
+  the projects (created with their classification explained in plain words, and whether Claude
+  may ever see them), the people (personal access code shown once, or a one-week single-use
+  invitation link that signs the person in and hands over their code; with SSO, the grants
+  only), the first documents, and a first work started from an example document of a chosen
+  position. Every step can be skipped; the state is on the server, the next visit resumes at
+  the first step left, the drawer shows « Getting started · n/6 » until it is finished. An
+  instance that already has works (an upgrade) is never sent through it.
+- **A person's first sign-in**: their position (read from a list — the catalogue of positions
+  when installed, module `roles_catalog`, else a starter list of seven), a four-card tour, and
+  a first work of their trade on an example document added to their project (once).
+- **Administration in the Atelier** (instance administrators): **Team** (everyone once, their
+  projects and roles, how they sign in, last sign-in, invitation pending, position; add, edit
+  projects, make administrator, new code or new link, deactivate / reactivate), **Usage** (per
+  person and per project over 7 / 30 / 90 days, the project budgets with their state and an
+  alert at 80 % / 100 %, or the organisation's daily ceiling when per-project budgets are off),
+  **Validations** (the journal of human validations, readable, filtered by project, person,
+  period and decision, exported as CSV). New routes `/api/onboarding*`, `/api/team*`,
+  `POST /api/auth/invite` (no new variable, no feature switch).
+- **Errors a person can act on**: a model whose credit is used up, rate-limited, unreachable or
+  refusing the key, and an engine whose sandbox cannot start (`sandbox_unavailable`), each get
+  their own sentence in the Atelier instead of « a technical problem ».
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of

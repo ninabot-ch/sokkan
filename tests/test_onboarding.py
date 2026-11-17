@@ -400,3 +400,16 @@ def test_engine_errors_become_a_notice_in_words(ev, code):
     v = plain.View()
     out = v.feed(ev)
     assert out and out[0]["type"] == "notice" and out[0]["code"] == code, out
+
+
+def test_with_sso_an_invitation_is_the_grants_only(box, monkeypatch):
+    import auth
+    import onboarding
+    import projects
+    projects.create("clients", "Clients", created_by=OWNER)
+    monkeypatch.setattr(auth, "MODE", "oidc")
+    out = onboarding.add_person("gil@example.org", "Gil", False, ["clients"], OWNER)
+    assert out["code"] == "" and out["projects"] == ["clients"]
+    assert projects.effective_role({"email": "gil@example.org", "role": "none"}, "clients") == "dev"
+    import localaccounts
+    assert not localaccounts.has("gil@example.org")

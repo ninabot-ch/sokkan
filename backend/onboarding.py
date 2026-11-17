@@ -43,15 +43,17 @@ import projects
 STEPS = ("org", "model", "projects", "people", "documents", "first_work")
 STATES = ("done", "skipped")
 LANGS = ("fr", "en")
-INVITE_TTL_S = int(os.environ.get("SOKKAN_INVITE_TTL_S") or 7 * 86400)
+# the cheapest Anthropic model for the one-token test of a client key (any model the key sees
+# would do: the test proves the key, not the model)
+TEST_MODEL = "claude-haiku-4-5"
+INVITE_TTL_S = 7 * 86400          # an invitation link lives a week, once
 _lock = threading.Lock()
 
 
 # ---- store --------------------------------------------------------------------------------
 def store_path() -> Path:
-    return Path(os.environ.get("SOKKAN_ONBOARDING_STORE") or os.path.join(
-        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
-        "onboarding.json"))
+    return Path(os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan"))) \
+        / "onboarding.json"
 
 
 def _load() -> dict:
@@ -242,8 +244,7 @@ def test_model(kind: str, key: str = "", base_url: str = "", model: str = "",
         if kind == "key" and key.strip().startswith("sk-ant-") and not base_url.strip():
             base, headers = "https://api.anthropic.com", {"x-api-key": key.strip(),
                                                          "anthropic-version": "2023-06-01"}
-            model = model.strip() or os.environ.get("SOKKAN_ONBOARDING_TEST_MODEL",
-                                                    "claude-haiku-4-5")
+            model = model.strip() or TEST_MODEL
         else:
             base = (base_url.strip() or (_sokkan_url() if kind == "sokkan" else "")).rstrip("/")
             if not base.startswith(("http://", "https://")):
