@@ -90,6 +90,12 @@ kernel's own (`dockerproxy.py` of its `sandboxd` image) and answers 403 to anyth
   `NOKKER_HOST_WORKSPACE` (the default project, `projects/` and `engine-roots/` of the data
   volume). Named volumes are refused.
 
+SOKKAN starts that proxy through a launcher (`deploy/kernel/dockerproxy_compat.py`) with one
+compatibility rule: the library under the kernel checks once whether Docker applies caps with an
+unlabelled `docker run … <sandbox image> sleep 0`, which the proxy refuses (it accepts `true`
+only) — without the rule no cap is ever applied and every session is refused. The launcher turns
+exactly that command into `true`; every other check of the proxy is unchanged.
+
 ## The sandbox's network
 
 `SOKKAN_KERNEL_SANDBOX_NET` (`.env`, or `kernel.sh enable --net`):
