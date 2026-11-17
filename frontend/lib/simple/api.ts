@@ -41,7 +41,9 @@ export interface Doc { id: string; name: string; ext: string; size: number; owne
   created_at: number; modified_at: number; text_state: string; text_chars: number; uses: number }
 export interface Deliverable { name: string; title: string; ext: string; size: number; updated_at: number; version: number;
   previewable: boolean; validated: boolean; validated_by: string; validated_at: number | null;
-  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null }
+  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null;
+  /** 4.0 native formats: the downloads offered (the asked one first) and what the document is */
+  formats?: string[]; kind?: "document" | "spreadsheet" | "letters" }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
   documents: Doc[]; deliverables: Deliverable[];
   engine?: { tier: "claude" | "local"; model: string; label: string; destination: string } }
@@ -57,8 +59,11 @@ export type PlainEvent =
    *  « policy » = a rule of the space turned the call away (the agent goes on otherwise) */
   | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail; reason?: "denied" | "policy" }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
-      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail;
-      tool_id?: string }
+      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean; preview?: string; kind?: string } | null; detail: TechDetail;
+      tool_id?: string;
+      /** 4.0 (backend/approvalcard.py): where it lands, what the person needs to decide (already
+       *  in their language), a change to an existing document as before/after */
+      where?: string; facts?: { label: string; value: string }[]; diff?: { before: string; after: string }[] }
   | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }
@@ -155,7 +160,7 @@ export const sendMessage = (sid: string, text: string, documents: string[], requ
     { text, documents, request_id: requestId }));
 const dl = (sid: string, name: string) => `/api/simple/sessions/${sid}/deliverables/${encodeURIComponent(name)}`;
 export const fetchDeliverable = (sid: string, name: string) => get<Deliverable>(dl(sid, name));
-export const downloadUrl = (sid: string, name: string, format: "md" | "docx" | "xlsx") => `${dl(sid, name)}/download?format=${format}`;
+export const downloadUrl = (sid: string, name: string, format: string) => `${dl(sid, name)}/download?format=${format}`;
 export const validateDeliverable = (sid: string, name: string) =>
   send<{ ok: boolean; deliverables: Deliverable[] }>(`${dl(sid, name)}/validate`, "POST");
 export const keepAsDeliverable = (sid: string, title: string, text: string) =>
@@ -205,3 +210,14 @@ export class PlainSocket {
   interrupt() { this.send({ type: "interrupt" }); }
   close() { this.closed = true; this.ws?.close(); }
 }
+
+/** 4.0 — the organisation's Word templates (admin) */
+export interface WordTemplate { kind: string; name: string; by: string; at: number; sha256: string; size: number }
+export const fetchWordTemplates = () => get<{ templates: WordTemplate[]; max_bytes: number }>("/api/admin/word-templates");
+export async function uploadWordTemplate(kind: string, file: File): Promise<{ templates: WordTemplate[] }> {
+  const r = await fetch(`/api/admin/word-templates/${encodeURIComponent(kind)}?name=${encodeURIComponent(file.name)}`,
+    { method: "PUT", body: file, headers: { "content-type": "application/octet-stream" } });
+  return r.ok ? r.json() : fail(r);
+}
+export const removeWordTemplate = (kind: string) =>
+  send<{ templates: WordTemplate[] }>(`/api/admin/word-templates/${encodeURIComponent(kind)}`, "DELETE");

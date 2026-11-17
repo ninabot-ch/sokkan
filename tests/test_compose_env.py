@@ -14,7 +14,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CODE_DIRS = ("backend", "memory")
-OVERRIDES = ("docker/runner/compose.docker-runner.yml",)
+OVERRIDES = ("docker/runner/compose.docker-runner.yml",
+             "docker-compose.kernel.yml")   # 4.0: the kernel engine's settings of the api
 # code that runs in ANOTHER service of the compose file (its own guard is at the end of this file)
 OTHER_SERVICE = {"backend/shiprouter.py"}
 

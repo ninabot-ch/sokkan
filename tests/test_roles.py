@@ -7,7 +7,6 @@ to Excel. The UI half is tests/nav/simple_roles_test.ts."""
 import copy
 import io
 import json
-import zipfile
 
 import pytest
 
@@ -121,7 +120,7 @@ def test_a_kit_template_resolves_as_a_playbook_with_its_brief_and_rules():
             for g in r["guardrails"]:
                 assert g["agent"].strip() in prompt
             if t["format"] == "xlsx":
-                assert ".csv" in prompt and "semicolons" in prompt and "in your message to the person" in prompt
+                assert "format: xlsx" in prompt and "FORMULA" in prompt and "in your message to the person" in prompt
                 assert "HOW A GOOD COLLEAGUE WORKS" in prompt
             else:
                 assert "Points to confirm" in prompt
@@ -313,37 +312,38 @@ def test_a_job_that_keeps_its_data_local_refuses_claude(world):
 
 # ---- a table deliverable ----------------------------------------------------------------------------
 def test_a_table_deliverable_is_previewed_as_a_table_and_downloaded_as_excel(world):
+    """Integration n°2: a kit's Excel deliverable goes through `outputs` (formats) — a Markdown
+    source with `format: xlsx`, totals as formulas SOKKAN computes; a « .csv » still works."""
+    openpyxl = pytest.importorskip("openpyxl")      # outputs renders Excel with it (image dependency)
     import simple
     sid = _fx.DEFAULT_SID
     d = simple.deliverable_dir("default", sid)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "Suivi des actions.csv").write_text(
-        "Type,Libellé,Responsable,Montant (CHF)\naction,\"Réserver la salle, 2 jours\",M. Rochat,1'250.50\n",
+    (d / "Suivi des actions.md").write_text(
+        "---\nformat: xlsx\n---\n# Suivi des actions\n\n| Libellé | Montant (CHF) |\n|---|---|\n"
+        "| Réserver la salle, 2 jours | 1250.50 |\n| Traiteur | 800 |\n| Total | =SUM(ABOVE) |\n",
         encoding="utf-8")
+    (d / "Ancien tableau.csv").write_text("Type;Montant\naction;1'250.50\n", encoding="utf-8")
     c = world["as"]("bob@x")
-    lst = c.get(f"/api/simple/sessions/{sid}/deliverables").json()["deliverables"]
-    row = next(x for x in lst if x["name"] == "Suivi des actions.csv")
-    assert row["previewable"] is True and row["ext"] == "csv" and row["title"] == "Suivi des actions"
-    prev = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv").json()
-    assert prev["text"].startswith("| Type | Libellé |") and "Réserver la salle, 2 jours" in prev["text"]
-    x = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv/download", params={"format": "xlsx"})
+    lst = {x["name"]: x for x in c.get(f"/api/simple/sessions/{sid}/deliverables").json()["deliverables"]}
+    assert lst["Suivi des actions.md"]["formats"][0] == "xlsx"
+    prev = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.md").json()
+    assert "2'050.50" in prev["text"] and "format: xlsx" not in prev["text"]     # computed, Swiss format
+    x = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.md/download", params={"format": "xlsx"})
     assert x.status_code == 200 and x.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml")
-    z = zipfile.ZipFile(io.BytesIO(x.content))
-    sheet = z.read("xl/worksheets/sheet1.xml").decode()
-    assert "Réserver la salle, 2 jours" in sheet and "<v>1250.50</v>" in sheet
-    assert c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv/download",
-                 params={"format": "docx"}).status_code == 400
-    raw = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv/download")
-    assert raw.status_code == 200 and raw.headers["content-type"].startswith("text/csv")
+    ws = openpyxl.load_workbook(io.BytesIO(x.content)).active
+    vals = [c_.value for row in ws.iter_rows() for c_ in row]
+    assert "Réserver la salle, 2 jours" in vals and any(isinstance(v, str) and v.startswith("=SUM") for v in vals)
+    old = c.get(f"/api/simple/sessions/{sid}/deliverables/Ancien tableau.csv/download", params={"format": "xlsx"})
+    assert old.status_code == 200
 
 
 def test_csv_with_semicolons_and_quotes():
-    import simple
-    rows = simple.csv_rows('A;B\n"x;y";2\n\n')
+    import outputs
+    rows = outputs.csv_rows('A;B\n"x;y";2\n\n')
     assert rows == [["A", "B"], ["x;y", "2"]]
-    md = simple.csv_to_markdown("a,b\nc|d,e\n")
-    assert "c\\|d" in md
+    assert "1'250.50" in outputs.preview("t.csv", "a;b\nc;1250.50\n")
 
 
 def test_starter_notes_are_valid_memory_files(tmp_path):

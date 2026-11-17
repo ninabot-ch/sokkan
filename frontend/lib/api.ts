@@ -545,6 +545,8 @@ export interface AgentsMeta {
 }
 export interface AgentsList {
   agents: Agent[]; pending: { agents: Agent[]; runs: (AgentRun & { agent_name: string })[] };
+  /** 4.0: for an instance admin, agents waiting for approval in ANOTHER project */
+  elsewhere?: { id: number; name: string; project: string; owner: string; change: boolean }[];
   /** 3.2: held = no model credentials explicitly configured, nothing runs */
   scheduler?: { running: boolean; held: boolean; reason: string | null; simulated?: boolean };
 }

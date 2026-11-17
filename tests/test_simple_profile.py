@@ -80,7 +80,8 @@ def test_home_greets_by_first_name_with_four_business_templates(world):
     assert all(p["hint"] and p["description"] and "prompt" not in p for p in h["playbooks"])
     en = c.get("/api/simple/home", params={"lang": "en"}).json()
     assert en["playbooks"][0]["label"] == "Training plan"
-    assert h["limits"]["extensions"] == ["pdf", "docx", "pptx", "xlsx", "txt", "md"]
+    assert h["limits"]["extensions"] == ["pdf", "docx", "pptx", "xlsx", "txt", "md",
+                                         "csv", "eml", "msg", "jpg", "jpeg", "png"]
     assert h["usage"] == {"pct": None, "basis": "none"}
     assert [r["sid"] for r in h["recents"]] == [DEFAULT_SID]          # bob's own work only
     # someone without a name is not greeted by their address

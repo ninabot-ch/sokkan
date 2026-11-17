@@ -12,7 +12,7 @@ checks and renders it. A self-hoster adds a job by dropping a file in the folder
   (`level`), whether its work may ever be written with Claude (`claude`), its guard-rails (what
   the person reads, and the rule the agent is given), 6-10 task templates and 3-5 starter notes.
 * a **task template**: what to attach, what the agent produces, the deliverable's format
-  (`docx` = a Markdown file downloaded as Word, `xlsx` = a CSV file downloaded as Excel,
+  (`docx` = a Markdown file downloaded as Word, `xlsx` = a `format: xlsx` source rendered as Excel by `outputs`,
   `md` = text), the points a human must check, the mission given to the agent, and the TYPE of
   deliverable (`brief`) whose quality brief is added to the mission.
 * a **starter note**: a memory note « to fill in with your team » (charter, tone, house
@@ -323,15 +323,15 @@ def deliverable_brief(brief_id: str, fmt: str) -> str:
              "- To check: " + b["verify"].strip()]
     if fmt == "xlsx":
         lines += [
-            "- FORMAT: this deliverable is a TABLE the person opens in Excel. Save it as ONE "
-            "« .csv » file (instead of Markdown) in the same folder: UTF-8, separated by semicolons "
-            "« ; » (what Excel opens directly in Switzerland), the first row holds the column "
-            "headers, one row per line, a field that contains a semicolon, a quote or a line break "
-            "is wrapped in double quotes. EVERY row has exactly as many fields as the header. No "
-            "title line, no blank line, no Markdown in the file; a total is a row of its own, "
-            "labelled, with its figure in the same column as the figures it adds. A value the "
-            "documents do not give stays an EMPTY cell (no « [à définir] », no « non documenté »). "
-            "The points to check go in your message to the person, not in the table."]
+            "- FORMAT: this deliverable is an EXCEL file the person opens (SOKKAN builds it, "
+            "`outputs`): save ONE file in the same folder that starts with the three lines `---`, "
+            "`format: xlsx`, `---`, then `# Title`; each `## Heading` is a sheet, each Markdown table "
+            "a block of rows, the first row of a table holds the column headers, EVERY row has as "
+            "many cells as the header. A total, a balance or any figure derived from others is a "
+            "FORMULA (`=SUM(ABOVE)`, `=[Montant]-[Payé]`), never a number you computed: SOKKAN "
+            "computes it and gives you the result. A value the documents do not give stays an "
+            "EMPTY cell (no « [à définir] », no « non documenté »). The points to check go in your "
+            "message to the person, not in the table."]
     return "\n".join(lines)
 
 
@@ -362,9 +362,10 @@ def mission(tid: str, subject: str) -> str | None:
         "- List the rules, thresholds and conditions the documents state (a priority grid, a "
         "minimum or maximum, an approval required, a deadline, a sort order asked for) and apply "
         "each one to every item; say in your message which ones you applied.",
-        "- Compute every total, difference, ratio and ranking yourself from the source lines, "
-        "and show the calculation where it matters. Compare your result with any total the "
-        "document gives: a difference is a finding to report, never something to smooth over. "
+        "- Every total, difference and ratio is a FORMULA in a table (SOKKAN computes it and "
+        "gives you the result — quote only that); rank from those results. Compare them with "
+        "any total the document gives: a difference is a finding to report, never something to "
+        "smooth over. "
         "Never write « checked », « consistent » or « the best » without the calculation behind it.",
         "- When the person's request or a document decides a point, apply the decision; keep "
         "« [à définir] » for what nobody decided.",

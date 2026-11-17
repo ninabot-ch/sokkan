@@ -372,16 +372,11 @@ def org_name_set() -> bool:
     return bool((instance._load().get("org_name") or os.environ.get("SOKKAN_ORG_NAME") or "").strip())
 
 
-def set_org(name: str, lang: str, by: str) -> dict:
+def set_org(lang: str, by: str) -> dict:
+    """The organisation's language (the first step). Its NAME is not set here: the step
+    writes it in the organisation profile (PUT /api/org/profile, `orgprofile.set_name`),
+    the one place that names the organisation."""
     import instance
-    if name.strip():
-        before = instance.info()["org_name"]
-        instance.set_org_name(name)
-        # the common project took the organisation's name at its creation (projects._default_name,
-        # the owner's name when none was given): it follows, unless somebody renamed it since
-        d = projects.get(projects.DEFAULT_PROJECT)
-        if d and d.get("name") in (before, "Default project", auth.OWNER_NAME):
-            projects.update(projects.DEFAULT_PROJECT, name=name.strip()[:80])
     if lang:
         if lang not in LANGS:
             raise ValueError("lang: fr | en")
@@ -735,8 +730,7 @@ class StepIn(BaseModel):
 
 
 class OrgIn(BaseModel):
-    org_name: str = ""
-    lang: str = ""
+    lang: str = ""   # the name goes to the organisation profile (PUT /api/org/profile)
 
 
 class ModelIn(BaseModel):
@@ -858,10 +852,10 @@ def router(require) -> APIRouter:
     @r.put("/api/onboarding/org")
     def org(body: OrgIn, u: dict = Depends(admin)) -> dict:
         try:
-            out = set_org(body.org_name, body.lang, u["email"])
+            out = set_org(body.lang, u["email"])
         except ValueError as e:
             raise HTTPException(400, str(e))
-        audit.log(u["email"], "instance.rename", out["org_name"], f"lang={out['lang'] or '-'}", project="")
+        audit.log(u["email"], "onboarding.org_lang", out["lang"] or "-", project="")
         if body.lang in LANGS:
             try:
                 import uiprefs

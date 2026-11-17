@@ -20,6 +20,24 @@ lives in the adapters: the legacy one takes every shell tool of the CLI out of t
 one called anyway by a hook (journaled as a rule of the space); the kernel one removes every
 shell tool of the kernel (`deny_tools`).
 
+### Added — the coworker knows the house (audit coworker 17.11, points 2, 8, 9)
+- **Organisation profile** (Settings › Organisation, `GET|PUT /api/org/profile`, logo
+  `/api/org/logo`; doc `docs/enterprise/ORGANISATION.md`): legal name and form, address, UID
+  (checked), VAT, IBAN (mod 97, masked for non-admins, in a work's context only when it is about
+  a payment: invoice, reminder, offer), signatories, a short directory « initials → exact name,
+  role », language, « vous », Swiss formats, house tone. Every Atelier work receives it as a
+  fixed block — the legacy engine in its system prompt (cached prefix), the kernel in front of
+  the first turn (contract `project` block); never shown in the thread.
+- **Continuity between works of a project**: the same head lists the project's recently
+  VALIDATED deliverables (title, who validated, when, sections, first lines, the path of the
+  full text; 6 at most, ≈ 1 000 tokens at most, filtered by the person's clearance and the
+  Claude cap), with the rule to read the one about the same subject and to flag a contradiction
+  (an invoice it shows as paid) instead of following blindly. `RunSpec.head` in the contract.
+- **« Remember for next time? »** under a deliverable just validated: 1 to 3 facts from the
+  work (the person's own corrections, the template it followed, the validated structure),
+  editable, kept in ONE click — written to the quarantine and approved by that person in the
+  same request, journaled (`memory.quarantine.approve`, `memory.learn`); « Not now » is kept.
+
 ### Changed
 - **Atelier: the later saves of a document the person approved in this turn go through.** 3.6.7
   refused every save of a document after the first approved one in a turn, so a change the model
@@ -113,6 +131,14 @@ shell tool of the kernel (`deny_tools`).
 - **Errors a person can act on**: a model whose credit is used up, rate-limited, unreachable or
   refusing the key, and an engine whose sandbox cannot start (`sandbox_unavailable`), each get
   their own sentence in the Atelier instead of « a technical problem ».
+- **Native formats for the Atelier's deliverables.** An agent never says « I can only save
+  Markdown » again: the person downloads Excel (real formulas — totals written `=SUM(ABOVE)` or
+  `=[Montant]-[Payé]`, computed by SOKKAN, stored with the formula, Swiss figures), Word on the
+  organisation's own template (`.dotx`/`.docx`, by kind of document, Réglages), PDF, CSV `;`, and
+  one Word or PDF per recipient in one zip (`format: letters`). The source stays the Markdown the
+  card shows and the validation seals; figures computed by SOKKAN are handed back to the agent
+  (`.calc/`). New inputs: csv, eml, msg, jpg/png (local OCR with Tesseract). New dependencies
+  (permissive licences): python-docx, openpyxl, reportlab, olefile; `tesseract-ocr` in the api image.
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of
@@ -180,6 +206,22 @@ shell tool of the kernel (`deny_tools`).
   and `restore.sh` installed the garbage as the vault key. `backup.sh` now writes the key
   behind a known first line (MANIFEST `key_tag: sokkan-key/1`) and `restore.sh` checks it
   before anything is touched. Sets made by an older `backup.sh` restore as before.
+
+
+**Atelier — readable approval cards, no promise of an absent capability, Nina on the local model**
+(audit of 21 real tasks, 18.11). Every approval card says what, where and with what
+(`backend/approvalcard.py`, both engines): a save shows where it lands and, for a correction, what
+goes and what comes; a note to retain and a mail draft can be read first; a card of the task board
+shows its column and label; an automatic agent its mission and schedule in words (« chaque vendredi
+à 16:00 ») and that it waits for the administrator; an unknown tool its readable name and
+parameters — never « the agent wants to carry out an action » alone; « if you allow / if you
+refuse » under each. An Atelier work no longer has the task board, the agent team or monitoring
+(removed from the run, refused by the gate, the refusal hidden as a rule of the space), and its
+brief lists what the workspace really does (connected mailbox, calendar, folders; sending only by
+a card) and forbids saying an action was done when it was not. `/api/agents` tells an instance
+admin which agents wait for approval in another project (Crew). Nina: no reasoning pass by default
+on an OpenAI-compatible endpoint (new `SOKKAN_ASSISTANT_THINKING`, off), the model's thinking is
+never streamed as the answer, and no setting's name ever reaches the person (27B: 21-44 s → 4-10 s).
 
 ## Unreleased — 3.6.8 "Icebreaker"
 

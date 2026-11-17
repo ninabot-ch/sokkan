@@ -68,7 +68,8 @@ async function send<T>(url: string, method: string, body?: unknown, project?: st
 export const fetchOnboarding = (lang: string) => get<Onboarding>(`/api/onboarding?lang=${lang}`);
 export const markStep = (step: StepId, state: StepState) => send<SetupState>("/api/onboarding/setup", "PUT", { step, state });
 export const finishSetup = (reopen = false) => send<SetupState>("/api/onboarding/setup", "PUT", { finish: !reopen, reopen });
-export const saveOrg = (org_name: string, lang: string) => send<{ org_name: string; lang: string }>("/api/onboarding/org", "PUT", { org_name, lang });
+/** The team's language. The organisation's NAME is its profile's (lib/simple/org.ts saveOrgProfile). */
+export const saveOrg = (lang: string) => send<{ org_name: string; lang: string }>("/api/onboarding/org", "PUT", { lang });
 export const testModel = (kind: ModelKind, key: string, base_url: string, model: string, lang: string) =>
   send<TestResult>("/api/onboarding/model/test", "POST", { kind, key, base_url, model, lang });
 export const saveModel = (kind: ModelKind, key: string, base_url: string, model: string, lang: string) =>

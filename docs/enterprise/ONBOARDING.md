@@ -19,7 +19,7 @@ first step still to do:
 
 | Step | What it does | Where it is written |
 |---|---|---|
-| Organisation | name, team language (offered to the people invited) | `instance.json`, `onboarding.json` |
+| Organisation | name (written in the organisation profile, `PUT /api/org/profile` — the one place that names it, see ORGANISATION.md), optional logo (`PUT /api/org/logo`, on Word and PDF), how complete the profile is (`GET /api/org/profile/status`), team language (offered to the people invited) | `instance.json`, `orgprofile`, `onboarding.json` |
 | Model | this machine's model (when `SOKKAN_SHIP_URL` is set) / SOKKAN Inference (token) / the client's own key (Anthropic, or any compatible address + model). **A one-token test runs first; nothing is saved unless it answers.** | `llm.json` (sealed) |
 | Projects | name + classification in plain words, with « Claude possible » / « never sent outside » per level; the administrator is added to the project | `projects.db` |
 | People | name, e-mail, projects (role `dev`), administrator or not; local auth: an access code shown once **or** an invitation link (7 days, single use); SSO: the grants only | `iam.db`, `projects.db`, `onboarding.json` (hash of the link only) |
@@ -89,7 +89,7 @@ cannot open the work's sandbox). Mapping in `backend/plain.py` (`_human_error`),
 |---|---|---|
 | `GET /api/onboarding` | signed in | setup state (admins), own progress, auth mode, model state, counts, ttfv |
 | `PUT /api/onboarding/setup` | instance admin | `{step, state: done\|skipped\|todo}` · `{finish}` · `{reopen}` |
-| `PUT /api/onboarding/org` | instance admin | `{org_name, lang}` |
+| `PUT /api/onboarding/org` | instance admin | `{lang}` (the name: `PUT /api/org/profile {name}`) |
 | `POST /api/onboarding/model/test` · `POST /api/onboarding/model` | instance admin | `{kind: local\|sokkan\|key\|custom, key, base_url, model}` — the save tests first |
 | `GET/POST /api/onboarding/projects` | instance admin | `{name, level}` |
 | `GET /api/onboarding/roles` · `PUT /api/onboarding/me` · `POST /api/onboarding/sample` | signed in | positions, own progress, example document |

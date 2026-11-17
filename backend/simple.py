@@ -175,8 +175,63 @@ def deliverable_dir(project: str, sid: str) -> Path:
     return documents.project_root(project) / DELIVERABLES / sid
 
 
+def connected_families(user: str, project: str) -> tuple[set[str], bool]:
+    """The connector families (mail, calendar, files) this person has CONNECTED and that the
+    instance enables, and whether sending is allowed — ({…}, False) when the `connectors`
+    feature is off or absent. Read defensively: the brief never fails on a lookup."""
+    try:
+        import connectors
+        if not connectors.enabled():
+            return set(), False
+        from connectors import service
+        st = service.status(service.Ctx(user or "", project=project or "default"))
+        if not st.get("content_allowed", True):
+            return set(), False
+        fams = {f for f, provs in (st.get("families") or {}).items()
+                if any(p.get("enabled") and p.get("connected") for p in provs or [])}
+        return fams, bool(st.get("allow_send"))
+    except Exception:  # noqa: BLE001 — no connector module, no settings: nothing connected
+        return set(), False
+
+
+def capability_lines(user: str = "", project: str = "default") -> list[str]:
+    """4.0 (audit coworker, 18.11) — what THIS workspace really does, said in the brief: the
+    agent of a work told a project manager « I created an automatic task that e-mails it to you
+    every Friday » with no mail channel at all (it had created a hidden agent). The agent may
+    only promise what is in this list, and says plainly what is not."""
+    fams, send = connected_families(user, project)
+    lines = ["- WHAT YOU CAN DO HERE: read the documents of this project, write and save "
+             "documents in the folder below (each save asks the person's approval), search the "
+             "project's memory, and use the other tools you are given — nothing else."]
+    if "mail" in fams:
+        lines.append("- The person's mailbox is connected: you may read their mail and prepare a "
+                     "DRAFT in their mailbox. " + (
+                         "Sending only happens when they approve the sending card in SOKKAN — "
+                         "say « the draft is ready, approve the sending card », never « sent »."
+                         if send else "Nothing can be sent from here: say the draft is ready in "
+                         "their mailbox and that they send it themselves."))
+    if "calendar" in fams:
+        lines.append("- Their calendar is connected: you may read it; a new event only exists "
+                     "once they approve its card.")
+    if "files" in fams:
+        lines.append("- Their shared folders are connected: you may read them; writing a file "
+                     "there only happens once they approve its card.")
+    missing = [w for f, w in (("mail", "send or receive e-mail"), ("calendar", "read or "
+               "change a calendar"), ("files", "reach their shared folders")) if f not in fams]
+    lines.append("- You CANNOT " + ", ".join(missing + [
+        "schedule or repeat a work automatically (every Friday…)",
+        "create tasks, cards, reminders or agents"]
+        + ([] if "mail" in fams else ["contact anyone"])) + ". "
+        "When they ask for one of these, deliver what you can now (the document), then say in "
+        "one sentence what you cannot do and who can (the person who administers SOKKAN).")
+    lines.append("- Never say you did something you did not do in this conversation (« I sent », "
+                 "« I scheduled », « I created a task »): only what a tool really did, after "
+                 "their approval.")
+    return lines
+
+
 def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
-          docs: list[dict] | None = None, recall: str = "") -> str:
+          docs: list[dict] | None = None, recall: str = "", user: str = "") -> str:
     """The first message the agent receives: the internal brief, then what the person typed."""
     d = deliverable_dir(project, sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -204,7 +259,7 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
                      "sentence and continue with what the person gave you.")
     lines += [
         "- When the result is a document (a plan, a summary, a proposal, a quiz…), SAVE it as "
-        f"ONE Markdown file (or the « .csv » table the task asks for) in the folder {d} — give the file a clear title in the "
+        f"ONE Markdown file in the folder {d} — give the file a clear title in the "
         "person's language as its name (for example « Plan de formation Excel.md ») and start "
         "it with a `# Title` line. The person is asked to approve the save, then previews, "
         "downloads and validates it: do not paste the whole document in the chat. When they "
@@ -217,6 +272,8 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "what remains to confirm. Do NOT save another version they did not ask for and do not "
         "offer a « v2 »: each save asks for their approval.",
     ]
+    lines += capability_lines(user, project)
+    lines += _format_lines(lang, d)
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():
@@ -232,6 +289,25 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     tail = (f"<sokkan-brief>Every sentence you write to the person, at every step and in the "
             f"document itself, is in {name}.</sokkan-brief>")
     return "\n".join(lines) + "\n\n" + ask.strip() + "\n\n" + tail
+
+
+def _format_lines(lang: str, d: Path) -> list[str]:
+    """4.0 native formats: what the person can get (Excel, Word, PDF, one letter per
+    recipient) and the rule of the figures: SOKKAN computes them (`outputs`)."""
+    try:
+        import outputs
+        import wordtemplates
+        kinds = wordtemplates.kinds()
+    except Exception:  # noqa: BLE001 — the brief never breaks on an optional part
+        return []
+    return outputs.brief_lines(lang, kinds) + [
+        "- Figures: never add up, subtract or multiply in your head. Every total, balance, "
+        "difference or amount derived from others is a FORMULA in a table (`=SUM(ABOVE)`, "
+        "`=[Quantité]*[Prix]`) — in an Excel file AND in a Word document's table. SOKKAN "
+        "computes them: after each save you are given the results (or read the file "
+        f"« {d}/.calc/<file name>.txt »). Quote a computed figure only from there; when you "
+        "cannot, write « see the total in the table ».",
+    ]
 
 
 def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
@@ -354,8 +430,19 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
                     title = plain.title_from_markdown(f.read(4000)) or title
             except OSError:
                 pass
+        fmts, kind = ["docx", "pdf"] if ext in PREVIEW_EXT else [], "document"
+        if st.st_size <= MAX_DELIVERABLE and ext in PREVIEW_EXT + ("csv",):
+            try:
+                import outputs
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    head = f.read(4000)
+                fmts, kind = outputs.formats_for(p.name, head), outputs.kind_of(p.name, head)
+            except Exception:  # noqa: BLE001 — a listing never breaks on a format
+                pass
         out.append({
             "name": p.name, "title": title, "ext": ext, "size": st.st_size,
+            # 4.0: the files the person can download (the asked one first) and what it is
+            "formats": fmts, "kind": kind,
             "updated_at": st.st_mtime, "version": max(1, versions.get(p.name, 1)),
             "previewable": ext in PREVIEW_EXT,
             "validated": bool(current),
@@ -417,125 +504,8 @@ def save_text(project: str, sid: str, title: str, text: str, model: str = "") ->
     return name
 
 
-# ---- tables (4.0 job kits: a deliverable « xlsx » is a CSV the agent saves) -----------------
-def csv_rows(text: str, limit: int = 5000) -> list[list[str]]:
-    """The rows of a CSV deliverable — comma or semicolon, whichever the header uses."""
-    import csv
-    text = (text or "").lstrip("\ufeff")
-    first = text.split("\n", 1)[0]
-    delim = ";" if first.count(";") > first.count(",") else ","
-    rows = []
-    for row in csv.reader(io.StringIO(text), delimiter=delim):
-        if any(c.strip() for c in row):
-            rows.append([c.strip() for c in row])
-        if len(rows) >= limit:
-            break
-    return rows
-
-
-def csv_to_markdown(text: str) -> str:
-    """A CSV deliverable as the Markdown table the Atelier's preview renders."""
-    rows = csv_rows(text, 2000)
-    if not rows:
-        return ""
-    cols = max(len(r) for r in rows)
-    esc = lambda c: c.replace("|", "\\|").replace("\n", " ")   # noqa: E731
-    out = ["| " + " | ".join(esc(c) for c in rows[0] + [""] * (cols - len(rows[0]))) + " |",
-           "|" + "---|" * cols]
-    for r in rows[1:]:
-        out.append("| " + " | ".join(esc(c) for c in r + [""] * (cols - len(r))) + " |")
-    return "\n".join(out) + "\n"
-
-
-def preview_text(name: str, text: str) -> str:
-    return csv_to_markdown(text) if name.lower().endswith(".csv") else text
-
-
-_NUMBER = re.compile(r"-?\d+(\.\d+)?")
-
-
-def _col(i: int) -> str:
-    s = ""
-    i += 1
-    while i:
-        i, r = divmod(i - 1, 26)
-        s = chr(65 + r) + s
-    return s
-
-
-def csv_to_xlsx(text: str, sheet: str = "Tableau") -> bytes:
-    """An Excel workbook from a CSV deliverable: one sheet, the header row in bold and frozen,
-    plain numbers as numbers (« 1'250.50 » too), everything else as text. No dependency."""
-    rows = csv_rows(text)
-    x = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
-    widths = {}
-    data = []
-    for ri, r in enumerate(rows, 1):
-        cells = []
-        for ci, v in enumerate(r):
-            ref = f"{_col(ci)}{ri}"
-            widths[ci] = min(60, max(widths.get(ci, 8), len(v) + 2))
-            num = v.replace("'", "").replace("\u2019", "").replace(" ", "")
-            style = ' s="1"' if ri == 1 else ""
-            if ri > 1 and v and _NUMBER.fullmatch(num) and not (num.startswith("0") and len(num) > 1
-                                                               and not num.startswith("0.")):
-                cells.append(f'<c r="{ref}"{style}><v>{num}</v></c>')
-            elif v:
-                cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t xml:space="preserve">'
-                             f'{escape(v)}</t></is></c>')
-        data.append(f'<row r="{ri}">{"".join(cells)}</row>')
-    cols = "".join(f'<col min="{i + 1}" max="{i + 1}" width="{w}" customWidth="1"/>'
-                   for i, w in sorted(widths.items()))
-    sheet_xml = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet {x}>'
-                 '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
-                 'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-                 + (f"<cols>{cols}</cols>" if cols else "")
-                 + f'<sheetData>{"".join(data)}</sheetData></worksheet>')
-    name = escape(re.sub(r"[\[\]:*?/\\]", " ", sheet)[:31] or "Tableau")
-    files = {
-        "[Content_Types].xml": (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-            '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-            '</Types>'),
-        "_rels/.rels": (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
-            '</Relationships>'),
-        "xl/_rels/workbook.xml.rels": (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-            '</Relationships>'),
-        "xl/workbook.xml": (
-            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook {x} '
-            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            f'<sheets><sheet name="{name}" sheetId="1" r:id="rId1"/></sheets></workbook>'),
-        "xl/styles.xml": (
-            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet {x}>'
-            '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
-            '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
-            '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
-            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
-            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-            '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-            '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
-            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
-            '</styleSheet>'),
-        "xl/worksheets/sheet1.xml": sheet_xml,
-    }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for k, v in files.items():
-            z.writestr(k, v)
-    return buf.getvalue()
-
+# ---- tables: a table deliverable (a « .csv », or Markdown with `format: xlsx`) is read,
+# previewed and rendered by `outputs` (csv_rows / preview / render) — one implementation.
 
 # ---- Word export ---------------------------------------------------------------------------
 _CT = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
