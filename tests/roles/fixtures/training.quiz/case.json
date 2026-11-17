@@ -1,0 +1,16 @@
+{
+  "template": "training.quiz",
+  "lang": "fr",
+  "ask": "Prépare un quiz de 10 questions sur nos règles d'hygiène pour les nouveaux vendeurs, avec le corrigé à part.",
+  "documents": [
+    {"name": "Règles d'hygiène personnel de vente v3.docx", "source": "regles-hygiene.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["30 secondes"],
+    ["5 °C", "5°C", "5 degrés"],
+    ["pince"],
+    ["24 heures", "24 h"],
+    ["14h00", "14 h", "14:00"],
+    ["Martine Despland", "responsable qualité"]
+  ]
+}

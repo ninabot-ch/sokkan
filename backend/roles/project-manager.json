@@ -1,0 +1,320 @@
+{
+  "id": "project-manager",
+  "order": 80,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Chef·fe de projet",
+      "description": "Rapports d'avancement, risques, plannings, comités de pilotage et bilans de projet.",
+      "project": "Projets"
+    },
+    "en": {
+      "label": "Project manager",
+      "description": "Status reports, risks, schedules, steering committees and project closure.",
+      "project": "Projects"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "L'état d'un projet (vert, orange, rouge) et les dates annoncées restent votre décision : l'agent propose, avec ses raisons."},
+        "en": {"text": "A project's status (green, amber, red) and the dates announced remain your decision: the agent proposes, with its reasons."}
+      },
+      "agent": "Never state a project status, a go-live date or a budget forecast as decided: propose it, give the facts from the documents that support it, and list it under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les dates, budgets, avancements et responsables viennent des documents ; ce qui manque reste « à définir »."},
+        "en": {"text": "Dates, budgets, progress and owners come from the documents; what is missing stays « to be defined »."}
+      },
+      "agent": "Copy every date, amount, percentage of progress and owner exactly from the documents or the request; when one is missing write « [à définir] ». Show how any computed figure (variance, remaining budget, delay in days) was calculated."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Un écart entre deux documents (planning et compte rendu, budget et facture) est signalé, jamais arrangé en silence."},
+        "en": {"text": "A gap between two documents (schedule and minutes, budget and invoice) is flagged, never quietly smoothed over."}
+      },
+      "agent": "When two documents disagree on a date, an amount, a scope or an owner, show both versions with their source and flag the gap; never pick one silently."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les appréciations sur les personnes (performance, conflits) n'ont pas leur place dans un rapport de projet ; elles relèvent des RH, dans un projet « Confidentiel »."},
+        "en": {"text": "Judgements on people (performance, conflicts) do not belong in a project report; they belong to HR, in a « Confidential » project."}
+      },
+      "agent": "Describe issues by facts, tasks and roles, never by judging a named person's performance or behaviour; if the documents contain such judgements, leave them out and tell the person in one sentence that they belong in a confidential HR project."
+    }
+  ],
+  "templates": [
+    {
+      "id": "status-report",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Rapport d'avancement",
+          "description": "Météo du projet pour la direction",
+          "hint": "Quel projet, quelle période ? Ex. « Rapport d'avancement du projet ERP, octobre 2026, pour le comité »",
+          "attach": "Le planning à jour, le suivi budgétaire, les derniers comptes rendus, le registre des risques",
+          "produces": "Un rapport : météo proposée, jalons atteints et à venir, budget consommé, risques et décisions attendues",
+          "deliverable": "Rapport d'avancement",
+          "checks": ["La météo proposée (vert, orange, rouge)", "Les chiffres du budget et leur calcul", "Les décisions demandées à la direction"]
+        },
+        "en": {
+          "label": "Status report",
+          "description": "Project health for management",
+          "hint": "Which project, which period? E.g. “Status report of the ERP project, October 2026, for the committee”",
+          "attach": "The updated schedule, the budget follow-up, the latest minutes, the risk register",
+          "produces": "A report: proposed status, milestones reached and ahead, budget spent, risks and decisions needed",
+          "deliverable": "Status report",
+          "checks": ["The proposed status (green, amber, red)", "The budget figures and their calculation", "The decisions asked of management"]
+        }
+      },
+      "mission": "Write the status report of a project for the period requested. What the person asked for: {subject}\n\nOpen with a proposed status (green / amber / red) for scope, schedule and budget, each justified in one line from the documents. Compare planned and actual milestone dates in a table, with the delay in days. Show budget spent versus budget approved with the calculation. End with the top risks and the decisions management is asked to take, each with a deadline."
+    },
+    {
+      "id": "risk-register",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Registre des risques",
+          "description": "Risques notés, mesures, responsables",
+          "hint": "Quel projet ? Ex. « Registre des risques du déménagement de l'entrepôt, depuis l'atelier du 10.11 »",
+          "attach": "Les notes d'atelier risques, les comptes rendus, le planning, l'ancien registre s'il existe",
+          "produces": "Un tableau Excel : risque, cause, impact, probabilité, gravité, score, mesure, responsable, échéance, source",
+          "deliverable": "Registre des risques",
+          "checks": ["Les cotations probabilité et gravité", "Les responsables et échéances des mesures", "Les risques fusionnés ou absents"]
+        },
+        "en": {
+          "label": "Risk register",
+          "description": "Risks scored, actions, owners",
+          "hint": "Which project? E.g. “Risk register of the warehouse move, from the workshop of 10.11”",
+          "attach": "The risk workshop notes, the minutes, the schedule, the previous register if any",
+          "produces": "An Excel table: risk, cause, impact, likelihood, severity, score, action, owner, deadline, source",
+          "deliverable": "Risk register",
+          "checks": ["The likelihood and severity ratings", "Owners and deadlines of the actions", "Risks merged or missing"]
+        }
+      },
+      "mission": "Build the risk register of a project from the documents attached. What the person asked for: {subject}\n\nColumns: N°, Risque, Cause, Impact, Probabilité (1-4), Gravité (1-4), Score, Mesure, Responsable, Échéance, Statut, Source, À vérifier. Score = Probabilité × Gravité, computed. Use only the ratings the documents give; when a rating is missing leave it empty and mark the row « À vérifier ». Sort by score, highest first, and merge risks that the documents describe twice, naming both sources."
+    },
+    {
+      "id": "project-charter",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Charte de projet",
+          "description": "Cadrer avant de démarrer",
+          "hint": "Quel projet, qui le commande ? Ex. « Charte du projet de nouveau site web, mandant : la direction »",
+          "attach": "La demande ou l'idée de projet, le budget alloué, les notes de cadrage, les offres reçues",
+          "produces": "Une charte : contexte, objectifs mesurables, périmètre (inclus, exclu), jalons, budget, rôles, risques majeurs",
+          "deliverable": "Charte de projet",
+          "checks": ["Les objectifs et leur mesure", "Le périmètre exclu", "Le mandant, le chef de projet et le budget"]
+        },
+        "en": {
+          "label": "Project charter",
+          "description": "Frame it before starting",
+          "hint": "Which project, who commissions it? E.g. “Charter of the new website project, sponsor: management”",
+          "attach": "The project request or idea, the budget allocated, the framing notes, the quotes received",
+          "produces": "A charter: context, measurable objectives, scope (in, out), milestones, budget, roles, main risks",
+          "deliverable": "Project charter",
+          "checks": ["The objectives and how they are measured", "What is out of scope", "The sponsor, the project manager and the budget"]
+        }
+      },
+      "mission": "Write the charter of a project. What the person asked for: {subject}\n\nState the context and the problem in five lines, then objectives that can be measured, each with its indicator. Separate what is in scope from what is explicitly out of scope. List the main milestones, the budget and its source, and the roles (sponsor, project manager, team, steering committee) as named in the documents. Any objective, date or role the documents do not give stays « [à définir] »."
+    },
+    {
+      "id": "schedule",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Planning ou rétroplanning",
+          "description": "Étapes, jalons, dépendances",
+          "hint": "Quelle échéance finale ? Ex. « Rétroplanning de l'ouverture de la succursale au 01.03.2027 »",
+          "attach": "La date cible, la liste des tâches ou les notes de réunion, les délais des fournisseurs",
+          "produces": "Un planning par phase : tâches, responsables, durées, dates, dépendances et chemin critique",
+          "deliverable": "Planning",
+          "checks": ["Les durées et délais fournisseurs", "Les dépendances entre tâches", "Les marges avant l'échéance"]
+        },
+        "en": {
+          "label": "Schedule or backward plan",
+          "description": "Steps, milestones, dependencies",
+          "hint": "Which final deadline? E.g. “Backward plan for opening the branch on 01.03.2027”",
+          "attach": "The target date, the task list or meeting notes, the suppliers' lead times",
+          "produces": "A schedule by phase: tasks, owners, durations, dates, dependencies and critical path",
+          "deliverable": "Schedule",
+          "checks": ["Durations and supplier lead times", "Dependencies between tasks", "The slack before the deadline"]
+        }
+      },
+      "mission": "Build the schedule of a project; when a final deadline is given, plan backwards from it. What the person asked for: {subject}\n\nGroup tasks by phase, each with owner, duration, start and end date, and the tasks it depends on. Take lead times from the documents and count in working days unless they say otherwise. Name the critical path and the slack left before the deadline. When the dates cannot fit, say by how many days and which tasks cause it, rather than compressing durations."
+    },
+    {
+      "id": "steering-minutes",
+      "brief": "minutes",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Compte rendu de comité de pilotage",
+          "description": "Décisions et arbitrages du COPIL",
+          "hint": "Quel comité, quelle date ? Ex. « Compte rendu du COPIL du 12.11.2026, depuis mes notes »",
+          "attach": "Vos notes ou la transcription, la présentation montrée, le rapport d'avancement",
+          "produces": "Un compte rendu : présences, état présenté, décisions numérotées, arbitrages, actions avec responsables",
+          "deliverable": "Compte rendu de COPIL",
+          "checks": ["La formulation des décisions et arbitrages", "Les responsables et échéances des actions", "Les chiffres repris de la présentation"]
+        },
+        "en": {
+          "label": "Steering committee minutes",
+          "description": "Decisions and trade-offs of the committee",
+          "hint": "Which committee, which date? E.g. “Minutes of the steering committee of 12.11.2026, from my notes”",
+          "attach": "Your notes or the transcript, the slides shown, the status report",
+          "produces": "Minutes: attendance, status presented, numbered decisions, trade-offs, actions with owners",
+          "deliverable": "Steering minutes",
+          "checks": ["The wording of decisions and trade-offs", "Owners and deadlines of the actions", "The figures taken from the slides"]
+        }
+      },
+      "mission": "Write the minutes of a project steering committee. What the person asked for: {subject}\n\nRecord the status presented (scope, schedule, budget) with the figures as given, then each item discussed. Number the decisions (D1, D2…) and state each trade-off with what was given up. Gather every action in a final table (action, owner, deadline). When the notes and the attached report disagree on a figure or a date, show both and flag it."
+    },
+    {
+      "id": "communication-plan",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Plan de communication du projet",
+          "description": "Qui informer, quand, comment",
+          "hint": "Quel projet, quels publics ? Ex. « Plan de communication du changement de logiciel de caisse, collaborateurs et clients »",
+          "attach": "La charte ou le planning du projet, la liste des parties prenantes, les canaux disponibles",
+          "produces": "Un plan : publics, messages clés, canal, émetteur, date, et un calendrier récapitulatif",
+          "deliverable": "Plan de communication",
+          "checks": ["Les publics oubliés", "Les émetteurs de chaque message", "Les dates liées aux jalons"]
+        },
+        "en": {
+          "label": "Project communication plan",
+          "description": "Whom to tell, when, how",
+          "hint": "Which project, which audiences? E.g. “Communication plan for the new till software, staff and customers”",
+          "attach": "The project charter or schedule, the list of stakeholders, the channels available",
+          "produces": "A plan: audiences, key messages, channel, sender, date, and a summary calendar",
+          "deliverable": "Communication plan",
+          "checks": ["Audiences left out", "The sender of each message", "Dates tied to milestones"]
+        }
+      },
+      "mission": "Write the communication plan of a project. What the person asked for: {subject}\n\nList the audiences found in the documents with what each needs to know and what the project needs from them. For each communication give the message in one sentence, channel, sender, date and the milestone it is tied to. Use only channels and senders named in the documents or the memory. End with a calendar table in date order."
+    },
+    {
+      "id": "change-request",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Analyse d'une demande de changement",
+          "description": "Impact sur délai, coût, périmètre",
+          "hint": "Quelle demande ? Ex. « Le client veut ajouter un module de réservation : impact sur le projet »",
+          "attach": "La demande de changement, la charte ou le contrat, le planning et le budget actuels, l'offre du fournisseur",
+          "produces": "Une note de décision : la demande, son impact sur délai, coût et périmètre, les options et une recommandation",
+          "deliverable": "Note de changement",
+          "checks": ["Les montants et jours supplémentaires", "L'impact sur les autres jalons", "Qui doit approuver"]
+        },
+        "en": {
+          "label": "Change request analysis",
+          "description": "Impact on time, cost, scope",
+          "hint": "Which request? E.g. “The client wants a booking module added: impact on the project”",
+          "attach": "The change request, the charter or contract, the current schedule and budget, the supplier's quote",
+          "produces": "A decision note: the request, its impact on time, cost and scope, the options and a recommendation",
+          "deliverable": "Change note",
+          "checks": ["The extra amounts and days", "The impact on other milestones", "Who must approve"]
+        }
+      },
+      "mission": "Analyse a change request for the decision-maker. What the person asked for: {subject}\n\nRestate the request in three lines, then its impact on schedule (days, milestones moved), cost (amounts from the quotes, with the calculation) and scope. Check whether the charter or contract already covers it. Give two or three options (accept, defer, refuse or reduce), each with its consequence, then a proposed recommendation marked as a proposal."
+    },
+    {
+      "id": "closure-report",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Bilan de fin de projet",
+          "description": "Résultats, écarts, leçons apprises",
+          "hint": "Quel projet ? Ex. « Bilan du projet de migration de la messagerie, terminé fin octobre »",
+          "attach": "La charte de départ, le dernier rapport d'avancement, le budget final, les retours de l'équipe",
+          "produces": "Un bilan : objectifs atteints ou non, écarts de délai et de coût, leçons apprises, points ouverts à transmettre",
+          "deliverable": "Bilan de projet",
+          "checks": ["Les écarts calculés (délai, coût)", "Les objectifs déclarés atteints", "Les points ouverts et leur repreneur"]
+        },
+        "en": {
+          "label": "Project closure report",
+          "description": "Results, gaps, lessons learned",
+          "hint": "Which project? E.g. “Closure report of the e-mail migration project, finished end of October”",
+          "attach": "The initial charter, the last status report, the final budget, the team's feedback",
+          "produces": "A report: objectives met or not, schedule and cost variances, lessons learned, open points to hand over",
+          "deliverable": "Closure report",
+          "checks": ["The computed variances (time, cost)", "The objectives declared met", "Open points and who takes them over"]
+        }
+      },
+      "mission": "Write the closure report of a project. What the person asked for: {subject}\n\nCompare each objective of the charter with the result reported, saying met, partly met or not met, with the evidence. Compute schedule and cost variances against the initial plan, showing the calculation. Turn the team's feedback into lessons learned worded as what to keep and what to change. List the open points to hand over, each with a proposed owner from the documents."
+    }
+  ],
+  "notes": [
+    {
+      "name": "projet-methode-et-gouvernance",
+      "i18n": {
+        "fr": {
+          "title": "Méthode et gouvernance des projets",
+          "description": "Comment vos projets sont conduits : phases, instances, qui décide quoi, seuils d'escalade — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment vos projets sont gouvernés. Remplacez chaque blanc par votre pratique.\n\n- Méthode utilisée : [À compléter : ex. phases classiques, agile, mixte]\n- Phases et jalons standard : [À compléter : ex. cadrage, conception, réalisation, mise en service, clôture]\n- Comité de pilotage (rythme, membres par fonction) : [À compléter]\n- Qui approuve un changement de périmètre, de budget, de date : [À compléter]\n- Seuil d'escalade à la direction : [À compléter : ex. retard de plus de 10 jours ouvrables ou dépassement de CHF 5'000.00]"
+        },
+        "en": {
+          "title": "Project method and governance",
+          "description": "How your projects are run: phases, bodies, who decides what, escalation thresholds — for the team to fill in.",
+          "body": "This note tells the agent how your projects are governed. Replace each blank with your practice.\n\n- Method used: [To fill: e.g. classic phases, agile, mixed]\n- Standard phases and milestones: [To fill: e.g. framing, design, build, go-live, closure]\n- Steering committee (rhythm, members by function): [To fill]\n- Who approves a change of scope, budget or date: [To fill]\n- Escalation threshold to management: [To fill: e.g. delay over 10 working days or overrun above CHF 5,000.00]"
+        }
+      }
+    },
+    {
+      "name": "projet-meteo-et-cotation",
+      "i18n": {
+        "fr": {
+          "title": "Météo des projets et cotation des risques",
+          "description": "Ce que veulent dire vert, orange et rouge chez vous, et l'échelle de cotation des risques — à compléter par l'équipe.",
+          "body": "L'agent propose une météo et une cotation selon ces règles.\n\n| Couleur | Délai | Budget | Périmètre |\n|---|---|---|---|\n| Vert | [À compléter : ex. jalons tenus] | [À compléter] | [À compléter] |\n| Orange | [À compléter : ex. retard récupérable] | [À compléter] | [À compléter] |\n| Rouge | [À compléter] | [À compléter] | [À compléter] |\n\n- Échelle de probabilité (1 à 4) et ce que veut dire chaque niveau : [À compléter]\n- Échelle de gravité (1 à 4) : [À compléter]\n- Score à partir duquel un risque va au comité : [À compléter]"
+        },
+        "en": {
+          "title": "Project status colours and risk scoring",
+          "description": "What green, amber and red mean in your organisation, and the risk rating scale — for the team to fill in.",
+          "body": "The agent proposes a status and a rating following these rules.\n\n| Colour | Schedule | Budget | Scope |\n|---|---|---|---|\n| Green | [To fill: e.g. milestones met] | [To fill] | [To fill] |\n| Amber | [To fill: e.g. recoverable delay] | [To fill] | [To fill] |\n| Red | [To fill] | [To fill] | [To fill] |\n\n- Likelihood scale (1 to 4) and what each level means: [To fill]\n- Severity scale (1 to 4): [To fill]\n- Score from which a risk goes to the committee: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "projet-portefeuille-en-cours",
+      "i18n": {
+        "fr": {
+          "title": "Portefeuille des projets en cours",
+          "description": "La liste de vos projets, leur mandant, leur chef de projet et leur échéance — à compléter par l'équipe.",
+          "body": "L'agent s'appuie sur cette liste pour nommer les projets et leurs responsables correctement.\n\n| Projet | Mandant (fonction) | Chef·fe de projet (fonction) | Budget approuvé | Échéance |\n|---|---|---|---|---|\n| [À compléter] | [À compléter] | [À compléter] | [À compléter] | [À compléter] |\n\n- Où se trouvent les plannings et budgets de référence : [À compléter]\n- Dépendances connues entre projets : [À compléter]"
+        },
+        "en": {
+          "title": "Portfolio of current projects",
+          "description": "The list of your projects, their sponsor, their project manager and their deadline — for the team to fill in.",
+          "body": "The agent relies on this list to name projects and their owners correctly.\n\n| Project | Sponsor (function) | Project manager (function) | Approved budget | Deadline |\n|---|---|---|---|---|\n| [To fill] | [To fill] | [To fill] | [To fill] | [To fill] |\n\n- Where the reference schedules and budgets are kept: [To fill]\n- Known dependencies between projects: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "projet-modele-rapport",
+      "i18n": {
+        "fr": {
+          "title": "Modèle maison du rapport d'avancement",
+          "description": "Les rubriques, la longueur et le destinataire de vos rapports d'avancement — à compléter par l'équipe.",
+          "body": "Si votre direction attend un format précis, décrivez-le ici.\n\n- Destinataires et rythme : [À compléter : ex. direction, chaque fin de mois]\n- Rubriques dans l'ordre : [À compléter : ex. météo, faits marquants, jalons, budget, risques, décisions attendues]\n- Longueur maximale : [À compléter : ex. une page]\n- Indicateurs obligatoires : [À compléter]"
+        },
+        "en": {
+          "title": "House template for status reports",
+          "description": "The sections, length and readers of your status reports — for the team to fill in.",
+          "body": "If your management expects a specific format, describe it here.\n\n- Readers and rhythm: [To fill: e.g. management, at the end of each month]\n- Sections in order: [To fill: e.g. status, highlights, milestones, budget, risks, decisions needed]\n- Maximum length: [To fill: e.g. one page]\n- Mandatory indicators: [To fill]"
+        }
+      }
+    }
+  ]
+}

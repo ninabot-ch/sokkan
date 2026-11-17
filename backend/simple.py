@@ -32,8 +32,8 @@ import documents
 import plain
 
 DELIVERABLES = "deliverables"
-PREVIEW_EXT = ("md", "markdown", "txt")
-LISTED_EXT = PREVIEW_EXT + ("csv", "html", "json")
+PREVIEW_EXT = ("md", "markdown", "txt", "csv")   # csv (4.0 job kits): previewed as a table
+LISTED_EXT = PREVIEW_EXT + ("html", "json")
 MAX_DELIVERABLE = 5 * 1024 * 1024
 
 DB = Path(os.environ.get("SOKKAN_SIMPLE_DB") or os.path.join(
@@ -64,6 +64,9 @@ def _con() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS messages_sent (
             sid TEXT NOT NULL, request_id TEXT NOT NULL, at REAL NOT NULL,
             PRIMARY KEY (sid, request_id)
+        );
+        CREATE TABLE IF NOT EXISTS project_roles (
+            project TEXT PRIMARY KEY, role TEXT NOT NULL, by TEXT NOT NULL DEFAULT '', at REAL NOT NULL
         );
         CREATE TABLE IF NOT EXISTS validations (
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, by TEXT NOT NULL,
@@ -146,6 +149,22 @@ def forget(sid: str) -> None:
     con.close()
 
 
+# ---- the job a project was set up for (4.0 job kits) -------------------------------------------
+def bind_project_role(project: str, role: str, by: str = "") -> None:
+    con = _con()
+    con.execute("INSERT OR REPLACE INTO project_roles(project, role, by, at) VALUES(?,?,?,?)",
+                (project, role, (by or "").lower().strip(), time.time()))
+    con.commit()
+    con.close()
+
+
+def project_role(project: str) -> str:
+    con = _con()
+    r = con.execute("SELECT role FROM project_roles WHERE project=?", (project,)).fetchone()
+    con.close()
+    return r[0] if r else ""
+
+
 # ---- the brief -----------------------------------------------------------------------------
 LANG_NAME = {"fr": "French", "en": "English"}
 
@@ -185,7 +204,7 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
                      "sentence and continue with what the person gave you.")
     lines += [
         "- When the result is a document (a plan, a summary, a proposal, a quiz…), SAVE it as "
-        f"ONE Markdown file in the folder {d} — give the file a clear title in the "
+        f"ONE Markdown file (or the « .csv » table the task asks for) in the folder {d} — give the file a clear title in the "
         "person's language as its name (for example « Plan de formation Excel.md ») and start "
         "it with a `# Title` line. The person is asked to approve the save, then previews, "
         "downloads and validates it: do not paste the whole document in the chat. When they "
@@ -327,7 +346,8 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
         sha = _sha(p) if st.st_size <= MAX_DELIVERABLE else ""
         history = vals.get(p.name, [])
         current = next((v for v in reversed(history) if v["sha256"] == sha), None)
-        title = plain.human_title(p.name)
+        # a table (4.0 job kits) is titled by its name, without « .csv »
+        title = plain.human_title(p.stem + ".md" if ext == "csv" else p.name)
         if ext in ("md", "markdown") and st.st_size <= MAX_DELIVERABLE:
             try:
                 with open(p, encoding="utf-8", errors="replace") as f:
@@ -395,6 +415,126 @@ def save_text(project: str, sid: str, title: str, text: str, model: str = "") ->
     (base / name).write_text(body, encoding="utf-8")
     note_write(sid, name, f"manual-{int(time.time() * 1000)}", model)
     return name
+
+
+# ---- tables (4.0 job kits: a deliverable « xlsx » is a CSV the agent saves) -----------------
+def csv_rows(text: str, limit: int = 5000) -> list[list[str]]:
+    """The rows of a CSV deliverable — comma or semicolon, whichever the header uses."""
+    import csv
+    text = (text or "").lstrip("\ufeff")
+    first = text.split("\n", 1)[0]
+    delim = ";" if first.count(";") > first.count(",") else ","
+    rows = []
+    for row in csv.reader(io.StringIO(text), delimiter=delim):
+        if any(c.strip() for c in row):
+            rows.append([c.strip() for c in row])
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def csv_to_markdown(text: str) -> str:
+    """A CSV deliverable as the Markdown table the Atelier's preview renders."""
+    rows = csv_rows(text, 2000)
+    if not rows:
+        return ""
+    cols = max(len(r) for r in rows)
+    esc = lambda c: c.replace("|", "\\|").replace("\n", " ")   # noqa: E731
+    out = ["| " + " | ".join(esc(c) for c in rows[0] + [""] * (cols - len(rows[0]))) + " |",
+           "|" + "---|" * cols]
+    for r in rows[1:]:
+        out.append("| " + " | ".join(esc(c) for c in r + [""] * (cols - len(r))) + " |")
+    return "\n".join(out) + "\n"
+
+
+def preview_text(name: str, text: str) -> str:
+    return csv_to_markdown(text) if name.lower().endswith(".csv") else text
+
+
+_NUMBER = re.compile(r"-?\d+(\.\d+)?")
+
+
+def _col(i: int) -> str:
+    s = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def csv_to_xlsx(text: str, sheet: str = "Tableau") -> bytes:
+    """An Excel workbook from a CSV deliverable: one sheet, the header row in bold and frozen,
+    plain numbers as numbers (« 1'250.50 » too), everything else as text. No dependency."""
+    rows = csv_rows(text)
+    x = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    widths = {}
+    data = []
+    for ri, r in enumerate(rows, 1):
+        cells = []
+        for ci, v in enumerate(r):
+            ref = f"{_col(ci)}{ri}"
+            widths[ci] = min(60, max(widths.get(ci, 8), len(v) + 2))
+            num = v.replace("'", "").replace("\u2019", "").replace(" ", "")
+            style = ' s="1"' if ri == 1 else ""
+            if ri > 1 and v and _NUMBER.fullmatch(num) and not (num.startswith("0") and len(num) > 1
+                                                               and not num.startswith("0.")):
+                cells.append(f'<c r="{ref}"{style}><v>{num}</v></c>')
+            elif v:
+                cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t xml:space="preserve">'
+                             f'{escape(v)}</t></is></c>')
+        data.append(f'<row r="{ri}">{"".join(cells)}</row>')
+    cols = "".join(f'<col min="{i + 1}" max="{i + 1}" width="{w}" customWidth="1"/>'
+                   for i, w in sorted(widths.items()))
+    sheet_xml = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet {x}>'
+                 '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+                 'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+                 + (f"<cols>{cols}</cols>" if cols else "")
+                 + f'<sheetData>{"".join(data)}</sheetData></worksheet>')
+    name = escape(re.sub(r"[\[\]:*?/\\]", " ", sheet)[:31] or "Tableau")
+    files = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            '</Types>'),
+        "_rels/.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            '</Relationships>'),
+        "xl/_rels/workbook.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            '</Relationships>'),
+        "xl/workbook.xml": (
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook {x} '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<sheets><sheet name="{name}" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+        "xl/styles.xml": (
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet {x}>'
+            '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+            '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+            '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            '</styleSheet>'),
+        "xl/worksheets/sheet1.xml": sheet_xml,
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for k, v in files.items():
+            z.writestr(k, v)
+    return buf.getvalue()
 
 
 # ---- Word export ---------------------------------------------------------------------------

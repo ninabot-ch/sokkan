@@ -1,0 +1,305 @@
+{
+  "id": "legal",
+  "order": 70,
+  "level": "confidential",
+  "claude": false,
+  "i18n": {
+    "fr": {
+      "label": "Juridique et conformité",
+      "description": "Revue de contrats, protection des données (nLPD), synthèses réglementaires, conformité et préparation des dossiers pour l'avocat.",
+      "project": "Juridique"
+    },
+    "en": {
+      "label": "Legal and compliance",
+      "description": "Contract review, data protection (Swiss FADP), regulatory summaries, compliance and preparing files for counsel.",
+      "project": "Legal"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "L'agent ne donne jamais d'avis juridique : il prépare le travail pour un·e juriste ou un·e avocat·e, qui conclut."},
+        "en": {"text": "The agent never gives legal advice: it prepares the work for a lawyer or legal counsel, who concludes."}
+      },
+      "agent": "Never state a legal conclusion as certain (« cette clause est nulle », « vous avez droit à… »): describe what the document says, the issue it raises and the question a qualified lawyer must answer, and present every deliverable as a preparation for that person."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Contrats, litiges et données personnelles sont confidentiels : ce poste travaille dans un projet « Confidentiel », avec le modèle local uniquement, jamais avec Claude."},
+        "en": {"text": "Contracts, disputes and personal data are confidential: this job works in a « Confidential » project, with the local model only, never with Claude."}
+      },
+      "agent": "Treat every document as confidential and possibly covered by professional secrecy: use only what the deliverable needs, never suggest sending a document to an external service, and keep personal data of third parties to the minimum the task requires."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Chaque clause est citée mot pour mot avec son article ; une loi n'est mentionnée que si un document fourni la cite, et toujours « à vérifier dans le texte en vigueur »."},
+        "en": {"text": "Every clause is quoted word for word with its article; a law is mentioned only if a document provided cites it, and always « to be checked in the current text »."}
+      },
+      "agent": "Quote every clause word for word with its article or page; cite a law, ordinance or article number only when a document provided names it, and mark every such reference « à vérifier dans le texte en vigueur »; never quote a law from memory."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Aucun courrier ne part à une partie adverse sans validation : les réponses sont des brouillons pour l'avocat·e."},
+        "en": {"text": "No letter goes to an opposing party without approval: replies are drafts for counsel."}
+      },
+      "agent": "Mark every letter to a counterparty or an authority « PROJET — à valider par le conseil juridique » at the top; never admit a fault, waive a right or accept a claim in it, and list every statement that could be read as an admission under « Points to confirm »."
+    }
+  ],
+  "templates": [
+    {
+      "id": "contract-review",
+      "brief": "review",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Revue de contrat",
+          "description": "Clauses à risque et questions",
+          "hint": "Quel contrat, de quel point de vue ? Ex. « Revue du contrat de maintenance proposé par notre fournisseur informatique, côté client »",
+          "attach": "Le contrat (et ses annexes, CG), vos conditions habituelles ou l'ancien contrat",
+          "produces": "Une revue : points essentiels, tableau clause par clause (citation, enjeu, formulation proposée ou question), clauses manquantes, questions pour le juriste",
+          "deliverable": "Revue de contrat",
+          "checks": ["Chaque enjeu relevé, par un·e juriste", "Les durées, délais de résiliation et montants", "Les annexes et CG auxquelles le contrat renvoie"]
+        },
+        "en": {
+          "label": "Contract review",
+          "description": "Risky clauses and questions",
+          "hint": "Which contract, from whose side? E.g. “Review of the maintenance contract proposed by our IT supplier, customer side”",
+          "attach": "The contract (and its annexes, T&Cs), your usual terms or the previous contract",
+          "produces": "A review: key points, clause-by-clause table (quote, issue, suggested wording or question), missing clauses, questions for counsel",
+          "deliverable": "Contract review",
+          "checks": ["Each issue raised, by a lawyer", "Durations, notice periods and amounts", "Annexes and T&Cs the contract refers to"]
+        }
+      },
+      "mission": "Review a contract for the organisation. What the person asked for: {subject}\n\nFirst identify the parties, the object, the duration, the price and the notice periods, quoting the articles. Then go through the clauses that carry risk (liability and its caps, warranty, price changes, automatic renewal, termination, penalties, intellectual property, data protection and subcontracting, confidentiality, applicable law and jurisdiction) and, for each, quote it, explain the issue from the organisation's side and propose a wording or a question. Flag inconsistencies between articles or with the annexes, and any document the contract refers to that is not attached. Compare with the organisation's usual terms when the memory or the documents give them."
+    },
+    {
+      "id": "processing-register",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Registre des traitements (nLPD)",
+          "description": "Le registre depuis vos processus",
+          "hint": "Pour quel périmètre ? Ex. « Registre des traitements des RH et de la facturation, d'après l'inventaire de nos outils »",
+          "attach": "La liste de vos outils et prestataires, vos processus, la déclaration de protection des données existante",
+          "produces": "Un tableau Excel : traitement, finalité, catégories de personnes et de données, destinataires, prestataire, pays de communication, durée de conservation, mesures, source",
+          "deliverable": "Registre des traitements",
+          "checks": ["Les durées de conservation", "Les communications à l'étranger et leurs garanties", "Les traitements oubliés"]
+        },
+        "en": {
+          "label": "Record of processing (FADP)",
+          "description": "The record from your processes",
+          "hint": "For which scope? E.g. “Record of processing for HR and invoicing, from our tool inventory”",
+          "attach": "The list of your tools and providers, your processes, the existing privacy notice",
+          "produces": "An Excel table: processing, purpose, categories of persons and data, recipients, provider, countries of disclosure, retention, measures, source",
+          "deliverable": "Record of processing",
+          "checks": ["Retention periods", "Disclosures abroad and their safeguards", "Processing activities left out"]
+        }
+      },
+      "mission": "Build the record of processing activities of the organisation (Swiss data protection). What the person asked for: {subject}\n\nColumns: Traitement, Finalité, Personnes concernées, Catégories de données, Données sensibles (oui/non), Destinataires, Sous-traitant, Pays de communication, Durée de conservation, Mesures de sécurité, Source, À vérifier. One row per processing activity, not per tool; a tool used for several purposes appears in each row concerned. Take every provider, country and retention period from the documents; leave the cell empty and mark the row « À vérifier » when the documents do not say. Mark « À vérifier » any disclosure to a country outside Switzerland and any sensitive data (health, union membership, criminal records)."
+    },
+    {
+      "id": "regulatory-summary",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Synthèse réglementaire",
+          "description": "Ce qu'un texte change pour nous",
+          "hint": "Quel texte, pour qui ? Ex. « Ce que la nouvelle ordonnance jointe change pour notre entreprise de transport, pour la direction »",
+          "attach": "Le texte (loi, ordonnance, directive, circulaire), le communiqué ou le commentaire officiel",
+          "produces": "Une note : ce qui change, pour qui, à partir de quand, ce que l'organisation doit faire, et les questions ouvertes",
+          "deliverable": "Synthèse réglementaire",
+          "checks": ["La date d'entrée en vigueur et les délais transitoires", "Si l'organisation est concernée", "Les obligations relevées, dans le texte"]
+        },
+        "en": {
+          "label": "Regulatory summary",
+          "description": "What a text changes for us",
+          "hint": "Which text, for whom? E.g. “What the attached new ordinance changes for our transport company, for management”",
+          "attach": "The text (act, ordinance, directive, circular), the official press release or commentary",
+          "produces": "A briefing: what changes, for whom, from when, what the organisation must do, and the open questions",
+          "deliverable": "Regulatory summary",
+          "checks": ["The entry into force and transitional periods", "Whether the organisation is concerned", "The obligations found, in the text"]
+        }
+      },
+      "mission": "Summarise a regulatory text for the organisation. What the person asked for: {subject}\n\nGive first, in five lines, what changes, from when and whether the organisation seems concerned (with the criterion of the text that decides it). Then list each obligation with the article that creates it, quoted, the date from which it applies and the transitional period. Separate what the text says from what the organisation would have to do, and the latter from what a specialist must confirm. Use only the documents attached: no case law, no commentary and no other text from memory."
+    },
+    {
+      "id": "compliance-checklist",
+      "brief": "checklist",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Check-list de conformité",
+          "description": "Obligations, responsables, preuves",
+          "hint": "Sur quel sujet ? Ex. « Check-list nLPD pour notre site web et notre newsletter », « Conformité de notre nouveau contrat de bail »",
+          "attach": "Le texte ou la directive de référence, vos procédures, la synthèse réglementaire s'il y en a une",
+          "produces": "Une check-list par domaine : obligation, source, responsable, échéance, preuve, état",
+          "deliverable": "Check-list de conformité",
+          "checks": ["Que chaque obligation provient bien du texte cité", "Les responsables et les échéances", "Les preuves acceptables"]
+        },
+        "en": {
+          "label": "Compliance checklist",
+          "description": "Obligations, owners, proofs",
+          "hint": "On which topic? E.g. “FADP checklist for our website and newsletter”, “Compliance of our new lease”",
+          "attach": "The reference text or directive, your procedures, the regulatory summary if there is one",
+          "produces": "A checklist by area: obligation, source, owner, deadline, proof, status",
+          "deliverable": "Compliance checklist",
+          "checks": ["That each obligation really comes from the text quoted", "Owners and deadlines", "Acceptable proofs"]
+        }
+      },
+      "mission": "Prepare a compliance checklist. What the person asked for: {subject}\n\nGroup the items by area (for example information, consent, security, contracts, records, training). Each item starts with a verb, cites the article or section of the reference document it comes from, and names the proof that shows it is done (document, register entry, screenshot). Compare with the procedures attached and mark each item « en place », « partiel » or « à faire » only when the documents show it; otherwise « à évaluer ». Items from general good practice are marked « (bonne pratique) »."
+    },
+    {
+      "id": "formal-notice-reply",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Réponse à une mise en demeure",
+          "description": "Brouillon pour l'avocat·e",
+          "hint": "Qui réclame quoi ? Ex. « Brouillon de réponse à la mise en demeure du bailleur du 3 novembre, nous contestons le montant »",
+          "attach": "La mise en demeure, le contrat concerné, les échanges et pièces utiles (factures, procès-verbaux, photos décrites)",
+          "produces": "Un brouillon de réponse marqué « projet », avec la chronologie des faits et les points à trancher par l'avocat·e",
+          "deliverable": "Brouillon de réponse",
+          "checks": ["Toute phrase qui pourrait valoir aveu ou renonciation", "Le délai fixé par la mise en demeure", "La position retenue, par l'avocat·e"]
+        },
+        "en": {
+          "label": "Reply to a formal notice",
+          "description": "A draft for counsel",
+          "hint": "Who claims what? E.g. “Draft reply to the landlord's formal notice of 3 November, we dispute the amount”",
+          "attach": "The formal notice, the contract concerned, the exchanges and useful papers (invoices, minutes, photos described)",
+          "produces": "A draft reply marked « draft », with the chronology of facts and the points for counsel to decide",
+          "deliverable": "Draft reply",
+          "checks": ["Any sentence that could read as an admission or a waiver", "The deadline set by the notice", "The position taken, by counsel"]
+        }
+      },
+      "mission": "Prepare a draft reply to a formal notice (« mise en demeure ») for the organisation's lawyer. What the person asked for: {subject}\n\nBefore the letter, give a short chronology of the facts with the source of each and the deadline the notice sets. Then draft the reply in a neutral, firm tone: acknowledge receipt, state the organisation's position as the person gave it, refer to the contract articles and documents by their date, and reserve all rights. Never admit a fault, accept an amount or waive a right; when the person's instruction would do so, flag it for counsel instead of writing it. Mark the letter « PROJET — à valider par le conseil juridique »."
+    },
+    {
+      "id": "contract-deadlines",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Échéancier des contrats",
+          "description": "Résiliations, renouvellements, obligations",
+          "hint": "Quels contrats ? Ex. « Toutes les échéances de nos contrats de bail, leasing et maintenance pour 2027 »",
+          "attach": "Les contrats et avenants en vigueur",
+          "produces": "Un tableau Excel : contrat, partie, début, durée, renouvellement, préavis, date limite de résiliation, montant, source",
+          "deliverable": "Échéancier des contrats",
+          "checks": ["Les dates limites de résiliation calculées", "Les avenants qui modifient une durée ou un préavis", "Les contrats manquants"]
+        },
+        "en": {
+          "label": "Contract deadline tracker",
+          "description": "Terminations, renewals, obligations",
+          "hint": "Which contracts? E.g. “Every deadline of our lease, leasing and maintenance contracts for 2027”",
+          "attach": "The contracts and amendments in force",
+          "produces": "An Excel table: contract, party, start, term, renewal, notice, termination deadline, amount, source",
+          "deliverable": "Contract deadlines",
+          "checks": ["The computed termination deadlines", "Amendments that change a term or a notice period", "Contracts missing"]
+        }
+      },
+      "mission": "Build the deadline tracker of the contracts attached. What the person asked for: {subject}\n\nColumns: Contrat, Cocontractant, Début, Durée, Renouvellement, Préavis, Date limite de résiliation, Montant (CHF), Article, Source, À vérifier. One row per contract (and one per other dated obligation: price review, option, guarantee). The termination deadline is computed from the term and the notice as written, labelled as computed, and the row is marked « À vérifier » when the clause is ambiguous (business days, receipt or dispatch). Order the rows by termination deadline; an amendment replaces the original term only when it says so."
+    },
+    {
+      "id": "breach-procedure",
+      "brief": "procedure",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Procédure de violation de données",
+          "description": "Que faire en cas de fuite",
+          "hint": "Pour quelle organisation, quels outils ? Ex. « Procédure en cas de fuite de données clients, pour toute l'équipe »",
+          "attach": "Votre registre des traitements, vos contrats de sous-traitance, la politique informatique",
+          "produces": "Une procédure : détection, premières mesures, évaluation du risque, annonce à l'autorité et aux personnes, documentation, responsables",
+          "deliverable": "Procédure de violation",
+          "checks": ["Le délai d'annonce, dans le texte en vigueur", "Les personnes à alerter et leurs suppléants", "Les obligations des sous-traitants"]
+        },
+        "en": {
+          "label": "Data breach procedure",
+          "description": "What to do after a leak",
+          "hint": "For which organisation, which tools? E.g. “Procedure for a customer data leak, for the whole team”",
+          "attach": "Your record of processing, your processor contracts, the IT policy",
+          "produces": "A procedure: detection, first measures, risk assessment, notification to the authority and the persons, documentation, owners",
+          "deliverable": "Breach procedure",
+          "checks": ["The notification deadline, in the current text", "People to alert and their deputies", "Processors' obligations"]
+        }
+      },
+      "mission": "Write the procedure to follow after a personal data breach. What the person asked for: {subject}\n\nNumber the steps from detection to closure: contain, inform the internal owner, assess the risk for the persons concerned, decide on notification to the authority and to the persons, document. For each step give the actor and the expected result. Take notification duties and deadlines only from the documents provided, marked « à vérifier dans le texte en vigueur »; take processors' duties from the contracts attached, quoting the article. Add a one-page record template (date, facts, data and persons concerned, measures, decision on notification)."
+    },
+    {
+      "id": "dispute-file",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Dossier de litige pour l'avocat",
+          "description": "Chronologie, pièces, questions",
+          "hint": "Quel litige ? Ex. « Dossier sur le différend avec notre fournisseur de machines, pour la première séance avec l'avocate »",
+          "attach": "Le contrat, les échanges (e-mails, courriers), les factures, procès-verbaux et toute pièce utile",
+          "produces": "Un dossier : résumé, parties, chronologie datée avec pièces, montants en jeu, points forts et faibles tels qu'ils ressortent des pièces, questions pour l'avocat·e",
+          "deliverable": "Dossier de litige",
+          "checks": ["La chronologie et les dates", "Les montants en jeu", "Les pièces manquantes"]
+        },
+        "en": {
+          "label": "Dispute file for counsel",
+          "description": "Chronology, exhibits, questions",
+          "hint": "Which dispute? E.g. “File on the dispute with our machine supplier, for the first meeting with our lawyer”",
+          "attach": "The contract, the exchanges (e-mails, letters), invoices, minutes and any useful paper",
+          "produces": "A file: summary, parties, dated chronology with exhibits, amounts at stake, strengths and weaknesses as the papers show them, questions for counsel",
+          "deliverable": "Dispute file",
+          "checks": ["The chronology and its dates", "The amounts at stake", "Missing exhibits"]
+        }
+      },
+      "mission": "Prepare the file of a dispute for the organisation's lawyer. What the person asked for: {subject}\n\nNumber the documents attached as exhibits (P1, P2…) and build a dated chronology where each event cites its exhibit. State the amounts at stake as the documents give them, with the computation of any total. Separate facts proven by a document from statements of one party only. List the points that favour and weaken the organisation as the documents show them, without predicting the outcome, then the questions for counsel and the exhibits still missing."
+    }
+  ],
+  "notes": [
+    {
+      "name": "juridique-conditions-standard",
+      "i18n": {
+        "fr": {
+          "title": "Nos positions contractuelles standard",
+          "description": "Ce que l'organisation accepte ou refuse habituellement dans un contrat (responsabilité, durée, for, paiement) — à compléter avec le conseil juridique.",
+          "body": "L'agent compare chaque contrat à ces positions. Remplissez-les avec votre juriste.\n\n| Sujet | Notre position habituelle | Limite acceptable |\n|---|---|---|\n| Plafond de responsabilité | [À compléter] | [À compléter] |\n| Durée et reconduction tacite | [À compléter] | [À compléter] |\n| Préavis de résiliation | [À compléter] | [À compléter] |\n| Délai de paiement | [À compléter] | [À compléter] |\n| Droit applicable et for | [À compléter : ex. droit suisse, for à …] | [À compléter] |\n| Sous-traitance et données | [À compléter] | [À compléter] |\n\n- Qui peut signer un contrat, et jusqu'à quel montant : [À compléter]"
+        },
+        "en": {
+          "title": "Our standard contract positions",
+          "description": "What the organisation usually accepts or refuses in a contract (liability, term, jurisdiction, payment) — to fill in with legal counsel.",
+          "body": "The agent compares each contract with these positions. Fill them in with your lawyer.\n\n| Topic | Our usual position | Acceptable limit |\n|---|---|---|\n| Liability cap | [To fill] | [To fill] |\n| Term and tacit renewal | [To fill] | [To fill] |\n| Notice period | [To fill] | [To fill] |\n| Payment term | [To fill] | [To fill] |\n| Applicable law and jurisdiction | [To fill: e.g. Swiss law, courts of …] | [To fill] |\n| Subcontracting and data | [To fill] | [To fill] |\n\n- Who may sign a contract, and up to which amount: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "juridique-protection-donnees",
+      "i18n": {
+        "fr": {
+          "title": "Protection des données : organisation",
+          "description": "Qui répond de la protection des données, où sont le registre et la déclaration, quels sous-traitants — à compléter par l'équipe.",
+          "body": "L'agent s'appuie sur ces informations pour le registre et les procédures.\n\n- Responsable interne de la protection des données (fonction) : [À compléter]\n- Conseiller·ère à la protection des données, s'il y en a un·e : [À compléter]\n- Emplacement du registre des traitements et date de dernière mise à jour : [À compléter]\n- Déclaration de protection des données publiée (adresse de la page) : [À compléter]\n- Principaux sous-traitants et pays d'hébergement : [À compléter]\n- Durées de conservation de référence (RH, comptabilité, clients) : [À compléter]\n- Qui décide d'annoncer une violation à l'autorité : [À compléter]"
+        },
+        "en": {
+          "title": "Data protection: organisation",
+          "description": "Who is responsible for data protection, where the record and privacy notice are, which processors — for the team to fill in.",
+          "body": "The agent relies on this information for the record and the procedures.\n\n- Internal owner of data protection (function): [To fill]\n- Data protection advisor, if any: [To fill]\n- Where the record of processing is kept and when it was last updated: [To fill]\n- Published privacy notice (page address): [To fill]\n- Main processors and hosting countries: [To fill]\n- Reference retention periods (HR, accounting, customers): [To fill]\n- Who decides to notify a breach to the authority: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "juridique-conseils-externes",
+      "i18n": {
+        "fr": {
+          "title": "Conseils externes et circuit de validation",
+          "description": "Quel cabinet pour quel domaine, ce qui doit leur être soumis et dans quel délai — à compléter par l'équipe.",
+          "body": "L'agent oriente chaque question vers le bon interlocuteur.\n\n| Domaine | Cabinet ou conseil (organisation, pas de données privées) | Ce qui doit lui être soumis |\n|---|---|---|\n| Contrats commerciaux | [À compléter] | [À compléter] |\n| Droit du travail | [À compléter] | [À compléter] |\n| Bail | [À compléter] | [À compléter] |\n| Protection des données | [À compléter] | [À compléter] |\n\n- Assurance protection juridique (assureur, numéro de police à garder hors de cette note) : [À compléter]\n- Délai interne pour transmettre une mise en demeure reçue : [À compléter]"
+        },
+        "en": {
+          "title": "External counsel and approval route",
+          "description": "Which firm for which area, what must be submitted to them and how fast — for the team to fill in.",
+          "body": "The agent routes each question to the right contact.\n\n| Area | Firm or counsel (organisation, no private data) | What must be submitted |\n|---|---|---|\n| Commercial contracts | [To fill] | [To fill] |\n| Employment law | [To fill] | [To fill] |\n| Lease | [To fill] | [To fill] |\n| Data protection | [To fill] | [To fill] |\n\n- Legal expenses insurance (insurer; keep the policy number out of this note): [To fill]\n- Internal deadline to forward a formal notice received: [To fill]"
+        }
+      }
+    }
+  ]
+}

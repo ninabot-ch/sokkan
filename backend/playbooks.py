@@ -264,8 +264,28 @@ def catalog(audience: str = "", lang: str = "en") -> list[dict]:
             for pid, p in _REGISTRY.items() if not p.get("audience")]
 
 
+def _kit(playbook_id: str) -> dict | None:
+    """A job kit's template (``<job>.<template>``, backend/roles.py) in the shape of a simple
+    playbook — so that a start, its title and its mission need nothing else."""
+    if not isinstance(playbook_id, str) or "." not in playbook_id:
+        return None
+    try:
+        import roles
+        found = roles.template(playbook_id)
+    except Exception:  # noqa: BLE001 — a broken kit file never breaks a start of the rest
+        return None
+    if found is None:
+        return None
+    r, t = found
+    return {"label": t["i18n"]["en"]["label"], "tag": "docs", "audience": "simple", "kit": True,
+            "role": r["id"], "format": t["format"], "claude": bool(r["claude"]),
+            "description": t["i18n"]["en"]["description"],
+            "i18n": {lang: {k: t["i18n"][lang][k] for k in ("label", "description", "hint", "deliverable")}
+                     for lang in ("fr", "en")}}
+
+
 def get(playbook_id: str) -> dict | None:
-    return _REGISTRY.get(playbook_id)
+    return _REGISTRY.get(playbook_id) or _kit(playbook_id)
 
 
 def _mem_dir(project: str) -> str:
@@ -286,7 +306,10 @@ def render(playbook_id: str, subject: str = "", project: str = "default"
     `project` the project the session runs in (its memory directory)."""
     p = _REGISTRY.get(playbook_id)
     if not p:
-        return None
+        if _kit(playbook_id) is None:
+            return None
+        import roles
+        return roles.mission(playbook_id, subject) or "", "docs"
     subject = (subject or "").strip()
     mem_dir = _mem_dir(project)
     prompt = p["prompt"].format(

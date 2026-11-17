@@ -1,0 +1,18 @@
+{
+  "template": "sales.client-meeting-report",
+  "lang": "fr",
+  "ask": "Rédige le compte rendu de ma visite chez Menuiserie Dubois du 12 novembre à partir de mes notes, pour l'envoyer au client et le classer.",
+  "documents": [
+    {"name": "Notes visite Dubois 12.11.2026.docx", "source": "notes-visite.txt", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Pittet"],
+    ["Bersier"],
+    ["6'900", "6 900", "6900"],
+    ["26.11.2026", "26 novembre"],
+    ["19.11.2026", "19 novembre"],
+    ["27.11.2026", "27 novembre"],
+    ["sauvegarde"],
+    ["Moudon"]
+  ]
+}

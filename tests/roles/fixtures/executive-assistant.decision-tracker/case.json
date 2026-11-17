@@ -1,0 +1,20 @@
+{
+  "template": "executive-assistant.decision-tracker",
+  "lang": "fr",
+  "ask": "Fais le tableau de suivi des décisions et des actions des comités de direction de septembre et d'octobre, en indiquant ce qui est encore ouvert.",
+  "documents": [
+    {"name": "PV CODIR 15.09.2026.docx", "source": "pv-2026-09-15.md", "as_docx": true},
+    {"name": "PV CODIR 20.10.2026.docx", "source": "pv-2026-10-20.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Patrick Rey"],
+    ["Aline Fournier"],
+    ["Mélanie Crettaz"],
+    ["Sylvie Zufferey"],
+    ["Froid-Valais", "2'450", "2 450", "2450"],
+    ["30.11.2026"],
+    ["15.12.2026"],
+    ["03.11.2026"]
+  ],
+  "min_rows": 8
+}

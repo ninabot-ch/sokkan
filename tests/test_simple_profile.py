@@ -24,7 +24,7 @@ def test_nobody_changes_profile_until_they_choose(world):
     c = world["as"]("bob@x")
     p = c.get("/api/me/prefs").json()
     assert p == {"profile": "technical", "chosen": False, "lang": "auto", "theme": "light",
-                 "project": "", "available": True, "locked": False}
+                 "project": "", "roles": None, "available": True, "locked": False}
     assert _simple(c)["profile"] == "simple"
     assert c.get("/api/me/prefs").json()["chosen"] is True
     assert world["as"]("dave@x").get("/api/me/prefs").json()["profile"] == "technical"   # per person

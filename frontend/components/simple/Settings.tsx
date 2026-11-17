@@ -3,7 +3,7 @@
 // (simple / technical). The approval mode is deliberately NOT here.
 import { useEffect, useRef, useState } from "react";
 import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchPeople, grantProject, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
-  type ClaudeGate, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
+  type ClaudeGate, type ClaudeSettings, type Job, type Prefs } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
@@ -14,9 +14,12 @@ import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
 import Connectors from "./Connectors";
+import { MyRoles, RolesAdmin } from "./Roles";
 
-export default function Settings({ prefs, onPrefs, onClose, project, projectName }: {
+export default function Settings({ prefs, onPrefs, onClose, project, projectName, jobs = null, onRoles }: {
   prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
+  /** 4.0 job kits: the person's jobs (null = not offered, the public demo) and the picker */
+  jobs?: Job[] | null; onRoles?: () => void;
 }) {
   const t = useT();
   const { lang, langPref, themePref, setLangPref, setThemePref } = useUI();
@@ -83,6 +86,8 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
           </div>
           <p className="sk-small sk-muted">{canSwitch || demo ? t("set.profile.hint") : t("set.profile.locked")}</p>
         </fieldset>
+        {jobs && onRoles && <MyRoles jobs={jobs} onChange={onRoles} />}
+        {jobs && instAdmin && <RolesAdmin />}
         {exportOn && instAdmin && (
           <fieldset>
             <legend className="sk-legend">{t("set.export")}</legend>

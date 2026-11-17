@@ -1,0 +1,19 @@
+{
+  "template": "project-manager.risk-register",
+  "lang": "fr",
+  "ask": "Fais-moi le registre des risques du déménagement de l'entrepôt à partir des notes de l'atelier du 10.11.",
+  "documents": [
+    {"name": "Notes atelier risques 10.11.2026.docx", "source": "notes-atelier-risques.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Rayonor", "rayonnages"],
+    ["Yann Roulin"],
+    ["Sonia Pittet"],
+    ["Marc Berthoud"],
+    ["Claire Dubuis"],
+    ["20.11.2026"],
+    ["permis", "Permis"],
+    ["23.01.2027"]
+  ],
+  "min_rows": 6
+}

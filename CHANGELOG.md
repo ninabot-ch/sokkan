@@ -73,6 +73,17 @@ shell tool of the kernel (`deny_tools`).
   A `demo` provider (invented data) for trainings and tests. doc_ingest gains the source kind
   `webdav` (one-way mirror). Tested against a simulated Microsoft Graph and against Greenmail,
   Radicale and WsgiDAV in containers — no real account.
+- **Job kits of SOKKAN Atelier (« Postes »).** A person picks their job at the first sign-in (or in
+  Settings) and the home opens on its typical work. Nine jobs — executive assistant, HR, finance,
+  sales, customer support, marketing, legal, project manager, training — 71 task templates in French
+  and English, each saying what to attach, what the agent produces (Word, Excel or text) and what a
+  human checks; 3-5 starter notes per job written into the project's memory « to fill in with your
+  team »; guard-rails per job (HR and legal: a confidential project, never Claude; finance: every
+  figure quoted from its document, never Claude). A quality brief per type of deliverable (structure,
+  length, sources, points to check) is added to the mission, inside the turn's text: the same for
+  every engine. An instance admin creates one project per job in the same gesture and gives a person
+  a default job. A table deliverable (CSV) is previewed as a table and downloaded as Excel. Data in
+  `backend/roles/*.json`, extra jobs from `SOKKAN_ROLES_DIR`. Doc: docs/enterprise/ROLES.md.
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of

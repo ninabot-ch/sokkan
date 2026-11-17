@@ -336,6 +336,8 @@ services:
       SOKKAN_FEATURE_SIMPLE_PROFILE: ${SOKKAN_FEATURE_SIMPLE_PROFILE:-}
       SOKKAN_PROFILE_DEFAULT: ${SOKKAN_PROFILE_DEFAULT:-technical}
       SOKKAN_PROFILE_LOCKED: ${SOKKAN_PROFILE_LOCKED:-0}
+      # 4.0 job kits of the Atelier: a folder of extra job files (*.json) read after the built-in ones
+      SOKKAN_ROLES_DIR: ${SOKKAN_ROLES_DIR:-}
       # « Export our work »: an admin's zip of notes, tools and deliverables (docs/enterprise/OPERATIONS.md)
       SOKKAN_FEATURE_WORK_EXPORT: ${SOKKAN_FEATURE_WORK_EXPORT:-}
       # helm — 3.3 (docs/HELM.md) : hiérarchie de cartes, avancement calculé, suggestions de

@@ -3444,6 +3444,8 @@ import uiprefs  # noqa: E402
 
 app.include_router(documents_api.router)
 app.include_router(simple_api.router(bg=_bg, preseed=_memory_preseed, shown_name=_shown_name))
+import roles_api  # noqa: E402 — 4.0 job kits of SOKKAN Atelier (backend/roles/*.json)
+app.include_router(roles_api.router(on_project_created=_sync_project_indexers))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
 

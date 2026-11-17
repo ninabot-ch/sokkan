@@ -1,0 +1,19 @@
+{
+  "template": "project-manager.steering-minutes",
+  "lang": "fr",
+  "ask": "Rédige le compte rendu du COPIL du 12.11.2026 du projet de nouveau site web, à partir de mes notes et du rapport d'avancement présenté.",
+  "documents": [
+    {"name": "Notes COPIL 12.11.2026.docx", "source": "notes-copil.md", "as_docx": true},
+    {"name": "Rapport d'avancement octobre 2026.docx", "source": "rapport-avancement.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Hélène Rochat"],
+    ["Anne-Sophie Gay"],
+    ["05.02.2027", "5 février 2027"],
+    ["7'800", "7 800", "7800"],
+    ["19.11"],
+    ["phase 2"],
+    ["10.12.2026", "10 décembre 2026"],
+    ["118'500", "118 500", "118500"]
+  ]
+}
