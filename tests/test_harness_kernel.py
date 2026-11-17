@@ -178,3 +178,34 @@ def test_a_run_resumes_after_a_restart_of_the_kernel(kernel_rig):
 
     _play(lambda _rig: again(), rig)
     assert rig.last_request_saw("Remember this word: heron."), "the history was lost on restart"
+
+
+def test_a_thread_reads_back_after_a_restart_of_the_kernel(kernel_rig):
+    """C9 with the process really gone: the thread of a finished run is read back the same
+    after the kernel restarted (it keeps its threads in Postgres)."""
+    import subprocess
+    import time
+    import urllib.request
+    cmd = os.environ.get("SOKKAN_KERNEL_TEST_RESTART_CMD")
+    if not cmd:
+        pytest.skip("SOKKAN_KERNEL_TEST_RESTART_CMD not set")
+    rig = kernel_rig
+    items: list = []
+
+    async def first():
+        items.extend(await scenarios.c9_thread_reads_back(rig))
+
+    _play(lambda _rig: first(), rig)
+    from harness import kernel
+    subprocess.run(cmd, shell=True, check=True, capture_output=True)   # noqa: S602 — operator's command
+    url = os.environ["SOKKAN_KERNEL_TEST_URL"] + "/healthz"
+    for _ in range(120):
+        try:
+            if urllib.request.urlopen(url, timeout=2).status == 200:     # noqa: S310 — the test's kernel
+                break
+        except OSError:
+            time.sleep(1)
+    ref = scenarios.LAST_C9_REF
+    again = kernel.KernelHarness().history(ref, cwd=str(rig.workspace))
+    assert again == items, (again, items)
+    assert scenarios.thread_shape(again) == scenarios.SHAPE_C9

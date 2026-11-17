@@ -115,6 +115,10 @@ class ScriptedUpstream:
             # the same scripted turn goes on
             if last.get("role") == "user" and "[Approbation]" not in _text(last):
                 self._current = deque(self.turns.popleft()) if self.turns else deque()
+            if last.get("role") == "tool" and "[approval:" in _text(last):
+                # the kernel's « waiting for approval » placeholder: a model waits quietly; the
+                # scripted turn goes on in the continuation, with the call's real outcome
+                return {"role": "assistant", "content": ""}, "stop"
             said = None
             while self._current:
                 step = self._current.popleft()

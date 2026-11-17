@@ -56,7 +56,8 @@ from .base import Harness
 from .contract import (
     ALLOW_ONCE, ALLOW_SESSION, ANSWER, DENY,
     AssistantText, AssistantThink, Capabilities, ContextInjected, ContextRequest, ContractError,
-    Decision, Error, Event, Gate, GateRequested, GateResolved, RunEnded, RunInfo, RunSpec,
+    Decision, Error, Event, Gate, GateRequested, GateResolved, HistoryItem, RunEnded, RunInfo,
+    RunSpec,
     RunStarted, ToolCalled, ToolResult, TurnEnded, TurnStarted, Unsupported, Usage, prompt_ref,
 )
 
@@ -132,6 +133,97 @@ def _letters(run_id: str) -> str:
     """A short, stable folder name for a run, with no hex run in it."""
     h = hashlib.sha256((run_id or "").encode()).digest()
     return "run-" + "".join(chr(ord("g") + b % 20) for b in h[:8])
+
+
+# ---- history (the kernel's thread export → contract items) ------------------------------
+
+_THREAD_RX = re.compile(r"th_[A-Za-z0-9_-]{1,64}")
+_HELD_RX = re.compile(r"\[approval:[0-9a-fA-F-]{8,}\]")
+_APPROVAL_RX = re.compile(r"^\[Approbation\]\n(.*)\n\[/Approbation\]\s*$", re.S)
+_RECALL_RX = re.compile(r"^\s*<memory-recall\b.*?</memory-recall>\s*", re.S)
+
+
+def _approval_block(text: str) -> dict | None:
+    """The kernel's ``[Approbation]`` block (continuation of a decided card), or None:
+    {tool, decision, result}."""
+    m = _APPROVAL_RX.match(text or "")
+    if not m:
+        return None
+    lines = m.group(1).split("\n")
+    out = {"tool": "", "decision": "", "result": ""}
+    for i, line in enumerate(lines):
+        if line.startswith("Outil : "):
+            out["tool"] = line[len("Outil : "):].strip()
+        elif line.startswith("Décision : "):
+            out["decision"] = line[len("Décision : "):].strip()
+        elif line.startswith("Résultat : "):
+            # the result runs to the last line (the kernel's instruction to its model)
+            out["result"] = "\n".join([line[len("Résultat : "):], *lines[i + 1:-1]]).rstrip()
+            break
+    return out
+
+
+def _cockpit_text(text: str, cwd: str) -> str:
+    """A text of the kernel's thread with the run's folder named as the cockpit names it:
+    the sandbox's ``/workspace`` and the hex-free aliases under ``.sokkan-kernel/``."""
+    if not cwd:
+        return text
+    if _in_sandbox():
+        text = re.sub(re.escape(SANDBOX_ROOT) + r"(?![\w-])", cwd.rstrip("/"), text)
+
+    def alias(m: re.Match) -> str:
+        real = os.path.realpath(m.group(0))
+        return real if real != m.group(0) else m.group(0)
+    root = re.escape(os.path.realpath(cwd)) + "|" + re.escape(cwd.rstrip("/"))
+    return re.sub(rf"(?:{root})/\.sokkan-kernel/run-[a-z]+/f\d+", alias, text)
+
+
+def _history_items(messages: list[dict], cwd: str) -> list[HistoryItem]:
+    items: list[dict] = []
+    calls: dict[str, dict] = {}
+    held: list[dict] = []               # gated calls waiting for their continuation, in order
+    for m in messages:
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role == "user":
+            block = _approval_block(content)
+            if block is not None:
+                call = next((c for c in held if c["name"] == block["tool"]), held[0] if held else None)
+                if call is not None:
+                    held.remove(call)
+                    call["output"] = _cockpit_text(block["result"] or block["decision"], cwd)
+                    call["ok"] = block["decision"] == "executed"
+                continue
+            items.append({"kind": "prompt",
+                          "text": _cockpit_text(_RECALL_RX.sub("", content, count=1), cwd)})
+        elif role == "assistant" and m.get("tool_calls"):
+            if content.strip():
+                items.append({"kind": "text", "text": _cockpit_text(content, cwd)})
+            for tc in m.get("tool_calls") or []:
+                name = str(tc.get("name") or "")
+                try:
+                    inp = json.loads(tc.get("arguments") or "{}")
+                except ValueError:
+                    inp = {"arguments": tc.get("arguments")}
+                if not isinstance(inp, dict):
+                    inp = {"arguments": inp}
+                inp = json.loads(_cockpit_text(json.dumps(inp), cwd))
+                it = {"kind": "tool", "call_id": tc.get("id"), "name": name, "input": inp,
+                      "classification": classify(name), "output": None, "ok": True}
+                calls[str(tc.get("id"))] = it
+                items.append(it)
+        elif role == "tool":
+            it = calls.get(str(m.get("tool_call_id")))
+            if it is None:
+                continue
+            if _HELD_RX.search(content):
+                held.append(it)                  # « waiting for approval »: not its outcome
+                continue
+            it["output"] = _cockpit_text(content, cwd)
+            it["ok"] = not content.startswith(("Refusé", "Erreur", "Error"))
+        elif role == "assistant" and content.strip():
+            items.append({"kind": "text", "text": _cockpit_text(content, cwd)})
+    return [HistoryItem(**it) for it in items]
 
 
 # ---- configuration -----------------------------------------------------------------------
@@ -327,7 +419,41 @@ class KernelHarness(Harness):
             gate_authority="engine", question=question, plan=False, interrupt=True,
             thinking=True, streaming=False, subagents=False, resume=True,
             context=("preamble",), mcp_stdio=os.environ.get("SOKKAN_KERNEL_MCP_STDIO") == "1",
-            sandbox="engine", identity="opaque", usage="events", budget=("tokens", "usd"))
+            sandbox="engine", identity="opaque", usage="events", budget=("tokens", "usd"),
+            history=True)
+
+    # ---- history -----------------------------------------------------------------------
+    def history(self, ref: str, *, cwd: str = "") -> list[HistoryItem]:
+        """The thread of kernel thread ``ref`` as the kernel keeps it (its export,
+        ``GET /v1/threads/{id}/export?format=json``: the turns in its store, secrets
+        sealed), as contract items. Read without ``start``: a thread the kernel keeps in
+        Postgres reads back after a restart. An unknown thread is an empty one.
+
+        What the kernel adds for itself is not an item: the « waiting for approval »
+        placeholder of a gated call (its real outcome comes in the kernel's continuation
+        turn, whose ``[Approbation]`` block fills the call's ``output`` and ``ok``), and that
+        block itself (it is not a prompt of the person). A prompt is given back without the
+        cockpit's recall preamble, with the run's folder named as the cockpit names it."""
+        if not ref or not _THREAD_RX.fullmatch(ref):
+            return []
+        messages: list[dict] = []
+        before: int | None = None
+        with httpx.Client(base_url=_url(), timeout=30) as c:
+            for _ in range(200):                     # 500 turns a page: a bound, not a limit
+                q = {"format": "json", "include_tools": "1", "limit": "500"}
+                if before is not None:
+                    q["before"] = str(before)
+                r = c.get(f"/v1/threads/{ref}/export", params=q, headers=_headers())
+                if r.status_code == 404:
+                    return []
+                if r.status_code >= 400:
+                    raise ContractError(f"kernel export of {ref}: HTTP {r.status_code}")
+                doc = r.json() or {}
+                messages = list(doc.get("messages") or []) + messages
+                before = (doc.get("page") or {}).get("next_before")
+                if before is None:
+                    break
+        return _history_items(messages, cwd)
 
     # ---- Harness -----------------------------------------------------------------------
     def start(self, spec: RunSpec) -> AsyncIterator[Event]:

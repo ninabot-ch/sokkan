@@ -224,6 +224,7 @@ def thread_shape(items: list[HistoryItem]) -> list[tuple]:
     return out
 
 
+LAST_C9_REF: str | None = None
 SHAPE_C9 = [("prompt", "Write the minutes, then say so."),
             ("tool", "file_write", True, True),
             ("text", "The minutes are saved.")]
@@ -250,6 +251,8 @@ async def c9_thread_reads_back(rig: Rig) -> list[HistoryItem]:
             return []
         raise AssertionError("history is declared absent but history() answered")
     assert ref, "no engine reference to read the thread back with"
+    global LAST_C9_REF
+    LAST_C9_REF = ref             # for a test that reads it again (after a restart)
     items = fresh.history(ref, cwd=str(rig.workspace))
     assert all(isinstance(i, HistoryItem) for i in items), items
     for i in items:
