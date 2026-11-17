@@ -376,8 +376,8 @@ function CardFacts({ ev }: { ev: Approval }) {
         <div className="sk-ap-diff" tabIndex={0}>
           {(ev.diff || []).map((d, i) => (
             <Fragment key={i}>
-              {d.before && <p className="is-del"><span className="sk-ap-tag">{t("ap.diff.del")}</span>{d.before}</p>}
-              {d.after && <p className="is-add"><span className="sk-ap-tag">{t("ap.diff.add")}</span>{d.after}</p>}
+              {d.before && <p className="is-del"><span className="sk-ap-tag">{t("ap.diff.del")}</span><span className="sk-ap-body">{d.before}</span></p>}
+              {d.after && <p className="is-add"><span className="sk-ap-tag">{t(d.before ? "ap.diff.add" : "ap.diff.new")}</span><span className="sk-ap-body">{d.after}</span></p>}
             </Fragment>
           ))}
         </div>

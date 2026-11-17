@@ -143,6 +143,20 @@ def _facts(*pairs) -> list[dict]:
     return [{"label": k, "value": _cut(v)} for k, v in pairs if v not in (None, "", [], {})]
 
 
+def _changed(before: str, after: str) -> tuple[str, str]:
+    """Only the lines that change: an agent replaces a whole section to change one sentence
+    (seen on the real 27B) — the person reads that sentence, not the section twice."""
+    a, b = before.splitlines(), after.splitlines()
+    i = 0
+    while i < min(len(a), len(b)) and a[i] == b[i]:
+        i += 1
+    j = 0
+    while j < min(len(a), len(b)) - i and a[len(a) - 1 - j] == b[len(b) - 1 - j]:
+        j += 1
+    return ("\n".join(a[i:len(a) - j]).strip("\n"), "\n".join(b[i:len(b) - j]).strip("\n")) \
+        if (i or j) else (before, after)
+
+
 def diff_of(tool: str, inp: dict) -> list[dict]:
     """A change to an existing document: what goes, what comes (Edit / MultiEdit, the
     kernel's patch with the same fields)."""
@@ -156,7 +170,7 @@ def diff_of(tool: str, inp: dict) -> list[dict]:
     for e in edits[:20]:
         if not isinstance(e, dict):
             continue
-        before, after = str(e.get("old_string") or ""), str(e.get("new_string") or "")
+        before, after = _changed(str(e.get("old_string") or ""), str(e.get("new_string") or ""))
         if before or after:
             out.append({"before": before[:_MAX_DIFF], "after": after[:_MAX_DIFF]})
     return out

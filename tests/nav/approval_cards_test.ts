@@ -16,7 +16,7 @@ test("every card kind has a headline and a consequence in both languages", () =>
       assert.ok(d[`ap.yes.${k}`], `${lang}: ap.yes.${k}`);
       if (k !== "run_command" && k !== "delegate") assert.match(d[`ap.${k}`], /\{title\}/, `${lang}: ap.${k} names it`);
     }
-    for (const k of ["ap.if.yes", "ap.if.no", "ap.no.default", "ap.no.write_draft", "ap.f.where", "ap.diff.del", "ap.diff.add"]) assert.ok(d[k], `${lang}: ${k}`);
+    for (const k of ["ap.if.yes", "ap.if.no", "ap.no.default", "ap.no.write_draft", "ap.f.where", "ap.diff.del", "ap.diff.add", "ap.diff.new"]) assert.ok(d[k], `${lang}: ${k}`);
   }
 });
 

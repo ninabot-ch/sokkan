@@ -84,6 +84,17 @@ def test_a_change_to_a_document_is_shown_as_before_and_after(tmp_path):
     assert ev["where"] == "Les livrables de ce travail — projet « Marketing »"
 
 
+def test_a_diff_shows_only_what_changes():
+    """The 27B replaced a whole section to add one sentence (replay of 18.11): the card shows the
+    sentence, not the section twice."""
+    section = "## Rénovation connectée\n\nVous habitez déjà votre villa ?\n\nDès 4'900 CHF."
+    added = section.replace("\n\nDès", "\n\nNotre équipe s'occupe de tout.\n\nDès")
+    assert approvalcard.diff_of("Edit", {"old_string": section, "new_string": added}) == [
+        {"before": "", "after": "Notre équipe s'occupe de tout."}]
+    assert approvalcard.diff_of("Edit", {"old_string": "a b", "new_string": "a c"}) == [
+        {"before": "a b", "after": "a c"}]
+
+
 def test_a_note_to_retain_can_be_read_before_deciding():
     ev = _card("mcp__sokkan-memory__memory_write",
                {"name": "societe-suisse", "description": "Nous sommes une société suisse",

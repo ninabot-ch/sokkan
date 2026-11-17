@@ -383,10 +383,10 @@ html[data-sk-theme] body {
 .sk-ap-diff { display: flex; flex-direction: column; gap: var(--sk-s2); max-height: 280px; overflow: auto; }
 .sk-ap-diff p { margin: 0; padding: var(--sk-s2) var(--sk-s3); border-radius: var(--sk-r-sm); font-size: var(--sk-fs-sm);
   white-space: pre-wrap; overflow-wrap: anywhere; }
-.sk-ap-diff .is-del { background: var(--sk-danger-soft); color: var(--sk-text-strong); text-decoration: line-through;
-  text-decoration-color: var(--sk-danger); }
+.sk-ap-diff .is-del { background: var(--sk-danger-soft); color: var(--sk-text-strong); }
+.sk-ap-diff .is-del .sk-ap-body { text-decoration: line-through; text-decoration-color: var(--sk-danger); }
 .sk-ap-diff .is-add { background: var(--sk-ok-soft); color: var(--sk-text-strong); }
-.sk-ap-diff .sk-ap-tag { font-weight: 600; text-decoration: none; display: block; font-size: var(--sk-fs-xs); }
+.sk-ap-diff .sk-ap-tag { font-weight: 600; display: block; font-size: var(--sk-fs-xs); }
 .sk-ap-then { display: flex; flex-direction: column; gap: var(--sk-s1); margin: 0; padding: 0; list-style: none;
   font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
 .sk-ap-then b { color: var(--sk-text-strong); }
