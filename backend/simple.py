@@ -340,7 +340,8 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
         sha = _sha(p) if st.st_size <= MAX_DELIVERABLE else ""
         history = vals.get(p.name, [])
         current = next((v for v in reversed(history) if v["sha256"] == sha), None)
-        title = plain.human_title(p.name)
+        # a table (4.0 job kits) is titled by its name, without « .csv »
+        title = plain.human_title(p.stem + ".md" if ext == "csv" else p.name)
         if ext in ("md", "markdown") and st.st_size <= MAX_DELIVERABLE:
             try:
                 with open(p, encoding="utf-8", errors="replace") as f:

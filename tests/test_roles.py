@@ -291,7 +291,7 @@ def test_a_table_deliverable_is_previewed_as_a_table_and_downloaded_as_excel(wor
     c = world["as"]("bob@x")
     lst = c.get(f"/api/simple/sessions/{sid}/deliverables").json()["deliverables"]
     row = next(x for x in lst if x["name"] == "Suivi des actions.csv")
-    assert row["previewable"] is True and row["ext"] == "csv"
+    assert row["previewable"] is True and row["ext"] == "csv" and row["title"] == "Suivi des actions"
     prev = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv").json()
     assert prev["text"].startswith("| Type | Libellé |") and "Réserver la salle, 2 jours" in prev["text"]
     x = c.get(f"/api/simple/sessions/{sid}/deliverables/Suivi des actions.csv/download", params={"format": "xlsx"})
