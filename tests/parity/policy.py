@@ -40,8 +40,15 @@ NO_SHELL = ("No shell in this conversation: the person is not a developer. The f
 NO_MEMORY_FILE = ("This conversation was handed documents: it does not write memory files "
                   "directly. Use mcp__sokkan-memory__memory_write — the note waits in quarantine "
                   "until a person approves it.")
-ONE_CARD = ("This document was already saved in this step; it is not saved a second time. "
-            "Tell the person what it contains.")
+# word for word agentchat.py (3.6.7, ``policy:simple_one_approval_per_turn``): plain.POLICY_DENIED
+# reads « already approved this document in this turn » as a rule of the space, not a failure;
+# the bench's own wording (until 17.11.2026) was shown as « une action a échoué » and told the
+# model something the product does not say
+ONE_CARD = ("The person already approved this document in this turn: it is saved. Do "
+            "not save it again and do not offer another version. Tell them in two or "
+            "three sentences what it contains and what remains to confirm (if a part is "
+            "still missing, say which one and ask whether to add it); they will ask for "
+            "a change if they want one. Do not mention this message.")
 
 
 def real(path: str) -> str:

@@ -495,6 +495,30 @@ def deliverable_files(folder: Path) -> dict[str, str]:
     return out
 
 
+_KEY_HEAD = re.compile(r"^#+ .*(corrig|r[ée]ponses?\b|answer)", re.I | re.M)
+_ITEM = re.compile(r"^\W*(?:Q(?:uestion)?\s*)?(\d{1,2})\b", re.I | re.M)
+
+
+def _numbered_run(text: str) -> int:
+    """N when the items 1..N all head a line (« **1.** », « 1) », « Question 1 », « | 1 | »)."""
+    seen = {int(n) for n in _ITEM.findall(text or "")}
+    n = 0
+    while n + 1 in seen:
+        n += 1
+    return n
+
+
+def quiz_counts(text: str) -> dict:
+    """Questions and answer-key entries of a quiz. A question is not always a « ? » (« La plage
+    doit être… » is a stem; bench n°4 counted 6 for 8): the numbered items count too. The key
+    is the part from the first heading that names it."""
+    m = _KEY_HEAD.search(text or "")
+    head, key = (text[:m.start()], text[m.start():]) if m else (text or "", "")
+    numbered = _numbered_run(head)
+    return {"questions": max(head.count("?"), numbered), "numbered": numbered,
+            "key_entries": _numbered_run(key), "has_key": bool(m)}
+
+
 def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
                   files_after_first: dict[str, str]) -> dict:
     text = "\n".join(files.values())
@@ -503,7 +527,8 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
     contains = {"|".join(g): any(fold(s) in ftext for s in g) for g in e.must_contain}
     sections_ok = all(re.search(r"^#+ .*" + re.escape(fold(s)), ftext, re.M) for s in e.sections)
     titled = all(v.lstrip().startswith("# ") for v in files.values()) if files else False
-    questions = text.count("?")
+    quiz = quiz_counts(text) if e.min_questions else {}
+    questions = max(text.count("?"), quiz.get("numbered", 0))
     pol = play.pol.summary()
     fails = play.failures()
     chat = "\n".join(t.get("text", "") for t in play.turns)
@@ -530,10 +555,17 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
         checks["deny_tools_matched"] = not getattr(play.h, "deny_unmatched", None)
     if j.follow_up:
         checks["change_in_same_file"] = bool(same_file)
+    if j.follow_up and e.questions_after_change:
+        # the change landed WHOLE: the question added and its line in the key (bench n°4: a
+        # change made in several saves left « 9 questions » announced over 8, or a 9th
+        # question without its answer — the 2nd save of the step is turned away by rule)
+        checks["change_complete"] = (quiz["questions"] >= e.questions_after_change
+                                     and quiz["key_entries"] >= quiz["numbered"]
+                                     and quiz["key_entries"] >= e.questions_after_change)
     return {"success": all(checks.values()), "checks": checks, "missing_facts":
             [k for k, v in contains.items() if not v], "questions": questions,
             "source_cited": cited, "language": lang,
-            "invented_numbers": invented_numbers(text, space["sources"]),
+            "invented_numbers": invented_numbers(text, space["sources"]), "quiz": quiz,
             "deliverables": {k: len(v) for k, v in files.items()}}
 
 
@@ -556,7 +588,10 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     await play.turn(prompt)
     after_first = deliverable_files(space["deliverables"])
     if j.follow_up and not play.timed_out:
-        await play.turn(j.follow_up)
+        # as the product sends a later message (simple_api → simple.follow_up): with its brief
+        # note — the bench sent the bare words until 17.11.2026
+        import simple
+        await play.turn(simple.follow_up(j.follow_up, [], "fr"))
     await play.stop()
     files = deliverable_files(space["deliverables"])
     out.update(
