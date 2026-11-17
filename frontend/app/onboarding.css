@@ -41,10 +41,10 @@
 
 /* classification levels */
 .sk-ob-levels { display: flex; flex-direction: column; gap: var(--sk-s2); }
-.sk-ob-level { display: flex; gap: var(--sk-s3); align-items: center; flex-wrap: wrap; padding: var(--sk-s2) var(--sk-s3);
+.sk-ob-level { display: flex; gap: var(--sk-s3); align-items: flex-start; padding: var(--sk-s2) var(--sk-s3);
   border: 1px solid var(--sk-line-strong); border-radius: var(--sk-r-sm); cursor: pointer; min-height: var(--sk-target); }
 .sk-ob-level.is-on { border-color: var(--sk-sea); background: var(--sk-sea-soft); }
-.sk-ob-level input { width: 18px; height: 18px; accent-color: var(--sk-sea); flex: none; }
+.sk-ob-level input { width: 18px; height: 18px; accent-color: var(--sk-sea); flex: none; margin-top: 2px; }
 .sk-ob-level b { color: var(--sk-text-strong); }
 .sk-ob-level-text { display: flex; flex-direction: column; gap: 2px; }
 .sk-ob-level small { color: var(--sk-text-muted); }
