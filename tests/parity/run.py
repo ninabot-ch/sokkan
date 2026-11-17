@@ -495,7 +495,8 @@ def deliverable_files(folder: Path) -> dict[str, str]:
     return out
 
 
-_KEY_HEAD = re.compile(r"^#+ .*(corrig|r[ée]ponses?\b|answer)", re.I | re.M)
+_KEY_HEAD = re.compile(r"^#+ .*(corrig|correction|r[ée]ponses?\b|solutions?\b|bar[èe]me|answer)",
+                       re.I | re.M)
 _ITEM = re.compile(r"^\W*(?:Q(?:uestion)?\s*)?(\d{1,2})\b", re.I | re.M)
 
 
@@ -512,11 +513,17 @@ def quiz_counts(text: str) -> dict:
     """Questions and answer-key entries of a quiz. A question is not always a « ? » (« La plage
     doit être… » is a stem; bench n°4 counted 6 for 8): the numbered items count too. The key
     is the part from the first heading that names it."""
-    m = _KEY_HEAD.search(text or "")
-    head, key = (text[:m.start()], text[m.start():]) if m else (text or "", "")
+    text = text or ""
+    m = _KEY_HEAD.search(text)
+    cut = m.start() if m else -1
+    if cut < 0:
+        # no heading names it: the key is where the numbering starts again at 1
+        ones = [i.start() for i in _ITEM.finditer(text) if i.group(1) == "1"]
+        cut = ones[1] if len(ones) > 1 else -1
+    head, key = (text[:cut], text[cut:]) if cut >= 0 else (text, "")
     numbered = _numbered_run(head)
     return {"questions": max(head.count("?"), numbered), "numbered": numbered,
-            "key_entries": _numbered_run(key), "has_key": bool(m)}
+            "key_entries": _numbered_run(key), "has_key": cut >= 0}
 
 
 def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
