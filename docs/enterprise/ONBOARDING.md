@@ -68,8 +68,9 @@ and the code form stays available. Only a SHA-256 of the token is stored. A new 
   `project_vault_budgets` on: each project's daily / monthly ceiling, its gauge, and an alert at
   80 % (warning) and 100 % (new exchanges of the project stop). Off: the organisation's daily
   ceiling (`instance.json` `budget_day_usd`) with the same alerts.
-* **Validations** — the journal of human validations (`GET /api/hitl/journal`): decision, what
-  was validated, who decided, whose work, project, when; filters and CSV export.
+* **Validations** — the deliverables validated (action journal, `deliverable.validate`) and the
+  journal of human validations (`hitl_journal`) in one list (`GET /api/team/validations`):
+  decision, what, who decided, whose work, project, when; filters and CSV export.
 
 ## Errors in words
 
@@ -91,6 +92,7 @@ cannot open the work's sandbox). Mapping in `backend/plain.py` (`_human_error`),
 | `GET /api/onboarding/roles` · `PUT /api/onboarding/me` · `POST /api/onboarding/sample` | signed in | positions, own progress, example document |
 | `GET/POST /api/team` · `PATCH /api/team/{email}` · `POST /api/team/{email}/code\|disable\|enable` | instance admin | |
 | `GET /api/team/usage` · `PUT /api/team/budget` | instance admin | |
+| `GET /api/team/validations` | instance admin | `project`, `actor`, `since`, `decision` (`validate`, `allow`, `deny`, `answer`), `format=csv` |
 | `POST /api/auth/invite` | anyone with a live link | throttled (10 failures / min / IP) |
 
 Every change is journaled (`onboarding.*`, `instance.rename`, `llm.test`, `llm.config`,
