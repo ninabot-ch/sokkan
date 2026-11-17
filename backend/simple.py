@@ -220,7 +220,8 @@ def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
         note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday words; update the saved "
-                "document when a change is asked — rewrite it whole in ONE save that carries every "
+                "document when a change is asked — exactly the change asked (to add is to add: "
+                "what is already there stays), rewritten whole in ONE save that carries every "
                 "part the change touches (a new question AND its answer in the key, numbering, "
                 "counts), not one edit per part: only the first save is kept.</sokkan-brief>") if lang in LANG_NAME else ""
         if text.lstrip().startswith("/"):

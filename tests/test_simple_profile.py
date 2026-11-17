@@ -417,6 +417,10 @@ def test_a_change_is_asked_as_one_save_of_the_whole_document(tmp_path, monkeypat
     for text in (first, later):
         assert "ONE save" in text and "answer in the" in text and "one edit per part" in text
     assert later.startswith("Ajoute une question") and plain_ok(later)
+    assert "to add is to add" in later      # « Ajoute » reworded an existing question (mini-run n°5)
+    import playbooks
+    quiz = playbooks.render("assessment-quiz", "8 questions", project="p")[0]
+    assert "without its key is not finished" in quiz and "key entry follows in the same save" in quiz
 
 
 def plain_ok(sent: str) -> bool:
