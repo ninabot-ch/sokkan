@@ -33,6 +33,11 @@ if [ "$(id -u)" = "0" ]; then
     chown sokkan:sokkan "$RS" "$RS/secret" 2>/dev/null || true
     chmod 700 "$RS" 2>/dev/null || true; chmod 600 "$RS/secret" 2>/dev/null || true
   fi
+  # 4.0 kernel engine (docker-compose.kernel.yml): the volume its configuration is rendered to
+  KC="$(dirname "${SOKKAN_KERNEL_CONFIG_OUT:-/nonexistent/x}")"
+  if [ -n "${SOKKAN_KERNEL_CONFIG_OUT:-}" ] && [ -d "$KC" ]; then
+    chown sokkan:sokkan "$KC" 2>/dev/null || true
+  fi
   exec setpriv --reuid=sokkan --regid=sokkan --init-groups "$0" "$@"
 fi
 
@@ -49,6 +54,16 @@ if ! mkdir -p "$SOKKAN_DATA_DIR" "$SOKKAN_MEMORY_DIR" "$CLAUDE_CONFIG_DIR" 2>/de
   exit 1
 fi
 rm -f "$SOKKAN_DATA_DIR/.writable-check"
+
+# 4.0 kernel engine (docker-compose.kernel.yml): its configuration, rendered at every start from
+# deploy/kernel/config.yaml + SOKKAN's block (backend/harness/kernel_config.py). A wrong setting
+# leaves NO configuration behind: the kernel does not start, the api does, and says why.
+if [ -n "${SOKKAN_KERNEL_CONFIG_OUT:-}" ]; then
+  if ! ( cd /app/backend && python -m harness.kernel_config ); then
+    rm -f "$SOKKAN_KERNEL_CONFIG_OUT"
+    echo "[sokkan] the kernel engine's configuration was NOT written: the kernel will not start (see the line above)" >&2
+  fi
+fi
 
 # l'index mémoire (boot + réindexation périodique) tourne DANS le backend :
 # thread daemon lancé au startup FastAPI, modèle d'embeddings gardé chaud,

@@ -482,7 +482,19 @@ class AgentSession:
             self._stream = self.harness.start(spec)
             self._announce_capabilities()
             # the first event reaches the engine: `run.started`, or the engine's own error
-            self._consume(await self._stream.__anext__())
+            try:
+                first = await self._stream.__anext__()
+            except BaseException:
+                # the engine never started (4.0: the kernel refused the session — its sandbox
+                # could not be created, the kernel is down): nothing is kept, the next message
+                # tries again from scratch
+                harness, self.harness, self._stream = self.harness, None, None
+                try:
+                    await harness.stop()
+                except Exception:  # noqa: BLE001 — an engine that never started has nothing to stop
+                    pass
+                raise
+            self._consume(first)
 
     def parkable(self, idle_s: float, now: float | None = None) -> bool:
         """Its CLI can be closed without anyone noticing: started, no turn running, no
@@ -1148,7 +1160,11 @@ class AgentSession:
             self._project_budget_warned = True
             self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
         self.last_active = time.monotonic()
-        await self.ensure_started()
+        try:
+            await self.ensure_started()
+        except Exception as e:  # noqa: BLE001 — said to the person, never a silent dead session
+            self._engine_start_failed(e)
+            return
         assert self.harness is not None
         self._busy = True
         self._refusal_said = None
@@ -1186,6 +1202,17 @@ class AgentSession:
                            is_error=failed or bool(self.last_result is not before and (
                                self.last_result or {}).get("is_error")))
             self._emit({"type": "status", "state": "idle"})
+
+    def _engine_start_failed(self, e: Exception) -> None:
+        """The session's engine could not start: one error event the pane and the simple
+        profile can read (``code`` when the engine named the cause, e.g. 4.0's
+        ``sandbox_unavailable``), the session stays idle and usable."""
+        print(f"[agentchat] session {self.sid}: engine did not start: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        code = getattr(e, "code", None) or "engine_unavailable"
+        self._emit({"type": "error", "code": code,
+                    "message": str(e) or f"the engine did not start ({type(e).__name__})"})
+        self._emit({"type": "status", "state": "idle"})
 
     def _explain_refusal(self, text: str) -> None:
         """The gateway refused for a study reason (free period over, study mode required,

@@ -320,6 +320,19 @@ def _in_sandbox() -> bool:
     return os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
 
 
+def _outside_sandbox(path: str, cwd: str = "") -> bool:
+    """In the docker sandbox, an ABSOLUTE path that is neither under /workspace (the run's folder
+    as the sandbox mounts it) nor under ``cwd`` (the run's folder as the kernel sees it — the
+    kernel translates such a path to /workspace). Relative paths are the run's folder."""
+    if not _in_sandbox() or not path.startswith("/"):
+        return False
+    norm = os.path.normpath(path)
+    for root in (SANDBOX_ROOT, os.path.normpath(cwd) if cwd.startswith("/") else ""):
+        if root and root != "/" and (norm == root or norm.startswith(root + "/")):
+            return False
+    return True
+
+
 def _headers(extra: dict | None = None) -> dict:
     return {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json",
             **(extra or {})}
@@ -361,6 +374,36 @@ def detect() -> tuple[bool, str]:
 
 # ---- the stream --------------------------------------------------------------------------
 
+class EngineUnavailable(ConnectionError):
+    """The kernel refused to open the run's session for a reason the PERSON cannot fix and the
+    administrator can: ``code`` names it (``sandbox_unavailable``: the sandbox of the session
+    could not be created with its caps — kernel host-embed § 1), ``message`` says what to do."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+SANDBOX_UNAVAILABLE = (
+    "The engine's sandbox could not start, so this session cannot run its tools. "
+    "Administrator: docker must apply the sandbox's memory and CPU limits (cgroup controllers "
+    "delegated to docker) and the kernel must reach docker through its socket proxy — see "
+    "docs/KERNEL.md « sandbox_unavailable ». Kernel said: ")
+
+
+def _refusal(status: int, text: str) -> ConnectionError:
+    """The exception for a session the kernel refused to open."""
+    try:
+        err = (httpx.Response(status, text=text).json() or {}).get("error") or {}
+    except ValueError:
+        err = {}
+    code = err.get("code") if isinstance(err, dict) else None
+    if status == 503 and (code == "sandbox_unavailable" or "sandbox_unavailable" in text):
+        detail = (err.get("message") if isinstance(err, dict) else "") or text
+        return EngineUnavailable("sandbox_unavailable", SANDBOX_UNAVAILABLE + str(detail)[:300])
+    return ConnectionError(f"kernel refused the session ({status}): {text[:200]}")
+
+
 class _Stream:
     def __init__(self, h: "KernelHarness") -> None:
         self._h = h
@@ -391,6 +434,7 @@ class KernelHarness(Harness):
         self._sse_ready: asyncio.Event | None = None
         self._last_event_id = 0
         self._thread = ""
+        self._kcwd = ""                 # the run's folder as the kernel sees it
         self._opened = self._finished = self._stopped = False
         # the cockpit turn in progress
         self._turn: str | None = None
@@ -481,6 +525,7 @@ class KernelHarness(Harness):
             await self._close_client()
             raise ConnectionError(f"kernel events not reachable at {_url()}") from None
         body: dict[str, Any] = {"cwd": _cwd_map(spec.cwd)}
+        self._kcwd = body["cwd"]
         if spec.resume:
             # the kernel reopens an unknown thread as an empty one, without a word: a run
             # resumed from a session the kernel does not have is refused here (C4, honestly)
@@ -548,7 +593,7 @@ class KernelHarness(Harness):
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         if r.status_code not in (200, 201):
             await self._close_client()
-            raise ConnectionError(f"kernel refused the session ({r.status_code}): {r.text[:200]}")
+            raise _refusal(r.status_code, r.text)
         out = r.json()
         self._thread = out["thread_id"]
         # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
@@ -746,6 +791,16 @@ class KernelHarness(Harness):
             return False
         g["resolved"] = True            # applied once: a second decision is refused
         effective = decision
+        if g.get("outside") and not decision.denied:
+            # docker sandbox: an absolute path outside /workspace is not the run's folder — the
+            # kernel would write it INSIDE the sandbox (lost, never on the host) without a word
+            # (kernel gap n°27). The cockpit refuses the card itself, and says it like a confinement
+            effective = Decision.deny("outside the run's space: only /workspace is the run's folder",
+                                      by=decision.by, via="engine")
+            self._mail.put_nowait(Error(
+                code="confined", recoverable=True,
+                message="write refused: the path is outside the run's folder (/workspace)",
+                data={"gate_id": gate_id, "shell_off": False}))
         if decision.kind not in g["options"]:
             effective = Decision.deny(f"decision {decision.kind!r} is not offered for this "
                                       "request", by=decision.by, via="engine")
@@ -1044,6 +1099,8 @@ class KernelHarness(Harness):
         options = (ALLOW_ONCE, ALLOW_SESSION, DENY) if rules else (ALLOW_ONCE, DENY)
         call = a.get("call_id")
         self._gates[gid] = {"id": gid, "type": "card", "resolved": False, "options": options,
+                            "outside": kind == "file_write" and _outside_sandbox(
+                                str(args.get("path") or ""), self._kcwd),
                             "rules": rules, "call_id": call, "turn": self._turn,
                             "turn_id": self._turn,
                             "kturn": f"{self._thread}:{a.get('turn_index')}"}

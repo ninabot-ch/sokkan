@@ -11,6 +11,7 @@
 #     --images     run the PREBUILT, signed images of the release instead of building here
 #                  (also: SOKKAN_IMAGES=1 in .env — the appliance profile)
 #     --no-wait    do not wait for the new version to answer (default: wait, see below)
+#   SOKKAN_KERNEL_ENABLE_IMAGE=<image>  also switch the 4.0 kernel engine on (scripts/kernel.sh)
 #
 # ONE upgrade path (3.6): `curl -fsSL https://sokkan.ch/install.sh | sh` on an existing install
 # downloads the release and runs THIS script from it — same steps, same checks.
@@ -53,7 +54,7 @@ main() {
       --dry-run) DRY=1 ;;
       --images) IMAGES=1 ;;
       --no-wait) WAIT=0 ;;
-      -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+      -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
       *) REF="$a" ;;
     esac
   done
@@ -197,6 +198,17 @@ main() {
     esac
   fi
   [ "$BUILD" = 1 ] || { echo "→ --no-build: run  docker compose up -d --build --remove-orphans  when ready"; exit 0; }
+  # 4.0 kernel engine (docs/KERNEL.md): switched on by the installer (--kernel <image>, passed as
+  # SOKKAN_KERNEL_ENABLE_IMAGE), never by default; when it is on, its host paths are written again
+  # at every upgrade (the docker data root or the install folder may have moved)
+  if [ -f scripts/kernel.sh ]; then
+    if [ -n "${SOKKAN_KERNEL_ENABLE_IMAGE:-}" ]; then
+      sh scripts/kernel.sh enable --image "$SOKKAN_KERNEL_ENABLE_IMAGE" \
+        ${SOKKAN_KERNEL_SANDBOXD_IMAGE:+--sandboxd-image "$SOKKAN_KERNEL_SANDBOXD_IMAGE"} || exit 1
+    elif sed -n 's/^COMPOSE_PROFILES=//p' .env | tail -n 1 | tr ',' '\n' | grep -qx kernel; then
+      sh scripts/kernel.sh refresh || exit 1
+    fi
+  fi
   if [ -f scripts/memory-setup.sh ] && ! grep -q '^SOKKAN_MEMORY_PROFILE=' .env; then
     echo "→ memory engine (new in 3.0): profile and model…"
     sh scripts/memory-setup.sh --non-interactive || echo "  ! memory setup failed — run ./scripts/memory-setup.sh later"
