@@ -411,6 +411,9 @@ class AgentSession:
             auto_allow=tuple(self._allowed_tools()),
             # defence in depth for an agent run: tools outside its list are removed
             deny_tools=tuple(self._disallowed_tools()) if pol else None,
+            approval_mode=self._engine_approval_mode(),
+            # the Atelier never runs a command: an engine that can remove its shell does
+            shell=not (not pol and self._is_simple_work()),
             budget_usd=self._sdk_max_budget(), context=recall, confinement=confinement,
             options={"legacy": legacy_opts})
 
@@ -419,6 +422,7 @@ class AgentSession:
             if self._stream is not None:
                 return
             spec = await self._run_spec()
+            self._engine_mode_sent = spec.approval_mode
             self.harness = registry.create()
             if self.harness.capabilities().identity == "opaque":
                 # who and what the run is for never reaches such an engine: handles only —
@@ -790,6 +794,32 @@ class AgentSession:
             fut.cancel()
             self._emit({"type": f"{kind}_resolved", "id": ev.gate_id, "ts": time.time()})
 
+    def _engine_approval_mode(self) -> str:
+        """The approval mode the ENGINE may be told (RunSpec.approval_mode): the cockpit's
+        mode, unless one of the cockpit's « never » rules could fire on a gate (confinement,
+        agent run, a session handed documents, the simple profile) — then `default`, so that
+        every gate still reaches `gate()` here."""
+        if self.mode not in ("acceptEdits", "bypassPermissions"):
+            return "default"
+        if self.policy or self.sandboxed is not None or self._is_simple_work() \
+                or self._has_documents():
+            return "default"
+        return self.mode
+
+    async def _sync_engine_mode(self) -> None:
+        """Before a turn: a document attached since, or a mode changed, re-narrows (or
+        widens) the engine's own gate."""
+        if self.harness is None:
+            return
+        want = self._engine_approval_mode()
+        if want == getattr(self, "_engine_mode_sent", "default"):
+            return
+        try:
+            await self.harness.set_approval_mode(want)
+            self._engine_mode_sent = want
+        except Exception as e:  # noqa: BLE001
+            self._emit({"type": "error", "message": f"set_mode: {e}"})
+
     def _is_simple_work(self) -> bool:
         """Opened from the simple profile (simple.works)? Looked up once per session."""
         v = getattr(self, "_simple_work", None)
@@ -1012,6 +1042,7 @@ class AgentSession:
         turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)
         before, self.last_turn = self.last_result, None
         failed = False
+        await self._sync_engine_mode()
         try:
             turn_id = await self.harness.send(text)
             async for ev in self._stream:
@@ -1086,6 +1117,7 @@ class AgentSession:
                 await self.harness.set_mode("plan" if mode == "plan" else "default")
             except Exception as e:  # noqa: BLE001
                 self._emit({"type": "error", "message": f"set_mode: {e}"})
+            await self._sync_engine_mode()
         self._emit({"type": "perm_mode", "mode": mode})
 
     # ---- contract event → what the cockpit knows (WS flow, costs, journal) ----

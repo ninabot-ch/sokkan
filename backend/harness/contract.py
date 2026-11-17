@@ -324,6 +324,14 @@ class RunSpec:
     mcp_servers: dict[str, dict] = field(default_factory=dict)  # stdio: command, args, env
     auto_allow: tuple[str, ...] = ()        # tool rules that run without a gate
     deny_tools: tuple[str, ...] | None = None   # tools removed from the run
+    # the cockpit's approval mode (default | acceptEdits | bypassPermissions): a cockpit rule,
+    # applied when a gate is requested. An engine whose gate ENDS its turn (the kernel) is also
+    # told, so that what the cockpit would approve anyway is not a card (one turn per card).
+    # The cockpit only sends a wider mode when none of its « never » rules could fire.
+    approval_mode: str = "default"
+    # False = the run has no shell (the Atelier): an engine that can remove its shell tools
+    # from the run does (the kernel: deny_tools); the cockpit's rule still refuses a shell gate
+    shell: bool = True
     budget_usd: float | None = None         # native cap, when the engine prices the model
     budget_tokens: int | None = None
     context: ContextProvider | None = None
@@ -339,6 +347,7 @@ class RunSpec:
             "env": sorted(self.env), "mcp_servers": sorted(self.mcp_servers),
             "auto_allow": list(self.auto_allow),
             "deny_tools": None if self.deny_tools is None else list(self.deny_tools),
+            "approval_mode": self.approval_mode, "shell": self.shell,
             "budget_usd": self.budget_usd, "budget_tokens": self.budget_tokens,
             "context": self.context is not None,
             "confinement": self.confinement.project if self.confinement else None,

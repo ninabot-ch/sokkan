@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -48,6 +49,8 @@ import uuid
 from typing import Any, AsyncIterator
 
 import httpx
+
+log = logging.getLogger("sokkan.harness.kernel")
 
 from .base import Harness
 from .contract import (
@@ -84,6 +87,26 @@ def classify(name: str) -> str:
     if n.startswith(("browser_", "web_")) or n in {"fetch_url", "web_search"}:
         return "net"
     return "other"
+
+
+# the cockpit's approval mode → the kernel's own (its `qa/permissions.py`): the legacy engine
+# decides a card INSIDE its call (`can_use_tool`), the kernel ends its turn on every card and
+# starts a new one once it is decided (≈ 2 model requests per card, parity bench n°2). What
+# the cockpit approves by rule anyway is therefore not made a card in the kernel.
+#   default            every write and every command is a card (the Atelier, a person decides)
+#   acceptEdits        the folder's file edits pass, commands stay cards
+#   bypassPermissions  everything passes but the DESTRUCTIVE (still a card, approved by rule)
+KERNEL_MODES = {"default": "default", "acceptEdits": "accept_edits", "bypassPermissions": "auto"}
+_STRICTNESS = {"plan": 3, "default": 2, "accept_edits": 1, "auto": 0}
+
+# the kernel publishes some refusals made BEFORE any execution (a `deny` rule, the plan mode,
+# a « hardline » command…) with `is_error=False` and a stable `reason` (16.11.2026, its
+# core/loop.py l. 2041; its hub sets `reason` for a refusal only): such a result is a refusal,
+# never a tool that ran
+
+
+def kernel_mode(approval_mode: str | None) -> str:
+    return KERNEL_MODES.get(approval_mode or "default", "default")
 
 
 def gate_kind(name: str) -> str:
@@ -146,6 +169,36 @@ def _always_denied() -> list[str]:
     (``deny_tools``, kernel host-embed § 2). An empty value sends no list at all."""
     raw = os.environ.get("SOKKAN_KERNEL_DENY_TOOLS", "memory_note")
     return [n.strip() for n in raw.split(",") if n.strip()]
+
+
+def _mask(body: dict) -> dict:
+    """The opening body as it may be kept (bench, logs): header and variable VALUES masked."""
+    out = json.loads(json.dumps(body))
+    for key in ("mcp_headers", "mcp_env"):
+        v = out.get(key)
+        if isinstance(v, dict):
+            out[key] = {k: ({h: "***" for h in sub} if isinstance(sub, dict) else "***")
+                        for k, sub in v.items()}
+    return out
+
+
+def _same_owner(path: str, like: str) -> None:
+    """``path`` (a folder the adapter made inside the run's folder) owned and moded like
+    ``like`` (the run's folder): the kernel's sandbox writes there under the run folder's
+    owner — a folder of the api's uid would refuse a write AFTER its card was accepted
+    (parity bench n°2, R1b: « mkdir …/.sokkan-kernel/run-…/archives: Permission denied »)."""
+    try:
+        st = os.stat(like)
+    except OSError:
+        return
+    try:
+        os.chmod(path, st.st_mode & 0o7777)
+    except OSError:
+        pass
+    try:
+        os.chown(path, st.st_uid, st.st_gid)
+    except OSError:
+        pass       # not root: the api already runs as the folder's owner
 
 
 def _mcp_headers(servers: dict[str, dict] | None) -> dict[str, dict[str, str]]:
@@ -252,6 +305,11 @@ class KernelHarness(Harness):
         self._cancelled = False
         self._aliases: dict[str, str] = {}      # folder named by a hex id → its alias
         self._model: str | None = None
+        self.opened_with: dict | None = None    # the opening body, values masked (benches)
+        self.kernel_mode: str | None = None     # the mode the kernel applies to the thread
+        # names of `deny_tools` the kernel did not match (`unknown_denied`, kernel host-3) that
+        # were EXPECTED to be active tools: a refusal that would pass in silence
+        self.deny_unmatched: list[str] = []
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -306,7 +364,16 @@ class KernelHarness(Harness):
         # tools the run must not have: the spec's list (kernel names) plus the cockpit's own
         # « never » list; the kernel removes them from the thread and refuses them if called.
         # A kernel without the feature answers 400: the run does not start (never wider).
-        denied = list(dict.fromkeys([*(spec.deny_tools or ()), *_always_denied()]))
+        # A run without a shell (the Atelier) loses every shell tool of the kernel: the rule of
+        # the cockpit refuses a shell gate, but a gate never reached in the `default` mode (a
+        # read-only command passes, parity bench n°2, R2) or a model that keeps trying costs
+        # failure lines; removed, the tool is not even offered.
+        no_shell = sorted(_SHELL) if not spec.shell else []
+        denied = list(dict.fromkeys([*(spec.deny_tools or ()), *no_shell, *_always_denied()]))
+        # the names that MUST match an active tool of the session (the others of the shell
+        # family are removed in case this kernel has them)
+        expected = set(spec.deny_tools or ()) | set(_always_denied()) | (
+            {"terminal"} if not spec.shell else set())
         if denied:
             body["deny_tools"] = denied
         # the cockpit has no bubble surface: a kernel with `surfaces_gate` drops its bubble
@@ -330,6 +397,7 @@ class KernelHarness(Harness):
             mcp_off = sorted(spec.mcp_servers or {})
         if mcp_env:
             body["mcp_env"] = mcp_env
+        self.opened_with = _mask(body)
         try:
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         except httpx.RemoteProtocolError:
@@ -339,25 +407,37 @@ class KernelHarness(Harness):
             # (no tenant in the local route). The session opens without the ENGINE's cap —
             # said below, the cockpit's own budget checks still hold
             body.pop("budget")
+            self.opened_with = _mask(body)
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         if r.status_code not in (200, 201):
             await self._close_client()
             raise ConnectionError(f"kernel refused the session ({r.status_code}): {r.text[:200]}")
         out = r.json()
         self._thread = out["thread_id"]
-        # the strictest mode that still acts: every write and every command is a card; the
-        # cockpit relaxes (its « accept edits » is a rule applied to the gate, not a mode here)
-        m = await self._client.put(f"/v1/local/sessions/{self._thread}/mode", headers=_headers(),
-                                   json={"mode": "default"})
-        if m.status_code != 200 or (m.json() or {}).get("effective") not in ("default", "plan"):
+        # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
+        # `unknown_denied` (absent on older kernels: nothing to check). Naming: the name the
+        # model sees, `<server>__<tool>` for an MCP tool.
+        unknown = [str(n) for n in (out.get("unknown_denied") or [])]
+        self.deny_unmatched = sorted(n for n in unknown if n in expected)
+        # the kernel's mode follows the cockpit's approval mode (KERNEL_MODES): `default`, every
+        # write and every command a card, unless the cockpit approves them by rule anyway
+        try:
+            await self._put_mode(kernel_mode(spec.approval_mode))
+        except ConnectionError:
             await self._close_client()
-            raise ConnectionError(f"kernel refused the strict mode ({m.status_code}): "
-                                  f"{m.text[:200]}")
+            raise
         self._mail.put_nowait(RunStarted(run_id=spec.run_id, harness=NAME, sid=spec.run_id,
                                          cwd=spec.cwd, model=spec.model, project=spec.project,
                                          resumed_from=spec.resume))
         self._model = await self._default_model()
         self._mail.put_nowait(RunInfo(engine_session=self._thread, model=self._model))
+        if self.deny_unmatched:
+            log.warning("kernel thread %s: deny_tools not matched by the kernel: %s",
+                        self._thread, ", ".join(self.deny_unmatched))
+            self._mail.put_nowait(Error(code="deny_tools_unmatched", recoverable=True,
+                                        message="tools to remove that the engine does not know: "
+                                                + ", ".join(self.deny_unmatched),
+                                        data={"tools": self.deny_unmatched}))
         if mcp_off:
             self._mail.put_nowait(Error(code="mcp_unavailable", recoverable=True,
                                         message="tools not available with this engine: "
@@ -367,6 +447,26 @@ class KernelHarness(Harness):
             # the kernel ignores a cap when its flag is off: say it, never assume it holds
             self._mail.put_nowait(Error(code="budget_not_enforced", recoverable=True,
                                         message="the kernel does not enforce session caps"))
+
+    async def _put_mode(self, mode: str) -> None:
+        m = await self._client.put(f"/v1/local/sessions/{self._thread}/mode", headers=_headers(),
+                                   json={"mode": mode})
+        eff = (m.json() or {}).get("effective") if m.status_code == 200 else None
+        # a stricter effective mode (the repository's settings restrict) is fine: the cockpit
+        # still decides the cards; a WIDER one never is
+        if eff not in _STRICTNESS or _STRICTNESS[eff] < _STRICTNESS[mode]:
+            raise ConnectionError(f"kernel refused the mode {mode!r} ({m.status_code}): "
+                                  f"{m.text[:200]}")
+        self.kernel_mode = eff
+
+    async def set_approval_mode(self, mode: str) -> None:
+        """The cockpit's approval mode changed: the thread's kernel mode follows (from the next
+        call of the model on). The cockpit only widens it when none of its « never » rules
+        could fire (agentchat `_engine_approval_mode`)."""
+        if self._spec is not None:
+            self._spec.approval_mode = mode
+        if self._client is not None and self._thread and not self._stopped:
+            await self._put_mode(kernel_mode(mode))
 
     async def _default_model(self) -> str | None:
         """The model of the kernel's default tier, known before its first answer (the badge of
@@ -445,7 +545,10 @@ class KernelHarness(Harness):
                 return real
             alias = os.path.join(base, f"f{len(self._aliases) + 1}")
             try:
-                os.makedirs(base, exist_ok=True)
+                if not os.path.isdir(base):
+                    os.makedirs(base, exist_ok=True)
+                    for d in (os.path.dirname(base), base):
+                        _same_owner(d, cwd)
                 if not os.path.islink(alias):
                     # relative: the same link resolves on the host and in a sandbox where the
                     # run's folder is mounted elsewhere
@@ -803,7 +906,8 @@ class KernelHarness(Harness):
             return                       # « waiting for approval »: not a result
         if d.get("approval_id"):
             self._held_calls.pop(call, None)
-        ok = not d.get("is_error")
+        # a refusal published as a success (`reason` set, `is_error` false) is a refusal
+        ok = not d.get("is_error") and not d.get("reason")
         if not ok and classify(str(d.get("name"))) == "file_write" and (
                 d.get("reason") == "outside_root" or any(w in out.lower() for w in _OUTSIDE)):
             self._mail.put_nowait(Error(code="confined", recoverable=True, message=out[:300],

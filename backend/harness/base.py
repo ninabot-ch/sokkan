@@ -85,3 +85,10 @@ class Harness(ABC):
         ``Capabilities.history = False`` and raises ``Unsupported`` here: the cockpit
         says the thread is not available, it never rebuilds one from somewhere else."""
         raise Unsupported(f"{self.name or type(self).__name__} cannot read a thread back")
+
+    async def set_approval_mode(self, mode: str) -> None:
+        """The cockpit's approval mode changed (``default`` / ``acceptEdits`` /
+        ``bypassPermissions``, see ``RunSpec.approval_mode``). It stays a rule of the cockpit:
+        by default nothing changes in the engine. An engine whose gate ends its turn may relax
+        its own gate to match (the cockpit would approve those gates anyway)."""
+        return None
