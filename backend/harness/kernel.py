@@ -434,6 +434,7 @@ class KernelHarness(Harness):
         self._model: str | None = None
         self.opened_with: dict | None = None    # the opening body, values masked (benches)
         self.kernel_mode: str | None = None     # the mode the kernel applies to the thread
+        self.session_closed: bool | None = None  # the session's DELETE at stop() answered 200
         # names of `deny_tools` the kernel did not match (`unknown_denied`, kernel host-3) that
         # were EXPECTED to be active tools: a refusal that would pass in silence
         self.deny_unmatched: list[str] = []
@@ -871,9 +872,29 @@ class KernelHarness(Harness):
             await self.interrupt()
             if self._turn is not None:      # nothing more will come: close the turn
                 self._end_turn(force=True)
+        await self._close_session()
         self._mail.put_nowait(RunEnded(status="ended", resumable=bool(self._thread),
                                        engine_session=self._thread or None))
         await self._close_client()
+
+    async def _close_session(self) -> None:
+        """End of the run: the kernel removes the session's sandbox container
+        (``DELETE /v1/local/sessions/{thread}``, kernel host-2). The thread and its history
+        stay: a resumed run opens a session again (``resume``). A kernel without the route
+        (404/405) or out of reach keeps its sandbox until its own idle/exit reaping: never a
+        reason to fail the end of a run."""
+        if not self._thread or self._client is None:
+            return
+        try:
+            r = await asyncio.wait_for(self._client.delete(
+                f"/v1/local/sessions/{self._thread}", headers=_headers()), 30)
+            self.session_closed = r.status_code == 200
+            if r.status_code not in (200, 404, 405):
+                log.warning("kernel thread %s: session not closed (%s): %s",
+                            self._thread, r.status_code, r.text[:200])
+        except (httpx.HTTPError, asyncio.TimeoutError) as e:
+            self.session_closed = False
+            log.warning("kernel thread %s: session not closed: %s", self._thread, e)
 
     async def _close_client(self) -> None:
         if self._sse is not None:

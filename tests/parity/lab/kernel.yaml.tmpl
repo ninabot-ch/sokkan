@@ -66,4 +66,8 @@ local:
     # work folder is mounted at the same path in the kernel, so the daemon sees it there too
     require_sandbox: @REQUIRE_SANDBOX@
     image: @SANDBOX_IMAGE@
+    # the sandbox's memory/CPU caps (kernel host-2; PARITY_SANDBOX_MEMORY / PARITY_SANDBOX_CPUS,
+    # docker sandbox only): set, the sandbox is created when the session opens and a cap docker
+    # does not apply refuses the session (503 sandbox_unavailable) — never an uncapped sandbox
+    # @SANDBOX_CAPS@
     host_roots: {"@ROOT@": "@ROOT@"}

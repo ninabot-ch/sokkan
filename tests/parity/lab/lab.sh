@@ -16,7 +16,9 @@
 # PARITY_KERNEL_SANDBOX (local | docker), PARITY_KERNEL_MEM (2g; at most 7g on a shared machine),
 # PARITY_THINKING (0), PARITY_MAX_CONCURRENT (2), PARITY_HOST_EMBED (1: the kernel's host-embed
 # flags on, as SOKKAN ships them), PARITY_SANDBOX_IMAGE (the sandbox image when
-# PARITY_KERNEL_SANDBOX=docker; the kernel then reaches the host's docker socket).
+# PARITY_KERNEL_SANDBOX=docker; the kernel then reaches the host's docker socket),
+# PARITY_SANDBOX_MEMORY (e.g. 4g) and PARITY_SANDBOX_CPUS (e.g. 4): the sandbox's caps (kernel
+# host-2, docker sandbox only; unset = no cap).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_HOME:=/srv/sokkan-parity}"
@@ -32,6 +34,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_MAX_CONCURRENT:=2}"
 : "${PARITY_HOST_EMBED:=1}"
 : "${PARITY_SANDBOX_IMAGE:=}"
+: "${PARITY_SANDBOX_MEMORY:=}"
+: "${PARITY_SANDBOX_CPUS:=}"
 PARITY_DOCKER_SOCK=/dev/null
 PARITY_DOCKER_GID=65534
 if [ "$PARITY_KERNEL_SANDBOX" = docker ]; then
@@ -61,10 +65,18 @@ render() {   # template, out, upstream, model, root, context, max_calls, host, p
     if [ "$PARITY_HOST_EMBED" = 1 ]; then he=true; chain=60; else he=false; chain=0; fi
     if [ "$R_SANDBOX" = docker ]; then req=true; else req=false; fi
     sbi=${PARITY_SANDBOX_IMAGE:-nikolaik/python-nodejs:python3.14-nodejs22}
+    caps=""
+    if [ "$R_SANDBOX" = docker ] && [ -n "$PARITY_SANDBOX_MEMORY" ]; then
+        caps="memory: \"$PARITY_SANDBOX_MEMORY\""
+    fi
+    if [ "$R_SANDBOX" = docker ] && [ -n "$PARITY_SANDBOX_CPUS" ]; then
+        caps="${caps:+$caps\n    }cpus: $PARITY_SANDBOX_CPUS"
+    fi
     sed -e "s#@UPSTREAM@#$3#" -e "s#@MODEL@#$4#" -e "s#@ROOT@#$5#g" -e "s#@CONTEXT@#$6#" \
         -e "s#@MAX_CALLS@#$7#" -e "s#@HOST@#$8#" -e "s#@PORT@#$9#" \
         -e "s#@SANDBOX@#$R_SANDBOX#" -e "s#@HOST_EMBED@#$he#" -e "s#@CHAIN_MAX@#$chain#" \
-        -e "s#@REQUIRE_SANDBOX@#$req#" -e "s#@SANDBOX_IMAGE@#$sbi#" "$1" > "$2"
+        -e "s#@REQUIRE_SANDBOX@#$req#" -e "s#@SANDBOX_IMAGE@#$sbi#" \
+        -e "s|^    # @SANDBOX_CAPS@\$|${caps:+    $caps}|" "$1" > "$2"
     chmod 644 "$2"
 }
 
@@ -152,5 +164,5 @@ purge)
     rm -rf -- "${PARITY_HOME:?}/kernel" "${PARITY_HOME:?}/kconf" "${PARITY_HOME:?}/ws" "${PARITY_HOME:?}/conf-ws"
     ;;
 *)
-    sed -n '2,16p' "$0"; exit 2 ;;
+    sed -n '2,21p' "$0"; exit 2 ;;
 esac

@@ -625,6 +625,8 @@ def keep_engine_side(out: dict, play: Play) -> dict:
         out["kernel_session_body"] = h.opened_with
         out["kernel_mode"] = getattr(h, "kernel_mode", None)
         out["kernel_deny_unmatched"] = list(getattr(h, "deny_unmatched", []) or [])
+        # kernel host-2: the session (and its sandbox) is closed at the end of the run
+        out["kernel_session_closed"] = getattr(h, "session_closed", None)
     if play.engine == "kernel" and play.engine_session:
         out["kernel_trace_calls"] = kernel_trace_calls(play.engine_session)
     return out
