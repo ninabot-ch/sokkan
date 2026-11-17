@@ -129,7 +129,8 @@ case "$cmd" in
     compose_file_add
     profiles_set add
     [ "$KEEP" = 1 ] || set_env SOKKAN_ENGINE_RUNTIME kernel
-    say "✔ kernel engine enabled ($IMAGE) — sandbox network: $(getenv SOKKAN_KERNEL_SANDBOX_NET | sed 's/^$/none/')"
+    net="$(getenv SOKKAN_KERNEL_SANDBOX_NET)"
+    say "✔ kernel engine enabled ($IMAGE) — sandbox network: ${net:-none}"
     say "  start it:  $DC compose up -d --remove-orphans"
     ;;
   refresh)

@@ -477,3 +477,27 @@ def test_the_installers_offer_the_kernel_without_making_it_the_default():
     assert "kernel" not in re.search(r"^COMPOSE_PROFILES=(.*)$", tmpl, re.M).group(1)
     assert "SOKKAN_ENGINE_RUNTIME=kernel" not in tmpl and "docker-compose.kernel.yml" not in tmpl
     assert "docker-compose.kernel.yml" in (ROOT / "scripts/rollback.sh").read_text()
+
+
+def test_the_proxy_launcher_accepts_the_cgroup_probe_and_nothing_else(tmp_path, monkeypatch):
+    """deploy/kernel/dockerproxy_compat.py runs the kernel's own proxy with one rule: the
+    library's cgroup probe (`sleep 0`, unlabelled) becomes `true`, the proxy's accepted probe."""
+    fake = tmp_path / "dockerproxy.py"
+    fake.write_text("LABEL = 'nokker.sandbox'\nseen = []\n"
+                    "def check_create(body, cfg):\n    seen.append(body.get('Cmd'))\n    return body\n"
+                    "async def main():\n    pass\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "dockerproxy", raising=False)
+    spec = importlib.util.spec_from_file_location("kc_compat", ROOT / "deploy/kernel/dockerproxy_compat.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    import dockerproxy
+    assert dockerproxy.check_create is mod.check_create
+    assert mod.check_create({"Cmd": ["sleep", "0"]}, None)["Cmd"] == ["true"]
+    assert mod.check_create({"Cmd": ["sleep", "10"]}, None)["Cmd"] == ["sleep", "10"]
+    labelled = {"Cmd": ["sleep", "0"], "Labels": {"nokker.sandbox": "t"}}
+    assert mod.check_create(labelled, None)["Cmd"] == ["sleep", "0"]
+    assert dockerproxy.seen == [["true"], ["sleep", "10"], ["sleep", "0"]]   # the proxy still checks all
+    svc = _compose()["services"]["kernel-dockerproxy"]
+    assert svc["command"] == ["python3", "/opt/sokkan/dockerproxy_compat.py"]
+    assert "./deploy/kernel/dockerproxy_compat.py:/opt/sokkan/dockerproxy_compat.py:ro" in svc["volumes"]

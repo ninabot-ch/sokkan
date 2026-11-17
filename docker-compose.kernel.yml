@@ -93,7 +93,9 @@ services:
     image: ${SOKKAN_KERNEL_SANDBOXD_IMAGE:-ghcr.io/nokker-ai/sandboxd:0.1.0-rc.9.32}
     profiles: ["kernel"]
     restart: unless-stopped
-    command: ["python3", "dockerproxy.py"]
+    # the kernel's own dockerproxy.py, through a launcher that accepts the library's cgroup
+    # probe (deploy/kernel/dockerproxy_compat.py — kernel gap n°24)
+    command: ["python3", "/opt/sokkan/dockerproxy_compat.py"]
     user: "0"            # owner of the socket; no capability, read-only file system
     environment:
       # the host folders a sandbox may mount (read-write): the default project, the projects'
@@ -105,6 +107,7 @@ services:
       NOKKER_SANDBOX_IMAGES: ${SOKKAN_KERNEL_SANDBOX_IMAGE:-ghcr.io/nokker-ai/sandbox:0.1.0-rc.9.32}
     volumes:
       - ${SOKKAN_KERNEL_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - ./deploy/kernel/dockerproxy_compat.py:/opt/sokkan/dockerproxy_compat.py:ro
     networks: [kernel-dockerapi]
     mem_limit: 64m
 
@@ -115,6 +118,9 @@ services:
     profiles: ["kernel"]
     restart: unless-stopped
     entrypoint: ["python3", "/opt/sokkan/egress_filter.py"]
+    depends_on:
+      kernel-egress:
+        condition: service_started
     environment:
       SOKKAN_KERNEL_SANDBOX_NET: ${SOKKAN_KERNEL_SANDBOX_NET:-none}
       SOKKAN_KERNEL_EGRESS_ALLOW: ${SOKKAN_KERNEL_EGRESS_ALLOW:-}

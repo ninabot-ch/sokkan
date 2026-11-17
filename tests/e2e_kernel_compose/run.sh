@@ -127,7 +127,7 @@ docker run --rm -v kc-a_kernel-config:/c:ro "$TOOLBOX" cat /c/config.yaml > "$RE
 check "K1 rendered: docker, require_sandbox, caps" bash -c "grep -q 'backend: docker' $RES/kernel-config-a.yaml && grep -q 'require_sandbox: true' $RES/kernel-config-a.yaml && grep -q 'memory: 1g' $RES/kernel-config-a.yaml && ! grep -q memory_direct $RES/kernel-config-a.yaml"
 # the label survives a restart of the api (re-render): stable
 dc a restart api >/dev/null 2>&1; wait_healthy a api 180 >/dev/null
-check "K1 label stable across a re-render" bash -c "[ \"\$(label a)\" = '$LA' ]"
+check "K1 label stable across a re-render" test "$(label a)" = "$LA"
 
 # ---- K2: conformance against A's kernel ---------------------------------------------------
 WSA="$(sed -n 's/^SOKKAN_KERNEL_WORKSPACE_HOST=//p' "$KC_HOME/inst-a/.env")"
@@ -147,7 +147,7 @@ docker rm -f kc-a-conf >/dev/null 2>&1
 tail -5 "$RES/conformance.log"
 check "K2 conformance C1-C9 on the compose kernel" bash -c "grep -Eq '[0-9]+ passed' $RES/conformance.log && ! grep -Eq '[0-9]+ (failed|error)' $RES/conformance.log && ! grep -q skipped $RES/conformance.log"
 wait_healthy a kernel 180 >/dev/null
-check "K2 no sandbox of A left after the conformance" bash -c "[ -z \"\$(sandboxes $LA)\" ]"
+check "K2 no sandbox of A left after the conformance" test -z "$(sandboxes "$LA")"
 
 # ---- K3: an Atelier work on the real model -----------------------------------------------
 model_conf "$KC_HOME/inst-a" "$KC_MODEL_URL"
@@ -180,14 +180,14 @@ check "K4 the proxy refuses privileged, host root, docker socket, named volume" 
 # ---- K5: B's kernel restarts (its reaping) — A's sandbox stays ----------------------------
 dc b restart kernel >/dev/null 2>&1; wait_healthy b kernel 240 >/dev/null
 check "K5 A's sandbox survives B's start-up reaping" bash -c "[ -n '$SBX' ] && docker inspect '$SBX' >/dev/null 2>&1"
-check "K5 B lists none of A's sandboxes" bash -c "[ -z \"\$(sandboxes $LB | grep -x '$SBX')\" ]"
+check "K5 B lists none of A's sandboxes" test -z "$(sandboxes "$LB" | grep -x "${SBX:-none}")"
 
 # ---- K6: DELETE of the work ----------------------------------------------------------------
 if [ -n "$SID" ]; then
   dc a exec -T api python3 /opt/kc/atelier.py close "$SID" >> "$RES/atelier.json" 2>&1
 fi
 t=0; while [ -n "$(sandboxes "$LA")" ] && [ $t -lt 60 ]; do sleep 3; t=$((t+3)); done
-check "K6 no sandbox of A after DELETE (${t}s)" bash -c "[ -z \"\$(sandboxes $LA)\" ]"
+check "K6 no sandbox of A after DELETE (${t}s)" test -z "$(sandboxes "$LA")"
 
 for x in a b; do dc $x logs --no-color kernel kernel-dockerproxy api > "$RES/logs-$x.txt" 2>&1; done
 echo "== $PASS passed, $FAIL failed — $RES" | tee -a "$RES/summary.txt"
