@@ -282,9 +282,8 @@ with what the engine cannot do.
 
 * The front still receives the historical flow (translated in `agentchat._consume`); only
   the `capabilities` event is new, and only an engine that lacks something sends it.
-* No `history()` on the interface: the replay of a session reads the CLI's transcript.
-* Four-eyes on a session's gate does not exist in the cockpit (C6 proves only what an
-  engine must allow for it).
+* (Done since: `history()` — C9, both engines — and four-eyes on a session's gate through
+  `AgentSession.decide()`.)
 
 ## The kernel engine (`kernel.py`, experimental)
 
@@ -300,6 +299,7 @@ container image, never as source in this repository — through its local HTTP A
 | `decide` | cards: `POST /v1/local/approvals/{id}/decide` (`approve`/`reject`, scope `once` or `session` with a rule the kernel suggested); questions: `POST /v1/local/questions/{id}/answer` |
 | `interrupt` | `POST /v1/threads/{id}/cancel` |
 | `usage` | one event per (kernel turn, model) from `turn.cost`, `message_id = <kernel turn>:<model>` |
+| `history` | `GET /v1/threads/{id}/export?format=json` (every page): the placeholder of a gated call is not its outcome, the `[Approbation]` block of the continuation turn fills it and is not a prompt; the recall preamble is taken off the prompts |
 
 What differs from the CLI adapter, and why the cockpit does not notice:
 
@@ -313,13 +313,17 @@ What differs from the CLI adapter, and why the cockpit does not notice:
   under its machine owner.
 * The kernel confines its file tools to the run's folder by itself; a refusal becomes an
   `error` `confined` (recognised by its message: the kernel has no stable code for it yet).
-* Refused rather than run wider: a run with `deny_tools` (the kernel has no per-session
-  « never » list yet) and a run in plan mode (the kernel's plan mode is read-only, not « a plan
+* A run without a shell (`RunSpec.shell=False`, the Atelier) loses every shell tool of the
+  kernel and its own memory tool (`ATELIER_DENIED`, sent in `deny_tools` whatever
+  `SOKKAN_KERNEL_DENY_TOOLS` says); a call to a removed tool is said in the words of the
+  space's rule (`refusals.py`), as the legacy adapter says its own.
+* Refused rather than run wider: a run in plan mode (the kernel's plan mode is read-only, not « a plan
   submitted, then approved »).
 * Resume survives a restart of the kernel: its threads, cards and ledger are in SOKKAN's Postgres,
   schema `kernel` (`deploy/kernel/db-init.sql`, services `kernel-db`, `kernel-migrate`). A resume
   of a thread the kernel does not have is refused (the kernel would reopen it empty).
 
-Conformance: `tests/test_harness_kernel.py` plays C1–C8 against a running kernel whose model is
+Conformance: `tests/test_harness_kernel.py` plays C1–C9 (and C4, C9 again after a restart of
+the kernel) against a running kernel whose model is
 a scripted OpenAI-compatible endpoint started by the test (`tests/kernel_upstream.py`); the
 variables it needs are in its docstring, and it skips without them.
