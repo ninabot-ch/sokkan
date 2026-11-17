@@ -109,6 +109,22 @@ shell tool of the kernel (`deny_tools`).
   behind a known first line (MANIFEST `key_tag: sokkan-key/1`) and `restore.sh` checks it
   before anything is touched. Sets made by an older `backup.sh` restore as before.
 
+
+**Atelier — readable approval cards, no promise of an absent capability, Nina on the local model**
+(audit of 21 real tasks, 18.11). Every approval card says what, where and with what
+(`backend/approvalcard.py`, both engines): a save shows where it lands and, for a correction, what
+goes and what comes; a note to retain and a mail draft can be read first; a card of the task board
+shows its column and label; an automatic agent its mission and schedule in words (« chaque vendredi
+à 16:00 ») and that it waits for the administrator; an unknown tool its readable name and
+parameters — never « the agent wants to carry out an action » alone; « if you allow / if you
+refuse » under each. An Atelier work no longer has the task board, the agent team or monitoring
+(removed from the run, refused by the gate, the refusal hidden as a rule of the space), and its
+brief lists what the workspace really does (connected mailbox, calendar, folders; sending only by
+a card) and forbids saying an action was done when it was not. `/api/agents` tells an instance
+admin which agents wait for approval in another project (Crew). Nina: no reasoning pass by default
+on an OpenAI-compatible endpoint (new `SOKKAN_ASSISTANT_THINKING`, off), the model's thinking is
+never streamed as the answer, and no setting's name ever reaches the person (27B: 21-44 s → 4-10 s).
+
 ## Unreleased — 3.6.8 "Icebreaker"
 
 - **No shell in an Atelier work, whoever asks.** The rule lived only in the permission callback,

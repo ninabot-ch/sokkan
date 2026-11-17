@@ -268,7 +268,7 @@ REGISTRY: tuple[Feature, ...] = (
             "knowledge base; paid in the guaranteed offer, the user's own model in open source.",
             vars=_t("assistant", Var("SOKKAN_FEATURE_ASSISTANT", parse_zero_off, True, "0 = off, anything else = on")),
             config=("SOKKAN_ASSISTANT_LLM_URL", "SOKKAN_ASSISTANT_LLM_MODEL",
-                    "SOKKAN_ASSISTANT_MAX_TOKENS"),
+                    "SOKKAN_ASSISTANT_MAX_TOKENS", "SOKKAN_ASSISTANT_THINKING"),
             check=_assistant_check),
     Feature("missions_link", "SOKKAN Missions link",
             "Header link to the public SOKKAN Missions marketplace, with a counter this instance "
