@@ -205,14 +205,16 @@ def grade(case: dict, play, sp: dict, files: dict[str, str], O) -> dict:
             text_nums = _numbers(O.preview(name, text))
             want = case["expect_totals"] + case.get("expect_any", [])
             # a total-looking figure close to an expected one but not equal: a wrong total
-            wrong = sorted({v for v in text_nums for t in want if 0.006 < abs(v - t) < 0.2 * t and v > 1000})
+            wrong = sorted({v for v in text_nums if v > 1000 and not any(abs(v - t) < 0.006 for t in want)
+                            and any(abs(v - t) < 0.2 * t for t in want)})
             detail["near_miss_figures_in_file"] = wrong[:10]
     else:
         detail["note"] = "no deliverable of the expected kind"
     # figures of the message close to an expected total but different: told wrong
     want = case.get("expect_totals", []) + case.get("expect_any", [])
     said = _numbers(chat)
-    bad_said = sorted({v for v in said for t in want if 0.006 < abs(v - t) < 0.2 * t and v > 1000})
+    bad_said = sorted({v for v in said if v > 1000 and not any(abs(v - t) < 0.006 for t in want)
+                       and any(abs(v - t) < 0.2 * t for t in want)})
     checks["message_quotes_no_wrong_total"] = not bad_said
     detail["message_wrong_totals"] = bad_said[:10]
     return {"ok": all(checks.values()), "checks": checks, "detail": detail}

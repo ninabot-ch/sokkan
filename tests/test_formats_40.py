@@ -450,3 +450,66 @@ def test_front_matter_is_only_at_the_top():
     assert outputs.kind_of("a.md", "---\nformat: Excel\n---\n# T\n") == "spreadsheet"
     assert outputs.kind_of("a.md", "---\nnot front matter at all\n---\n") == "document"
     assert json.dumps(outputs.formats_for("a.md", "# T")) == '["docx", "pdf"]'
+
+
+# what the 27B wrote on a real run (17.11.2026): row labels in brackets, another sheet's table
+RUN_SUMMARY = """---
+format: xlsx
+---
+# Rapprochement
+
+## Factures émises
+| Facture | Montant | Reçu | Reste |
+|---|---|---|---|
+| F-101 | 18350.00 | 6000.00 | =[Montant]-[Reçu] |
+| F-103 | 31200.00 | 10000.00 | =[Montant]-[Reçu] |
+| Total | =SUM(ABOVE) | =SUM(ABOVE) | =SUM(ABOVE) |
+
+## Résumé
+| Poste | Montant (CHF) |
+|---|---|
+| Total facturé | =SUM('Factures émises'!B2:B3) |
+| Total reçu | =SUM('Factures émises'!C2:C3) |
+| Total encore ouvert | =[Total facturé]-[Total reçu] |
+| Écart | =[Total inconnu]*2 |
+"""
+
+
+def test_row_labels_and_other_sheets_are_understood_and_a_bad_formula_never_breaks_excel():
+    wb, vals = _xlsx("R.md", RUN_SUMMARY)
+    s = wb["Résumé"]
+    # the first sheet has the title on top: the other sheet's table coordinates are shifted
+    assert s["B2"].value == "=SUM('Factures émises'!B4:B5)"
+    assert s["B4"].value == "=B2-B3"
+    v = vals["Résumé"]
+    assert (v["B2"].value, v["B3"].value, v["B4"].value) == (49550, 16000, 33550)
+    assert s["B5"].data_type == "s" and s["B5"].value.startswith("=[Total inconnu]")
+    pv = outputs.preview("R.md", RUN_SUMMARY)
+    assert "| **Total encore ouvert** | **33'550.00** |" in pv or "| Total encore ouvert | 33'550.00 |" in pv and "(formule à revoir)" in pv
+    summ = outputs.calc_summary("R.md", RUN_SUMMARY)
+    assert "Résumé · Total encore ouvert · Montant (CHF) = 33'550.00" in summ
+    assert "FORMULA NOT UNDERSTOOD" in summ
+
+
+def test_two_templates_in_one_source_give_every_letter():
+    """A real run: a courteous reminder for two clients, a firmer one for the third."""
+    src = ("---\nformat: letters\n---\n\n# Relance de facture\n\nMadame, Monsieur,\n\nLa facture {{Facture}} "
+           "de {{Montant}} CHF est échue.\n\n## Destinataires\n\n| Facture | Client | Montant |\n|---|---|---|\n"
+           "| F-103 | Hôtel Bellerive | 21'200.00 |\n| F-104 | Riviera Immobilier | 4'200.00 |\n\n---\n\n"
+           "# Deuxième rappel de facture\n\nMalgré notre premier rappel, la facture {{Facture}} de {{Montant}} CHF "
+           "reste impayée.\n\n## Destinataires\n\n| Facture | Client | Montant |\n|---|---|---|\n"
+           "| F-101 | Régie du Lac SA | 12'350.00 |\n")
+    title, ls = outputs.letters(src)
+    assert title == "Relance de facture"
+    assert [x.name for x in ls] == ["Hôtel Bellerive", "Riviera Immobilier", "Régie du Lac SA"]
+    assert "Deuxième rappel" not in ls[2].body and "Malgré notre premier rappel" in ls[2].body
+    assert "F-101" in ls[2].body and "12'350.00" in ls[2].body and "F-103" not in ls[2].body
+    # the template, a rule, then the recipients' table alone
+    src2 = ("---\nformat: letters\n---\n# R\n\nFacture {{Facture}}.\n\n---\n\n## Destinataires\n\n"
+            "| Facture | Nom |\n|---|---|\n| F-1 | A |\n| F-2 | B |\n")
+    assert [x.name for x in outputs.letters(src2)[1]] == ["A", "B"]
+
+
+def test_a_balance_column_of_formulas_takes_the_amounts_format():
+    wb, _v = _xlsx("R.md", RUN_SUMMARY)
+    assert wb["Résumé"]["B4"].number_format == "#,##0.00"

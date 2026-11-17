@@ -271,6 +271,7 @@ class Cell:
     numfmt: str = ""
     bold: bool = False
     computed: object = None       # the formula's value, computed here
+    bad: bool = False             # a formula SOKKAN cannot place (an unknown [name]): kept as text
 
 
 def parse_value(raw: str) -> Cell:
@@ -357,6 +358,7 @@ class Sheet:
     header_rows: list = field(default_factory=list)
     total_rows: list = field(default_factory=list)
     freeze: int = 0
+    formulas: list = field(default_factory=list)  # (table, row, col) of each formula, as written
 
 
 _TOTAL_WORDS = re.compile(r"^\s*(\*\*)?\s*(total|sous-total|subtotal|totaux|solde|somme|summe|gesamt)", re.I)
@@ -408,8 +410,21 @@ def workbook_model(name: str, text: str) -> tuple[str, list[Sheet]]:
     for sh in sheets:
         # a CSV table stays a table: no title row above its header
         layout(sh, title if sh is sheets[0] and not is_csv else "")
-    evaluate(sheets)
+    finish(sheets)
     return title, sheets
+
+
+def finish(sheets: list[Sheet]) -> None:
+    """Every sheet laid out: formulas to sheet coordinates (another sheet's table included),
+    then computed."""
+    for sh in sheets:
+        for tb, r, c in sh.formulas:
+            cell = sh.cells[(r, c)]
+            cell.formula = translate(cell.formula, tb, r, c, sheets)
+            if "[" in cell.formula or "{{" in cell.formula:
+                cell.bad = True
+        sh.formulas = []
+    evaluate(sheets)
 
 
 def layout(sh: Sheet, title: str) -> None:
@@ -436,7 +451,7 @@ def layout(sh: Sheet, title: str) -> None:
             rr = r + 1 + ri
             for ci, c in enumerate(row):
                 if c.formula:
-                    c.formula = translate(c.formula, tb, rr, ci)
+                    sh.formulas.append((tb, rr, ci))
                 sh.cells[(rr, ci)] = c
             first = row[0] if row else None
             if (first is not None and isinstance(first.value, str) and _TOTAL_WORDS.match(first.value)) \
@@ -452,7 +467,11 @@ def layout(sh: Sheet, title: str) -> None:
         sh.widths[col] = max(sh.widths.get(col, 8), min(60, ln + 2))
 
 
-def translate(f: str, tb: Table, row: int, col: int) -> str:
+def _first_table(sh: Sheet) -> Table | None:
+    return next((it[1] for it in sh.items if it[0] == "table"), None)
+
+
+def translate(f: str, tb: Table, row: int, col: int, sheets: list | None = None) -> str:
     """A formula as the agent wrote it, in the TABLE's coordinates (row 1 = header, columns
     A.. = the table's columns; ``[Column]`` = this row's cell of that column;
     ``SUM(ABOVE)`` = the cells above in this column) → sheet coordinates. What is produced
@@ -474,13 +493,36 @@ def translate(f: str, tb: Table, row: int, col: int) -> str:
     f = re.sub(r"\b(SUM|SOMME|AVERAGE|MOYENNE|MIN|MAX|COUNT)\(\s*(?:ABOVE|↑|DESSUS|CI-DESSUS)\s*\)",
                above, f, flags=re.I)
 
+    labels = {}
+    for i, r in enumerate(tb.rows):
+        if r and isinstance(r[0].value, str) and r[0].value.strip():
+            labels.setdefault(plain_text(r[0].value).strip().lower(), tb.top + 1 + i)
+
     def by_name(m):
-        key = m.group(1).strip().lower()
-        if key in hdr:
+        key = plain_text(m.group(1)).strip().lower()
+        if key in hdr:                       # a column: this row's cell of it
             return keep(f"{col_letter(hdr[key])}{row}")
+        if key in labels:                    # a row (« [Total facturé] »): its cell in this column
+            return keep(f"{col_letter(col)}{labels[key]}")
         return m.group(0)
 
     f = re.sub(r"\[([^\[\]]+)\]", by_name, f)
+
+    def other_sheet(m):
+        """'Sheet'!D2:D6 — counted in THAT sheet's first table, like the agent's own refs."""
+        name = m.group(1).strip("'")
+        target = next((x for x in (sheets or []) if x.name.lower() == name.lower()), None)
+        t2 = _first_table(target) if target else None
+        if t2 is None:
+            return keep(m.group(0))
+        shift = t2.top - 1
+        quoted = "'" + target.name.replace("'", "''") + "'"
+        ref = re.sub(r"(\$?)([A-Z]{1,3})(\$?)(\d+)",
+                     lambda r: f"{r.group(1)}{r.group(2)}{r.group(3)}{int(r.group(4)) + shift}", m.group(2))
+        return keep(f"{quoted}!{ref}")
+
+    f = re.sub(r"('[^']+'|[A-Za-zÀ-ÿ_][\wÀ-ÿ.]*)!(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)",
+               other_sheet, f)
     f = re.sub(r"\bSOMME\(", "SUM(", f, flags=re.I)
     f = re.sub(r"\bMOYENNE\(", "AVERAGE(", f, flags=re.I)
     f = re.sub(r"\bARRONDI\(", "ROUND(", f, flags=re.I)
@@ -502,8 +544,10 @@ class _Err(Exception):
     pass
 
 
-_TOKEN = re.compile(r"\s*(?:(\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)|(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
-                    r"|([A-Z][A-Z0-9.]*)\s*\(|(<=|>=|<>|[-+*/^(),;<>=&%]))")
+_TOKEN = re.compile(r"\s*(?:(?P<num>\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"
+                    r"|(?P<sheet>'(?:[^']|'')+'|[A-Za-zÀ-ÿ_][\wÀ-ÿ.]*)!(?P<xref>\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
+                    r"|(?P<ref>\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
+                    r"|(?P<fn>[A-Z][A-Z0-9.]*)\s*\(|(?P<op><=|>=|<>|[-+*/^(),;<>=&%]))")
 
 
 class _Eval:
@@ -511,14 +555,24 @@ class _Eval:
     same sheet, SUM AVERAGE MIN MAX COUNT ROUND ABS IF. Anything else → not computed here
     (Excel computes it when the file opens)."""
 
-    def __init__(self, sheet: Sheet):
+    def __init__(self, sheet: Sheet, book: dict | None = None):
         self.sh = sheet
+        self.book = book or {sheet.name.lower(): sheet}
         self.busy: set = set()
+
+    def other(self, name: str) -> "_Eval":
+        sh = self.book.get(name.strip("'").replace("''", "'").lower())
+        if sh is None:
+            raise _Err("#REF! unknown sheet")
+        ev = _Eval(sh, self.book)
+        ev.busy = self.busy
+        return ev
 
     def cell(self, ref: str):
         m = re.fullmatch(r"\$?([A-Z]{1,3})\$?(\d+)", ref)
         key = (int(m.group(2)), col_index(m.group(1)))
         c = self.sh.cells.get(key)
+        key = (id(self.sh),) + key
         if c is None:
             return None
         if c.formula:
@@ -526,7 +580,7 @@ class _Eval:
                 if key in self.busy:
                     raise _Err("cycle")
                 self.busy.add(key)
-                sub = _Eval(self.sh)          # run() is not reentrant: one evaluator per formula
+                sub = _Eval(self.sh, self.book)   # run() is not reentrant: one evaluator per formula
                 sub.busy = self.busy
                 try:
                     c.computed = sub.run(c.formula)
@@ -556,14 +610,16 @@ class _Eval:
             if not m or m.end() == pos:
                 raise _Err(f"cannot read {f[pos:pos + 10]!r}")
             pos = m.end()
-            if m.group(1):
-                self.toks.append(("num", float(m.group(1))))
-            elif m.group(2):
-                self.toks.append(("ref", m.group(2)))
-            elif m.group(3):
-                self.toks.append(("fn", m.group(3)))
+            if m.group("num"):
+                self.toks.append(("num", float(m.group("num"))))
+            elif m.group("xref"):
+                self.toks.append(("xref", (m.group("sheet"), m.group("xref"))))
+            elif m.group("ref"):
+                self.toks.append(("ref", m.group("ref")))
+            elif m.group("fn"):
+                self.toks.append(("fn", m.group("fn")))
             else:
-                self.toks.append(("op", m.group(4)))
+                self.toks.append(("op", m.group("op")))
         self.i = 0
         v = self.compare()
         if self.i != len(self.toks):
@@ -659,6 +715,9 @@ class _Eval:
             if t[0] == "ref" and ":" in t[1]:
                 self.take()
                 out.append(self.rng(t[1]))
+            elif t[0] == "xref" and ":" in t[1][1]:
+                self.take()
+                out.append(self.other(t[1][0]).rng(t[1][1]))
             else:
                 out.append(self.compare())
             t = self.take()
@@ -671,6 +730,10 @@ class _Eval:
         t = self.take()
         if t[0] == "num":
             return t[1]
+        if t[0] == "xref":
+            if ":" in t[1][1]:
+                raise _Err("range outside a function")
+            return self.other(t[1][0]).cell(t[1][1])
         if t[0] == "ref":
             if ":" in t[1]:
                 raise _Err("range outside a function")
@@ -712,9 +775,9 @@ class _Eval:
 
 def evaluate(sheets: list[Sheet]) -> None:
     for sh in sheets:
-        ev = _Eval(sh)
+        ev = _Eval(sh, {x.name.lower(): x for x in sheets})
         for (_r, _c), cell in sorted(sh.cells.items()):
-            if cell.formula and cell.computed is None:
+            if cell.formula and cell.computed is None and not cell.bad:
                 try:
                     v = ev.run(cell.formula)
                     cell.computed = round(v, 10) if isinstance(v, float) else v
@@ -724,10 +787,21 @@ def evaluate(sheets: list[Sheet]) -> None:
     for sh in sheets:
         for it in sh.items:
             if it[0] == "table":
-                _column_formats(sh, it[1])
+                _column_formats(sh, it[1], {x.name.lower(): x for x in sheets})
 
 
-def _column_formats(sh: Sheet, tb: Table) -> None:
+def _referenced_format(sh: Sheet, formula: str, book: dict) -> str:
+    """The number format of the first cell a formula reads that has one (a balance computed
+    from amounts shows two decimals like them)."""
+    for m in re.finditer(r"(?:('(?:[^']|'')+'|[A-Za-zÀ-ÿ_][\wÀ-ÿ.]*)!)?\$?([A-Z]{1,3})\$?(\d+)", formula):
+        target = book.get(m.group(1).strip("'").replace("''", "'").lower()) if m.group(1) else sh
+        c = target.cells.get((int(m.group(3)), col_index(m.group(2)))) if target else None
+        if c is not None and c.numfmt and "0.00" in c.numfmt:
+            return "#,##0.00"
+    return ""
+
+
+def _column_formats(sh: Sheet, tb: Table, book: dict | None = None) -> None:
     """One format per column of a table: amounts written « 18'350.00 », « 31'200 » and
     « CHF 8'120.50 » in one column all show two decimals; a column of formulas takes two
     decimals when the table holds amounts (a balance), none for a count."""
@@ -739,6 +813,7 @@ def _column_formats(sh: Sheet, tb: Table) -> None:
             if c is not None:
                 cols.setdefault(ci, []).append(c)
     fmts: dict[int, str] = {}
+    book = book or {sh.name.lower(): sh}
     for ci, cells in cols.items():
         nums = [c for c in cells if not c.formula and isinstance(c.value, (int, float))
                 and not isinstance(c.value, bool) and "%" not in (c.numfmt or "")
@@ -760,8 +835,11 @@ def _column_formats(sh: Sheet, tb: Table) -> None:
     for ci, cells in cols.items():
         for c in cells:
             if c.formula and not c.numfmt:
+                inherited = _referenced_format(sh, c.formula, book)
                 if re.match(r"\s*COUNT\(", c.formula, re.I):
                     c.numfmt = "#,##0"
+                elif inherited and not fmts.get(ci):
+                    c.numfmt = inherited
                 elif isinstance(c.computed, (int, float)) and not isinstance(c.computed, bool):
                     c.numfmt = fmts.get(ci) or ("#,##0.00" if money_table or c.computed != int(c.computed)
                                                 else "#,##0")
@@ -770,6 +848,8 @@ def _column_formats(sh: Sheet, tb: Table) -> None:
 def show(cell: Cell) -> str:
     """A cell as the person reads it (preview, PDF): Swiss figures."""
     v = cell.computed if cell.formula else cell.value
+    if cell.bad:
+        return "(formule à revoir)"
     if cell.formula and v is None:
         return "(calculé à l'ouverture)"
     if v is None:
@@ -807,7 +887,10 @@ def to_xlsx(name: str, text: str) -> bytes:
         ws = wb.create_sheet(sh.name)
         for (r, c), cell in sorted(sh.cells.items()):
             x = ws.cell(row=r, column=c + 1)
-            if cell.formula:
+            if cell.bad:
+                x.value = "=" + cell.formula
+                x.data_type = "s"        # shown as written: never an invalid formula in the file
+            elif cell.formula:
                 x.value = "=" + cell.formula
             else:
                 x.value = cell.value
@@ -984,7 +1067,7 @@ def computed_rows(rows: list[list[str]]) -> list[list[str]]:
     tb = Table(rows[0], [[parse_value(c) for c in r] for r in rows[1:]])
     sh.items.append(("table", tb))
     layout(sh, "")
-    evaluate([sh])
+    finish([sh])
     out = [rows[0]]
     for ri, r in enumerate(rows[1:]):
         line = []
@@ -1025,7 +1108,7 @@ def calc_summary(name: str, text: str, limit: int = 60) -> str:
                 tb = Table(b.rows[0], [[parse_value(c) for c in r] for r in b.rows[1:]])
                 sh.items.append(("table", tb))
                 layout(sh, "")
-                evaluate([sh])
+                finish([sh])
                 tables.append((sh, tb))
     for sh, tb in tables:
         for ri in range(len(tb.rows)):
@@ -1035,7 +1118,9 @@ def calc_summary(name: str, text: str, limit: int = 60) -> str:
                 cell = sh.cells.get((r, ci))
                 if cell is None or not cell.formula:
                     continue
-                v = show(cell) if cell.computed is not None else "not computed (Excel computes it)"
+                v = (f"FORMULA NOT UNDERSTOOD (={cell.formula}): use a column name, a row label of "
+                     "this table, SUM(ABOVE) or A1 counted in the table" if cell.bad else
+                     show(cell) if cell.computed is not None else "not computed (Excel computes it)")
                 lines.append(f"- {sh.name if sh.name != 't' else 'Tableau'} · {label} · "
                              f"{plain_text(tb.header[ci]) if ci < len(tb.header) else col_letter(ci)} = {v}")
                 if len(lines) >= limit:
@@ -1086,9 +1171,11 @@ class Letter:
 
 
 def letters(text: str) -> tuple[str, list[Letter]]:
-    """→ (title of the batch, letters). Template form: ``{{Field}}`` in the body and a table
-    whose header names those fields (under a heading « Destinataires »/« Recipients », or the
-    last table). Otherwise: letters separated by a line ``---``."""
+    """→ (title of the batch, letters). A part of the source separated by a line ``---`` is
+    either a TEMPLATE — ``{{Field}}`` in the text and a table whose header names those fields
+    (under « Destinataires »/« Recipients », or its last table): one letter per row — or ONE
+    letter. Several templates in one source are fine (a courteous reminder for two clients, a
+    firmer one for a third: seen on a real run)."""
     _meta, body = front_matter(text)
     lines = body.replace("\r\n", "\n").split("\n")
     title = ""
@@ -1099,52 +1186,69 @@ def letters(text: str) -> tuple[str, list[Letter]]:
                 title = re.sub(r"[*_`]", "", m.group(1)).strip()
                 lines = lines[k + 1:]
             break
-    body = "\n".join(lines)
-    fields = {f.strip().lower() for f in _FIELD.findall(body)}
-    if fields:
-        tables = list(_md_tables(body))
-        pick = None
-        for start, end, rows, heading in reversed(tables):
-            hdr = {plain_text(h).strip().lower() for h in rows[0]}
-            if fields & hdr and (pick is None or (heading and _RECIPIENT_HEAD.search(heading))):
-                pick = (start, end, rows, heading)
-                if heading and _RECIPIENT_HEAD.search(heading):
-                    break
-        if pick:
-            start, end, rows, heading = pick
-            blines = body.split("\n")
-            # drop the table and the heading right above it
-            hstart = start
-            j = start - 1
-            while j >= 0 and not blines[j].strip():
-                j -= 1
-            if j >= 0 and re.match(r"\s{0,3}#{1,6}\s", blines[j]):
-                hstart = j
-            template = "\n".join(blines[:hstart] + blines[end:]).strip()
-            template = re.sub(r"\n\s*---\s*$", "", template).strip()
-            hdr = [plain_text(h).strip() for h in rows[0]]
-            out = []
-            for r in rows[1:]:
-                vals = {hdr[i].lower(): plain_text(r[i]) if i < len(r) else "" for i in range(len(hdr))}
-                if not any(vals.values()):
-                    continue
-                doc = _FIELD.sub(lambda m, vals=vals: vals.get(m.group(1).strip().lower(), m.group(0)), template)
-                out.append(Letter(_recipient_name(vals, hdr, doc), doc))
-            if out:
-                return title, out
-    chunks, cur = [], []
-    in_code = False
-    for ln in body.split("\n"):
+    groups, cur, in_code = [], [], False
+    for ln in lines:
         if ln.strip().startswith("```"):
             in_code = not in_code
         if not in_code and _HR.match(ln):
-            chunks.append("\n".join(cur))
+            groups.append("\n".join(cur))
             cur = []
         else:
             cur.append(ln)
-    chunks.append("\n".join(cur))
-    out = [Letter(_chunk_name(c), c.strip()) for c in chunks if c.strip()]
+    groups.append("\n".join(cur))
+    groups = [g for g in groups if g.strip()]
+    out: list[Letter] = []
+    i = 0
+    while i < len(groups):
+        g = groups[i]
+        fields = {f.strip().lower() for f in _FIELD.findall(g)}
+        if fields and _pick_table(g, fields) is None and i + 1 < len(groups) \
+                and _pick_table(groups[i + 1], fields) is not None and not _FIELD.search(groups[i + 1]):
+            g = g + "\n\n" + groups[i + 1]            # « template --- recipients table »
+            i += 1
+        made = _merge(g, fields) if fields else []
+        if made:
+            out += made
+        else:
+            out.append(Letter(_chunk_name(g), g.strip()))
+        i += 1
     return title, out
+
+
+def _pick_table(body: str, fields: set):
+    pick = None
+    for start, end, rows, heading in reversed(list(_md_tables(body))):
+        hdr = {plain_text(h).strip().lower() for h in rows[0]}
+        if fields & hdr and (pick is None or (heading and _RECIPIENT_HEAD.search(heading))):
+            pick = (start, end, rows, heading)
+            if heading and _RECIPIENT_HEAD.search(heading):
+                break
+    return pick
+
+
+def _merge(body: str, fields: set) -> list[Letter]:
+    pick = _pick_table(body, fields)
+    if not pick:
+        return []
+    start, end, rows, _heading = pick
+    blines = body.split("\n")
+    hstart, j = start, start - 1
+    while j >= 0 and not blines[j].strip():
+        j -= 1
+    if j >= 0 and re.match(r"\s{0,3}#{1,6}\s", blines[j]):
+        hstart = j
+    template = "\n".join(blines[:hstart] + blines[end:]).strip()
+    template = re.sub(r"^\s{0,3}#\s+.*\n", "", template, count=1).strip() \
+        if re.match(r"\s{0,3}#\s", template) else template      # a group's own « # heading »
+    hdr = [plain_text(h).strip() for h in rows[0]]
+    out = []
+    for r in rows[1:]:
+        vals = {hdr[i].lower(): plain_text(r[i]) if i < len(r) else "" for i in range(len(hdr))}
+        if not any(vals.values()):
+            continue
+        doc = _FIELD.sub(lambda m, vals=vals: vals.get(m.group(1).strip().lower(), m.group(0)), template)
+        out.append(Letter(_recipient_name(vals, hdr, doc), doc))
+    return out
 
 
 def _md_tables(body: str):
