@@ -153,9 +153,14 @@ docker rm -f kc-a-conf >/dev/null 2>&1
   > "$RES/conformance.log" 2>&1
 docker rm -f kc-a-conf >/dev/null 2>&1
 tail -5 "$RES/conformance.log"
-check "K2 conformance C1-C9 on the compose kernel" bash -c "grep -Eq '[0-9]+ passed' $RES/conformance.log && ! grep -Eq '[0-9]+ (failed|error)' $RES/conformance.log && ! grep -q skipped $RES/conformance.log"
+# C3 is an expected failure under the docker sandbox (kernel n°27, tests/test_harness_kernel.py):
+# counted as xfailed, never as a pass; an unexpected pass fails (strict)
+check "K2 conformance C1-C9 on the compose kernel (C3 waits for kernel n°27)" bash -c "grep -Eq '[0-9]+ passed' $RES/conformance.log && ! grep -Eq '[0-9]+ (failed|error)' $RES/conformance.log && ! grep -q skipped $RES/conformance.log"
 wait_healthy a kernel 180 >/dev/null
 check "K2 no sandbox of A left after the conformance" test -z "$(sandboxes "$LA")"
+
+dc a logs --no-color kernel > "$RES/kernel-a-conformance.log" 2>&1
+if [ "${KC_STOP_AFTER_K2:-0}" = 1 ]; then echo "stopped after K2 (KC_STOP_AFTER_K2=1), stacks left up"; exit 0; fi
 
 # ---- K3: an Atelier work on the real model -----------------------------------------------
 model_conf "$KC_HOME/inst-a" "$KC_MODEL_URL"
