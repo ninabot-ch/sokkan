@@ -313,7 +313,7 @@ def main() -> int:
             wire.tag = tag
             print(f"== {c['id']}", flush=True)
             try:
-                r = asyncio.run(play_case(c, work / c["id"], a.timeout))
+                r = asyncio.run(play_case(c, work / f"{c['id']}-{n}", a.timeout))
             except Exception as e:  # noqa: BLE001 — one broken case never stops the others
                 r = {"started": False, "start_error": f"{type(e).__name__}: {e}"[:300]}
             wire.tag = ""
