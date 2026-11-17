@@ -1,0 +1,5 @@
+# Radicale (CalDAV) and WsgiDAV (WebDAV) for tests/test_connectors_live.py — invented users only.
+FROM python:3.12-slim
+RUN pip install --no-cache-dir "radicale==3.2.3" "wsgidav==4.3.3" "cheroot==10.0.1"
+COPY fakes-entry.sh /fakes-entry.sh
+CMD ["sh", "/fakes-entry.sh"]

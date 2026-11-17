@@ -3457,6 +3457,11 @@ from docingest import api as docingest_api, scheduler as docingest_scheduler  # 
 
 app.include_router(docingest_api.router)
 
+# --- 4.0 connectors : mail, calendar, shared documents (backend/connectors/, /api/connectors/*)
+from connectors import api as connectors_api  # noqa: E402
+
+app.include_router(connectors_api.router)
+
 
 def _alert_diag_session(rule: dict, alert: dict) -> str:
     """Action « diagnosis session » d'une règle : une session pré-seedée qui enquête et

@@ -13,6 +13,7 @@ import { switchProject } from "@/lib/project";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
+import Connectors from "./Connectors";
 
 export default function Settings({ prefs, onPrefs, onClose, project, projectName }: {
   prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
@@ -47,6 +48,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
   const canSwitch = !prefs.locked || instAdmin;
   const exportOn = useFeatureOn("work_export");
   const claudeOn = useFeatureOn("claude_tier");
+  const connectorsOn = useFeatureOn("connectors");
   // 3.6.3: the export says what happens — preparing, downloaded (and what is not in it), failed
   const [exp, setExp] = useState<"idle" | "busy" | "failed" | WorkExportResult>("idle");
   const runExport = async () => {
@@ -106,6 +108,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
             </div>
           </fieldset>
         )}
+        {connectorsOn && !demo && <Connectors />}
         {claudeOn && instAdmin && <ClaudeAdmin />}
         {claudeOn && instAdmin && <ProjectLevel project={project} />}
         {claudeOn && instAdmin && <NewProject />}

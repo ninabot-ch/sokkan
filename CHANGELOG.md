@@ -54,6 +54,25 @@ shell tool of the kernel (`deny_tools`).
   none. No session is counted twice.
 
 ### Added
+- **Connectors: the coworker works in the mailbox, the calendar and the shared documents**
+  (feature `connectors`, experimental, off by default; docs/enterprise/CONNECTORS.md). A session
+  reads, AS the person who drives it, their mail (Microsoft 365 through Graph, or any IMAP/SMTP
+  server), their calendar (Microsoft 365, CalDAV, the private ICS address) and the shared
+  documents (SharePoint / OneDrive, WebDAV, a network folder mounted on the host), through a new
+  MCP server `sokkan-connectors` given to both engines (`connectors/tools.py`: read tools without
+  an engine card, `mail_draft` with one). A reply is a **draft in the person's own mailbox**;
+  sending a mail, creating an event and depositing a deliverable are **approval cards** the person
+  decides in Settings › Connectors — only that person, once, within 24 h, exactly as shown (a
+  draft edited after the card is not sent), executed by the API and journaled (`hitl` kind
+  `connector`, `audit connectors.*`). Delegation per person (OAuth code + PKCE with delegated
+  scopes only, or the person's own login), credentials and pending payloads encrypted with the
+  vault's data key (rotated with it), revocation by the person or an administrator. A project
+  classified confidential or above hands no connector content to a model outside Switzerland
+  or the machine (`SOKKAN_CONNECTORS_MODEL_ZONE`, `SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE`); shared
+  mailboxes and folders are reachable only where an administrator opened them to the project.
+  A `demo` provider (invented data) for trainings and tests. doc_ingest gains the source kind
+  `webdav` (one-way mirror). Tested against a simulated Microsoft Graph and against Greenmail,
+  Radicale and WsgiDAV in containers — no real account.
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of

@@ -372,11 +372,22 @@ def register(kind: str, cls: type) -> None:
     _KINDS[kind] = cls
 
 
+def _connector_kinds() -> None:
+    """4.0: source kinds brought by the connectors package (``webdav``)."""
+    try:
+        from connectors import ingest
+        ingest.register()
+    except ImportError:
+        pass
+
+
 def kinds() -> list[str]:
     return sorted(_KINDS)
 
 
 def validate(cfg: SourceConfig) -> None:
+    if cfg.kind not in _KINDS:
+        _connector_kinds()
     if cfg.kind not in _KINDS:
         raise ConfigError(f"{cfg.id}: unknown source kind {cfg.kind!r} ({', '.join(kinds())})")
     _KINDS[cfg.kind].validate(cfg)

@@ -45,6 +45,7 @@ PATH_OVERRIDE = {  # where a store lives; defaults under SOKKAN_DATA_DIR — tes
     "CORTHEXIS_DATA_DIR", "CORTHEXIS_MEMORY_DB", "SOKKAN_APPLIANCE_DIR",
     "SOKKAN_LOCAL_ACCOUNTS_DB",
     "SOKKAN_DOCUMENTS_DB", "SOKKAN_SIMPLE_DB", "SOKKAN_UIPREFS_STORE",   # 3.6 simple profile / document drop
+    "SOKKAN_CONNECTORS_DB",                                              # 4.0 connectors
 }
 CHILD_DEFAULT = {  # handed by the api to a child process WITH a default (`environ.get(X, "1")`);
     # declaring them `${X:-}` in the compose file would pass an empty string and lose the default
