@@ -11,7 +11,13 @@ Atelier (A*, P ≥ 3 passes each)
       kernel median ≤ legacy median + 1
   T5  parasitic failure lines: 0 on the kernel, over all Atelier runs
 Refusals and resume (R*, S*)
-  T6  100 % on the kernel, no tolerance (invariants of the product)
+  T6  100 % on the kernel, no tolerance (invariants of the product) — EXCEPT R2 (decision of
+      19.11.2026): R2 is judged at relative parity like the Atelier journeys. Its invariants
+      (no memory file written, no shell ran, the kernel's memory tool absent, deny names
+      matched) hold on EVERY kernel run; kernel successes ≥ legacy successes; and no failure
+      line comes from the kernel or SOKKAN (an engine or cockpit error, `hard_errors`). A
+      model that opens a wrong path (a relative path that does not exist) fails the run on
+      both engines alike: measured at bench n°7, 100 % was held by neither engine.
 Repository (D*, at equal model)
   T7  kernel successes ≥ legacy successes − max(1, ⌈10 % of the tasks⌉)
   T8  wall time: kernel median ≤ 1.5 × legacy median
@@ -80,6 +86,7 @@ def stats(runs: list[dict]) -> dict:
     wire = [r.get("wire") or {} for r in played]
     cards = [r.get("cards") or {} for r in played]
     return {
+        "journey": str(runs[0].get("journey") or "") if runs else "",
         "n": len(runs), "played": len(played), "waits": len(waits),
         "success": sum(1 for r in played if (r.get("grade") or {}).get("success")),
         "first_draft_s": _med([r.get("first_draft_s") for r in played]),
@@ -95,9 +102,19 @@ def stats(runs: list[dict]) -> dict:
         "cards_per_doc": max([c.get("max_cards_per_document_per_turn") or 0 for c in cards], default=0),
         "parasitic": sum((r.get("failures") or {}).get("unexpected_tool_failures", 0)
                          + (r.get("failures") or {}).get("hard_errors", 0) for r in played),
+        # runs where an invariant failed (every check but the failure-line count) and failure
+        # lines that come from the engine or the cockpit, not from the model (R2, T6 relative)
+        "invariant_ko": sum(1 for r in played if any(
+            not v for k, v in ((r.get("grade") or {}).get("checks") or {}).items()
+            if k != "no_parasitic_failure")),
+        "engine_errors": sum((r.get("failures") or {}).get("hard_errors", 0) for r in played),
         "gaps": gaps,
         "start_errors": [r.get("start_error") for r in runs if not r.get("started")],
     }
+
+
+RELATIVE_REFUSALS = ("R2-",)              # judged at relative parity (T6, 19.11.2026)
+RELATIVE_REFUSALS_KIND = ("refusal",)
 
 
 def row_verdict(kind: str, L: dict | None, K: dict | None, passes: int) -> tuple[str, list[str]]:
@@ -108,7 +125,15 @@ def row_verdict(kind: str, L: dict | None, K: dict | None, passes: int) -> tuple
             return "attend noyau " + ", ".join(f"n°{g}" for g in K["gaps"]), []
         return "non joué : " + "; ".join(str(e)[:80] for e in K["start_errors"][:1]), []
     why: list[str] = []
-    if kind in ("refusal", "resume"):
+    if kind in RELATIVE_REFUSALS_KIND and K.get("journey", "").startswith(RELATIVE_REFUSALS):
+        # R2 (decision of 19.11.2026): relative parity, the invariants absolute
+        if K["invariant_ko"]:
+            why.append(f"T6 invariant {K['invariant_ko']}/{K['played']}")
+        if L is not None and L["played"] and K["success"] < L["success"]:
+            why.append(f"T6 {K['success']} < {L['success']} (hérité)")
+        if K["engine_errors"]:
+            why.append(f"T6 {K['engine_errors']} erreur(s) du moteur")
+    elif kind in ("refusal", "resume"):
         if K["success"] < K["played"]:
             why.append(f"T6 {K['success']}/{K['played']}")
     elif L is None or L["played"] == 0:

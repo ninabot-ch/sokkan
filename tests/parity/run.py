@@ -51,7 +51,7 @@ import journeys as J  # noqa: E402
 import policy as P  # noqa: E402
 import wire as W  # noqa: E402
 from harness import contract  # noqa: E402
-from harness.contract import GateRequested, RunEnded, TurnEnded, Unsupported  # noqa: E402
+from harness.contract import GateRequested, RunEnded, ToolResult, TurnEnded, Unsupported  # noqa: E402
 
 ENGINES = ("legacy", "kernel")
 GAP = "waits"          # status of a check that depends on an open kernel gap
@@ -180,6 +180,22 @@ class Play:
         self.ready_s = round(time.monotonic() - self.t_start, 2)
         return True
 
+    def _calc(self) -> None:
+        """As the cockpit does after a deliverable is saved (agentchat `_deliverable_saved` →
+        outputs.write_calc): its `.calc/<name>.txt`, next to it, for the agent to read."""
+        d = (getattr(self, "space", None) or {}).get("deliverables")
+        if not d or not Path(d).is_dir():
+            return
+        import outputs
+        for f in Path(d).iterdir():
+            if f.is_file() and not f.name.startswith("."):
+                try:
+                    if not (f.parent / outputs.CALC_DIR / (f.name + ".txt")).exists() or \
+                            f.stat().st_mtime > (f.parent / outputs.CALC_DIR / (f.name + ".txt")).stat().st_mtime:
+                        outputs.write_calc(f)
+                except OSError:
+                    pass
+
     async def turn(self, prompt: str) -> dict:
         self.pol.new_turn()
         if self.t0 is None:
@@ -209,6 +225,8 @@ class Play:
                     if card.deliverable and out["first_deliverable_s"] is None:
                         out["first_deliverable_s"] = dt
                     await self.h.decide(ev.gate.gate_id, d)
+                if isinstance(ev, ToolResult) and ev.ok:
+                    self._calc()                 # agentchat `_deliverable_saved`, both engines
                 if isinstance(ev, TurnEnded) and ev.turn_id == tid:
                     out["end_s"] = dt
                     out["text"] = ev.text or ""
