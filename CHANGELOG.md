@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 4.1
+## 4.1.0 — 2026-11-18 — "Seven seas"
 
 ### Launch council (experimental)
 - **A room where the CEO puts a project in front of nine roles** (finance, code, operations,
@@ -48,12 +48,6 @@ Notable changes, newest first. Versions: semver + release hash (see
     (`council.budget_raise`); a ceiling not above what was already spent is refused.
   - On a phone, a turn's « model · tokens · ms » line stays on one line.
 
-### Under the hood
-- **ESLint in the front-end** (flat config, `next/core-web-vitals` + `next/typescript`), run by both
-  CIs after `tsc`. No rule turned off globally.
-
-## Unreleased — 4.0.2
-
 ### Security — the installer fails closed when a release cannot be verified
 - **`install.sh` refuses a release whose `.sha256` or `.sig` is missing, empty, unreadable or
   wrong, for every release since 3.6.1 (the first one published signed) and every profile.**
@@ -79,6 +73,21 @@ Notable changes, newest first. Versions: semver + release hash (see
   a key pair generated for the test: `.sig` 404, `.sha256` 404, empty or unreadable files, a
   signature from another key, `SOKKAN_ALLOW_UNSIGNED=1`, and a complete valid release.
   Details: [docs/UPGRADE.md](docs/UPGRADE.md#verification-of-a-release-fail-closed).
+
+### Security — signed fleet rollout (managed instances)
+- **Managed instances are upgraded only from a signed release**: the provisioner downloads the exact
+  release with its `.sha256` and `.sig`, checks them against a pinned key and pushes them next to the
+  tarball; from 4.1 on, the instance's `upgrade.sh` checks them again before installing (an instance
+  still on 4.0.x checks only the digest). A refused release leaves the instance untouched and is
+  reported at once.
+- **A new managed instance installs only a verified release**: its first boot resolves the exact
+  version, checks the digest and the signature against the pinned key, and installs nothing
+  otherwise (it used to unpack `sokkan-latest` without any check).
+- A failed upgrade is now reported as failed (it was always reported as a success before).
+
+### Under the hood
+- **ESLint in the front-end** (flat config, `next/core-web-vitals` + `next/typescript`), run by both
+  CIs after `tsc`. No rule turned off globally.
 
 ## 4.0.1 — 2026-11-18 — "Seven seas"
 
