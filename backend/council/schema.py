@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 
+from . import checks
+
 GRAVITES = ("faible", "moyenne", "haute", "critique")
 _GRAVITE_EN = {"low": "faible", "medium": "moyenne", "high": "haute", "critical": "critique"}
 PALIERS = ("local", "ship", "deep")
@@ -184,7 +186,9 @@ def validate(d: dict) -> dict:
 
 
 def is_estimated(source: str) -> bool:
-    return (source or "").strip().strip("«»\"“” ").lower() in ESTIMATED
+    """« estimé », « estimated », or « estimé (d'après … » — a source that says it is not a measure."""
+    s = (source or "").strip().strip("«»\"“” ").lower()
+    return s in ESTIMATED or any(s.startswith(e + " ") or s.startswith(e + "(") for e in ESTIMATED)
 
 
 def _cites(source: str, doc_names: list[str]) -> bool:
@@ -199,27 +203,55 @@ def _md_budget(b: dict) -> str:
     return "\n".join(rows)
 
 
-def factcheck_budget(syn: dict, doc_names: list[str], doc_text: str = "", lang: str = "fr") -> tuple[dict, list[dict]]:
+def factcheck_budget(syn: dict, doc_names: list[str], doc_text: str = "", lang: str = "fr",
+                     docs: list[dict] | None = None) -> tuple[dict, list[dict]]:
     """→ (synthesis with the budget corrected, findings). Findings are {kind, severity, text, …}:
     `total_corrected` (the declared total was not the sum of the lines: the sum replaces it),
-    `unsourced` (a line whose source is neither « estimé » nor an attached document is marked
-    « estimé »), and whatever `backend/factcheck.py` finds in the rendered table."""
+    `unsourced` (no source, or one that is not an attached document: marked « estimé »),
+    `estimated_from_doc` (the cited document does not state the figure: it comes from a RANGE, a
+    hypothesis marked [H] / [À VÉRIFIER], or is derived — « estimé (d'après doc, fourchette a–b) »,
+    never « sourcé »), `estimated` (the finance lead herself said « estimé »), and whatever
+    `backend/factcheck.py` finds in the rendered table. EVERY estimated or unsourced line is one
+    finding: the card's « To check » counter counts them."""
     fr = lang == "fr"
+    est = "estimé" if fr else "estimated"
     out = json.loads(json.dumps(syn))
     b = out["budget"]
     findings: list[dict] = []
+    texts = {d["name"]: d.get("text", "") for d in (docs or [])}
     for x in b["lignes"]:
         src = x["source"]
         if not src:
-            x["source"] = "estimé" if fr else "estimated"
+            x["source"] = est
             findings.append({"kind": "unsourced", "severity": "warn", "poste": x["poste"],
                              "text": (f"« {x['poste']} » : aucune source, marqué estimé." if fr
                                       else f"“{x['poste']}”: no source, marked estimated.")})
-        elif not is_estimated(src) and not _cites(src, doc_names):
+        elif is_estimated(src):
+            findings.append({"kind": "estimated", "severity": "info", "poste": x["poste"],
+                             "text": (f"« {x['poste']} » : montant estimé, pas sourcé." if fr
+                                      else f"“{x['poste']}”: estimated amount, not sourced.")})
+        elif not _cites(src, doc_names):
             findings.append({"kind": "unsourced", "severity": "warn", "poste": x["poste"],
                              "text": (f"« {x['poste']} » : la source « {src} » n'est pas un document joint, marqué estimé." if fr
                                       else f"“{x['poste']}”: source “{src}” is not an attached document, marked estimated.")})
-            x["source"] = ("estimé" if fr else "estimated") + f" ({src})"
+            x["source"] = est + f" ({src})"
+        elif texts and x["montant_chf"]:
+            cited = [n for n in doc_names if n and n.lower() in src.lower() and n in texts]
+            got = [(n, checks.assess_amount(x["montant_chf"], texts[n])) for n in cited]
+            if got and not any(a["status"] == "plain" for _n, a in got):
+                name, a = min(got, key=lambda t: ("range", "marked", "derived").index(t[1]["status"]))
+                if a["status"] == "range":
+                    lo, hi = a["range"]
+                    how = (f"fourchette {checks.fmt_amount(lo)}–{checks.fmt_amount(hi)}" if fr
+                           else f"range {checks.fmt_amount(lo)}–{checks.fmt_amount(hi)}")
+                elif a["status"] == "marked":
+                    how = "hypothèse marquée [H] ou à vérifier" if fr else "hypothesis marked [H] or to verify"
+                else:
+                    how = "chiffre non repris tel quel dans le document" if fr else "figure not stated as such in the document"
+                x["source"] = f"{est} ({'d’après' if fr else 'from'} {name}, {how})"
+                findings.append({"kind": "estimated_from_doc", "severity": "warn", "poste": x["poste"], "document": name,
+                                 "text": (f"« {x['poste']} » : {x['montant_chf']:.0f} CHF n'est pas un chiffre posé par {name} ({how}) : estimé, pas sourcé." if fr
+                                          else f"“{x['poste']}”: CHF {x['montant_chf']:.0f} is not a figure stated by {name} ({how}): estimated, not sourced.")})
     total = round(sum(x["montant_chf"] for x in b["lignes"]), 2)
     if abs(total - b["total_chf"]) > 0.005:
         findings.append({"kind": "total_corrected", "severity": "block-fixed", "declared": b["total_chf"], "computed": total,

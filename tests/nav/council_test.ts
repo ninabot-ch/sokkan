@@ -2,7 +2,7 @@
 // grouped by round, and what the CEO can do in each state. Run by tests/test_nav_planes.py.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROLE_ORDER, actions, groupRounds, isLive, isOver, mergeTurns, meter, step, tileStatus, type Turn } from "../../frontend/lib/council.ts";
+import { ROLE_ORDER, actions, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, step, tileStatus, type Turn } from "../../frontend/lib/council.ts";
 
 const turn = (id: number, round: number, seq: number, role: string, kind: Turn["kind"] = "role"): Turn => ({
   id, round, seq, ts: id, kind, role, addressed_to: "", model: "m", route: "ship", tokens_in: 1, tokens_out: 1, ms: 1, cost_chf: 0, text: "x" });
@@ -39,7 +39,7 @@ test("the journal is grouped by round, in reading order, and polls merge without
 });
 
 test("what the CEO can do in each state", () => {
-  assert.deepEqual(actions("brief"), { start: true, say: true, stop: true, decide: false, attach: true, exportable: true });
+  assert.deepEqual(actions("brief"), { start: true, say: true, stop: true, decide: false, attach: true, exportable: true, resume: false });
   assert.equal(actions("round2").say, true);
   assert.equal(actions("round2").decide, false);
   assert.equal(actions("card").decide, true);
@@ -48,4 +48,28 @@ test("what the CEO can do in each state", () => {
   }
   assert.equal(isLive("round1"), true); assert.equal(isLive("card"), false);
   assert.equal(step("synthesis"), 3); assert.equal(step("stopped_budget"), -1);
+});
+
+test("an interrupted council can be resumed or stopped, and is not over", () => {
+  const a = actions("interrupted");
+  assert.equal(a.resume, true); assert.equal(a.stop, true); assert.equal(a.say, true); assert.equal(a.decide, false);
+  assert.equal(isLive("interrupted"), false); assert.equal(isOver("interrupted"), false);
+  assert.equal(actions("round2").resume, false);
+  assert.equal(step("interrupted"), -1);
+});
+
+test("the finance lead's synthesis is a summary in words and folded sections, never one line", () => {
+  const text = "Synthèse v1 : budget CHF 721'000.00, 3 risque(s).\n\n## Budget\n\n| Poste | Montant |\n|---|---:|\n| A | 1.00 |\n\n## Risques\n\n- (haute) Délai — achats";
+  const s = splitSections(text);
+  assert.match(s.lead, /^Synthèse v1/);
+  assert.deepEqual(s.sections.map((x) => x.title), ["Budget", "Risques"]);
+  assert.match(s.sections[0].body, /\| A \| 1\.00 \|/);          // the table is whole
+  assert.deepEqual(splitSections("juste du texte"), { lead: "juste du texte", sections: [] });
+});
+
+test("a file can be read in the browser when it is text, and only then", () => {
+  assert.equal(isTextFile({ name: "notes.MD" }), true);
+  assert.equal(isTextFile({ name: "budget.csv" }), true);
+  assert.equal(isTextFile({ name: "x.bin", type: "text/plain" }), true);
+  assert.equal(isTextFile({ name: "plan.pdf", type: "application/pdf" }), false);
 });

@@ -31,8 +31,9 @@ class Call:
     project: str = ""
     level: int = 4                 # classification of the project (fail closed)
     claude_model: str = ""
-    max_tokens: int = 700
+    max_tokens: int = 2000
     json_mode: bool = False
+    retry: bool = False            # second attempt after an empty answer: no reasoning, more room
     pii: object = None             # pii.PseudoMap of the council (Claude route only)
     who: list = field(default_factory=list)
 
@@ -46,6 +47,7 @@ class Reply:
     model: str = ""
     route: str = ""
     cost_chf: float = 0.0
+    finish: str = ""               # the model's finish reason (`length` = cut by max_tokens)
 
 
 class Engine(Protocol):
@@ -54,6 +56,25 @@ class Engine(Protocol):
 
 def words(s: str) -> int:
     return len(s.split())
+
+
+def useful_text(text: str) -> str:
+    """What a person can read of a model's answer: reasoning blocks (closed, or left open by a
+    cut) removed. Empty = nothing was said."""
+    import re
+    s = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
+    s = re.sub(r"<think>.*\Z", "", s, flags=re.S)
+    return s.strip()
+
+
+def unusable(r: "Reply") -> str:
+    """Why an answer is NOT a speech ("" = it is one): `empty` (nothing, or reasoning only) or
+    `truncated` (cut by max_tokens). An empty answer is a failure, never a success."""
+    if not useful_text(r.text):
+        return "empty"
+    if (r.finish or "").lower() in ("length", "max_tokens"):
+        return "truncated"
+    return ""
 
 
 class FakeEngine:
@@ -87,10 +108,13 @@ class FakeEngine:
                 {"topic": "Delai", "roles": ["code", "achats"], "question": "Peut-on tenir 8 semaines ?"},
                 {"topic": "Prix", "roles": ["marcom", "daf"], "question": "Quel prix public ?"}]}))
         else:
-            v = self.script.get(key) or self.script.get(call.role) or self.script.get(call.phase)
-            text = v(call) if callable(v) else (v or f"[{call.role}/{call.phase}] avis (estime).")
+            v = next((self.script[k] for k in (key, call.role, call.phase) if k in self.script), None)
+            text = v(call) if callable(v) else (v if v is not None else f"[{call.role}/{call.phase}] avis (estime).")
+        finish = ""
+        if isinstance(text, tuple):           # (text, finish_reason): a scripted cut answer
+            text, finish = text
         return Reply(text=text, tokens_in=self.tokens[0], tokens_out=self.tokens[1], ms=5,
-                     model=f"fake-{call.tier}", route=call.tier, cost_chf=0.0)
+                     model=f"fake-{call.tier}", route=call.tier, cost_chf=0.0, finish=finish)
 
 
 def default_synthesis() -> dict:

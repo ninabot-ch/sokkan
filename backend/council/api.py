@@ -9,6 +9,7 @@
     POST /api/council/{id}/start           the three rounds run in the background             (dev)
     POST /api/council/{id}/say             {text} — the CEO writes, at any time              (dev)
     POST /api/council/{id}/stop            the CEO stops it                                   (dev)
+    POST /api/council/{id}/resume          resume the round of an interrupted council (restart)  (owner/admin)
     POST /api/council/{id}/accept          accept the card: board cards, agent DRAFTS, positions (owner/admin)
     POST /api/council/{id}/refuse          {reason} — the DAF writes a new synthesis (twice at most)
     GET  /api/council/{id}/export?format=json|md   replay / file
@@ -109,9 +110,20 @@ class RefuseIn(BaseModel):
     reason: str
 
 
+def documents_on() -> bool:
+    try:
+        import documents
+        return bool(documents.enabled())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _project_docs(pu: dict, slug: str, ids: list[str]) -> list[dict]:
     import claudepii
     import documents
+    if ids and not documents.enabled():
+        raise HTTPException(409, {"code": "documents_off", "message": "project documents are not offered on this instance "
+                                  "(feature `documents`): paste the text instead"})
     out = []
     for i in ids[:20]:
         d = documents.get(i)
@@ -125,10 +137,18 @@ def _project_docs(pu: dict, slug: str, ids: list[str]) -> list[dict]:
 def config(request: Request, lang: str = "fr", _f=Depends(_feature)) -> dict:
     slug = projectgate.requested_project(request)
     _pu(request, slug)
-    g = models.claude_gate(slug, "", lang if lang in ("fr", "en") else "fr")
+    lg = lang if lang in ("fr", "en") else "fr"
+    g = models.claude_gate(slug, "", lg)
+    import claudetier
+    from core import levels
+    lvl = claudetier.project_level(slug)
     return {"roles": roles.public(lang if lang in roles.LANGS else "fr"), "defaults": service.defaults(),
             "claude": {"allowed": g["allowed"], "code": g["code"], "reason": g["reason"], "model": g["model"]},
-            "limits": {"parallel": service.MAX_PARALLEL, "max_refusals": service.MAX_REFUSALS}}
+            "limits": {"parallel": service.MAX_PARALLEL, "max_refusals": service.MAX_REFUSALS},
+            # the project's classification, settable from the room (PUT /api/projects/{slug}/level,
+            # whether or not Claude is offered) and whether the project's documents can be attached
+            "project": {"slug": slug, "level": levels.ident(lvl), "label": claudetier.level_label(lvl, lg)},
+            "documents": documents_on()}
 
 
 @router.get("/api/council")
@@ -163,6 +183,8 @@ def open_council(body: OpenIn, request: Request, _f=Depends(_feature)):
 
 @router.get("/api/council/{cid}")
 def one(cid: str, request: Request, after: int = 0, lang: str = "", _f=Depends(_feature)) -> dict:
+    _council(request, cid)
+    service.reconcile(cid)             # a worker lost to a restart: interrupted, never left « live »
     c, _pu_ = _council(request, cid)
     lg = lang if lang in roles.LANGS else c["lang"]
     return {"council": public(c), "roles": roles.public(lg), "documents": store.documents(cid, with_text=False),
@@ -218,6 +240,18 @@ def stop(cid: str, request: Request, _f=Depends(_feature)):
     except service.CouncilError as e:
         return _fail(e)
     audit.log(pu["email"], "council.stop", cid, project=c["project"])
+    return public(r)
+
+
+@router.post("/api/council/{cid}/resume")
+def resume(cid: str, request: Request, _f=Depends(_feature)):
+    c, pu = _council(request, cid, "dev")
+    _owner_or_admin(c, pu)
+    try:
+        r = service.resume(cid)
+    except service.CouncilError as e:
+        return _fail(e)
+    audit.log(pu["email"], "council.resume", cid, f"step={r['resume_step']}", project=c["project"])
     return public(r)
 
 

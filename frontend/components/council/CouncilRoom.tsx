@@ -8,11 +8,42 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useT, useUI } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import Icon from "@/components/simple/icons";
+import Markdown from "@/components/simple/Markdown";
 import {
-  actions, fmtChf, fmtTokens, groupRounds, isLive, isOver, mergeTurns, meter, tileStatus,
+  actions, fmtChf, fmtTokens, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, tileStatus,
   type Council, type RoleInfo, type Turn,
 } from "@/lib/council";
 import * as api from "@/lib/councilApi";
+import { uploadDocument } from "@/lib/simple/api";
+
+const LEVELS = ["public", "team", "project", "confidential", "restricted"] as const;
+
+/** « Joindre un fichier » — reuses the Documents upload when the instance offers it (PDF, Office…),
+ *  otherwise reads a text file in the browser. `onText` / `onDoc` receive what was attached. */
+function AttachFile({ documents, onText, onDoc, onError }: {
+  documents: boolean; onText: (name: string, text: string) => void; onDoc: (id: string, name: string) => void; onError: (m: string) => void;
+}) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const pick = async (files: FileList | null) => {
+    if (!files) return;
+    setBusy(true);
+    try {
+      for (const f of Array.from(files)) {
+        if (documents) { const d = await uploadDocument(f); onDoc(d.id, d.name); }
+        else if (isTextFile(f)) onText(f.name, await f.text());
+        else onError(t("council.docs.file.err"));
+      }
+    } catch (e) { onError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <label className="sk-btn co-file" aria-busy={busy}>
+      <Icon name="clip" />{busy ? t("council.docs.uploading") : t("council.docs.file")}
+      <input type="file" multiple hidden disabled={busy} onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
+    </label>
+  );
+}
 
 export default function CouncilRoom() {
   const t = useT();
@@ -64,16 +95,27 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
   const [docs, setDocs] = useState<{ name: string; text: string }[]>([]);
+  const [docIds, setDocIds] = useState<{ id: string; name: string }[]>([]);
   const [dn, setDn] = useState(""); const [dt, setDt] = useState("");
+  const [lvl, setLvl] = useState(""); const [lvlWhy, setLvlWhy] = useState(""); const [lvlMsg, setLvlMsg] = useState("");
   const [claude, setClaude] = useState(false);
   const [pii, setPii] = useState<Record<string, number> | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api.fetchConfig(lang).then(setCfg).catch(() => setErr(t("council.load.failed"))); }, [lang, t]);
+  useEffect(() => { api.fetchConfig(lang).then((c) => { setCfg(c); setLvl(c.project.level); }).catch(() => setErr(t("council.load.failed"))); }, [lang, t]);
+  const saveLevel = async () => {
+    if (!cfg) return;
+    setLvlMsg(""); setErr("");
+    try {
+      await api.setProjectLevel(cfg.project.slug, lvl, lvlWhy);
+      setLvlWhy(""); setLvlMsg(t("council.level.saved"));
+      setCfg(await api.fetchConfig(lang));            // Claude's gate reads the new classification
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
   const submit = async (ack: boolean, useClaude: boolean) => {
     setBusy(true); setErr("");
     try {
-      const c = await api.openCouncil({ title, brief, lang, claude: useClaude, pii_ack: ack, documents: docs });
+      const c = await api.openCouncil({ title, brief, lang, claude: useClaude, pii_ack: ack, documents: docs, doc_ids: docIds.map((d) => d.id) });
       onOpened(c.id);
     } catch (e) {
       if (e instanceof api.CouncilApiError && e.code === "claude_pii") setPii(e.found ?? {});
@@ -88,8 +130,10 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
         <textarea className="sk-input" rows={6} required minLength={10} value={brief} placeholder={t("council.field.brief.ph")}
           onChange={(e) => setBrief(e.target.value)} /></label>
       <fieldset className="co-field"><legend>{t("council.field.docs")}</legend>
-        {docs.length === 0 ? <p className="sk-muted">{t("council.docs.none")}</p>
-          : <ul>{docs.map((d, i) => <li key={i}>{d.name}</li>)}</ul>}
+        {docs.length + docIds.length === 0 ? <p className="sk-muted">{t("council.docs.none")}</p>
+          : <ul>{docIds.map((d) => <li key={d.id}>{d.name}</li>)}{docs.map((d, i) => <li key={i}>{d.name}</li>)}</ul>}
+        {cfg && <div><AttachFile documents={cfg.documents} onError={setErr}
+          onText={(n, x) => setDocs((h) => [...h, { name: n, text: x }])} onDoc={(id, n) => setDocIds((h) => [...h, { id, name: n }])} /></div>}
         <input className="sk-input" aria-label={t("council.docs.name")} placeholder={t("council.docs.name")} value={dn} onChange={(e) => setDn(e.target.value)} />
         <textarea className="sk-input" rows={3} aria-label={t("council.docs.text")} placeholder={t("council.docs.text")} value={dt} onChange={(e) => setDt(e.target.value)} />
         <button type="button" className="sk-btn" disabled={!dt.trim()} onClick={() => { setDocs([...docs, { name: dn.trim() || "document", text: dt }]); setDn(""); setDt(""); }}>
@@ -97,6 +141,20 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
       </fieldset>
       {cfg && (
         <p className="sk-muted">{t("council.budget")} : {t("council.budget.tokens", { used: "0", max: fmtTokens(cfg.defaults.max_tokens) })} · {fmtChf(cfg.defaults.max_cost_chf)}</p>
+      )}
+      {cfg && (
+        <fieldset className="co-field" data-testid="co-level"><legend>{t("council.level.label")}</legend>
+          <div className="co-actions">
+            <select className="sk-input" value={lvl} aria-label={t("council.level.label")} onChange={(e) => setLvl(e.target.value)}>
+              {LEVELS.map((l) => <option key={l} value={l}>{t(`set.level.${l}` as Key)}</option>)}
+            </select>
+            <button type="button" className="sk-btn" disabled={lvl === cfg.project.level && !lvlWhy} onClick={() => void saveLevel()}>{t("set.level.save")}</button>
+          </div>
+          {LEVELS.indexOf(lvl as typeof LEVELS[number]) < LEVELS.indexOf(cfg.project.level as typeof LEVELS[number]) &&
+            <input className="sk-input" value={lvlWhy} placeholder={t("set.level.reason")} aria-label={t("set.level.reason")} onChange={(e) => setLvlWhy(e.target.value)} />}
+          <small className="sk-muted">{t("council.level.hint")}</small>
+          {lvlMsg && <small role="status">{lvlMsg}</small>}
+        </fieldset>
       )}
       {cfg?.claude.allowed ? (
         <label className="co-check"><input type="checkbox" checked={claude} onChange={(e) => setClaude(e.target.checked)} />
@@ -126,15 +184,18 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
   const [msg, setMsg] = useState("");
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState("");
+  const [docsIn, setDocsIn] = useState<{ id: number; name: string }[]>([]);
+  const [docsOn, setDocsOn] = useState(false);
   const last = useRef(0);
   const poll = useCallback(async () => {
     try {
       const r = await api.fetchCouncil(id, last.current, lang);
-      setC(r.council); setRoles(r.roles);
+      setC(r.council); setRoles(r.roles); setDocsIn(r.documents);
       if (r.journal.length) { setTurns((h) => mergeTurns(h, r.journal)); last.current = Math.max(last.current, ...r.journal.map((x) => x.id)); }
     } catch { setErr(t("council.load.failed")); }
   }, [id, lang, t]);
   useEffect(() => { void poll(); }, [poll]);
+  useEffect(() => { api.fetchConfig(lang).then((cf) => setDocsOn(cf.documents)).catch(() => undefined); }, [lang]);
   useEffect(() => {
     if (c && !isOver(c.state)) { const h = window.setInterval(poll, isLive(c.state) ? 1500 : 5000); return () => window.clearInterval(h); }
   }, [c, poll]);
@@ -175,6 +236,15 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       </div>
       {c.state === "stopped_budget" && <p role="alert" className="co-err">{c.stop_message || t("council.budget.stopped")}</p>}
       {c.state === "failed" && <p role="alert" className="co-err">{t("council.failed", { why: c.stop_message })}</p>}
+      {c.state === "interrupted" && <p role="alert" className="co-err">{c.stop_message || t("council.interrupted")}</p>}
+      {(docsIn.length > 0 || a.attach) && (
+        <section aria-label={t("council.field.docs")} className="co-docs">
+          <h3 className="co-round">{t("council.field.docs")}</h3>
+          {docsIn.length === 0 ? <p className="sk-muted">{t("council.docs.none")}</p> : <ul>{docsIn.map((d) => <li key={d.id}>{d.name}</li>)}</ul>}
+          {a.attach && !c.claude && <AttachFile documents={docsOn} onError={setErr}
+            onText={(n, x) => void act(() => api.addDocument(id, { name: n, text: x }))} onDoc={(did) => void act(() => api.addDocument(id, { doc_id: did }))} />}
+        </section>
+      )}
 
       <section aria-label={t("council.thread")} aria-live="polite" className="co-thread">
         {groupRounds(turns).map((g) => (
@@ -184,7 +254,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
               <article key={x.id} className="co-turn" data-kind={x.kind}>
                 <header><strong>{name(x.role)}</strong>{x.addressed_to && x.kind === "reply" ? <span> {t("council.to", { to: x.addressed_to })}</span> : null}
                   {x.model && <small> · {x.model} · {x.tokens_in + x.tokens_out} tok · {x.ms} ms</small>}</header>
-                <p>{x.kind === "synthesis" ? t("council.round.3") : x.text}</p>
+                <TurnText x={x} />
               </article>
             ))}
           </div>
@@ -199,6 +269,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       )}
       <div className="co-actions">
         {a.start && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.startCouncil(id))}>{t("council.start")}</button>}
+        {a.resume && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.resumeCouncil(id))}>{t("council.resume")}</button>}
         {a.stop && c.state !== "brief" && c.state !== "card" && <button className="sk-btn" onClick={() => void act(() => api.stopCouncil(id))}><Icon name="stop" />{t("council.stop")}</button>}
         <details className="co-export"><summary className="sk-btn sk-btn-quiet">{t("council.export")}</summary>
           <a href={api.exportUrl(id, "json")}>{t("council.export.json")}</a> · <a href={api.exportUrl(id, "md")}>{t("council.export.md")}</a></details>
@@ -210,7 +281,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
           <h3 className="sk-card-title">{t("council.card.title")} · {t("council.card.v", { n: c.card.version })}</h3>
           <p className="sk-muted">{c.card.where}</p>
           <dl className="co-facts">{c.card.facts.map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>
-          <pre className="sk-pre">{c.card.preview}</pre>
+          <div className="co-preview" data-testid="card-preview"><Markdown text={c.card.preview} /></div>
           <p>{c.card.after}</p>
           {a.decide && (refusing ? (
             <div><label className="co-field"><span>{t("council.card.reason")}</span>
@@ -233,5 +304,22 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
         </section>
       )}
     </>
+  );
+}
+
+/** One speech. The text is Markdown (models write **bold**, lists, tables); the finance lead's
+ *  synthesis is a summary in words with its parts folded, never one line. */
+function TurnText({ x }: { x: Turn }) {
+  const t = useT();
+  if (x.kind !== "synthesis") return <div className="co-text"><Markdown text={x.text} /></div>;
+  const { lead, sections } = splitSections(x.text);
+  if (sections.length === 0) return <div className="co-text"><Markdown text={x.text || t("council.round.3")} /></div>;
+  return (
+    <div className="co-text">
+      <Markdown text={lead} />
+      {sections.map((s) => (
+        <details key={s.title} className="co-fold"><summary>{s.title}</summary><Markdown text={s.body} /></details>
+      ))}
+    </div>
   );
 }

@@ -7,7 +7,7 @@ export const ROLE_ORDER = ["daf", "code", "ops", "conception", "achats", "qa", "
 export type RoleId = (typeof ROLE_ORDER)[number];
 
 export type CouncilState =
-  | "brief" | "round1" | "round2" | "synthesis" | "card" | "accepted" | "refused"
+  | "brief" | "round1" | "round2" | "synthesis" | "card" | "interrupted" | "accepted" | "refused"
   | "stopped" | "stopped_budget" | "failed";
 
 export const LIVE: CouncilState[] = ["round1", "round2", "synthesis"];
@@ -26,7 +26,7 @@ export interface Budget { max_tokens: number; max_cost_chf: number; tokens: numb
 export interface Council {
   id: string; title: string; brief: string; lang: string; state: CouncilState; project: string; level: number;
   claude: boolean; claude_model: string; budget: Budget; speaking: string[]; refusals: number;
-  stop_message: string; stop_reason: string; card: AgreementCard | null; positions: Position[];
+  stop_message: string; stop_reason: string; resume_step?: string; card: AgreementCard | null; positions: Position[];
   accepted: { cards: { id: number; title: string }[]; agents: { id: number; name: string; status: string }[]; skipped: { nom: string; error: string }[] } | null;
 }
 export interface Position { profil: string; pourcentage_poste: number; perimetre: string; status: string }
@@ -83,16 +83,32 @@ export function mergeTurns(have: Turn[], incoming: Turn[]): Turn[] {
   return [...have, ...incoming.filter((t) => !seen.has(t.id))];
 }
 
-export interface Actions { start: boolean; say: boolean; stop: boolean; decide: boolean; attach: boolean; exportable: boolean }
-/** What the CEO can do in each state. Deciding needs a card; the CEO may write until the end. */
+export interface Actions { start: boolean; say: boolean; stop: boolean; decide: boolean; attach: boolean; exportable: boolean; resume: boolean }
+/** What the CEO can do in each state. Deciding needs a card; the CEO may write until the end.
+ *  `interrupted` (the service restarted during a call): resume the round, or stop. */
 export function actions(s: CouncilState): Actions {
   return {
     start: s === "brief", attach: s === "brief",
-    say: s === "brief" || isLive(s) || s === "card",
-    stop: isLive(s) || s === "brief" || s === "card",
-    decide: s === "card", exportable: true,
+    say: s === "brief" || isLive(s) || s === "card" || s === "interrupted",
+    stop: isLive(s) || s === "brief" || s === "card" || s === "interrupted",
+    decide: s === "card", exportable: true, resume: s === "interrupted",
   };
 }
+
+/** A long turn (the finance lead's synthesis) cut into its lead (the summary, in words) and its
+ *  `## ` sections, which the room folds. A text without a section has an empty list. */
+export function splitSections(text: string): { lead: string; sections: { title: string; body: string }[] } {
+  const parts = text.split(/^## +/m);
+  const lead = (parts.shift() ?? "").trim();
+  return { lead, sections: parts.map((p) => {
+    const i = p.indexOf("\n");
+    return { title: (i < 0 ? p : p.slice(0, i)).trim(), body: (i < 0 ? "" : p.slice(i + 1)).trim() };
+  }).filter((x) => x.title) };
+}
+
+/** What the room can read as text without the server's Documents feature (no upload route). */
+export const TEXT_FILE = /\.(md|markdown|txt|csv|tsv|json|yml|yaml)$/i;
+export const isTextFile = (f: { name: string; type?: string }) => TEXT_FILE.test(f.name) || (f.type ?? "").startsWith("text/");
 
 /** The state as a step of the progress line (0..4; -1 = ended before the card). */
 export function step(s: CouncilState): number {

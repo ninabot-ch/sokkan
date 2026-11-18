@@ -11,6 +11,7 @@
     PUT  /api/claude/key       {key}                  admin: the organisation's Anthropic key
     DELETE /api/claude/key                            admin
     PUT  /api/projects/{slug}/level {level, reason}   project admin: the project's classification
+                                                      (available whether or not the Claude tier is on)
 
 The key entered here is used by the Claude tier ONLY: unlike Setup › Model keys on a cloud
 instance, it never becomes the engine of every session (on an appliance that would send
@@ -191,8 +192,9 @@ def people(request: Request) -> dict:
 @router.put("/api/projects/{slug}/level")
 def project_level(slug: str, body: LevelIn, request: Request) -> dict:
     """The project's classification. Lowering it takes a reason (it can open the project to
-    Claude); both directions are journaled."""
-    _feature()
+    Claude); both directions are journaled. NOT behind the `claude_tier` feature (4.1): the
+    classification is the project's own — the launch council, classification, and Claude's gate
+    all read it, and it must be settable on an instance where Claude is not offered."""
     from core import levels
     import projects
     u = auth.instance_user(request)

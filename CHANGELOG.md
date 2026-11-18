@@ -23,6 +23,25 @@ Notable changes, newest first. Versions: semver + release hash (see
   (`SOKKAN_COUNCIL_MAX_TOKENS`, `SOKKAN_COUNCIL_MAX_COST_CHF`) stops it cleanly.
 - Every speech is journaled (role, model, tokens, duration); export in JSON and Markdown.
   See `docs/enterprise/COUNCIL.md`.
+- **What the first real council showed, fixed** (each with a test):
+  - **An empty answer is a failure, never a success**: a turn with no usable text (empty, reasoning
+    only, cut by `max_tokens`) is asked again once without reasoning, then fails with a message; the
+    council stops cleanly if the finance lead fails. Ship and Deep calls ask for no reasoning by
+    default (`SOKKAN_COUNCIL_*_EXTRA` tunes it) and leave more room per turn.
+  - **Honest sources**: a figure taken from a range or a `[H]` / `[À VÉRIFIER]` hypothesis of a
+    document stays « estimated (from doc, range a–b) », never « sourced »; the « To check » counter
+    counts every estimated or unsourced line.
+  - **No claim outside the documents**: the roles' and the finance lead's prompt say so; a cited
+    article, standard or regulation that no attached document holds is listed « hypothesis to check ».
+  - **The coach does not invent people**: a name that is in neither the documents, the brief nor
+    the directory is removed from the human roles and the recruits, and reported.
+  - **A readable card and thread**: Markdown rendered (tables whole, no raw `**`), the finance lead's
+    synthesis as a summary with foldable sections.
+  - **A restart in the middle of a round** leaves the council `interrupted`, never stuck in
+    `round2`: resume the round or stop it (`POST /api/council/{id}/resume`).
+  - **Classification no longer depends on the Claude tier** (`PUT /api/projects/{slug}/level`), and
+    it is set from the room; `council` declares it needs no other feature.
+  - **Attach a file** in the room (the Documents upload when on, a text file otherwise).
 
 ## Unreleased — 4.0.2
 

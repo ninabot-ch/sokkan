@@ -453,3 +453,410 @@ def test_start_cannot_run_twice(world):  # noqa: F811
     with pytest.raises(service.CouncilError):
         service.start_async(c["id"])
     assert copy.deepcopy(c)["id"]
+
+
+# =====================================================================================================
+# 4.1 — what the first real council showed (empty answers, honest sources, grounding, invented names,
+# a readable card, a restart in the middle of a round, classification, attaching files)
+# =====================================================================================================
+def _heard(cid, rnd=1):
+    return [t["role"] for t in store.turns(cid) if t["round"] == rnd and t["kind"] in ("role", "reply")]
+
+
+# ---- 1. an empty answer is a failure, never a success -------------------------------------------------
+def test_useful_text_and_unusable_answers():
+    assert eng.useful_text("<think>je réfléchis</think>") == ""
+    assert eng.useful_text("<think>coupé au milieu") == ""
+    assert eng.useful_text("<think>x</think> Voici l'avis.") == "Voici l'avis."
+    assert eng.unusable(eng.Reply(text="")) == "empty"
+    assert eng.unusable(eng.Reply(text="<think>seulement</think>")) == "empty"
+    assert eng.unusable(eng.Reply(text="un début", finish="length")) == "truncated"
+    assert eng.unusable(eng.Reply(text="un avis", finish="stop")) == ""
+
+
+def test_an_empty_turn_is_retried_once_without_reasoning_and_then_spoken(world):  # noqa: F811
+    seen = []
+
+    def code(call):
+        seen.append((call.retry, call.max_tokens))
+        return "" if not call.retry else "Avis de la retraite."
+    fake = eng.FakeEngine(script={("code", "round1"): code})
+    models.set_default(fake)
+    c = new()
+    done = service.run(c["id"])
+    assert done["state"] == "card"
+    assert seen[0][0] is False and seen[1][0] is True
+    t = [x for x in store.turns(c["id"]) if x["role"] == "code" and x["kind"] == "role"]
+    assert len(t) == 1 and t[0]["text"] == "Avis de la retraite."
+    notes = [x["text"] for x in store.turns(c["id"]) if x["kind"] == "system" and x["role"] == "code"]
+    assert len(notes) == 1 and "nouvelle tentative" in notes[0]
+    assert done["calls"] == 9 + 1 + 4 + 1 + 1                 # the failed attempt cost a call: it is counted
+
+
+def test_an_empty_turn_twice_is_a_failure_with_a_clear_message_never_a_speech(world):  # noqa: F811
+    models.set_default(eng.FakeEngine(script={("qa", "round1"): "<think>je pense</think>"}))
+    c = new()
+    done = service.run(c["id"])
+    assert done["state"] == "card"                              # one role failing does not lose the council
+    j = store.turns(c["id"])
+    assert not [x for x in j if x["role"] == "qa" and x["kind"] == "role"]     # nothing written in its place
+    msg = [x["text"] for x in j if x["kind"] == "system" and "QA" in x["text"] and "échec" in x["text"]]
+    assert msg and "vide" in msg[0]
+
+
+def test_a_truncated_answer_is_retried_then_failed(world):  # noqa: F811
+    models.set_default(eng.FakeEngine(script={("ops", "round1"): lambda c: ("Un début de phrase qui", "length")}))
+    c = new()
+    service.run(c["id"])
+    j = store.turns(c["id"])
+    assert not [x for x in j if x["role"] == "ops" and x["kind"] == "role"]
+    assert any(x["kind"] == "system" and "coupée" in x["text"] and "échec" in x["text"] for x in j)
+
+
+def test_the_council_stops_cleanly_when_the_daf_fails(world):  # noqa: F811
+    fake = eng.FakeEngine(synthesis=["", ""])
+    models.set_default(fake)
+    c = new()
+    done = service.run(c["id"])
+    assert done["state"] == "failed" and done["stop_reason"] == "empty_reply" and not done.get("card")
+    assert "Finance" in done["stop_message"] and "vide" in done["stop_message"]
+    assert [x["text"] for x in store.turns(c["id"]) if x["kind"] == "synthesis"] == []
+
+    fake2 = eng.FakeEngine(script={("daf", "round1"): ""})                      # the DAF's own opinion, in round 1
+    models.set_default(fake2)
+    c2 = new()
+    assert service.run(c2["id"])["state"] == "failed"
+
+
+def test_every_role_failing_fails_the_council(world):  # noqa: F811
+    models.set_default(eng.FakeEngine(script={"round1": ""}))
+    done = service.run(new()["id"])
+    assert done["state"] == "failed" and done["stop_reason"] == "empty_reply"
+
+
+def test_the_default_calls_ask_for_no_reasoning_and_leave_room(monkeypatch):
+    for v in ("SOKKAN_COUNCIL_SHIP_EXTRA", "SOKKAN_COUNCIL_DEEP_EXTRA", "SOKKAN_REVIEW_LOCAL_URL", "SOKKAN_SHIP_URL"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_URL", "http://ship.invalid/v1")
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_MODEL", "local-27b")
+    monkeypatch.setenv("SOKKAN_COUNCIL_DEEP_URL", "http://deep.invalid/v1")
+    monkeypatch.setenv("SOKKAN_COUNCIL_DEEP_MODEL", "deep-big")
+    monkeypatch.setenv("SOKKAN_REVIEW_REMOTE_MAX_LEVEL", "4")
+    assert models.endpoint("ship", 0)["extra"] == {"reasoning_effort": "none"}
+    assert models.endpoint("deep", 0)["extra"] == {"reasoning_effort": "none"}
+    # SOKKAN_COUNCIL_*_EXTRA still tunes it: merged over the default, null removes a key
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_EXTRA", '{"reasoning_effort": "low", "top_k": 20}')
+    monkeypatch.setenv("SOKKAN_COUNCIL_DEEP_EXTRA", '{"reasoning_effort": null}')
+    assert models.endpoint("ship", 0)["extra"] == {"reasoning_effort": "low", "top_k": 20}
+    assert models.endpoint("deep", 0)["extra"] == {}
+    assert service.TURN_TOKENS >= 2000 and service.SYNTHESIS_TOKENS >= 6000 and service.DISAGREE_TOKENS >= 1500
+    assert eng.Call("c", "daf", "round1", "s", "u", "ship").max_tokens >= 2000
+
+
+def test_the_model_engine_sends_the_default_and_retries_without_reasoning_then_without_the_key(monkeypatch):
+    for v in ("SOKKAN_COUNCIL_SHIP_EXTRA", "SOKKAN_REVIEW_LOCAL_URL", "SOKKAN_SHIP_URL"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_URL", "http://ship.invalid/v1")
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_MODEL", "local-27b")
+    bodies = []
+
+    def post(url, headers, body):
+        bodies.append(dict(body))
+        if len(bodies) == 3:                                    # the tier refuses `reasoning_effort`
+            raise _http400()
+        return {"choices": [{"message": {"content": "ok"}, "finish_reason": "length"}], "usage": {}}
+
+    def _http400():
+        e = eng.EngineError("model call failed (HTTP 400)", "model")
+        e.status = 400
+        return e
+    monkeypatch.setattr(models, "_post", post)
+    me = models.ModelEngine()
+    call = eng.Call("c", "code", "round1", "s", "u", "ship", max_tokens=2000)
+    r = me.complete(call)
+    assert bodies[0]["reasoning_effort"] == "none" and bodies[0]["max_tokens"] == 2000 and r.finish == "length"
+    call.retry = True
+    me.complete(call)
+    assert bodies[1]["reasoning_effort"] == "none" and bodies[1]["max_tokens"] == 4000
+    # a tier that answers 400 to the key: asked again without it
+    monkeypatch.setenv("SOKKAN_COUNCIL_SHIP_EXTRA", '{"reasoning_effort": null}')
+    me.complete(call)
+    assert len(bodies) == 4 and "reasoning_effort" in bodies[2] and "reasoning_effort" not in bodies[3]
+
+
+# ---- 2. honest sources ---------------------------------------------------------------------------------
+DOC_FUNDING = ("# Financement\n\n- prototype ≈ 6 à 11 kCHF [H]\n- ingénierie : 280 à 630 kCHF (le vrai coût)\n"
+               "- licence : 1 200 CHF\n- pièces : 9 300 CHF [À VÉRIFIER]\n")
+
+
+def test_a_figure_taken_from_a_range_or_a_hypothesis_stays_estimated_never_sourced():
+    from council import checks
+    assert checks.assess_amount(8500, "prototype ≈ 6 à 11 kCHF [H]")["status"] == "range"
+    assert checks.assess_amount(8500, "prototype ≈ 6 à 11 kCHF [H]")["range"] == (6000.0, 11000.0)
+    assert checks.assess_amount(630000, DOC_FUNDING)["status"] == "range"            # a bound of a range is not a stated figure
+    assert checks.assess_amount(1200, DOC_FUNDING)["status"] == "plain"
+    assert checks.assess_amount(8500, "pièces : 8 500 CHF [À VÉRIFIER]")["status"] == "marked"
+    assert checks.assess_amount(63500, DOC_FUNDING)["status"] == "derived"
+    assert checks.assess_amount(400, "Composants : 400 CHF")["status"] == "plain"
+
+
+def test_the_card_marks_range_and_hypothesis_figures_estimated_and_counts_them(world):  # noqa: F811
+    s = eng.default_synthesis()
+    s["budget"] = {"lignes": [
+        {"poste": "Prototype", "montant_chf": 8500, "source": "financement.md"},        # midpoint of a [H] range
+        {"poste": "Ingénierie", "montant_chf": 630000, "source": "financement.md"},    # top of a range
+        {"poste": "Licence", "montant_chf": 1200, "source": "financement.md"},         # stated plainly
+        {"poste": "Pièces", "montant_chf": 9300, "source": "financement.md"},          # carries [À VÉRIFIER]
+        {"poste": "Aides", "montant_chf": 5000, "source": "estimé"}], "total_chf": 653200}
+    models.set_default(eng.FakeEngine(synthesis=json.dumps(s)))
+    c = new(documents=[{"name": "financement.md", "text": DOC_FUNDING}])
+    card = service.run(c["id"])["card"]
+    src = {x["poste"]: x["source"] for x in card["synthesis"]["budget"]["lignes"]}
+    assert src["Licence"] == "financement.md"                                           # the only sourced line
+    assert src["Prototype"].startswith("estimé (d’après financement.md, fourchette 6 000–11 000")
+    assert src["Ingénierie"].startswith("estimé") and "280 000–630 000" in src["Ingénierie"]
+    assert "[H]" in src["Pièces"] or "vérifier" in src["Pièces"]
+    assert src["Aides"] == "estimé"
+    est = [f for f in card["findings"] if f["kind"] in ("estimated_from_doc", "estimated", "unsourced")]
+    assert len(est) == 4                                                                # 4 lines are not sourced
+    facts = {f["label"]: f["value"] for f in card["facts"]}
+    assert int(facts["À vérifier"]) >= 4 and int(facts["À vérifier"]) == len(card["findings"])
+    assert "fourchette 6 000–11 000" in card["preview"]
+
+
+def test_a_reestimated_source_is_not_marked_twice():
+    from council import schema as sc
+    assert sc.is_estimated("estimé (d’après doc.md, fourchette 1–2)") and sc.is_estimated("Estimated (from x)")
+    assert not sc.is_estimated("estimateur.md")
+    syn = eng.default_synthesis()
+    syn["budget"]["lignes"][1]["source"] = "estimé (d’après devis-composants.md, fourchette 1 000–2 000)"
+    out, f = sc.factcheck_budget(syn, ["devis-composants.md"], "", "fr", docs=[{"name": "devis-composants.md", "text": "Composants : 400 CHF"}])
+    assert out["budget"]["lignes"][1]["source"].count("estimé") == 1
+
+
+# ---- 3. no claim outside the documents ----------------------------------------------------------------
+def test_every_role_and_the_daf_carry_the_grounding_rule_in_their_system_prompt():
+    for lang, needle in (("fr", "hypothèse à vérifier"), ("en", "hypothesis to check")):
+        for rid in roles.ids():
+            sp = service._system(rid, lang)
+            assert needle in sp, rid
+            assert ("article de loi" in sp) or ("article of law" in sp)
+    fake = eng.FakeEngine()
+    models.set_default(fake)
+    # the call of the DAF (synthesis) is built with the same system prompt
+    service.run(new()["id"])
+    assert all("hypothèse à vérifier" in x.system for x in fake.calls)
+
+
+def test_a_cited_law_or_standard_that_no_document_holds_is_reported(world):  # noqa: F811
+    s = eng.default_synthesis()
+    s["risques"] = [{"risque": "Non-conformité à l'art. 12 LPD et à la norme EN 62471 (règlement (UE) 2023/1230)",
+                     "gravite": "haute", "responsable": "juridique"},
+                    {"risque": "Voir EN 60825-1", "gravite": "faible", "responsable": "juridique"}]
+    models.set_default(eng.FakeEngine(synthesis=json.dumps(s)))
+    c = new(documents=[{"name": "juridique.md", "text": "Le laser relève de la norme EN 60825-1 uniquement."}])
+    card = service.run(c["id"])["card"]
+    refs = {f["ref"] for f in card["findings"] if f["kind"] == "unverified_reference"}
+    assert any("art. 12" in r for r in refs) and any("62471" in r for r in refs) and any("2023/1230" in r for r in refs)
+    assert not any("60825" in r for r in refs)                                          # that one IS in a document
+    assert all("hypothèse à vérifier" in f["text"] for f in card["findings"] if f["kind"] == "unverified_reference")
+    assert "## À vérifier" in card["preview"]
+
+
+# ---- 4. the coach does not invent people ---------------------------------------------------------------
+def test_a_person_name_that_no_document_holds_is_removed_and_reported(world):  # noqa: F811
+    s = eng.default_synthesis()
+    s["roles_humains"] = [{"profil": "Lead Produit (Camille)", "pourcentage_poste": 100, "perimetre": "Piloter le projet avec Jean Dupont"},
+                          {"profil": "Ingénieur électronique (Électronique)", "pourcentage_poste": 20, "perimetre": "Relire le schéma"}]
+    s["agents_a_recruter"][0]["profil"] = "Rédacteur technique (Marion)"
+    models.set_default(eng.FakeEngine(synthesis=json.dumps(s)))
+    c = new(documents=[{"name": "d.md", "text": "Projet de robot."}])
+    card = service.run(c["id"])["card"]
+    syn = card["synthesis"]
+    assert syn["roles_humains"][0]["profil"] == "Lead Produit"
+    assert "Jean" not in syn["roles_humains"][0]["perimetre"] and "Dupont" not in syn["roles_humains"][0]["perimetre"]
+    assert syn["agents_a_recruter"][0]["profil"] == "Rédacteur technique"
+    assert syn["roles_humains"][1]["profil"] == "Ingénieur électronique (Électronique)"   # a field of work, not a person
+    removed = {f["name"] for f in card["findings"] if f["kind"] == "person_name_removed"}
+    assert {"Camille", "Jean Dupont", "Marion"} <= removed
+    # accepted, the open position carries the job title only
+    res = service.accept(c["id"], user())
+    assert res["positions"][0]["profil"] == "Lead Produit"
+
+
+def test_a_name_that_is_in_the_documents_or_the_directory_stays(world, monkeypatch):  # noqa: F811
+    import claudepii
+    monkeypatch.setattr(claudepii, "names", lambda extra=(): ["Marion Lambert"])
+    s = eng.default_synthesis()
+    s["roles_humains"] = [{"profil": "Lead Produit (Camille)", "pourcentage_poste": 100, "perimetre": "x"}]
+    s["agents_a_recruter"][0]["profil"] = "Rédacteur (Marion)"
+    models.set_default(eng.FakeEngine(synthesis=json.dumps(s)))
+    c = new(brief=BRIEF + " Camille dirige le projet.")
+    syn = service.run(c["id"])["card"]["synthesis"]
+    assert syn["roles_humains"][0]["profil"] == "Lead Produit (Camille)"                  # in the brief
+    assert syn["agents_a_recruter"][0]["profil"] == "Rédacteur (Marion)"                  # in the directory
+    from council import roles as r
+    assert "nom de personne" in service._system("coach", "fr") and "person's name" in service._system("coach", "en")
+    assert r.ids()[-1] == "coach"
+
+
+# ---- 5. a readable card and thread ---------------------------------------------------------------------
+def test_the_card_preview_is_whole_markdown_without_raw_emphasis_and_the_thread_reads_in_words(world):  # noqa: F811
+    s = eng.default_synthesis()
+    s["budget"]["lignes"][0]["poste"] = "Ligne | avec barre\nsur deux lignes"
+    models.set_default(eng.FakeEngine(synthesis=json.dumps(s)))
+    c = new(documents=[{"name": "devis-composants.md", "text": "Composants : 400 CHF"}])
+    done = service.run(c["id"])
+    prev = done["card"]["preview"]
+    assert "**" not in prev and "|---|---:|---|" in prev
+    assert prev.count("\n| ") >= 3 and "| Total | 1600.00 |" in prev                    # every row, the total included
+    assert "Ligne / avec barre sur deux lignes" in prev                                  # a cell never breaks the table
+    for h in ("## Périmètre", "## Budget", "## Risques", "## Cartes à créer", "## Calendrier"):
+        assert h in prev
+    syn_turn = [t for t in store.turns(c["id"]) if t["kind"] == "synthesis"][-1]
+    head, _, rest = syn_turn["text"].partition("\n\n")
+    assert head.startswith("Synthèse v1 : budget CHF 1'600.00") and "à vérifier" in head   # a summary in words
+    assert rest.startswith("## Périmètre") and "## Budget" in rest and "{" not in head       # then sections, never raw JSON
+    assert done["card"]["synthesis"]["budget"]["total_chf"] == 1600.0                       # the JSON itself is untouched
+
+
+# ---- 6. a restart in the middle of a round -------------------------------------------------------------
+def test_a_council_left_live_by_a_restart_is_interrupted_and_resumes_its_round(world):  # noqa: F811
+    c = new()
+    for rid in ("daf", "code", "ops"):                                       # three roles had spoken
+        store.add_turn(c["id"], round=1, seq=roles.ids().index(rid) + 1, kind="role", role=rid, text="déjà dit", model="m")
+    store.update(c["id"], state="round1", resume_step="round1")
+    assert service.recover() == 1                                            # at startup: nobody works on it
+    s = store.get(c["id"])
+    assert s["state"] == "interrupted" and s["resume_step"] == "round1" and s["speaking"] == []
+    assert any(x["kind"] == "system" and "interrompu" in x["text"] for x in store.turns(c["id"]))
+    fake = eng.FakeEngine()
+    models.set_default(fake)
+    done = service.resume(c["id"])
+    for _ in range(200):
+        if store.get(c["id"])["state"] == "card":
+            break
+        time.sleep(0.05)
+    assert store.get(c["id"])["state"] == "card"
+    spoke = [x.role for x in fake.calls if x.phase == "round1"]
+    assert set(spoke) == set(roles.ids()) - {"daf", "code", "ops"}           # what was said is kept, not paid twice
+    assert done["state"] in ("round1", "card")
+    with pytest.raises(service.CouncilError):
+        service.resume(c["id"])                                              # only an interrupted council resumes
+
+
+def test_a_stop_followed_by_a_restart_ends_stopped_and_a_stop_without_worker_is_immediate(world):  # noqa: F811
+    c = new()
+    store.update(c["id"], state="round2", stop_requested=1)                 # the CEO pressed stop during the DAF's call
+    assert service.recover() == 1
+    assert store.get(c["id"])["state"] == "stopped" and store.get(c["id"])["stop_reason"] == "ceo"
+    c2 = new()
+    store.update(c2["id"], state="round2")                                   # a live row with no worker in this process
+    assert service.stop(c2["id"])["state"] == "stopped"
+    c3 = new()
+    store.update(c3["id"], state="interrupted", resume_step="round2")
+    assert service.stop(c3["id"])["state"] == "stopped"                      # an interrupted council can be stopped
+    assert store.get(c3["id"])["state"] == "stopped"
+
+
+def test_a_resumed_round2_does_not_ask_the_daf_again_and_skips_the_roles_that_answered(world):  # noqa: F811
+    c = new()
+    plan = {"disagreements": [{"topic": "Delai", "roles": ["code", "achats"], "question": "8 semaines ?"}]}
+    store.add_turn(c["id"], round=2, seq=0, kind="disagreements", role="daf", text="- Delai", model="m")
+    store.add_turn(c["id"], round=2, seq=2, kind="reply", role="code", text="réponse", model="m", addressed_to="Achats")
+    store.update(c["id"], state="round2", resume_step="round2", plan=plan)
+    service.recover()
+    fake = eng.FakeEngine()
+    models.set_default(fake)
+    service.resume(c["id"])
+    for _ in range(200):
+        if store.get(c["id"])["state"] == "card":
+            break
+        time.sleep(0.05)
+    assert store.get(c["id"])["state"] == "card"
+    assert not [x for x in fake.calls if x.phase == "disagreements"]
+    assert [x.role for x in fake.calls if x.phase == "round2"] == ["achats"]
+
+
+def test_http_an_interrupted_council_is_shown_and_resumed(world, monkeypatch):  # noqa: F811
+    c = world["as"]("bob@x")
+    cn = new()
+    store.update(cn["id"], state="round2", resume_step="round2")
+    j = c.get(f"/api/council/{cn['id']}").json()                            # reading it reconciles: never left « round2 »
+    assert j["council"]["state"] == "interrupted" and j["council"]["resume_step"] == "round2"
+    assert world["as"]("carol@x").post(f"/api/council/{cn['id']}/resume").status_code == 403
+    models.set_default(eng.FakeEngine())
+    c = world["as"]("bob@x")
+    r = c.post(f"/api/council/{cn['id']}/resume")
+    assert r.status_code == 200, r.text
+    assert world["audit"]("council.resume")
+    for _ in range(200):
+        if store.get(cn["id"])["state"] == "card":
+            break
+        time.sleep(0.05)
+    assert store.get(cn["id"])["state"] == "card"
+    assert c.post(f"/api/council/{cn['id']}/resume").status_code == 409                  # not interrupted any more
+
+
+def test_an_old_database_gets_the_new_columns(tmp_path, monkeypatch):
+    import sqlite3
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.executescript(store.SCHEMA.replace("resume_step TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT '{}',", ""))
+    con.close()
+    monkeypatch.setattr(store, "DB", db)
+    monkeypatch.setattr(store, "_ready_for", None)
+    c = store.create(project="default", owner="o@x", title="t", brief="x" * 12, lang="fr", level=2, max_tokens=5000, max_cost_chf=1)
+    assert c["resume_step"] == "" and c["plan"] == {}
+
+
+# ---- 7. classification, independent of Claude's tier; the council's own dependencies ------------------
+def test_the_project_classification_is_settable_without_the_claude_tier(world, monkeypatch):  # noqa: F811
+    monkeypatch.delenv("SOKKAN_FEATURE_CLAUDE_TIER", raising=False)
+    import claudetier
+    assert claudetier.enabled() is False
+    admin = world["as"]("admin@x")
+    r = admin.put("/api/projects/default/level", json={"level": "confidential"})
+    assert r.status_code == 200, r.text
+    assert r.json()["level"] == "confidential" and r.json()["claude"]["allowed"] is False
+    cfg = admin.get("/api/council/config?lang=fr").json()
+    assert cfg["project"] == {"slug": "default", "level": "confidential", "label": "Confidentiel"}
+    assert admin.put("/api/projects/default/level", json={"level": "team"}).status_code == 400    # lowering takes a reason
+    assert admin.put("/api/projects/default/level", json={"level": "team", "reason": "projet ouvert"}).status_code == 200
+    assert world["as"]("carol@x").put("/api/projects/default/level", json={"level": "public", "reason": "x"}).status_code == 403
+    assert world["as"]("admin@x").get("/api/council/config").json()["project"]["level"] == "team"
+
+
+def test_the_council_needs_no_other_feature_and_says_so_when_documents_are_off(world, monkeypatch):  # noqa: F811
+    import features
+    f = features.BY_ID["council"]
+    assert f.requires == ()                          # Atelier / documents / projects are entrances, not prerequisites
+    monkeypatch.setenv("SOKKAN_FEATURE_DOCUMENTS", "0")
+    monkeypatch.setenv("SOKKAN_FEATURE_SIMPLE_PROFILE", "0")
+    c = world["as"]("bob@x")
+    models.set_default(eng.FakeEngine())
+    monkeypatch.setattr(service, "start_async", lambda cid: service.run(cid))
+    assert c.get("/api/council/config").json()["documents"] is False
+    r = c.post("/api/council", json={"brief": BRIEF, "doc_ids": ["abc"]})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "documents_off"
+    r = c.post("/api/council", json={"brief": BRIEF, "documents": [{"name": "n.md", "text": "texte"}]})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+    assert c.post(f"/api/council/{cid}/start").json()["state"] == "card"
+
+
+# ---- 8. attaching a file -------------------------------------------------------------------------------
+def test_a_project_document_can_be_attached_to_a_council_in_brief(world, monkeypatch):  # noqa: F811
+    from simple_fixtures import put
+    c = world["as"]("bob@x")
+    up = put(c, "cahier.md", b"# Cahier\nBudget: 400 CHF\n")
+    assert up.status_code == 200, up.text
+    doc_id = up.json()["id"]
+    assert c.get("/api/council/config").json()["documents"] is True
+    r = c.post("/api/council", json={"brief": BRIEF, "doc_ids": [doc_id]})
+    assert r.status_code == 200, r.text
+    cid = r.json()["id"]
+    assert [d["name"] for d in c.get(f"/api/council/{cid}").json()["documents"]] == ["cahier.md"]
+    up2 = put(c, "autre.md", b"# Autre\nTexte\n")
+    r2 = c.post(f"/api/council/{cid}/documents", json={"doc_id": up2.json()["id"]})
+    assert r2.status_code == 200 and len(c.get(f"/api/council/{cid}").json()["documents"]) == 2

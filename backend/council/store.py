@@ -17,9 +17,11 @@ from pathlib import Path
 DB = Path(os.environ.get("SOKKAN_COUNCIL_DB") or os.path.join(      # compose passes "" when unset
     os.environ.get("SOKKAN_DATA_DIR") or os.path.expanduser("~/.local/share/sokkan"), "council.db"))
 
-STATES = ("brief", "round1", "round2", "synthesis", "card", "accepted", "refused",
+STATES = ("brief", "round1", "round2", "synthesis", "card", "interrupted", "accepted", "refused",
           "stopped", "stopped_budget", "failed")
 LIVE = ("round1", "round2", "synthesis")           # states in which the council is working
+# `interrupted`: the worker is gone (API restarted, process killed) — not final: the CEO resumes
+# the round that was running (`resume_step`) or stops the council.
 FINAL = ("accepted", "refused", "stopped", "stopped_budget", "failed")
 
 _lock = threading.RLock()
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS councils(
   calls INTEGER NOT NULL DEFAULT 0, refusals INTEGER NOT NULL DEFAULT 0, refusal_reason TEXT NOT NULL DEFAULT '',
   stop_requested INTEGER NOT NULL DEFAULT 0, speaking TEXT NOT NULL DEFAULT '[]', stop_reason TEXT NOT NULL DEFAULT '', stop_message TEXT NOT NULL DEFAULT '',
   card TEXT, findings TEXT NOT NULL DEFAULT '[]', accepted TEXT, positions TEXT NOT NULL DEFAULT '[]',
+  resume_step TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT '{}',
   created_at REAL NOT NULL, updated_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS documents(
   id INTEGER PRIMARY KEY AUTOINCREMENT, council_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL,
@@ -49,7 +52,8 @@ CREATE TABLE IF NOT EXISTS turns(
 CREATE INDEX IF NOT EXISTS turns_c ON turns(council_id, round, seq, id);
 CREATE INDEX IF NOT EXISTS docs_c ON documents(council_id);
 """
-_JSON = ("card", "findings", "accepted", "positions", "pii_map", "speaking")
+_JSON = ("card", "findings", "accepted", "positions", "pii_map", "speaking", "plan")
+_ADDED = (("resume_step", "TEXT NOT NULL DEFAULT ''"), ("plan", "TEXT NOT NULL DEFAULT '{}'"))   # councils of 4.1 alpha
 
 
 def _con() -> sqlite3.Connection:
@@ -60,6 +64,11 @@ def _con() -> sqlite3.Connection:
     if _ready_for != DB:
         with _lock:
             con.executescript(SCHEMA)
+            have = {r["name"] for r in con.execute("PRAGMA table_info(councils)")}
+            for col, decl in _ADDED:
+                if col not in have:
+                    con.execute(f"ALTER TABLE councils ADD COLUMN {col} {decl}")
+            con.commit()
             _ready_for = DB
     return con
 
@@ -140,6 +149,15 @@ def claim(cid: str) -> bool:
         con.close()
 
 
+def live_ids() -> list[str]:
+    con = _con()
+    try:
+        q = ",".join("?" * len(LIVE))
+        return [r["id"] for r in con.execute(f"SELECT id FROM councils WHERE state IN ({q})", LIVE)]
+    finally:
+        con.close()
+
+
 def set_speaking(cid: str, role: str, on: bool) -> None:
     """Who is speaking now (at most 2 in round 1): the room's « speaks » indicator."""
     with _lock:
@@ -194,6 +212,31 @@ def add_turn(cid: str, *, round: int, seq: int, kind: str, role: str = "", text:
                            tokens_out, ms, cost_chf, text))
         con.commit()
         return _turn(con.execute("SELECT * FROM turns WHERE id=?", (cur.lastrowid,)).fetchone())
+    finally:
+        con.close()
+
+
+def set_turn_text(turn_id: int, text: str) -> None:
+    """The readable text of a turn (the DAF's JSON, shown as words)."""
+    con = _con()
+    try:
+        con.execute("UPDATE turns SET text=? WHERE id=?", (text, turn_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+def transition(cid: str, frm: tuple[str, ...] | str, to: str, **cols) -> bool:
+    """frm → to, once: the row that changed is the caller's (two resumes cannot both win)."""
+    frm = (frm,) if isinstance(frm, str) else tuple(frm)
+    cols = {"state": to, **cols, "updated_at": time.time()}
+    vals = [json.dumps(v, ensure_ascii=False) if k in _JSON and v is not None else v for k, v in cols.items()]
+    con = _con()
+    try:
+        cur = con.execute(f"UPDATE councils SET {', '.join(f'{k}=?' for k in cols)} "
+                          f"WHERE id=? AND state IN ({','.join('?' * len(frm))})", (*vals, cid, *frm))
+        con.commit()
+        return cur.rowcount == 1
     finally:
         con.close()
 

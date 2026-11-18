@@ -70,40 +70,47 @@ def Path_read(p: str) -> str:
         return fh.read().strip()
 
 
+# A reasoning model spends max_tokens thinking and leaves `content` empty: the council asks for no
+# reasoning BY DEFAULT on both tiers. SOKKAN_COUNCIL_SHIP_EXTRA / _DEEP_EXTRA adjust it (a JSON
+# object merged over this; a key set to null is removed, e.g. {"reasoning_effort": null}).
+DEFAULT_EXTRA = {"reasoning_effort": "none"}
+
+
+def _extra(pre: str, base: dict | None = None) -> dict:
+    out = {**DEFAULT_EXTRA, **(base or {})}
+    try:
+        mine = json.loads(_env(pre + "_EXTRA") or "{}")
+        if isinstance(mine, dict):
+            out.update(mine)
+    except ValueError:
+        pass
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def endpoint(tier: str, level: int) -> dict | None:
     """{url, model, key, route, extra} for a tier, or None when none is configured. For `deep`
     a project above the review ceiling gets the local endpoint (route `ship`, `downgraded`)."""
     def ship() -> dict | None:
         for pre in ("SOKKAN_COUNCIL_SHIP", "SOKKAN_REVIEW_LOCAL"):
             if _env(pre + "_URL") and _env(pre + "_MODEL"):
-                extra = {}
-                try:
-                    extra = json.loads(_env(pre + "_EXTRA") or "{}")
-                except ValueError:
-                    pass
-                if pre == "SOKKAN_REVIEW_LOCAL" and not extra:
-                    extra = {"chat_template_kwargs": {"enable_thinking": False}}
+                base = {"chat_template_kwargs": {"enable_thinking": False}} if pre == "SOKKAN_REVIEW_LOCAL" else {}
                 return {"url": _env(pre + "_URL"), "model": _env(pre + "_MODEL"), "key": _key(pre + "_KEY"),
-                        "route": "ship", "extra": extra}
+                        "route": "ship", "extra": _extra(pre, base)}
         if _env("SOKKAN_SHIP_URL"):
             return {"url": _env("SOKKAN_SHIP_URL").rstrip("/") + "/v1", "model": _env("SOKKAN_SHIP_MODEL"),
                     "key": _env("SOKKAN_SHIP_TOKEN"), "route": "ship",
-                    "extra": {"chat_template_kwargs": {"enable_thinking": False}}}
+                    "extra": _extra("SOKKAN_COUNCIL_SHIP", {"chat_template_kwargs": {"enable_thinking": False}})}
         return None
 
     def deep() -> dict | None:
         for pre in ("SOKKAN_COUNCIL_DEEP", "SOKKAN_REVIEW"):
             if _env(pre + "_URL") and _env(pre + "_MODEL"):
-                extra = {}
-                try:
-                    extra = json.loads(_env(pre + "_EXTRA") or "{}")
-                except ValueError:
-                    pass
                 return {"url": _env(pre + "_URL"), "model": _env(pre + "_MODEL"), "key": _key(pre + "_KEY"),
-                        "route": "deep", "extra": extra}
+                        "route": "deep", "extra": _extra("SOKKAN_COUNCIL_DEEP" if pre == "SOKKAN_COUNCIL_DEEP" else pre)}
         if _env("SOKKAN_DEEP_URL") and _env("SOKKAN_DEEP_TOKEN"):
             return {"url": _env("SOKKAN_DEEP_URL").rstrip("/") + "/v1", "model": _env("SOKKAN_DEEP_MODEL") or "sokkan-deep",
-                    "key": _env("SOKKAN_DEEP_TOKEN"), "route": "deep", "extra": {}}
+                    "key": _env("SOKKAN_DEEP_TOKEN"), "route": "deep",
+                    "extra": _extra("SOKKAN_COUNCIL_DEEP")}
         return None
 
     if tier == "deep":
@@ -160,13 +167,13 @@ def cost_chf(route: str, model: str, tin: int, tout: int) -> float:
 
 def _post(url: str, headers: dict, body: dict) -> dict:
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
-    last = ""
+    last, status = "", 0
     for wait in (2, 6, 0):
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:  # noqa: S310 — configured endpoint
                 return json.loads(r.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as e:
-            last = f"HTTP {e.code}"
+            last, status = f"HTTP {e.code}", e.code
             if e.code in (429, 502, 503) and wait:
                 time.sleep(wait)
                 continue
@@ -174,7 +181,9 @@ def _post(url: str, headers: dict, body: dict) -> dict:
         except (urllib.error.URLError, OSError, ValueError) as e:
             last = f"{type(e).__name__}"
             break
-    raise eng.EngineError(f"model call failed ({last})", "model")
+    err = eng.EngineError(f"model call failed ({last})", "model")
+    err.status = status
+    raise err
 
 
 class ModelEngine:
@@ -188,16 +197,28 @@ class ModelEngine:
         body = {"model": ep["model"], "temperature": 0.3, "max_tokens": call.max_tokens,
                 "messages": [{"role": "system", "content": call.system}, {"role": "user", "content": call.user}],
                 **(ep.get("extra") or {})}
-        d = _post(ep["url"].rstrip("/") + "/chat/completions",
-                  {"Authorization": f"Bearer {ep['key']}"} if ep.get("key") else {}, body)
+        if call.retry:           # second attempt: no reasoning, and room if the model thinks anyway
+            body["reasoning_effort"] = "none"
+            body["max_tokens"] = min(call.max_tokens * 2, 16000)
+        url, hdr = ep["url"].rstrip("/") + "/chat/completions", ({"Authorization": f"Bearer {ep['key']}"} if ep.get("key") else {})
+        try:
+            d = _post(url, hdr, body)
+        except eng.EngineError as e:
+            # a tier that does not take `reasoning_effort` answers 400: ask again without it
+            if getattr(e, "status", 0) == 400 and "reasoning_effort" in body:
+                body.pop("reasoning_effort")
+                d = _post(url, hdr, body)
+            else:
+                raise
         u = d.get("usage") or {}
-        msg = ((d.get("choices") or [{}])[0].get("message") or {})
+        choice = (d.get("choices") or [{}])[0]
+        msg = (choice.get("message") or {})
         tin, tout = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
         route = ep["route"]
         return eng.Reply(text=msg.get("content") or "", tokens_in=tin, tokens_out=tout,
                          ms=int((time.monotonic() - t0) * 1000), model=str(d.get("model") or ep["model"]),
                          route=route + ("*" if ep.get("downgraded") else ""),
-                         cost_chf=cost_chf(route, ep["model"], tin, tout))
+                         cost_chf=cost_chf(route, ep["model"], tin, tout), finish=str(choice.get("finish_reason") or ""))
 
     def _claude(self, call: eng.Call, t0: float) -> eng.Reply:
         g = claude_gate(call.project, call.claude_model)
@@ -213,14 +234,15 @@ class ModelEngine:
         user, _ = pmap.anonymize(call.user, call.who)
         url = (_env("SOKKAN_CLAUDE_URL") or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
         d = _post(url, {"x-api-key": key, "anthropic-version": CLAUDE_VERSION},
-                  {"model": g["model"], "max_tokens": call.max_tokens, "system": system,
+                  {"model": g["model"], "max_tokens": min(call.max_tokens * (2 if call.retry else 1), 16000), "system": system,
                    "messages": [{"role": "user", "content": user}]})
         text = "".join(b.get("text", "") for b in d.get("content") or [] if b.get("type") == "text")
         u = d.get("usage") or {}
         tin, tout = int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
         return eng.Reply(text=pmap.restore(text), tokens_in=tin, tokens_out=tout,
                          ms=int((time.monotonic() - t0) * 1000), model=str(d.get("model") or g["model"]),
-                         route="claude", cost_chf=cost_chf("claude", g["model"], tin, tout))
+                         route="claude", cost_chf=cost_chf("claude", g["model"], tin, tout),
+                         finish="length" if d.get("stop_reason") == "max_tokens" else "")
 
 
 _default: eng.Engine | None = None

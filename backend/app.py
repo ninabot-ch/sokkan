@@ -284,6 +284,14 @@ async def _lifespan(_app: FastAPI):
     memeval.start_nightly(_transcripts)  # banc de recall nocturne (store 3.0 seulement)
     # 3.1 « Crew up » : ordonnanceur des agents (SOKKAN_FEATURE_AGENTS=0 le coupe)
     features.startup_report()  # a switch asked for but not honoured: logged, feature OFF
+    if features.enabled("council"):  # 4.1: a worker never survives a restart — the councils it left live are interrupted
+        try:
+            from council import service as _council_service
+            n = _council_service.recover()
+            if n:
+                print(f"[sokkan] council: {n} interrupted by the restart (resume or stop in the room)", file=sys.stderr)
+        except Exception as _e:  # noqa: BLE001 — never fatal; the room reconciles on read
+            print(f"[sokkan] council recovery skipped: {_e}", file=sys.stderr)
     sandbox.detect()  # 3.2 lot 8: off | hooks-only | bwrap, probed once
     revocation.bind_loop(asyncio.get_running_loop())  # 3.2 lot 6: closes from sync routes
     global _main_loop

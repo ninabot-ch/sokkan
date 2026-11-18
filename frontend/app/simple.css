@@ -785,6 +785,7 @@ html[data-sk-theme] body {
 .co-bar[data-level="warn"] span { background: var(--sk-warn); }
 .co-bar[data-level="stop"] span { background: var(--sk-danger); }
 .co-state { font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
+.co-state[data-state="interrupted"] { color: var(--sk-warn); font-weight: 600; }
 .co-state[data-state="card"], .co-state[data-state="accepted"] { color: var(--sk-ok); font-weight: 600; }
 .co-state[data-state="failed"], .co-state[data-state="stopped_budget"], .co-state[data-state="refused"] { color: var(--sk-danger); font-weight: 600; }
 .co-head { display: flex; align-items: center; gap: var(--sk-s3); flex-wrap: wrap; }
@@ -794,7 +795,13 @@ html[data-sk-theme] body {
 .co-turn[data-kind="ceo"] { border-left-color: var(--sk-sea); background: var(--sk-sea-soft); }
 .co-turn[data-kind="system"] { border-left-color: var(--sk-warn); }
 .co-turn header small { color: var(--sk-text-muted); }
-.co-turn p { margin: 2px 0 0; white-space: pre-wrap; }
+.co-turn .co-text { margin: 2px 0 0; }
+.co-turn .co-text .sk-md > :first-child { margin-top: 0; } .co-turn .co-text .sk-md > :last-child { margin-bottom: 0; }
+.co-fold { margin: var(--sk-s2) 0; border: 1px solid var(--sk-line); border-radius: 6px; padding: 2px var(--sk-s3); }
+.co-fold > summary { cursor: pointer; font-weight: 600; padding: var(--sk-s2) 0; }
+.co-preview { max-height: none; overflow: visible; }
+.co-file { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.co-file:focus-within { outline: 2px solid var(--sk-sea); outline-offset: 2px; }
 .co-say, .co-actions { display: flex; gap: var(--sk-s2); flex-wrap: wrap; align-items: center; }
 .co-say .sk-input { flex: 1 1 16rem; }
 .co-form, .co-field { display: flex; flex-direction: column; gap: var(--sk-s2); }
