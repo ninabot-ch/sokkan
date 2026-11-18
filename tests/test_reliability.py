@@ -582,3 +582,37 @@ def test_a_table_written_on_one_line_is_refused_and_never_described_as_empty():
     assert built is None and "ONE line" in err
     # the delivery message is never rewritten from a file SOKKAN could not read
     assert qualitygate.check_message("J'ai rapproché les 9 lignes.", "r.md", glued) == []
+
+
+def _table(cols: int, rows: int = 3, empty: bool = True) -> str:
+    head = "| " + " | ".join(f"Col {i + 1}" for i in range(cols)) + " |"
+    sep = "|" + "|".join("---" for _ in range(cols)) + "|"
+    body = ["| " + " | ".join(("" if empty and j == 2 else f"v{r}{j}") for j in range(cols)) + " |"
+            for r in range(rows)]
+    return "\n".join([head, sep, *body])
+
+
+@pytest.mark.parametrize("cols", [5, 6, 7, 8])
+def test_a_wide_markdown_table_on_several_lines_is_not_refused(cols):
+    """4.0.1: a table of 5 columns or more was refused as « written on one line » — the old
+    pattern's blank spanned the header, the separator and the first row."""
+    pytest.importorskip("outputs")
+    text = f"# Offre\n\nClient : Exemple SA\n\n{_table(cols)}\n\n| | | | | **Total** | 1 |\n"
+    built, err = qualitygate.build_table("offre.md", text)
+    assert err == "" and built == text
+    assert qualitygate.glued_table_line(text) == 0
+    # same with no empty cell and with an aligned separator
+    t2 = _table(cols, empty=False).replace("---", ":---:")
+    assert qualitygate.glued_table_line(t2) == 0
+
+
+@pytest.mark.parametrize("cols", [5, 8])
+def test_a_really_glued_wide_table_is_still_refused(cols):
+    pytest.importorskip("outputs")
+    lines = _table(cols, rows=3).split("\n")
+    glued = " ".join([lines[0], *lines[2:]])            # header + rows on one line, no separator
+    built, err = qualitygate.build_table("t.md", f"# T\n\n{glued}\n")
+    assert built is None and "ONE line" in err
+    # rows glued after a proper header and separator
+    rows_glued = "\n".join([lines[0], lines[1], " ".join(lines[2:])])
+    assert qualitygate.glued_table_line(rows_glued) == 3

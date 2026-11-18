@@ -493,6 +493,42 @@ def _width_error(rows: list[list[str]], where: str = "") -> str:
               "must be written inside double quotes, or give the rows as a Markdown table.")
 
 
+_SEP_LINE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_EMPTY_BOUNDARY = re.compile(r"\|[ \t]+\|")
+
+
+def _cells(line: str) -> int:
+    return len(line.strip().strip("|").split("|"))
+
+
+def glued_table_line(text: str) -> int:
+    """4.0.1 — the line number (1-based) of a Markdown table written on ONE line, 0 if none.
+    Read LINE BY LINE: a well-formed table of 5 to 8 columns was refused because the old pattern
+    let its blank match span the line breaks (header, separator and first row read as « one
+    line »). Glued = a table line that is not followed by a separator line while it should be
+    (a header that carries the rows: more than 12 « | » with an empty-cell boundary), or a row
+    that carries at least twice the cells of its table's header."""
+    lines = (text or "").split("\n")
+    width = 0
+    for i, line in enumerate(lines):
+        if not line.lstrip().startswith("|"):
+            width = 0
+            continue
+        if _SEP_LINE.match(line):
+            continue
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if width == 0:
+            if _SEP_LINE.match(nxt):
+                width = _cells(line)          # a header, followed by its separator
+                continue
+            if line.count("|") > 12 and _EMPTY_BOUNDARY.search(line):
+                return i + 1                  # a header with the rows glued after it
+            continue
+        if _cells(line) >= 2 * width and width >= 2 and _EMPTY_BOUNDARY.search(line):
+            return i + 1                      # several rows of the table on one line
+    return 0
+
+
 def build_table(name: str, text: str) -> tuple[str | None, str]:
     """→ (the file SOKKAN writes instead, '') or (None, one precise error for the model).
     A ``.csv`` deliverable is rebuilt by SOKKAN (« ; », quotes, UTF-8 with BOM for Swiss Excel)
@@ -529,14 +565,9 @@ def build_table(name: str, text: str) -> tuple[str | None, str]:
         if any(len(r) != len(rows[0]) for r in back if r) or out.encode("utf-8").decode("utf-8") != out:
             return None, "SOKKAN could not write this table: give it again as a Markdown table."
         return out, ""
-    glued = re.search(r"^\s*\|[^\n]*\|\s+\|[^\n]*\|\s+\|", text or "", re.M)
-    if glued:
-        line = glued.group(0)
-        nxt = (text or "")[glued.end():].split("\n", 1)
-        sep_follows = len(nxt) > 1 and re.match(r"\s*\|?\s*:?-{2,}", nxt[1] or "")
-        if not sep_follows and line.count("|") > 12:
-            return None, ("A table was written on ONE line (its rows are glued together after the "
-                          "header). Write the header, then the line `|---|---|…`, then ONE row per line.")
+    if glued_table_line(text):
+        return None, ("A table was written on ONE line (its rows are glued together after the "
+                      "header). Write the header, then the line `|---|---|…`, then ONE row per line.")
     if outputs.kind_of(name, text) == "spreadsheet":
         _meta, body = outputs.front_matter(text)
         for _s, _e, rows, heading in outputs._md_tables(body):
