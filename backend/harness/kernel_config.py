@@ -23,7 +23,8 @@ written again at every start:
   network at all), ``registries`` (package registries only, through the compose file's
   egress filter) or ``open`` (any public address; private ranges are always refused).
 * the host flags SOKKAN ships with (kernel ``docs/HOST-EMBED.md``): surfaces_gate,
-  strict_resume, mcp_session_headers, conclude_on_green, chain_max_calls; ``memory_direct``
+  strict_resume, mcp_session_headers, conclude_on_green, chain_max_calls, approval_wait_s (a card
+  decided at once is applied inside its turn); ``memory_direct``
   removed (a note goes through SOKKAN's own ``memory_write``, in quarantine).
 
 Every value comes from the environment of the ``kernel-config`` service (the compose file
@@ -55,6 +56,12 @@ DEFAULTS = {
     "SOKKAN_KERNEL_SANDBOX_IDLE_S": "1800",
     "SOKKAN_KERNEL_SANDBOX_NET": "none",
     "SOKKAN_KERNEL_CHAIN_MAX_CALLS": "60",
+    # a card decided within this delay is applied INSIDE the turn that raised it (kernel
+    # host-3e « carte tranchée pendant le tour »): a card decided at once by a rule of the
+    # cockpit (same document same turn, the quality gate) no longer costs a turn. 8 s: the
+    # rule decisions measured at the parity bench n°7 take well under a second, the quality
+    # gate's review of a deliverable a few seconds; a person's click beyond it takes the usual path
+    "SOKKAN_KERNEL_APPROVAL_WAIT_S": "8",
 }
 # the host flags as SOKKAN ships them (the parity bench runs with exactly these)
 HOST_FLAGS = {"surfaces_gate": True, "strict_resume": True, "mcp_session_headers": True,
@@ -122,6 +129,13 @@ def chain_max(env: Mapping[str, str]) -> int:
     return int(v)
 
 
+def approval_wait(env: Mapping[str, str]) -> int:
+    v = _get(env, "SOKKAN_KERNEL_APPROVAL_WAIT_S")
+    if not v.isdigit() or not 0 <= int(v) <= 120:
+        raise ConfigError(f"SOKKAN_KERNEL_APPROVAL_WAIT_S={v!r}: an integer from 0 (off) to 120 seconds")
+    return int(v)
+
+
 def render(base: dict, env: Mapping[str, str], instance: str) -> dict:
     """The kernel's configuration: the operator's ``base`` with SOKKAN's block on top."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{3,62}", instance or ""):
@@ -142,6 +156,7 @@ def render(base: dict, env: Mapping[str, str], instance: str) -> dict:
     local["instance"] = instance
     local.update(HOST_FLAGS)
     local["chain_max_calls"] = chain_max(env)
+    local["approval_wait_s"] = approval_wait(env)
     local.pop("memory_direct", None)       # off: absent, as the kernel's default
     code = local.get("code") if isinstance(local.get("code"), dict) else {}
     local["code"] = code

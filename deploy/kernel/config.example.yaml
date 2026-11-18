@@ -61,6 +61,7 @@ local:
   #   instance: sokkan-<16 hex>        label of this kernel's sandboxes, from SOKKAN's instance key
   #   surfaces_gate / strict_resume / mcp_session_headers / conclude_on_green: true
   #   chain_max_calls: 60              SOKKAN_KERNEL_CHAIN_MAX_CALLS
+  #   approval_wait_s: 8               SOKKAN_KERNEL_APPROVAL_WAIT_S (a card decided within it: same turn)
   #   memory_direct: (absent)          a note goes through SOKKAN's memory_write, in quarantine
   code:
     # SOKKAN — the model's commands run in a sandbox container, never in the kernel's (in the
