@@ -68,6 +68,10 @@ def _con() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS project_roles (
             project TEXT PRIMARY KEY, role TEXT NOT NULL, by TEXT NOT NULL DEFAULT '', at REAL NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS deliverable_checks (
+            sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, report TEXT NOT NULL,
+            at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
+        );
         CREATE TABLE IF NOT EXISTS validations (
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, by TEXT NOT NULL,
             at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
@@ -143,7 +147,7 @@ def claim_message(sid: str, request_id: str) -> bool:
 
 def forget(sid: str) -> None:
     con = _con()
-    for t in ("works", "deliverable_writes", "validations", "messages_sent"):
+    for t in ("works", "deliverable_writes", "validations", "messages_sent", "deliverable_checks"):
         con.execute(f"DELETE FROM {t} WHERE sid=?", (sid,))
     con.commit()
     con.close()
@@ -173,6 +177,45 @@ def deliverable_dir(project: str, sid: str) -> Path:
     if not re.fullmatch(r"[0-9a-f]{8,64}", sid or ""):
         raise ValueError("bad session id")
     return documents.project_root(project) / DELIVERABLES / sid
+
+
+def house_rules(lang: str) -> list[str]:
+    """4.0 « fiabilité » — the rules of every work, whatever the job: Swiss law and usage by
+    default (the organisation's country), the formal address, Swiss formats, French typography,
+    one value per total, names copied as written. Seen in the persona audit of 17.11.2026: a
+    Swiss register « under article 30 of the GDPR », invented nLPD articles, a reservation and
+    a reason for leaving in a work certificate, « tu » in the middle of a work, « 8 120,50 »."""
+    import factcheck
+    out = []
+    if lang == "fr" and factcheck.org_address_form() == "vous":
+        out.append("- Address the person with the formal « vous » in every message and in the "
+                   "document — never « tu », even when they write « tu ».")
+    if factcheck.org_country() == "CH":
+        out += [
+            "- The organisation is Swiss: Swiss law and usage apply unless the request or the "
+            "documents say otherwise. Personal data = the Swiss nLPD (RS 235.1), not the EU GDPR "
+            "(no « RGPD », « DPO », « hors UE »: « conseiller à la protection des données », "
+            "« communication à l'étranger ») unless the request is about the EU; employment = the "
+            "Code of obligations (CO, RS 220). A work certificate (art. 330a CO) is truthful and "
+            "benevolent: no reservation, no coded wording (« parfois », « s'est efforcé », « à notre "
+            "satisfaction » without « entière »), no praise the documents do not give, no reason "
+            "for leaving unless the documents say the employee asked for it.",
+            "- Cite a law article only when a document gives it; otherwise write « (à vérifier "
+            "par un juriste) » next to it. Never make up an article number.",
+            "- Swiss formats: amounts CHF 8'120.50 (apostrophe for thousands, point for "
+            "decimals), dates 17.11.2026, VAT 8.1 % (normal rate since 2024).",
+        ]
+    if lang == "fr":
+        out.append("- French typography: quotation marks « … », a non-breaking space before "
+                   "« : ; ! ? » and inside « »; proofread spelling and grammar before saving.")
+    out += [
+        "- Compute every total from its lines and give each total ONE value everywhere in the "
+        "document. Copy names exactly as the documents write them: « T. Bovet » stays « T. Bovet » "
+        "(never guess a first name).",
+        "- Before the person sees your document, SOKKAN re-reads it against the documents; if it "
+        "sends you defects, correct that same document once.",
+    ]
+    return out
 
 
 def connected_families(user: str, project: str) -> tuple[set[str], bool]:
@@ -231,7 +274,8 @@ def capability_lines(user: str = "", project: str = "default") -> list[str]:
 
 
 def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
-          docs: list[dict] | None = None, recall: str = "", user: str = "") -> str:
+          docs: list[dict] | None = None, recall: str = "", user: str = "",
+          read_tool: str = "") -> str:
     """The first message the agent receives: the internal brief, then what the person typed."""
     d = deliverable_dir(project, sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -249,10 +293,15 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "not say goes under « Points to confirm ».",
         "- Say which document each important element comes from, by the document's name.",
     ]
+    lines += house_rules(lang)
     doc_lines = documents.agent_lines(docs or [])
     if doc_lines:
-        lines.append("- The person attached these documents. READ each of them (real file "
-                     "reads) before you write anything:")
+        # the ONE reading rule of a work (4.0): it names the engine's real read tool and, with
+        # the kernel, rides in the session's system prompt (kernel.split_first_message)
+        how = f"with the `{read_tool}` tool (a real read of the file) " if read_tool else ""
+        lines.append("- The person attached these documents. Read each attached document "
+                     f"{how}before you write anything; never write from a document's name or "
+                     "from memory; quote no figure, name, date or subject that is not in them:")
         lines += ["  " + ln for ln in doc_lines]
     else:
         lines.append("- No document is attached. If the task needs one, say so in one "
@@ -277,6 +326,10 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():
+        try:   # 4.0: the quality gate compares the deliverable with the memory recalled here
+            (d / ".recall.md").write_text(recall, encoding="utf-8")
+        except OSError:
+            pass
         # 3.6.7: « use them when relevant » let the first draft of a quiz ignore the team's
         # quiz charter — a note given in full is a rule of the team for this very task
         lines += ["", recall.strip(),
@@ -287,8 +340,14 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     # language rule is only at the top of a long brief (seen on the first timed journey)
     name = LANG_NAME.get(lang, "English")
     tail = (f"<sokkan-brief>Every sentence you write to the person, at every step and in the "
-            f"document itself, is in {name}.</sokkan-brief>")
+            f"document itself, is in {name}"
+            + (", with « vous »" if lang == "fr" and _vous() else "") + ".</sokkan-brief>")
     return "\n".join(lines) + "\n\n" + ask.strip() + "\n\n" + tail
+
+
+def _vous() -> bool:
+    import factcheck
+    return factcheck.org_address_form() == "vous"
 
 
 def _format_lines(lang: str, d: Path) -> list[str]:
@@ -314,7 +373,9 @@ def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     """A later message; documents attached with it are announced inside a brief block."""
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
-        note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday words; update the saved "
+        note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}"
+                + (" with « vous »" if lang == "fr" and _vous() else "")
+                + ", in everyday words; update the saved "
                 "document when a change is asked — exactly the change asked (to add is to add: "
                 "what is already there stays), rewritten whole in ONE save that carries every "
                 "part the change touches (a new question AND its answer in the key, numbering, "
@@ -395,6 +456,17 @@ def note_write(sid: str, name: str, tool_id: str, model: str = "") -> int:
     return max(1, n)
 
 
+def note_check(sid: str, name: str, sha256: str, report: dict) -> None:
+    """4.0 — what the quality gate found on exactly this text of a deliverable (qualitygate.card):
+    shown with the deliverable while its text is the one checked."""
+    import json
+    con = _con()
+    con.execute("INSERT OR REPLACE INTO deliverable_checks(sid, name, sha256, report, at) VALUES(?,?,?,?,?)",
+                (sid, name, sha256, json.dumps(report, ensure_ascii=False)[:20000], time.time()))
+    con.commit()
+    con.close()
+
+
 def list_deliverables(project: str, sid: str) -> list[dict]:
     try:
         base = deliverable_dir(project, sid)
@@ -409,6 +481,8 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
     written: dict[str, list[str]] = {}
     for r in con.execute("SELECT name, model FROM deliverable_writes WHERE sid=? ORDER BY rowid", (sid,)):
         written.setdefault(r[0], []).append(r[1] or "")
+    checks = {(r[0], r[1]): r[2] for r in con.execute(
+        "SELECT name, sha256, report FROM deliverable_checks WHERE sid=?", (sid,))}
     vals: dict[str, list[dict]] = {}
     for r in con.execute("SELECT * FROM validations WHERE sid=? ORDER BY at", (sid,)):
         vals.setdefault(r["name"], []).append(dict(r))
@@ -454,11 +528,24 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
             # that wrote one of its versions — '' = not recorded (a save before 3.6.5)
             "model": (written.get(p.name) or [""])[-1],
             "models": sorted({m for m in written.get(p.name, []) if m}),
+            # 4.0: the quality gate's report on THIS text (None: not checked, or changed since)
+            "check": _check_of(checks, p.name, sha),
         })
     import claudetier
     for d in out:
         d["engine"] = claudetier.describe_model(d["model"])
     return out
+
+
+def _check_of(checks: dict, name: str, sha: str) -> dict | None:
+    import json
+    raw = checks.get((name, sha))
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
 
 
 def read_deliverable(project: str, sid: str, name: str) -> str:

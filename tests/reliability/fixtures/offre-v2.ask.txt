@@ -1,0 +1,1 @@
+Le total en haut de l offre (tableau des variantes) ne correspond pas au détail plus bas. Corrige pour que tout soit cohérent.

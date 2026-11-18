@@ -33,6 +33,8 @@ from .contract import Capabilities, Decision, Event, HistoryItem, RunSpec, Unsup
 class Harness(ABC):
     #: the adapter's id, as declared in the registry (`run.started.harness`)
     name: str = ""
+    #: the text of a ``deny`` decision reaches the engine's model (it can act on the reason)
+    deny_text_reaches_model: bool = True
 
     @abstractmethod
     def start(self, spec: RunSpec) -> AsyncIterator[Event]:

@@ -42,8 +42,13 @@ export interface Doc { id: string; name: string; ext: string; size: number; owne
 export interface Deliverable { name: string; title: string; ext: string; size: number; updated_at: number; version: number;
   previewable: boolean; validated: boolean; validated_by: string; validated_at: number | null;
   changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null;
+  /** 4.0 — the quality gate's report on this very text (null: not checked, or changed since) */
+  check?: QualityCheck | null;
   /** 4.0 native formats: the downloads offered (the asked one first) and what the document is */
   formats?: string[]; kind?: "document" | "spreadsheet" | "letters" }
+/** 4.0 — what the session checked before the card (backend/qualitygate.py · card) */
+export interface QualityCheck { reviewed_by: "strong" | "local" | "rules"; review_failed: boolean; corrected: boolean;
+  ok: boolean; remaining: string[]; verified: string[]; to_check: string[] }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
   documents: Doc[]; deliverables: Deliverable[];
   engine?: { tier: "claude" | "local"; model: string; label: string; destination: string } }
@@ -53,7 +58,7 @@ export interface TechDetail { tool?: string; title?: string; input?: unknown; re
 export type PlainEvent =
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string; documents: { id: string; name: string }[] }
-  | { type: "text"; text: string; engine?: Engine; pending?: boolean }
+  | { type: "text"; text: string; engine?: Engine; pending?: boolean; supersedes?: boolean }
   | { type: "activity"; id: string; kind: string; subject: string; detail: TechDetail }
   /** 3.6.7 — `reason` tells a refusal from a failure: « denied » = the person said no,
    *  « policy » = a rule of the space turned the call away (the agent goes on otherwise) */
@@ -63,7 +68,8 @@ export type PlainEvent =
       tool_id?: string;
       /** 4.0 (backend/approvalcard.py): where it lands, what the person needs to decide (already
        *  in their language), a change to an existing document as before/after */
-      where?: string; facts?: { label: string; value: string }[]; diff?: { before: string; after: string }[] }
+      where?: string; facts?: { label: string; value: string }[]; diff?: { before: string; after: string }[];
+      check?: QualityCheck | null }
   | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }

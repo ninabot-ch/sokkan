@@ -496,8 +496,13 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)
         session._emit({"type": "user_echo", "text": ask,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
+        # 4.0: the brief names the read tool of the engine that will run the work
+        import qualitygate
+        from harness import registry
+        engine = getattr(getattr(session, "harness", None), "name", "") or registry.selected()
         first = simple.brief(ask=ask, lang=lang, project=slug, sid=sid, mission=mission,
-                             docs=docs, recall=recall, user=email)
+                             docs=docs, recall=recall, user=email,
+                             read_tool=qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))
         try:   # 4.0: who the work is for, as the organisation's directory knows them
             import orgprofile
             me = orgprofile.person_line(email, (shown_name(request, pu) or "").strip())

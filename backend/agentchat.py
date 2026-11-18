@@ -764,6 +764,17 @@ class AgentSession:
                                    "policy:simple_same_document_same_turn", actor=who)
                 return _allow(gate, input_data, by=who or "policy", via="auto_rule")
 
+        # 4.0 quality gate: a deliverable is checked BEFORE its card (figures, names, dates
+        # against the sources, Swiss law; then a review by a stronger model when one is
+        # configured). A defect sends the agent back ONCE to correct the same document; the
+        # card shows the final state — what was checked, what remains for the person.
+        if gate.kind == "file_write" and not self.policy and self._is_simple_work():
+            refused = await self._quality_gate(gate, input_data)
+            if isinstance(refused, dict):
+                input_data = refused        # the table SOKKAN built: what the card shows and runs
+            elif refused is not None:
+                return refused
+
         # a question with choices: rendered as buttons, the answer goes back to the engine
         if gate.kind == "question":
             qid = gate.gate_id
@@ -809,8 +820,12 @@ class AgentSession:
                                secrets=self.redact_values, owner=self.user,
                                agent_run=str((self.policy or {}).get("agent") or ""),
                                model=self._turn_model or "")
-        self._emit({"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
-                    "title": title, "input": input_data, "kind": gate.kind})
+        perm = {"type": "permission", "id": pid, "tool": tool_name, "ts": time.time(),
+                "title": title, "input": input_data, "kind": gate.kind}
+        check = getattr(self, "_qg_cards", {}).pop(gate.gate_id, None)
+        if check is not None:
+            perm["check"] = check        # 4.0: what the quality gate checked (the card shows it)
+        self._emit(perm)
         self._arm_hitl_notify(pid, title)  # ping if nobody answers in time
         self._set_waiting(True)
         try:
@@ -845,6 +860,159 @@ class AgentSession:
         return contract.Decision.deny(decision.message or "Denied by the user",
                                       by=decision.by, via=decision.via)
 
+    async def _quality_gate(self, gate: contract.Gate, input_data: dict) -> contract.Decision | dict | None:
+        """4.0 — the quality gate before the card of a deliverable (backend/qualitygate.py).
+        → a refusal carrying the defects (the agent corrects the same document once), or None
+        (the card follows, with what was checked in ``self._qg_cards``)."""
+        path = gate.path or str(input_data.get("file_path") or input_data.get("path") or "")
+        if not path or not _is_deliverable_path(path):
+            return None
+        try:
+            import qualitygate
+            if not qualitygate.enabled():
+                return None
+            refused = self._unread_documents(gate, input_data, path)
+            if refused is not None:
+                return refused
+            text = qualitygate.content_after(gate.tool, input_data, path)
+            if text is None:
+                return None
+            key = os.path.abspath(path)
+            bounced = getattr(self, "_qg_bounced", None)
+            if bounced is None:
+                bounced = self._qg_bounced = {}
+            prev = bounced.get(key)
+            # (a) a table is built and checked by SOKKAN, never a broken file
+            rebuilt = None
+            built, err = qualitygate.build_table(os.path.basename(path), text)
+            if err and ("table:" + key) not in bounced:
+                bounced["table:" + key] = {"error": err}
+                self._journal_auto(gate, input_data, False, "policy:table_built_by_sokkan")
+                message = qualitygate.table_message(err)
+                if not getattr(getattr(self, "harness", None), "deny_text_reaches_model", True):
+                    self._qg_carry = message
+                return contract.Decision.deny(message, by="policy", via="auto_rule")
+            if built is not None and built != text and "content" in input_data:
+                if contract.EDIT in gate.options:
+                    rebuilt = {**input_data, "content": built}
+                    text = built
+            project = session_project(self.sid)
+            ctx = await asyncio.to_thread(qualitygate.work_context, self.sid, project)
+            res = await asyncio.to_thread(
+                qualitygate.review, text=text, name=os.path.basename(path), ask=ctx["ask"],
+                mission=ctx["mission"], sources=ctx["sources"], secondary=ctx["secondary"],
+                lang=ctx["lang"], level=ctx["level"], previous=prev, attached=ctx.get("attached"))
+        except Exception as e:  # noqa: BLE001 — a broken check never blocks a save
+            print(f"[sokkan] quality gate of {self.sid}: {e!r}", file=sys.stderr)
+            return None
+        self._usage_quality_gate(res)
+        if res["needs_fix"] and prev is None:
+            bounced[key] = res
+            message = qualitygate.agent_message(res)
+            self._journal_auto(gate, input_data, False, "policy:quality_gate")
+            if not getattr(getattr(self, "harness", None), "deny_text_reaches_model", True):
+                # an engine that ends the turn on a refusal without telling its model why:
+                # the defects go in a follow-up turn of their own (`_carry_turn`)
+                self._qg_carry = message
+            return contract.Decision.deny(message, by="policy", via="auto_rule")
+        if not hasattr(self, "_qg_cards"):
+            self._qg_cards = {}
+        self._qg_cards[gate.gate_id] = qualitygate.card(res, corrected=prev is not None,
+                                                        lang=ctx["lang"])
+        try:
+            import hashlib
+            import simple
+            simple.note_check(self.sid, os.path.basename(path),
+                              hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                              self._qg_cards[gate.gate_id])
+        except Exception:  # noqa: BLE001
+            pass
+        self._qg_saved = (key, text)     # (b) the delivery message is checked at the end of the turn
+        return rebuilt
+
+    def _check_delivery_message(self, ev) -> None:
+        """4.0 (b) — the agent's last message of a turn that saved a deliverable must describe the
+        file really saved (counts, flagged rows, totals). A claim SOKKAN can check and finds
+        false: the message is replaced by one SOKKAN writes from the file (`supersedes`)."""
+        saved, self._qg_saved = getattr(self, "_qg_saved", None), None
+        said, self._qg_last_text = (getattr(self, "_qg_last_text", "") or getattr(ev, "text", "") or ""), ""
+        if not saved or not said or not self._is_simple_work():
+            return
+        key, content = saved
+        if key not in (getattr(self, "_approved_saves", None) or {}):
+            return                       # not saved (refused): nothing to describe
+        try:
+            import qualitygate
+            problems = qualitygate.check_message(said, os.path.basename(key), content)
+            if not problems:
+                return
+            text = qualitygate.factual_message(os.path.basename(key), content)
+        except Exception as e:  # noqa: BLE001 — never breaks the end of a turn
+            print(f"[sokkan] delivery message of {self.sid}: {e!r}", file=sys.stderr)
+            return
+        out = _ws_text(text, self._turn_model)
+        out["supersedes"] = True
+        out["corrects"] = problems[:5]
+        self._emit(out)
+
+    def _note_read(self, ev) -> None:
+        """A read call of the engine (both engines' names, the contract's classification):
+        what it read, for the « read the attached documents first » rule of the gate."""
+        try:
+            import qualitygate
+            if qualitygate.is_read(ev.name, getattr(ev, "classification", "")):
+                if not hasattr(self, "_reads"):
+                    self._reads = []
+                self._reads.append(qualitygate.read_target(ev.input))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _unread_documents(self, gate: contract.Gate, input_data: dict, path: str):
+        """4.0 (banc n°5): a work handed documents whose agent saves its deliverable without
+        having read them is sent back to read, ONCE — it had invented the quote to follow up."""
+        import documents
+        import qualitygate
+        key = "unread:" + os.path.abspath(path)
+        bounced = getattr(self, "_qg_bounced", None)
+        if bounced is None:
+            bounced = self._qg_bounced = {}
+        if key in bounced:
+            return None
+        try:
+            docs = documents.of_session(self.sid)
+        except Exception:  # noqa: BLE001
+            return None
+        missing = qualitygate.unread(docs, getattr(self, "_reads", []))
+        if not docs or not missing:
+            return None
+        bounced[key] = {"unread": missing}
+        engine = getattr(getattr(self, "harness", None), "name", "") or ""
+        message = qualitygate.read_first_message(missing, qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))
+        self._journal_auto(gate, input_data, False, "policy:read_documents_first")
+        if not getattr(getattr(self, "harness", None), "deny_text_reaches_model", True):
+            self._qg_carry = message
+        return contract.Decision.deny(message, by="policy", via="auto_rule")
+
+    def _usage_quality_gate(self, res: dict) -> None:
+        """The reviewer's tokens: counted with the session's (same project, same meter)."""
+        self._qg_tokens = getattr(self, "_qg_tokens", 0) + int(res.get("tokens_in") or 0) \
+            + int(res.get("tokens_out") or 0)
+
+    async def _carry_turn(self, text: str) -> None:
+        """The quality gate's defects, sent as a turn of their own once the current one ended
+        (an engine whose refusals do not reach its model). Hidden from the thread (brief)."""
+        for _ in range(240):
+            if not self._busy:
+                break
+            await asyncio.sleep(0.5)
+        else:
+            return
+        self._in_carry = True
+        try:
+            await self.handle_user("<sokkan-brief>\n" + text + "\n</sokkan-brief>")
+        finally:
+            self._in_carry = False
+
     def _on_gate(self, gate: contract.Gate) -> None:
         """A `gate.requested` of the stream: decided apart, so the stream keeps flowing
         while a person thinks; the decision goes back through `Harness.decide`."""
@@ -869,6 +1037,10 @@ class AgentSession:
                 except Exception as e:  # noqa: BLE001 — the engine is gone: nothing to tell
                     print(f"[sokkan] gate {gate.gate_id} of {self.sid}: decision not "
                           f"delivered ({e!r})", file=sys.stderr)
+                carry = getattr(self, "_qg_carry", None)
+                if carry and decision.denied:
+                    self._qg_carry = None
+                    await self._carry_turn(carry)
 
         t = asyncio.create_task(_run())
         self._gate_tasks.add(t)
@@ -1177,6 +1349,8 @@ class AgentSession:
         # documents the person approved / declined in this turn → who decided (4.0 rule)
         self._approved_saves: dict[str, str] = {}
         self._declined_saves: dict[str, str] = {}
+        if not getattr(self, "_in_carry", False):
+            self._qg_bounced = {}        # 4.0: documents the quality gate sent back this turn
         self._emit({"type": "status", "state": "working"})
         # study mode: duration and tier of the turn of a consenting participant (never its text)
         turn = None if self.policy else study.turn_start(self.sid, self._study_owner(), text)
@@ -1299,6 +1473,7 @@ class AgentSession:
                 self._turn_model = ev.model
         elif isinstance(ev, contract.AssistantText):
             if ev.text.strip():
+                self._qg_last_text = ev.text          # (b) the delivery message, checked at the end
                 out = _ws_text(ev.text, self._turn_model)
                 if self._open_gates:
                     # written while a decision is awaited: shown as a discreet note, the
@@ -1310,6 +1485,7 @@ class AgentSession:
         elif isinstance(ev, contract.AssistantThink):
             self._emit({"type": "thinking", "text": ev.text})
         elif isinstance(ev, contract.ToolCalled):
+            self._note_read(ev)
             self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
                                     self._turn_model))
             self._note_deliverable_call(ev)
@@ -1324,6 +1500,7 @@ class AgentSession:
         elif isinstance(ev, contract.Usage):
             self._on_usage(ev)
         elif isinstance(ev, contract.TurnEnded):
+            self._check_delivery_message(ev)
             self._on_turn_ended(ev)
         elif isinstance(ev, contract.GateRequested):
             self._open_gates.add(ev.gate.gate_id)

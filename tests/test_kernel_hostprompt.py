@@ -95,11 +95,29 @@ def test_the_brief_is_split_from_the_persons_words():
     assert "You are helping a person who is NOT a developer." in system
     assert "You are working with: Alice." in system
     assert "Every sentence you write to the person is in French." in system
-    assert kernel.READ_DOCS in system and "`read_file`" in system
+    # one reading rule only: the brief's own line, carried with the brief (no second wording)
+    assert "READ each of them" in system and system.count("attached") == 1
     assert "Project memory" not in system and "charte-quiz" not in system
     assert message.endswith("Prépare un mail de relance.")
     assert "charte-quiz" in message and "You are helping" not in message
     assert kernel.split_first_message("Bonjour.") == ("", "Bonjour.")
+
+
+def test_the_product_s_brief_names_read_file_once_in_the_system_prompt(tmp_path, monkeypatch):
+    # intégration n°3: hostprompt (READ_DOCS) and reliability (brief names the engine's read
+    # tool) both said « read the documents » — one wording stays, the brief's
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    import documents
+    import qualitygate
+    import simple
+    monkeypatch.setattr(documents, "agent_lines", lambda docs: ["- « Devis.txt » — read: /x"])
+    first = simple.brief(ask="Relance.", lang="fr", project="p1", sid="e" * 32,
+                         docs=[{"id": "d1"}],
+                         read_tool=qualitygate.READ_TOOL_OF_ENGINE["kernel"])
+    system, message = kernel.split_first_message(first)
+    assert system.count("`read_file`") == 1 and system.count("Read each attached document") == 1
+    assert "never write from a document's name or from memory" in system
+    assert message == "Relance."
 
 
 def test_the_session_opens_with_the_host_prompt_and_the_message_is_the_persons(k, tmp_path):

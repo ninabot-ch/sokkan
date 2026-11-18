@@ -195,10 +195,16 @@ class Play:
                 self.events.append((self._t(), ev.to_dict()))
                 if ev.type == "run.info" and getattr(ev, "engine_session", None):
                     self.engine_session = ev.engine_session
+                if hasattr(self.pol, "on_event"):
+                    self.pol.on_event(ev)        # what the agent read (the quality gate's rule)
                 if isinstance(ev, GateRequested):
                     if out["first_card_s"] is None:
                         out["first_card_s"] = dt
-                    d = self.pol.decide(ev.gate)
+                    if hasattr(self.pol, "adecide"):
+                        # the cockpit may check a deliverable before its card (qualitygate)
+                        d = await self.pol.adecide(ev.gate)
+                    else:
+                        d = self.pol.decide(ev.gate)
                     card = self.pol.journal[-1]
                     if card.deliverable and out["first_deliverable_s"] is None:
                         out["first_deliverable_s"] = dt
@@ -433,15 +439,17 @@ def atelier_space(base: Path, j: J.Journey) -> dict:
             "deliverables": simple.deliverable_dir(project, sid)}
 
 
-def atelier_prompt(j: J.Journey, space: dict) -> str:
+def atelier_prompt(j: J.Journey, space: dict, engine: str = "kernel") -> str:
     import playbooks
+    import qualitygate
     import simple
     ask = j.ask.replace("{memory}", str(space["memory"]))
     mission = ""
     if j.playbook:
         mission = (playbooks.render(j.playbook, ask, project="parity") or ("", ""))[0]
     return simple.brief(ask=ask, lang="fr", project="parity", sid=space["sid"],
-                        mission=mission, docs=space["docs"])
+                        mission=mission, docs=space["docs"],
+                        read_tool=qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))
 
 
 def open_to_kernel(path: Path) -> None:
@@ -604,7 +612,7 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
 # ============================================================================================
 async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None) -> dict:
     space = atelier_space(base, j)
-    prompt = atelier_prompt(j, space)      # creates the deliverables' folder (simple.brief)
+    prompt = atelier_prompt(j, space, engine)      # creates the deliverables' folder (simple.brief)
     if engine == "kernel":
         open_to_kernel(base)
     pol = P.Policy("atelier", deliverables=space["deliverables"], memory=space["memory"],

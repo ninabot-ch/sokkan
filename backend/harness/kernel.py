@@ -159,9 +159,8 @@ _RECALL_IN_BRIEF = re.compile(
     re.S)
 # later messages (simple.follow_up): its constant notes repeat the system prompt's rules
 _FOLLOW_NOTE = re.compile(r"\s*<sokkan-brief>(?:Answer in [^<]*|The person wrote:)</sokkan-brief>\s*")
-READ_DOCS = ("- Before you write anything, read every attached document with the `read_file` tool "
-             "(a real read of the file); never write from a document's name or from memory. A "
-             "figure, a date, a name or a reference you use comes from what you read.")
+# The rule to read the attached documents is the brief's own (simple.brief names the engine's
+# read tool, `read_file` here): one wording, carried into the system prompt with the brief.
 
 
 def host_prompt_enabled() -> bool:
@@ -173,7 +172,7 @@ def host_prompt_enabled() -> bool:
 def split_first_message(first: str, head: tuple = ()) -> tuple[str, str]:
     """(system prompt, message) of a work's first message: every brief block (minus the
     memory recall) and the run's head go to the system prompt, with the rule to read the
-    attached documents; the message keeps the person's words and the recall. ("", first)
+    attached documents (the brief's own line); the message keeps the person's words and the recall. ("", first)
     when the message carries no brief."""
     blocks = [m.group(1) for m in _BRIEF_BLOCK.finditer(first or "")]
     if not blocks:
@@ -184,12 +183,10 @@ def split_first_message(first: str, head: tuple = ()) -> tuple[str, str]:
         recall.append(m.group(0).strip())
         return ""
     parts = [b.text.strip() for b in head if getattr(b, "text", "").strip()]
-    for i, b in enumerate(blocks):
+    for b in blocks:
         txt = _RECALL_IN_BRIEF.sub(keep_recall, b).strip()
         if txt:
             parts.append(txt)
-        if i == 0:
-            parts.append(READ_DOCS)
     words = _BRIEF_BLOCK.sub("", first).strip()
     message = words
     if recall:
@@ -517,6 +514,9 @@ class _Stream:
 
 class KernelHarness(Harness):
     name = NAME
+    #: a card's reject reaches the kernel without its text (`/approvals/{id}/decide` takes no
+    #: reason): the cockpit says a refusal's reason in a turn of its own (agentchat, 4.0)
+    deny_text_reaches_model = False
 
     def __init__(self) -> None:
         self._spec: RunSpec | None = None

@@ -29,7 +29,17 @@ export function reduce(items: Item[], e: PlainEvent): Item[] {
     case "user": return [...items, { k: "user", text: e.text, docs: e.documents || [] }];
     // `pending`: written while a decision is awaited (an engine whose approval ends its turn):
     // a discreet note, the answer comes after the decision
-    case "text": return [...items, { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}), ...(e.pending ? { pending: true } : {}) }];
+    case "text": {
+      const item: Item = { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}), ...(e.pending ? { pending: true } : {}) };
+      if (e.supersedes) {
+        // 4.0: SOKKAN rewrote the delivery message from the saved file (the agent's was false):
+        // it takes the place of the agent's last answer
+        for (let i = items.length - 1; i >= 0 && items[i].k !== "user"; i--) {
+          if (items[i].k === "text") return [...items.slice(0, i), item, ...items.slice(i + 1)];
+        }
+      }
+      return [...items, item];
+    }
     case "activity": {
       const act: Act = { id: e.id, kind: e.kind, subject: e.subject, state: "live", detail: e.detail };
       const last = items[items.length - 1];

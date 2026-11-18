@@ -90,7 +90,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  # before it ran (`outside_root`, harness/refusals.py)
                  "Outside this conversation's folder",
                  # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
-                 "Not available in this conversation: the person works in SOKKAN Atelier")
+                 "Not available in this conversation: the person works in SOKKAN Atelier",
+                 # 4.0: the quality gate sent a deliverable back to be corrected before its card
+                 "(Check before the card.)")
 
 
 _ALOUD = re.compile(r"^\s*(the user|the person|let me|i need to|i should|i'll|i will|okay[,.]|ok[,.]|"
@@ -377,6 +379,8 @@ class View:
             if reasoning_aloud(text, self.lang):
                 return []           # the model thinking aloud, in English: not for this thread
             out = {"type": "text", "text": text}
+            if ev.get("supersedes"):
+                out["supersedes"] = True    # 4.0: SOKKAN rewrote a delivery message that was false
             if ev.get("pending"):
                 out["pending"] = True   # written while a decision is awaited: a discreet note
             eng = _engine(ev.get("model"), self.lang)
@@ -463,7 +467,9 @@ class View:
                      "attached": self.attached,
                      # a save in the person's own space sends nothing outside the instance
                      "stays_inside": card["kind"] in INSIDE_KINDS,
-                     "draft": draft, "detail": self._detail(ev)}]
+                     "draft": draft, "detail": self._detail(ev),
+                     # 4.0: what the quality gate checked before this card (None: not checked)
+                     "check": ev.get("check")}]
         if t == "permission_resolved":
             out = {"type": "approval_resolved", "id": ev.get("id") or ""}
             if ev.get("decision") in ("allow", "deny"):
