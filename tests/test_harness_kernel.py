@@ -96,7 +96,9 @@ def kernel_rig(upstream, monkeypatch):
     monkeypatch.delenv("SOKKAN_KERNEL_TOKEN", raising=False)
     # a conformance kernel with a docker sandbox (lab PARITY_CONF_SANDBOX=docker): the adapter
     # hands it /workspace paths, as the product does
-    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", os.environ.get("SOKKAN_KERNEL_TEST_SANDBOX", "local"))
+    # (or, as the compose e2e does, SOKKAN_KERNEL_SANDBOX=docker for the whole process)
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", os.environ.get("SOKKAN_KERNEL_TEST_SANDBOX")
+                       or os.environ.get("SOKKAN_KERNEL_SANDBOX") or "local")
     rig = KernelRig(upstream, Path(os.environ["SOKKAN_KERNEL_TEST_ROOT"]))
     yield rig
     rig.cleanup()
@@ -110,19 +112,9 @@ def _play(scenario, rig):
         loop.close()
 
 
-# Kernel gap n°27: in its docker sandbox, the kernel writes an absolute path outside the
-# session's folder INSIDE the sandbox (lost, never on the host) instead of refusing it inline.
-# The adapter refuses such a card itself (`confined`, nothing written outside), but the kernel
-# sends no continuation after a rejected card: C3's « the run goes on » cannot hold until the
-# kernel refuses the path inline (`outside_root`), as its local backend does. Strict: it fails
-# the day the kernel closes the gap, so the mark is removed then.
-_DOCKER = os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
-_N27 = pytest.mark.xfail(_DOCKER, strict=True, reason="waits for kernel n°27 (docker sandbox: "
-                         "path outside the session not refused inline)")
-
-
-@pytest.mark.parametrize("scenario", [pytest.param(s, marks=_N27) if n == "C3" else s
-                                      for n, s in scenarios.ALL],
+# C3 under the docker sandbox: green since kernel n°27 (host-3c, `outside_root` refused inline,
+# a refused card continues the turn); its strict xfail is gone
+@pytest.mark.parametrize("scenario", [s for _, s in scenarios.ALL],
                          ids=[n for n, _ in scenarios.ALL])
 def test_kernel_engine(scenario, kernel_rig):
     _play(scenario, kernel_rig)
