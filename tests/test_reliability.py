@@ -562,3 +562,13 @@ def test_an_appraisal_absent_from_this_work_s_documents_is_flagged():
                         ask="certificat de travail de Claire Monnier", lang="fr", country="CH")
     a = next(x for x in f if x["kind"] == "certificate_appraisal")
     assert "excellent" in a["fr"] and "exemplaire" in a["fr"] and "fiable" not in a["data"]["words"]
+
+
+def test_a_table_written_on_one_line_is_refused_and_never_described_as_empty():
+    pytest.importorskip("outputs")
+    glued = ("# Rapprochement\n\n| N° | Tiers | Montant | | F-1 | A | 10 | | F-2 | B | 20 | | F-3 | C | 30 | "
+             "| | Total | =SUM(ABOVE) |\n\n## Points à confirmer\n")
+    built, err = qualitygate.build_table("r.md", glued)
+    assert built is None and "ONE line" in err
+    # the delivery message is never rewritten from a file SOKKAN could not read
+    assert qualitygate.check_message("J'ai rapproché les 9 lignes.", "r.md", glued) == []

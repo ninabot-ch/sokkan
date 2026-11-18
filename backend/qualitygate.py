@@ -529,6 +529,14 @@ def build_table(name: str, text: str) -> tuple[str | None, str]:
         if any(len(r) != len(rows[0]) for r in back if r) or out.encode("utf-8").decode("utf-8") != out:
             return None, "SOKKAN could not write this table: give it again as a Markdown table."
         return out, ""
+    glued = re.search(r"^\s*\|[^\n]*\|\s+\|[^\n]*\|\s+\|", text or "", re.M)
+    if glued:
+        line = glued.group(0)
+        nxt = (text or "")[glued.end():].split("\n", 1)
+        sep_follows = len(nxt) > 1 and re.match(r"\s*\|?\s*:?-{2,}", nxt[1] or "")
+        if not sep_follows and line.count("|") > 12:
+            return None, ("A table was written on ONE line (its rows are glued together after the "
+                          "header). Write the header, then the line `|---|---|…`, then ONE row per line.")
     if outputs.kind_of(name, text) == "spreadsheet":
         _meta, body = outputs.front_matter(text)
         for _s, _e, rows, heading in outputs._md_tables(body):
@@ -606,6 +614,8 @@ def check_message(message: str, name: str, content: str) -> list[str]:
         return []
     out = []
     for m in _COUNT.finditer(message or ""):
+        if not f["tables"] and not f["points"]:
+            break               # nothing SOKKAN could read: no count is said to be false
         n = int(m.group(1)) if m.group(1).isdigit() else _NUMWORDS[m.group(1).lower()]
         noun = factcheck.fold(m.group(2))
         flag = bool(m.group(3))
@@ -634,7 +644,7 @@ def factual_message(name: str, content: str, title: str = "") -> str:
     """The delivery message SOKKAN writes from the file itself, when the agent's was false."""
     f = _facts(name, content)
     what = f"« {title or name} »"
-    if f["kind"] == "spreadsheet" or f["tables"]:
+    if f["n_rows"]:
         s = f"J'ai enregistré {what} : {f['n_rows']} ligne{'s' if f['n_rows'] != 1 else ''}"
         if f["flagged"]:
             s += f", dont {f['flagged']} marquée{'s' if f['flagged'] != 1 else ''} à vérifier"
