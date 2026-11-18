@@ -12,7 +12,7 @@ today's engine) and `SOKKAN_RUN_EVENTS_DAYS`; no changed default, no new feature
 Built on 3.6.7 « Icebreaker » and the 3.6.8 fixes below it (everything here comes on top of them). What 3.6.7 did inside the
 session moved onto the contract, for every engine: an idle session's engine is stopped and
 resumed at the next turn (`SOKKAN_SESSION_IDLE_CLOSE_S`; the CLI's process is reaped by its
-adapter), one approval per document is read from the gate (`file_write` and its path), a call
+adapter), the card per document and per turn is read from the gate (`file_write` and its path), a call
 to a tool the cockpit removed from a run is said by both adapters in the words of the space's
 rule (`harness/refusals.py`), so the Atelier hides it as 3.6.7 does, and the Atelier demo's
 threads are read back by their engine (`history()`). 3.6.8's « no shell in an Atelier work »
@@ -20,7 +20,38 @@ lives in the adapters: the legacy one takes every shell tool of the CLI out of t
 one called anyway by a hook (journaled as a rule of the space); the kernel one removes every
 shell tool of the kernel (`deny_tools`).
 
+### Added — the coworker knows the house (audit coworker 17.11, points 2, 8, 9)
+- **Organisation profile** (Settings › Organisation, `GET|PUT /api/org/profile`, logo
+  `/api/org/logo`; doc `docs/enterprise/ORGANISATION.md`): legal name and form, address, UID
+  (checked), VAT, IBAN (mod 97, masked for non-admins, in a work's context only when it is about
+  a payment: invoice, reminder, offer), signatories, a short directory « initials → exact name,
+  role », language, « vous », Swiss formats, house tone. Every Atelier work receives it as a
+  fixed block — the legacy engine in its system prompt (cached prefix), the kernel in front of
+  the first turn (contract `project` block); never shown in the thread.
+- **Continuity between works of a project**: the same head lists the project's recently
+  VALIDATED deliverables (title, who validated, when, sections, first lines, the path of the
+  full text; 6 at most, ≈ 1 000 tokens at most, filtered by the person's clearance and the
+  Claude cap), with the rule to read the one about the same subject and to flag a contradiction
+  (an invoice it shows as paid) instead of following blindly. `RunSpec.head` in the contract.
+- **« Remember for next time? »** under a deliverable just validated: 1 to 3 facts from the
+  work (the person's own corrections, the template it followed, the validated structure),
+  editable, kept in ONE click — written to the quarantine and approved by that person in the
+  same request, journaled (`memory.quarantine.approve`, `memory.learn`); « Not now » is kept.
+
 ### Changed
+- **Atelier: the later saves of a document the person approved in this turn go through.** 3.6.7
+  refused every save of a document after the first approved one in a turn, so a change the model
+  made in several edits was cut short: asked to add a question to a quiz, both engines saved the
+  question, then had its line in the answer key and the count refused — the quiz announced 9
+  questions over 8, or a 9th question without its answer (parity bench, journey A1). Now, for both
+  engines: the first save of a document in a turn keeps its card; once approved, the later saves of
+  the same document in the same turn are approved by rule (journal: `policy:simple_same_document_same_turn`,
+  decider = who approved the first card, `via: auto_rule`), without a card or a line in the thread;
+  if the first card was refused, the document is not saved again in the turn; another document has
+  its own card. The thread shows one version per document per turn, the document as it stands at the
+  end of the turn. The brief and the note of every later message ask for a change in ONE save of the
+  whole file (and to add is to add); the quiz template says a quiz without its answer key is not
+  finished. [docs/enterprise/SIMPLE-PROFILE.md](docs/enterprise/SIMPLE-PROFILE.md).
 - **The session layer is a contract, and today's engine is its first adapter.** Nothing
   changes for a user: same pane, same approval cards, same costs, same « Write with Claude ».
   Underneath, the cockpit no longer knows the SDK of the engine it drives.
@@ -41,6 +72,25 @@ shell tool of the kernel (`deny_tools`).
   none. No session is counted twice.
 
 ### Added
+- **Connectors: the coworker works in the mailbox, the calendar and the shared documents**
+  (feature `connectors`, experimental, off by default; docs/enterprise/CONNECTORS.md). A session
+  reads, AS the person who drives it, their mail (Microsoft 365 through Graph, or any IMAP/SMTP
+  server), their calendar (Microsoft 365, CalDAV, the private ICS address) and the shared
+  documents (SharePoint / OneDrive, WebDAV, a network folder mounted on the host), through a new
+  MCP server `sokkan-connectors` given to both engines (`connectors/tools.py`: read tools without
+  an engine card, `mail_draft` with one). A reply is a **draft in the person's own mailbox**;
+  sending a mail, creating an event and depositing a deliverable are **approval cards** the person
+  decides in Settings › Connectors — only that person, once, within 24 h, exactly as shown (a
+  draft edited after the card is not sent), executed by the API and journaled (`hitl` kind
+  `connector`, `audit connectors.*`). Delegation per person (OAuth code + PKCE with delegated
+  scopes only, or the person's own login), credentials and pending payloads encrypted with the
+  vault's data key (rotated with it), revocation by the person or an administrator. A project
+  classified confidential or above hands no connector content to a model outside Switzerland
+  or the machine (`SOKKAN_CONNECTORS_MODEL_ZONE`, `SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE`); shared
+  mailboxes and folders are reachable only where an administrator opened them to the project.
+  A `demo` provider (invented data) for trainings and tests. doc_ingest gains the source kind
+  `webdav` (one-way mirror). Tested against a simulated Microsoft Graph and against Greenmail,
+  Radicale and WsgiDAV in containers — no real account.
 - **Job kits of SOKKAN Atelier (« Postes »).** A person picks their job at the first sign-in (or in
   Settings) and the home opens on its typical work. Nine jobs — executive assistant, HR, finance,
   sales, customer support, marketing, legal, project manager, training — 71 task templates in French
@@ -52,6 +102,43 @@ shell tool of the kernel (`deny_tools`).
   every engine. An instance admin creates one project per job in the same gesture and gives a person
   a default job. A table deliverable (CSV) is previewed as a table and downloaded as Excel. Data in
   `backend/roles/*.json`, extra jobs from `SOKKAN_ROLES_DIR`. Doc: docs/enterprise/ROLES.md.
+  The templates that end in a mail or an invitation (`uses`) say what the connectors really
+  allow: not connected = the agent prepares the text and the person sends it, never « sent »;
+  connected = a draft in the mailbox, the send or the event on the person's card.
+- **Getting started without a file to edit** (Atelier, `backend/onboarding.py`). An instance
+  administrator who opens the Atelier on a fresh install lands on six steps — the organisation
+  (name, team language), the model (this machine's / SOKKAN Inference / their own key, with a
+  one-token connection test: nothing is saved until it answers, and a refusal is said in words),
+  the projects (created with their classification explained in plain words, and whether Claude
+  may ever see them), the people (personal access code shown once, or a one-week single-use
+  invitation link that signs the person in and hands over their code; with SSO, the grants
+  only), the first documents, and a first work started from an example document of a chosen
+  position. Every step can be skipped; the state is on the server, the next visit resumes at
+  the first step left, the drawer shows « Getting started · n/6 » until it is finished. An
+  instance that already has works (an upgrade) is never sent through it.
+- **A person's first sign-in**: their job (the job kits' catalogue — one choice, stored as the
+  person's first job of the kits; the kits' own picker opens only where the onboarding does not
+  ask), a four-card tour, and a first work of their trade on an example document of that job
+  added to their project (once).
+- **Administration in the Atelier** (instance administrators): **Team** (everyone once, their
+  projects and roles, how they sign in, last sign-in, invitation pending, position; add, edit
+  projects, make administrator, new code or new link, deactivate / reactivate), **Usage** (per
+  person and per project over 7 / 30 / 90 days, the project budgets with their state and an
+  alert at 80 % / 100 %, or the organisation's daily ceiling when per-project budgets are off),
+  **Validations** (the journal of human validations, readable, filtered by project, person,
+  period and decision, exported as CSV). New routes `/api/onboarding*`, `/api/team*`,
+  `POST /api/auth/invite` (no new variable, no feature switch).
+- **Errors a person can act on**: a model whose credit is used up, rate-limited, unreachable or
+  refusing the key, and an engine whose sandbox cannot start (`sandbox_unavailable`), each get
+  their own sentence in the Atelier instead of « a technical problem ».
+- **Native formats for the Atelier's deliverables.** An agent never says « I can only save
+  Markdown » again: the person downloads Excel (real formulas — totals written `=SUM(ABOVE)` or
+  `=[Montant]-[Payé]`, computed by SOKKAN, stored with the formula, Swiss figures), Word on the
+  organisation's own template (`.dotx`/`.docx`, by kind of document, Réglages), PDF, CSV `;`, and
+  one Word or PDF per recipient in one zip (`format: letters`). The source stays the Markdown the
+  card shows and the validation seals; figures computed by SOKKAN are handed back to the agent
+  (`.calc/`). New inputs: csv, eml, msg, jpg/png (local OCR with Tesseract). New dependencies
+  (permissive licences): python-docx, openpyxl, reportlab, olefile; `tesseract-ocr` in the api image.
 - **One usage record per turn** (`usage_events`, in the ledger `usage_events.db` of the data
   directory): engine, model, tokens in / out / cache, the cost the pane showed and the list
   cost from the price table, duration, project, session — whatever the engine. The meter of
@@ -119,6 +206,22 @@ shell tool of the kernel (`deny_tools`).
   and `restore.sh` installed the garbage as the vault key. `backup.sh` now writes the key
   behind a known first line (MANIFEST `key_tag: sokkan-key/1`) and `restore.sh` checks it
   before anything is touched. Sets made by an older `backup.sh` restore as before.
+
+
+**Atelier — readable approval cards, no promise of an absent capability, Nina on the local model**
+(audit of 21 real tasks, 18.11). Every approval card says what, where and with what
+(`backend/approvalcard.py`, both engines): a save shows where it lands and, for a correction, what
+goes and what comes; a note to retain and a mail draft can be read first; a card of the task board
+shows its column and label; an automatic agent its mission and schedule in words (« chaque vendredi
+à 16:00 ») and that it waits for the administrator; an unknown tool its readable name and
+parameters — never « the agent wants to carry out an action » alone; « if you allow / if you
+refuse » under each. An Atelier work no longer has the task board, the agent team or monitoring
+(removed from the run, refused by the gate, the refusal hidden as a rule of the space), and its
+brief lists what the workspace really does (connected mailbox, calendar, folders; sending only by
+a card) and forbids saying an action was done when it was not. `/api/agents` tells an instance
+admin which agents wait for approval in another project (Crew). Nina: no reasoning pass by default
+on an OpenAI-compatible endpoint (new `SOKKAN_ASSISTANT_THINKING`, off), the model's thinking is
+never streamed as the answer, and no setting's name ever reaches the person (27B: 21-44 s → 4-10 s).
 
 ## Unreleased — 3.6.8 "Icebreaker"
 

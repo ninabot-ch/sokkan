@@ -13,7 +13,7 @@
     GET  /api/simple/sessions/{sid}/deliverables
     POST /api/simple/sessions/{sid}/deliverables            {title, text} keep an answer
     GET  /api/simple/sessions/{sid}/deliverables/{name}     preview (text)
-    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx|xlsx
+    GET  /api/simple/sessions/{sid}/deliverables/{name}/download?format=md|docx|pdf|xlsx|csv|letters_docx|letters_pdf
     POST /api/simple/sessions/{sid}/deliverables/{name}/validate
 
 Everything under /api/simple answers 404 when the feature is off. As for the documents,
@@ -53,6 +53,24 @@ import simple
 import uiprefs
 
 
+def _org_logo() -> bytes | None:
+    """4.0: the organisation profile's logo for the Word and PDF files."""
+    try:
+        import orgprofile
+        return orgprofile.document_logo()
+    except Exception:  # noqa: BLE001 — no logo, never a failed download
+        return None
+
+
+def _org_name(instance) -> str:
+    """The organisation shown in a Word / PDF header — not the placeholder of a fresh instance."""
+    try:
+        n = str(instance.info().get("org_name") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    return "" if n in ("Mon organisation", "My organisation") else n
+
+
 def make_view(sid: str) -> plain.View:
     """The plain-language translator of one connection to session ``sid``."""
     project = board.get_session_project(sid) or "default"
@@ -68,7 +86,17 @@ def make_view(sid: str) -> plain.View:
     return plain.View(docs_dir=documents.docs_dir(project), deliv_dir=deliv, doc_lookup=lookup,
                       on_write=lambda name, tool_id, model="": simple.note_write(sid, name, tool_id, model),
                       attached=len(documents.of_session(sid)),
-                      lang=(simple.get_work(sid) or {}).get("lang") or "fr")
+                      lang=(simple.get_work(sid) or {}).get("lang") or "fr",
+                      project=_project_label(project))
+
+
+def _project_label(slug: str) -> str:
+    """The project's name as its people read it (« Direction »), else its slug."""
+    try:
+        p = projects.get(slug) or {}
+        return str(p.get("name") or p.get("label") or slug)
+    except Exception:  # noqa: BLE001 — a card never fails on a name
+        return slug
 
 
 def edited_input(session, permission_id: str, draft_text) -> dict | None:
@@ -116,6 +144,17 @@ class MessageIn(BaseModel):
     # 3.6.4: one id per click on « Send » (hex, made by the browser), as for a start: the same
     # id sent again — the answer was lost on the way, a second click — is taken ONCE
     request_id: str = ""
+
+
+class LearnFact(BaseModel):
+    text: str = ""
+    kind: str = ""
+
+
+class LearnIn(BaseModel):
+    facts: list[LearnFact] = []
+    dismiss: bool = False
+    lang: str = "fr"
 
 
 class SaveIn(BaseModel):
@@ -260,6 +299,14 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             raise HTTPException(400, "roles: unknown job " + ", ".join(sorted(set(ids) - set(known))))
         return known
 
+    def _connector_caps(email: str, slug: str, sid: str = "") -> dict[str, str]:
+        """4.0: what the connectors really allow this person here (all « off » without them)."""
+        try:
+            from connectors import service as conn
+            return conn.capabilities(email, slug, sid)
+        except Exception:  # noqa: BLE001 — not installed / broken: no promise
+            return {}
+
     def _kit_templates(email: str, slug: str, lang: str) -> tuple[list[dict], list[dict], str]:
         """(templates of the person's jobs — the project's own job first —, their jobs, the
         project's job). A broken kit file leaves the home as it was (logged, never a 500)."""
@@ -269,7 +316,13 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             bound = simple.project_role(slug)
             order = ([bound] if bound and roles.get(bound) else []) + [r for r in mine if r != bound]
             jobs = [roles.public(roles.get(r), lang, with_templates=False) for r in order if roles.get(r)]
-            return roles.templates_for(order, lang), jobs, bound if roles.get(bound) else ""
+            kit = roles.templates_for(order, lang)
+            if any(t.get("uses") for t in kit):
+                caps = _connector_caps(email, slug)
+                for t in kit:
+                    if t.get("uses"):        # what the work can really do with the mailbox / calendar
+                        t["connectors"] = {f: caps.get(f, "off") for f in t["uses"]}
+            return kit, jobs, bound if roles.get(bound) else ""
         except Exception as e:  # noqa: BLE001
             import logging
             logging.getLogger("sokkan.roles").warning("job kits unavailable: %s", e)
@@ -433,6 +486,11 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         mission = ""
         if pb:
             mission = (playbooks.render(body.playbook, ask, project=slug) or ("", ""))[0]
+            import roles
+            if mission and roles.uses_of(body.playbook):
+                # a reminder, an invitation…: the agent is told what the mailbox / calendar really allow
+                extra = roles.connector_rules(body.playbook, _connector_caps(email, slug, sid))
+                mission = f"{mission}\n\n{extra}" if extra else mission
         # 3.6.7: the notes that match the task directly are given IN FULL (a charter seen as a
         # snippet was ignored by the first draft)
         recall = preseed(f"{title} {ask}".strip(), session_id=sid, full=2)
@@ -442,9 +500,16 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         import qualitygate
         from harness import registry
         engine = getattr(getattr(session, "harness", None), "name", "") or registry.selected()
-        bg(session.handle_user(simple.brief(ask=ask, lang=lang, project=slug, sid=sid,
-                                            mission=mission, docs=docs, recall=recall,
-                                            read_tool=qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))))
+        first = simple.brief(ask=ask, lang=lang, project=slug, sid=sid, mission=mission,
+                             docs=docs, recall=recall, user=email,
+                             read_tool=qualitygate.READ_TOOL_OF_ENGINE.get(engine, ""))
+        try:   # 4.0: who the work is for, as the organisation's directory knows them
+            import orgprofile
+            me = orgprofile.person_line(email, (shown_name(request, pu) or "").strip())
+            first = (me + "\n" + first) if me else first
+        except Exception:  # noqa: BLE001 — a nicety, never a refusal
+            pass
+        bg(session.handle_user(first))
         audit.log(email, "session.spawn", sid,
                   f"{s['title']} (simple{', ' + body.playbook if body.playbook else ''}"
                   f"{', claude ' + cmodel if tier == 'claude' else ''})"
@@ -494,6 +559,11 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         session._emit({"type": "user_echo", "text": text,
                        "documents": [{"id": d["id"], "name": d["name"]} for d in docs]})
         lang = (simple.get_work(sid) or {}).get("lang") or ""
+        try:   # 4.0: what the person corrected is offered to the memory at validation (learn)
+            import learn
+            learn.note_message(sid, email, text)
+        except Exception:  # noqa: BLE001 — a nicety, never a refusal
+            pass
         bg(session.handle_user(simple.follow_up(text, docs, lang)))
         audit.log(email, "session.send", sid, f"{len(text)} chars · {len(docs)} document(s)",
                   project=project)
@@ -530,9 +600,15 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         text = ""
         if d["previewable"]:
             try:
-                text = simple.preview_text(name, simple.read_deliverable(project, sid, name))
+                text = simple.read_deliverable(project, sid, name)
             except (FileNotFoundError, ValueError):
                 raise HTTPException(404, "not found")
+            try:
+                # 4.0: what the person reads — figures computed, one section per letter
+                import outputs
+                text = outputs.preview(name, text)
+            except Exception:  # noqa: BLE001 — the source as written, never an error page
+                pass
         return {**d, "text": text}
 
     @r.get("/api/simple/sessions/{sid}/deliverables/{name}/download")
@@ -544,18 +620,22 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             p = simple.deliverable_path(project, sid, name)
         except (FileNotFoundError, ValueError):
             raise HTTPException(404, "not found")
-        stem = name.rsplit(".", 1)[0]
-        if format == "xlsx":
-            if d["ext"] != "csv":
-                raise HTTPException(400, "Excel export is for table deliverables")
-            data = simple.csv_to_xlsx(simple.read_deliverable(project, sid, name),
-                                      sheet=d.get("title") or stem)
-            out_name, mime = f"{stem}.xlsx", documents.MIME["xlsx"]
-        elif format == "docx":
-            if d["ext"] not in ("md", "markdown", "txt"):
-                raise HTTPException(400, "Word export is for text deliverables")
-            data = simple.markdown_to_docx(simple.read_deliverable(project, sid, name))
-            out_name, mime = f"{stem}.docx", documents.MIME["docx"]
+        if format in ("docx", "pdf", "xlsx", "csv", "letters_docx", "letters_pdf"):
+            if format not in (d.get("formats") or []) and not (format == "docx" and d["previewable"]):
+                raise HTTPException(400, {"code": "format", "message": f"no {format} for this deliverable"})
+            import instance
+            import outputs
+            import wordtemplates
+            try:
+                data, out_name, mime = outputs.render(
+                    format, name, p.read_text(encoding="utf-8", errors="replace"),
+                    template_for=wordtemplates.path_for,
+                    org=_org_name(instance), logo=_org_logo())
+            except outputs.Unavailable as e:
+                raise HTTPException(503, {"code": "format_unavailable",
+                                          "message": f"{format}: {e} is not installed on this instance"})
+            except ValueError as e:
+                raise HTTPException(400, {"code": "format", "message": str(e)})
         else:
             data = p.read_bytes()
             out_name = name
@@ -578,5 +658,42 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         audit.log(pu.get("email") or "", "deliverable.validate", sid,
                   f"{name} · sha256 {v['sha256'][:16]}", project=project)
         return {"ok": True, "deliverables": simple.list_deliverables(project, sid)}
+
+    # ---- 4.0: « remember for next time », offered once a deliverable is validated ------------
+    @r.get("/api/simple/sessions/{sid}/deliverables/{name}/learn")
+    def learn_offer(sid: str, name: str, request: Request, lang: str = "fr",
+                    _f=Depends(_feature)) -> dict:
+        import learn
+        pu, project = _session(request, sid, drive=True)
+        try:
+            out = learn.offer(project, sid, name, lang if lang in ("fr", "en") else "fr")
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "not found")
+        return out
+
+    @r.post("/api/simple/sessions/{sid}/deliverables/{name}/learn")
+    def learn_retain(sid: str, name: str, body: LearnIn, request: Request,
+                     _f=Depends(_feature)) -> dict:
+        import classification
+        import learn
+        pu, project = _session(request, sid, drive=True)
+        email = (pu.get("email") or "").lower()
+        try:
+            if body.dismiss:
+                out = learn.dismiss(project, sid, name, email)
+                audit.log(email, "memory.learn.dismiss", sid, name, project=project)
+                return out
+            clearance = pu.get("clearance") if "clearance" in pu else classification.ctx_clearance()
+            out = learn.retain(project, sid, name, [f.model_dump() for f in body.facts], email,
+                               clearance=clearance, lang=body.lang if body.lang in ("fr", "en") else "fr")
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "not found")
+        except learn.LearnError as e:
+            raise HTTPException(e.status, {"code": e.code, "message": str(e)})
+        # the same two steps as the review screen, journaled as such: written, then approved
+        for n in out["notes"]:
+            audit.log(email, "memory.quarantine.approve", n, f"atelier.learn · {name}", project=project)
+        audit.log(email, "memory.learn", sid, f"{name} · {len(out['notes'])} note(s)", project=project)
+        return out
 
     return r

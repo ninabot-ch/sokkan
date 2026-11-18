@@ -110,6 +110,13 @@ sh scripts/appliance/accounts.sh revoke ana@client.ch    # leaves: open cockpit 
 sh scripts/appliance/accounts.sh list
 ```
 
+**4.0: no command needed.** The administrator does the same from the Atelier — the first launch
+(*Getting started*: organisation, model with a connection test, projects, people, documents, first
+work) and then *Administration › Team*: an access code shown once, or an invitation link (one
+week, single use) that signs the person in and hands over their code; new code, new link,
+deactivate. `accounts.sh` stays for scripts and recovery. See
+[../enterprise/ONBOARDING.md](../enterprise/ONBOARDING.md).
+
 The sign-in screen has one field, « Access code », in the browser's language (3.6.3: French or
 English, light theme, no variable name). The instance stores a salted hash, never the code.
 With `SOKKAN_DEFAULT_ROLE=none` (set by the profile) a person sees only their project; nobody

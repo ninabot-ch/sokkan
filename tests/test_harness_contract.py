@@ -708,7 +708,8 @@ def test_the_scope_of_the_recall_is_the_cockpits(world, monkeypatch):
     assert spec.auto_allow == tuple(agentchat.SAFE_TOOLS) and spec.deny_tools is None
     assert spec.plan is False and spec.options == {"legacy": {"setting_sources": [
         "user", "project", "local"]}}
-    assert set(spec.mcp_servers) == set(agentchat.MCP_SERVERS)
+    # 4.0: the connectors server is handed only when its feature is on (off here)
+    assert set(spec.mcp_servers) == set(agentchat.MCP_SERVERS) - {"sokkan-connectors"}
 
 
 def test_an_engine_with_every_capability_adds_nothing_to_the_flow(world):

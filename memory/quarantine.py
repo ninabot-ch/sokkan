@@ -103,7 +103,10 @@ def write(name: str, description: str, body: str, provenance: dict,
 
 def _prov_line(p: dict) -> str:
     when = datetime.fromtimestamp(p.get("quarantined_at") or time.time(), timezone.utc)
-    bits = [f"agent {p['agent']}" if p.get("agent") else "agent run"]
+    if p.get("via") == "atelier.learn":      # 4.0: a person kept it from a validated deliverable
+        bits = [f"remembered by {p.get('user') or 'a person'}"]
+    else:
+        bits = [f"agent {p['agent']}" if p.get("agent") else "agent run"]
     if p.get("run"):
         bits.append(f"run #{p['run']}")
     bits.append(when.strftime("%Y-%m-%d %H:%M UTC"))

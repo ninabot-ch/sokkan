@@ -1094,7 +1094,7 @@ def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
                                                        "waiting_for_human")}
              for a in agents.list_agents(u, include_archived=archived)]
     return {"agents": items, "pending": agents.pending_approvals(u),
-            "scheduler": _scheduler_state()}
+            "elsewhere": agents.waiting_elsewhere(u), "scheduler": _scheduler_state()}
 
 
 def _scheduler_state() -> dict:
@@ -1328,7 +1328,8 @@ class InstanceSettings(BaseModel):
 @app.post("/api/instance")
 def instance_set(body: InstanceSettings, u: dict = Depends(require("admin"))) -> dict:
     if body.org_name.strip():
-        instance.set_org_name(body.org_name)
+        import orgprofile  # one way to name the organisation (the common project follows)
+        orgprofile.set_name(body.org_name)
         audit.log(u["email"], "instance.rename", body.org_name)
     if body.budget_session_usd is not None or body.budget_day_usd is not None:
         instance.set_budgets(body.budget_session_usd, body.budget_day_usd)
@@ -3430,6 +3431,8 @@ app.include_router(hitl_api.router)
 app.include_router(study_api.router)
 import work_export_api  # noqa: E402 — feature work_export: « Export our work » (admin)
 app.include_router(work_export_api.router)
+import wordtemplates  # noqa: E402 — 4.0: the organisation's Word templates (admin)
+app.include_router(wordtemplates.router())
 import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 
@@ -3448,6 +3451,11 @@ import roles_api  # noqa: E402 — 4.0 job kits of SOKKAN Atelier (backend/roles
 app.include_router(roles_api.router(on_project_created=_sync_project_indexers))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
+# 4.0 — first launch (administrator), first sign-in (person), Team / Usage (onboarding.py)
+import onboarding  # noqa: E402
+app.include_router(onboarding.router(require))
+import orgprofile_api  # noqa: E402 — 4.0: the organisation's profile, given to every work
+app.include_router(orgprofile_api.router(require))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402
@@ -3458,6 +3466,11 @@ app.include_router(alerting_api.router)
 from docingest import api as docingest_api, scheduler as docingest_scheduler  # noqa: E402
 
 app.include_router(docingest_api.router)
+
+# --- 4.0 connectors : mail, calendar, shared documents (backend/connectors/, /api/connectors/*)
+from connectors import api as connectors_api  # noqa: E402
+
+app.include_router(connectors_api.router)
 
 
 def _alert_diag_session(rule: dict, alert: dict) -> str:

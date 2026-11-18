@@ -14,7 +14,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CODE_DIRS = ("backend", "memory")
-OVERRIDES = ("docker/runner/compose.docker-runner.yml",)
+OVERRIDES = ("docker/runner/compose.docker-runner.yml",
+             "docker-compose.kernel.yml")   # 4.0: the kernel engine's settings of the api
 # code that runs in ANOTHER service of the compose file (its own guard is at the end of this file)
 OTHER_SERVICE = {"backend/shiprouter.py"}
 
@@ -45,6 +46,7 @@ PATH_OVERRIDE = {  # where a store lives; defaults under SOKKAN_DATA_DIR — tes
     "CORTHEXIS_DATA_DIR", "CORTHEXIS_MEMORY_DB", "SOKKAN_APPLIANCE_DIR",
     "SOKKAN_LOCAL_ACCOUNTS_DB",
     "SOKKAN_DOCUMENTS_DB", "SOKKAN_SIMPLE_DB", "SOKKAN_UIPREFS_STORE",   # 3.6 simple profile / document drop
+    "SOKKAN_CONNECTORS_DB",                                              # 4.0 connectors
 }
 CHILD_DEFAULT = {  # handed by the api to a child process WITH a default (`environ.get(X, "1")`);
     # declaring them `${X:-}` in the compose file would pass an empty string and lose the default

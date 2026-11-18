@@ -57,6 +57,7 @@ def test_a_replayed_refusal_is_recognised_by_what_the_agent_was_told(tmp_path):
 @pytest.mark.parametrize("said", [
     "No shell in this conversation: the person is not a developer. The folder …",
     "The person already approved this document in this turn: it is saved. …",
+    "The person declined this document in this turn: it is not saved. …",
 ])
 def test_a_rule_of_the_space_is_a_policy_refusal_not_an_orange_failure(tmp_path, said):
     v, _ = _view(tmp_path)
@@ -126,53 +127,124 @@ def _session(monkeypatch, tmp_path):
     return s
 
 
-def test_a_document_approved_in_this_turn_is_not_saved_again_on_the_agent_s_own(monkeypatch, tmp_path):
+def _approve_next(s, decision="allow"):
+    async def go():
+        while not s._perms:
+            await asyncio.sleep(0)
+        s.resolve_permission(next(iter(s._perms)), {"decision": decision})
+    return go()
+
+
+def _journal(monkeypatch, s):
+    """The rows the rule writes, and the person who decided the cards."""
+    import agentchat
+    rows = []
+    monkeypatch.setattr(agentchat.hitl_journal, "automatic", lambda *a, **k: rows.append(k))
+    monkeypatch.setattr(agentchat.hitl_journal, "peek_attribution", lambda pid: ("ana@x", "owner"))
+    return rows
+
+
+def test_later_saves_of_an_approved_document_go_through_without_a_card(monkeypatch, tmp_path):
+    """4.0 (changes 3.6.7): asked to add a question, the model saves the question, then its line
+    in the answer key, then the count. 3.6.7 refused every save after the first and left the
+    quiz half-changed (parity bench n°4). Once the person approved the first save of a document
+    in a turn, the later saves of THAT document in THAT turn are approved by rule, journaled
+    with the person who approved the first."""
     s = _session(monkeypatch, tmp_path)
-    s._approved_saves = set()
+    rows = _journal(monkeypatch, s)
+    s._approved_saves, s._declined_saves = {}, {}
     path = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
 
     async def turn():
-        async def approve_first():
-            while not s._perms:
-                await asyncio.sleep(0)
-            s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
         first = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# Quiz"}))
-        await approve_first()
+        await _approve_next(s)
         r1 = await first
-        r2 = await ask(s, "Write", {"file_path": path, "content": "# Quiz v2"})
-        return r1, r2
+        r2 = await ask(s, "Edit", {"file_path": path, "old_string": "a", "new_string": "b"})
+        r3 = await ask(s, "Edit", {"file_path": path, "old_string": "c", "new_string": "d"})
+        return r1, r2, r3
 
-    r1, r2 = asyncio.run(turn())
-    assert r1.allowed
-    assert r2.denied and "already approved this document" in r2.message
-    # a single card was asked; the second save never reached the person
+    r1, r2, r3 = asyncio.run(turn())
+    assert r1.allowed and r2.allowed and r3.allowed
+    assert (r2.by, r2.via) == (r3.by, r3.via) == ("ana@x", "auto_rule")
+    # one card for the person, nothing more in the thread
     assert [e["type"] for e in s.events].count("permission") == 1
-    # the event of the decision says who decided what (a replayed thread keeps « Authorised »)
-    assert {"type": "permission_resolved", "decision": "allow"}.items() <= next(
-        e for e in s.events if e["type"] == "permission_resolved").items()
+    assert [(r["allowed"], r["reason"], r["actor"]) for r in rows] == [
+        (True, "policy:simple_same_document_same_turn", "ana@x")] * 2
+    # a new turn: the document asks again
+    s._approved_saves, s._declined_saves = {}, {}
+
+    async def next_turn():
+        fut = asyncio.ensure_future(ask(s, "Edit", {"file_path": path, "old_string": "b",
+                                                    "new_string": "e"}))
+        await _approve_next(s)
+        return await fut
+    assert asyncio.run(next_turn()).allowed
+    assert [e["type"] for e in s.events].count("permission") == 2
 
 
-def test_a_refused_save_does_not_close_the_document(monkeypatch, tmp_path):
+def test_a_refused_document_is_not_saved_again_in_the_turn(monkeypatch, tmp_path):
     s = _session(monkeypatch, tmp_path)
-    s._approved_saves = set()
+    rows = _journal(monkeypatch, s)
+    s._approved_saves, s._declined_saves = {}, {}
     path = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
 
     async def turn():
         fut = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# A"}))
-        while not s._perms:
-            await asyncio.sleep(0)
-        s.resolve_permission(next(iter(s._perms)), {"decision": "deny"})
-        await fut
-        fut2 = asyncio.ensure_future(ask(s, "Write", {"file_path": path, "content": "# B"}))
-        while not s._perms:
-            await asyncio.sleep(0)
-        return fut2
+        await _approve_next(s, "deny")
+        r1 = await fut
+        r2 = await ask(s, "Edit", {"file_path": path, "old_string": "A", "new_string": "B"})
+        return r1, r2
 
-    async def main():
-        fut2 = await turn()
-        s.resolve_permission(next(iter(s._perms)), {"decision": "allow"})
-        return await fut2
-    assert asyncio.run(main()).allowed
+    r1, r2 = asyncio.run(turn())
+    assert r1.denied and r2.denied
+    assert "declined this document in this turn" in r2.message
+    assert any(m in r2.message for m in plain.POLICY_DENIED)      # discreet in the thread
+    assert [e["type"] for e in s.events].count("permission") == 1
+    assert [(r["allowed"], r["reason"], r["actor"]) for r in rows] == [
+        (False, "policy:simple_same_document_same_turn", "ana@x")]
+
+
+def test_another_document_in_the_same_turn_has_its_own_card(monkeypatch, tmp_path):
+    s = _session(monkeypatch, tmp_path)
+    _journal(monkeypatch, s)
+    s._approved_saves, s._declined_saves = {}, {}
+    quiz = str(tmp_path / "deliverables" / s.sid / "Quiz.md")
+    memo = str(tmp_path / "deliverables" / s.sid / "Fiche mémo.md")
+
+    async def turn():
+        f1 = asyncio.ensure_future(ask(s, "Write", {"file_path": quiz, "content": "# Q"}))
+        await _approve_next(s)
+        await f1
+        f2 = asyncio.ensure_future(ask(s, "Write", {"file_path": memo, "content": "# M"}))
+        await _approve_next(s, "deny")
+        r2 = await f2
+        r3 = await ask(s, "Edit", {"file_path": quiz, "old_string": "Q", "new_string": "R"})
+        return r2, r3
+
+    r2, r3 = asyncio.run(turn())
+    assert r2.denied and r3.allowed
+    assert [e["type"] for e in s.events].count("permission") == 2
+
+
+def test_the_thread_shows_one_version_per_document_per_turn(tmp_path):
+    """The later saves of the turn are the same version: one card, the document as it stands
+    at the end of the turn (the preview reads the file); the next turn is a new version."""
+    deliv = tmp_path / "deliverables" / ("c" * 32)
+    deliv.mkdir(parents=True)
+    saved = []
+    v = plain.View(docs_dir=tmp_path / "documents", deliv_dir=deliv,
+                   on_write=lambda name, tool_id, model="": saved.append(tool_id) or len(saved))
+    p = str(deliv / "Quiz.md")
+
+    def save(tid):
+        return _feed(v, [{"type": "tool_use", "id": tid, "tool": "Edit", "input": {"file_path": p}},
+                         {"type": "tool_result", "tool_use_id": tid, "text": "ok"}])
+
+    cards = [c for tid in ("t1", "t2", "t3") for c in save(tid) if c["type"] == "deliverable"]
+    assert [c["version"] for c in cards] == [1, 1, 1] and saved == ["t1"]
+    _feed(v, [{"type": "user", "text": "Ajoute une question"}])
+    cards = [c for tid in ("t4", "t5") for c in save(tid) if c["type"] == "deliverable"]
+    assert [c["version"] for c in cards] == [2, 2] and saved == ["t1", "t4"]
 
 
 # ---- 8. the project a person last worked in --------------------------------------------------

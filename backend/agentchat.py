@@ -52,6 +52,7 @@ _MEM_SRV = os.path.join(_HERE, "..", "memory", "memory_search_server.py")
 _BOARD_SRV = os.path.join(_HERE, "board_mcp.py")
 _OBS_SRV = os.path.join(_HERE, "observability_mcp.py")
 _AGENTS_SRV = os.path.join(_HERE, "agents_mcp.py")
+_CONNECTORS_SRV = os.path.join(_HERE, "connectors_mcp.py")
 _PY = os.environ.get("SOKKAN_PYTHON", sys.executable)
 
 
@@ -115,6 +116,8 @@ MCP_SERVERS = {
     "sokkan-observability": {"command": _PY, "args": [os.path.abspath(_OBS_SRV)]},
     # 3.1 « Crew up » : créer / piloter des agents depuis une session (HITL)
     "sokkan-agents": {"command": _PY, "args": [os.path.abspath(_AGENTS_SRV)]},
+    # 4.0 connectors: the person's mail, calendar and shared documents (feature `connectors`)
+    "sokkan-connectors": {"command": _PY, "args": [os.path.abspath(_CONNECTORS_SRV)]},
 }
 
 
@@ -140,8 +143,21 @@ def mcp_servers_for(sid: str, user: str = "", only: list[str] | None = None,
     for name, cfg in MCP_SERVERS.items():
         if only is not None and name not in only:
             continue
+        if name == "sokkan-connectors" and not _connectors_on():
+            continue
         out[name] = {**cfg, "env": {**cfg.get("env", {}), **who}}
     return out
+from connectors.tools import read_tools as _connector_read_tools  # noqa: E402
+
+
+def _connectors_on() -> bool:
+    try:
+        import connectors
+        return connectors.enabled()
+    except Exception:  # noqa: BLE001 — a broken registry never adds a server
+        return False
+
+
 MODEL = os.environ.get("SOKKAN_AGENT_MODEL") or None  # None → défaut du CLI
 # lectures auto-approuvées (UX fluide) ; tout le reste passe par les boutons.
 # Les outils MCP SOKKAN en lecture (mémoire RAG, board) sont sûrs → le seed
@@ -165,6 +181,9 @@ SAFE_TOOLS = [
     # pour une création, par l'approbation humaine dans l'onglet Crew
     "mcp__sokkan-agents__list_agents", "mcp__sokkan-agents__get_agent",
     "mcp__sokkan-agents__list_runs", "mcp__sokkan-agents__get_run",
+    # 4.0 connectors: reads, and the proposals (they only store a card the person decides in
+    # SOKKAN — connectors/tools.py); a draft in the mailbox keeps the engine's permission
+    *_connector_read_tools("legacy"),
 ]
 # modes de permission pilotables depuis le cockpit (équivalent web du Shift+Tab du TUI)
 VALID_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
@@ -178,6 +197,15 @@ _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # shell at all (RunSpec.shell=False): each adapter takes its engine's shell tools away
 # (harness/legacy.py SHELL_TOOLS + a PreToolUse hook, harness/kernel.py ATELIER_DENIED).
 from harness.refusals import ATELIER_NO_SHELL as NO_SHELL  # noqa: E402
+from harness.refusals import ATELIER_MCP_OFF, ATELIER_NO_COCKPIT  # noqa: E402
+
+
+def atelier_mcp_off(tool: str) -> bool:
+    """4.0 — a tool of a Cockpit server (task board, agent team, monitoring) that an Atelier
+    work never has. Both namings: ``mcp__<server>__<tool>`` (CLI) and ``<server>__<tool>``
+    (the kernel)."""
+    name = tool[5:] if tool.startswith("mcp__") else tool
+    return any(name.startswith(srv + "__") for srv in ATELIER_MCP_OFF)
 RING_MAX = 500  # events bufferisés par session pour le replay au reconnect
 
 # titre court d'une carte d'outil (aligné sur transcript.py)
@@ -243,6 +271,8 @@ class AgentSession:
         self._pending: dict[str, tuple[contract.Gate, dict]] = {}
         self._notify_tasks: set[asyncio.Task] = set()  # HITL push différé
         self._busy = False
+        self._approved_saves: dict[str, str] = {}     # 4.0 rule, reset at each turn
+        self._declined_saves: dict[str, str] = {}
         self._start_lock = asyncio.Lock()
         self.cost_usd = 0.0          # estimated cumulated cost (what each turn.ended reports)
         self._budget_warned = False  # avertissement 80 % émis une seule fois
@@ -342,6 +372,12 @@ class AgentSession:
                               only=pol.get("mcp") if pol else None,
                               agent_run=({"agent": pol.get("agent"), "run": pol.get("run")}
                                          if pol else False))
+        if not pol and self._is_simple_work():
+            # 4.0 (audit coworker): the Atelier's catalogue has no task board, no agent team,
+            # no monitoring — an agent of a work created a kanban card in the developers'
+            # board and an automatic agent nobody could see, behind an opaque card. Removed
+            # from the run; the gate below refuses them anyway (an engine that has its own).
+            mcp = {k: v for k, v in mcp.items() if k not in ATELIER_MCP_OFF}
         # memory recall at every turn + for every sub-agent (3.0, P0-3)
         recall = memrecall.provider(self.sid, projects=self._recall_scope())
         # per-instance model configuration (BYOK / managed inference) + the vault (the
@@ -393,6 +429,15 @@ class AgentSession:
                 self._emit({"type": "sandbox", "mode": sandbox.HOOKS,
                             "message": sandbox.BASH_OFF})
         model = eng_model if eng_model is not None else (self.model or llm.session_model())
+        # 4.0: an Atelier work knows the house from its first token — the organisation's
+        # profile and the project's validated work (househead), fixed for the run
+        head: tuple = ()
+        if not pol and self._is_simple_work():
+            try:
+                import househead
+                head = tuple(househead.blocks(self.sid, email=self.user or "", project=proj))
+            except Exception as e:  # noqa: BLE001 — a head never stops a work
+                print(f"[sokkan] head of {self.sid} skipped: {e!r}", file=sys.stderr)
         legacy_opts: dict[str, Any] = {"setting_sources": setting_sources_for(proj)}
         if claude_env.get("ANTHROPIC_MODEL"):
             # the Claude model the person chose: the engine shapes its requests for it (the
@@ -419,8 +464,8 @@ class AgentSession:
             approval_mode=self._engine_approval_mode(),
             # the Atelier never runs a command: an engine that can remove its shell does
             shell=not (not pol and self._is_simple_work()),
-            budget_usd=self._sdk_max_budget(), context=recall, confinement=confinement,
-            options={"legacy": legacy_opts})
+            budget_usd=self._sdk_max_budget(), context=recall, head=head,
+            confinement=confinement, options={"legacy": legacy_opts})
 
     async def ensure_started(self) -> None:
         async with self._start_lock:
@@ -437,7 +482,19 @@ class AgentSession:
             self._stream = self.harness.start(spec)
             self._announce_capabilities()
             # the first event reaches the engine: `run.started`, or the engine's own error
-            self._consume(await self._stream.__anext__())
+            try:
+                first = await self._stream.__anext__()
+            except BaseException:
+                # the engine never started (4.0: the kernel refused the session — its sandbox
+                # could not be created, the kernel is down): nothing is kept, the next message
+                # tries again from scratch
+                harness, self.harness, self._stream = self.harness, None, None
+                try:
+                    await harness.stop()
+                except Exception:  # noqa: BLE001 — an engine that never started has nothing to stop
+                    pass
+                raise
+            self._consume(first)
 
     def parkable(self, idle_s: float, now: float | None = None) -> bool:
         """Its CLI can be closed without anyone noticing: started, no turn running, no
@@ -590,15 +647,16 @@ class AgentSession:
 
     # ---- journal des validations (hitl_journal) ------------------------------
     def _journal_auto(self, gate: contract.Gate, input_data: dict, allowed: bool,
-                      reason: str) -> None:
+                      reason: str, actor: str = "") -> None:
         """An approval nobody clicked (mode, agent policy, sandbox): told apart from a
-        person's decision in the journal."""
+        person's decision in the journal (``actor``: whose earlier decision a rule carries)."""
         hitl_journal.automatic(
             "question" if gate.kind == "question" else "permission",
             session_id=self.sid, tool=gate.tool, title=_tool_title(gate.tool, input_data),
             input_data=input_data, allowed=allowed, reason=reason, mode=self.mode,
             secrets=self.redact_values, owner=self.user,
-            agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "")
+            agent_run=str((self.policy or {}).get("agent") or ""), model=self._turn_model or "",
+            actor=actor)
 
     # ---- the gate (heart of the interactivity) -------------------------------
     async def gate(self, gate: contract.Gate) -> contract.Decision:
@@ -669,21 +727,39 @@ class AgentSession:
             self._journal_auto(gate, input_data, False, "policy:simple_profile_no_shell")
             return contract.Decision.deny(NO_SHELL, **auto)
 
-        # 3.6.7 Atelier: ONE approval per document asked for. Once the person approved the save
-        # of a document in this turn, the agent does not save it again on its own (a « v2 »
-        # nobody asked for meant a second card for one deliverable). A change they ask for
-        # comes with their next message, which opens a new turn.
+        # 4.0: a Cockpit tool (board, agents, monitoring) in an Atelier work — out of its
+        # catalogue (_run_spec); refused here for an engine that brings its own servers
+        if not self.policy and atelier_mcp_off(tool_name) and self._is_simple_work():
+            self._journal_auto(gate, input_data, False, "policy:simple_profile_no_cockpit")
+            return contract.Decision.deny(ATELIER_NO_COCKPIT, **auto)
+
+        # Atelier, one card per document per turn (3.6.7, changed in 4.0). The FIRST save of a
+        # document in a turn asks the person. Once they approved it, the later saves of the SAME
+        # document in the SAME turn go through without a card — approved by rule, journaled with
+        # the person who approved the first one: a change made in several edits (a question, its
+        # line in the answer key, the count) is the change they approved, not a « v2 ». 3.6.7
+        # refused them, which left the document half-changed (parity bench n°4, A1 quiz). If they
+        # REFUSED the first card, the document is not saved again in this turn. Another document
+        # has its own card. The thread shows one version per document per turn (plain.View), and
+        # the person still validates the deliverable after the turn.
         if gate.kind == "file_write" and not self.policy and self._is_simple_work():
             path = gate.path or str(input_data.get("file_path")
                                     or input_data.get("notebook_path") or "")
-            if path and os.path.abspath(path) in getattr(self, "_approved_saves", set()):
-                self._journal_auto(gate, input_data, False, "policy:simple_one_approval_per_turn")
+            key = os.path.abspath(path) if path else ""
+            if key and key in self._declined_saves:
+                self._journal_auto(gate, input_data, False,
+                                   "policy:simple_same_document_same_turn",
+                                   actor=self._declined_saves[key])
                 return contract.Decision.deny(
-                    "The person already approved this document in this turn: it is saved. Do "
-                    "not save it again and do not offer another version. Tell them in two or "
-                    "three sentences what it contains and what remains to confirm (if a part is "
-                    "still missing, say which one and ask whether to add it); they will ask for "
-                    "a change if they want one. Do not mention this message.", **auto)
+                    "The person declined this document in this turn: it is not saved. Do not "
+                    "save it again in this turn. Tell them in one or two sentences what you "
+                    "would change and ask what they want instead. Do not mention this message.",
+                    **auto)
+            if key and key in self._approved_saves:
+                who = self._approved_saves[key]
+                self._journal_auto(gate, input_data, True,
+                                   "policy:simple_same_document_same_turn", actor=who)
+                return _allow(gate, input_data, by=who or "policy", via="auto_rule")
 
         # 4.0 quality gate: a deliverable is checked BEFORE its card (figures, names, dates
         # against the sources, Swiss law; then a review by a stronger model when one is
@@ -769,10 +845,13 @@ class AgentSession:
             saved = str(final.get("file_path") or "") or gate.path
             if gate.kind == "file_write" and self._is_simple_work() and not self.policy \
                     and _is_deliverable_path(saved):
-                if not hasattr(self, "_approved_saves"):
-                    self._approved_saves = set()
-                self._approved_saves.add(os.path.abspath(saved))
+                # whoever approved the first save carries the later ones of this turn
+                self._approved_saves[os.path.abspath(saved)] = decision.by or ""
             return _allow(gate, final, by=decision.by, via=decision.via)
+        refused = gate.path or str(input_data.get("file_path") or "")
+        if gate.kind == "file_write" and self._is_simple_work() and not self.policy \
+                and refused and _is_deliverable_path(refused):
+            self._declined_saves[os.path.abspath(refused)] = decision.by or ""
         return contract.Decision.deny(decision.message or "Denied by the user",
                                       by=decision.by, via=decision.via)
 
@@ -963,6 +1042,41 @@ class AgentSession:
             self._engine_mode_sent = want
         except Exception as e:  # noqa: BLE001
             self._emit({"type": "error", "message": f"set_mode: {e}"})
+
+    # ---- 4.0 native formats: the figures of a saved deliverable, computed by SOKKAN --------
+    def _note_deliverable_call(self, ev) -> None:
+        """A write of a deliverable (either engine): remember its file until its result."""
+        try:
+            if ev.classification != "file_write" and ev.name not in ("Write", "Edit", "MultiEdit",
+                                                                   "write_file", "patch"):
+                return
+            raw = str((ev.input or {}).get("file_path") or (ev.input or {}).get("path") or "")
+            if not raw or not ev.call_id:
+                return
+            if raw == "/workspace" or raw.startswith("/workspace/"):
+                raw = os.path.join(self.cwd, raw[len("/workspace"):].lstrip("/"))
+            elif not os.path.isabs(raw):
+                raw = os.path.join(self.cwd, raw)
+            path = os.path.realpath(raw)
+            if _is_deliverable_path(path):
+                if not hasattr(self, "_deliv_calls"):
+                    self._deliv_calls = {}
+                self._deliv_calls[ev.call_id] = path
+        except Exception:  # noqa: BLE001 — never in the way of the stream
+            pass
+
+    def _deliverable_saved(self, ev) -> None:
+        """Its result: SOKKAN computes the document's formulas and writes them where the agent
+        reads them (``<deliverables>/.calc/<name>.txt``; the legacy engine also gets them in the
+        tool result's context, harness/legacy.py `calc_hooks`)."""
+        path = (getattr(self, "_deliv_calls", None) or {}).pop(ev.call_id, None)
+        if not path or not ev.ok:
+            return
+        try:
+            import outputs
+            outputs.write_calc(path)
+        except Exception as e:  # noqa: BLE001
+            print(f"[sokkan] calc of {path}: {e!r}", file=sys.stderr)
 
     def _is_simple_work(self) -> bool:
         """Opened from the simple profile (simple.works)? Looked up once per session."""
@@ -1176,11 +1290,17 @@ class AgentSession:
             self._project_budget_warned = True
             self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
         self.last_active = time.monotonic()
-        await self.ensure_started()
+        try:
+            await self.ensure_started()
+        except Exception as e:  # noqa: BLE001 — said to the person, never a silent dead session
+            self._engine_start_failed(e)
+            return
         assert self.harness is not None
         self._busy = True
         self._refusal_said = None
-        self._approved_saves = set()     # 3.6.7: documents the person approved in this turn
+        # documents the person approved / declined in this turn → who decided (4.0 rule)
+        self._approved_saves: dict[str, str] = {}
+        self._declined_saves: dict[str, str] = {}
         if not getattr(self, "_in_carry", False):
             self._qg_bounced = {}        # 4.0: documents the quality gate sent back this turn
         self._emit({"type": "status", "state": "working"})
@@ -1214,6 +1334,17 @@ class AgentSession:
                            is_error=failed or bool(self.last_result is not before and (
                                self.last_result or {}).get("is_error")))
             self._emit({"type": "status", "state": "idle"})
+
+    def _engine_start_failed(self, e: Exception) -> None:
+        """The session's engine could not start: one error event the pane and the simple
+        profile can read (``code`` when the engine named the cause, e.g. 4.0's
+        ``sandbox_unavailable``), the session stays idle and usable."""
+        print(f"[agentchat] session {self.sid}: engine did not start: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        code = getattr(e, "code", None) or "engine_unavailable"
+        self._emit({"type": "error", "code": code,
+                    "message": str(e) or f"the engine did not start ({type(e).__name__})"})
+        self._emit({"type": "status", "state": "idle"})
 
     def _explain_refusal(self, text: str) -> None:
         """The gateway refused for a study reason (free period over, study mode required,
@@ -1308,7 +1439,9 @@ class AgentSession:
             self._note_read(ev)
             self._emit(_ws_tool_use(ev.call_id, ev.name, ev.input, ev.classification,
                                     self._turn_model))
+            self._note_deliverable_call(ev)
         elif isinstance(ev, contract.ToolResult):
+            self._deliverable_saved(ev)
             # the engine refused it before running it (a view may say it quietly)
             self._emit(_ws_tool_result(ev.call_id, ev.output, ev.ok,
                                        refused=bool(getattr(ev, "refused", False))))

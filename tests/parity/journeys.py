@@ -55,6 +55,9 @@ class Expect:
     must_contain: tuple[tuple[str, ...], ...] = ()   # each group: at least one string present
     min_questions: int = 0                  # a quiz: question marks in the deliverable
     sections: tuple[str, ...] = ()          # words that must head a section (any case)
+    # a quiz after the change asked: at least this many questions, and an answer key (a
+    # section headed « corrigé / réponses ») with an entry for each of them
+    questions_after_change: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,8 @@ ATELIER = (
         docs=(Doc("Module 3 - Tableaux croises.docx", "module-3-tableaux-croises.md", as_docx=True),),
         follow_up="Ajoute une question sur l'actualisation du tableau, c'est l'erreur la plus fréquente.",
         expect=Expect(min_questions=8, must_contain=(("actualis",), ("lignes",), ("valeurs",),
-                                                     ("corrig", "réponse", "reponse"))),
+                                                     ("corrig", "réponse", "reponse")),
+                      questions_after_change=9),
     ),
     Journey(
         id="A2-plan-formation", kind="atelier", playbook="training-plan",

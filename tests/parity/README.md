@@ -24,13 +24,14 @@ Output in `--out/<stamp>/`: `parity.json` (every run, every measure, the journal
 Both engines are driven through `backend/harness` — the contract the cockpit consumes — with:
 
 * **the same prompt**: the product's own `simple.brief()` and playbooks (`playbooks.py`) for the
-  Atelier, the coding-bench task text for the Cockpit;
+  Atelier, a later message through `simple.follow_up()` as `simple_api` sends it, the coding-bench task text for the Cockpit;
 * **the same files**, laid out like the product's (documents under `documents/<16 hex>/`, the
   text copy of a .docx made by `doctext.extract`, deliverables in `deliverables/<32 hex>/`);
 * **the same cockpit rules** (`policy.py`, mirrored from `agentchat.py` 3.6.7): in the Atelier a
   shell gate is refused by rule, a memory file written by a conversation that was handed documents
-  is refused by rule, a second save of a document in the same turn is refused by rule, and the
-  « person » approves the other cards; in the Cockpit every gate is approved by the bypass rule;
+  is refused by rule, the later saves of a document the person approved in the same turn are
+  approved by rule with the person as decider (4.0, `policy:simple_same_document_same_turn`; 3.6.7
+  refused them), and the « person » approves the other cards; in the Cockpit every gate is approved by the bypass rule;
 * **the same model behind the same meter** (`wire.py`): every model request of both engines goes
   through it — tokens are counted on the wire (prompt total, cached part, output), not taken from
   each engine's own ledger; reasoning is off as the product ships it (3.6.7); at most two requests
@@ -40,7 +41,7 @@ Both engines are driven through `backend/harness` — the contract the cockpit c
 
 | Id | What | Success when (all of) |
 |---|---|---|
-| A1-quiz-docx | course content: an 8-question quiz from a .docx module, then a change asked | the deliverable exists, starts with `# `, holds the module's notions and an answer key, ≥ 8 questions; the change lands in the **same file**; one card per document per turn; no parasitic failure line |
+| A1-quiz-docx | course content: an 8-question quiz from a .docx module, then a change asked | the deliverable exists, starts with `# `, holds the module's notions and an answer key, ≥ 8 questions (a « ? » or a numbered stem); the change lands in the **same file** and **whole** (`change_complete`: ≥ 9 questions and a key entry for each); one card per document per turn; no parasitic failure line |
 | A2-plan-formation | a training plan from a request | same, plus the request's facts (10 people, « points à confirmer », data rule) |
 | A3-retroplanning-mail | a schedule and an invitation mail: **two** documents | two deliverables, the session's dates and room, one card per document |
 | A4-relance-devis | follow-up mail from a quote (reference journey of scope § 7.2) | the quote's number and total |

@@ -256,3 +256,18 @@ def test_nina_kb_unfolds_the_agents_section_for_an_agent_question():
     assert "Agents — Build › Crew" in kb and "sokkan-agent" in kb
     kb = assistant._kb_for("je veux créer un agent récurrent")
     assert "Agents — Build › Crew" in kb
+
+
+def test_an_admin_sees_agents_waiting_in_another_project(ag):
+    """4.0 (audit coworker): the agent a person's work proposed in THEIR project was invisible to
+    the admin acting in `default` — named in `elsewhere`, without its settings."""
+    ag.create({**DEV, "project": "gestion-projets"}, _base(name="point-vendredi"), proposal=True,
+              created_by="session:abc")
+    ag.create({**DEV, "project": "default"}, _base(name="here-already"), proposal=True)
+    seen = ag.waiting_elsewhere({**ADMIN, "project": "default"})
+    assert [(a["name"], a["project"], a["change"]) for a in seen] == [
+        ("point-vendredi", "gestion-projets", False)]
+    assert "purpose" not in seen[0]
+    assert ag.waiting_elsewhere({**DEV, "project": "default"}) == []        # admins only
+    assert [a["name"] for a in ag.waiting_elsewhere({**ADMIN, "project": "gestion-projets"})] == [
+        "here-already"]

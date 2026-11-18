@@ -278,6 +278,9 @@ def reencrypt(ctx: str, prov: sp.SecretsProvider) -> dict:
         done["modelkeys.json"] = modelkeys.reencrypt()
         import llm
         done["llm.json"] = llm.reencrypt()
+        from connectors import store as connectors_store
+        if os.path.exists(connectors_store.db_path()):
+            done["connectors.db"] = connectors_store.reencrypt()
     elif ctx == "forge":
         from forge import links
         done["forge_links"] = links.reencrypt()

@@ -212,9 +212,12 @@ def test_project_budget_stop_blocks_new_turns_and_runs(spend, monkeypatch):
     asyncio.new_event_loop().run_until_complete(s.handle_user("hello"))
     assert started == [] and "budget reached" in events[-1]["message"]
     d = agentchat.AgentSession(DEFAULT_SID, user="bob@x")    # default: no ceiling, runs
-    with pytest.raises(RuntimeError):
-        asyncio.new_event_loop().run_until_complete(d.handle_user("hello"))
+    d_events: list[dict] = []
+    monkeypatch.setattr(d, "_emit", d_events.append)
+    # 4.0 (kcompose): an engine that cannot start is an error event, the session stays usable
+    asyncio.new_event_loop().run_until_complete(d.handle_user("hello"))
     assert started == [DEFAULT_SID]
+    assert any(e.get("type") == "error" and e.get("code") == "engine_unavailable" for e in d_events)
     # an agent run of radio does not start
     a = agents.get_by_name("radio-check", "radio")
     run = agents.enqueue_run(a["id"], "manual", requested_by="alice@x")

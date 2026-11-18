@@ -25,8 +25,9 @@ Every job has, in French and English (the person's language; Swiss French-speaki
 « vous », Swiss formats):
 
 * **task templates** (6-10): what to attach, what the agent produces, the format of the deliverable
-  (`docx` = a Markdown file downloaded as Word, `xlsx` = a CSV file previewed as a table and downloaded
-  as Excel, `md` = text), the points a human checks, and the mission given to the agent;
+  (`docx` = a Markdown file downloaded as Word or PDF, `xlsx` = a Markdown source with `format: xlsx`
+  — tables, totals as formulas — that `backend/outputs.py` previews computed and renders as Excel,
+  `md` = text), the points a human checks, and the mission given to the agent;
 * **starter notes** (3-5): the house charter, tone, scales and templates of the job, written into the
   project's memory as notes « to fill in with your team » — every blank is marked
   « [À compléter : …] » / « [To fill: …] », the note carries `status: to-fill`, and the agent never
@@ -50,11 +51,27 @@ The mission travels inside the work's first message (`simple.brief`, the text of
 what every engine of the harness contract receives (`Harness.send`): the legacy CLI and the kernel get
 the same words; nothing depends on an engine's own system prompt.
 
+## Mailbox and calendar: no false promise
+
+A template whose work would naturally end in a mail or an invitation (reply to a letter, incoming
+mail digest, meeting agenda, payment reminder, quote follow-up, complaint reply, training
+invitation) declares it: `"uses": ["mail"]` / `["mail", "calendar"]` in its JSON. At the start of
+the work, `roles.connector_rules()` adds to the mission what the connectors
+([CONNECTORS.md](CONNECTORS.md)) really allow this person in this project
+(`connectors.service.capabilities`): **off** (feature off, nothing connected, or the project's
+content may not reach this model) = the agent prepares the text and says the person sends it,
+never « sent »; **read** = a draft in the mailbox / a calendar read, the person sends; **act** = a
+draft and a send or event proposed on a card, nothing leaves before the person's approval. The
+home shows the same state under the chosen template (« Messagerie et agenda »).
+
 ## Choosing a job
 
-* **First sign-in in the Atelier**: the picker « Quel est votre poste ? » opens once (several jobs
-  possible). « Plus tard » stores an empty choice: not asked again, the four general templates stay.
-  Not offered on the public demo nor to a viewer.
+* **First sign-in in the Atelier**: ONE choice of job. For a person who has not been welcomed yet
+  (and an administrator during the setup), the onboarding asks it ([ONBOARDING.md](ONBOARDING.md):
+  job → tour → first work on an example document of that job) and writes it here as the person's
+  first job; closing it without a job = « Plus tard ». Otherwise the picker « Quel est votre poste ? »
+  opens once (several jobs possible). « Plus tard » stores an empty choice: not asked again, the four
+  general templates stay. Not offered on the public demo nor to a viewer.
 * **Settings › My jobs**: the same picker, any time.
 * **A project per job**: an instance admin (feature `multi_project` on) ticks « Créer un projet pour
   chaque poste choisi »: one project per newly chosen job, named after it, classified at least at the
@@ -78,7 +95,7 @@ and a sentence says why.
     PUT  /api/admin/prefs/{email}               {roles: [...]}  an admin's default (journal `roles.set`)
     GET  /api/simple/home                       + roles, project_role, ask_roles; kit templates first
     POST /api/simple/start                      playbook = "<job>.<template>"; tier claude on a local job = 409 claude_role
-    GET  …/deliverables/{name}/download?format=xlsx   a CSV deliverable as an Excel workbook
+    GET  …/deliverables/{name}/download?format=xlsx|docx|pdf|csv   rendered by backend/outputs.py
 
 Journal: `roles.set`, `roles.setup`, `project.create`, `project.level` (a job raises a project's level,
 never lowers it).

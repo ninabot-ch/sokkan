@@ -141,6 +141,8 @@ _THREAD_RX = re.compile(r"th_[A-Za-z0-9_-]{1,64}")
 _HELD_RX = re.compile(r"\[approval:[0-9a-fA-F-]{8,}\]")
 _APPROVAL_RX = re.compile(r"^\[Approbation\]\n(.*)\n\[/Approbation\]\s*$", re.S)
 _RECALL_RX = re.compile(r"^\s*<memory-recall\b.*?</memory-recall>\s*", re.S)
+# 4.0: the run's head, in front of its first turn (`send`)
+_HEAD_RX = re.compile(r"^\s*<sokkan-brief>\n<sokkan-(?:house|project)>.*?\n</sokkan-brief>\s*", re.S)
 
 
 def _approval_block(text: str) -> dict | None:
@@ -195,7 +197,7 @@ def _history_items(messages: list[dict], cwd: str) -> list[HistoryItem]:
                     call["ok"] = block["decision"] == "executed"
                 continue
             items.append({"kind": "prompt",
-                          "text": _cockpit_text(_RECALL_RX.sub("", content, count=1), cwd)})
+                          "text": _cockpit_text(_RECALL_RX.sub("", _HEAD_RX.sub("", content, count=1), count=1), cwd)})
         elif role == "assistant" and m.get("tool_calls"):
             if content.strip():
                 items.append({"kind": "text", "text": _cockpit_text(content, cwd)})
@@ -318,6 +320,19 @@ def _in_sandbox() -> bool:
     return os.environ.get("SOKKAN_KERNEL_SANDBOX") == "docker"
 
 
+def _outside_sandbox(path: str, cwd: str = "") -> bool:
+    """In the docker sandbox, an ABSOLUTE path that is neither under /workspace (the run's folder
+    as the sandbox mounts it) nor under ``cwd`` (the run's folder as the kernel sees it — the
+    kernel translates such a path to /workspace). Relative paths are the run's folder."""
+    if not _in_sandbox() or not path.startswith("/"):
+        return False
+    norm = os.path.normpath(path)
+    for root in (SANDBOX_ROOT, os.path.normpath(cwd) if cwd.startswith("/") else ""):
+        if root and root != "/" and (norm == root or norm.startswith(root + "/")):
+            return False
+    return True
+
+
 def _headers(extra: dict | None = None) -> dict:
     return {"Authorization": f"Bearer {_token()}", "Content-Type": "application/json",
             **(extra or {})}
@@ -359,6 +374,36 @@ def detect() -> tuple[bool, str]:
 
 # ---- the stream --------------------------------------------------------------------------
 
+class EngineUnavailable(ConnectionError):
+    """The kernel refused to open the run's session for a reason the PERSON cannot fix and the
+    administrator can: ``code`` names it (``sandbox_unavailable``: the sandbox of the session
+    could not be created with its caps — kernel host-embed § 1), ``message`` says what to do."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+SANDBOX_UNAVAILABLE = (
+    "The engine's sandbox could not start, so this session cannot run its tools. "
+    "Administrator: docker must apply the sandbox's memory and CPU limits (cgroup controllers "
+    "delegated to docker) and the kernel must reach docker through its socket proxy — see "
+    "docs/KERNEL.md « sandbox_unavailable ». Kernel said: ")
+
+
+def _refusal(status: int, text: str) -> ConnectionError:
+    """The exception for a session the kernel refused to open."""
+    try:
+        err = (httpx.Response(status, text=text).json() or {}).get("error") or {}
+    except ValueError:
+        err = {}
+    code = err.get("code") if isinstance(err, dict) else None
+    if status == 503 and (code == "sandbox_unavailable" or "sandbox_unavailable" in text):
+        detail = (err.get("message") if isinstance(err, dict) else "") or text
+        return EngineUnavailable("sandbox_unavailable", SANDBOX_UNAVAILABLE + str(detail)[:300])
+    return ConnectionError(f"kernel refused the session ({status}): {text[:200]}")
+
+
 class _Stream:
     def __init__(self, h: "KernelHarness") -> None:
         self._h = h
@@ -392,6 +437,7 @@ class KernelHarness(Harness):
         self._sse_ready: asyncio.Event | None = None
         self._last_event_id = 0
         self._thread = ""
+        self._kcwd = ""                 # the run's folder as the kernel sees it
         self._opened = self._finished = self._stopped = False
         # the cockpit turn in progress
         self._turn: str | None = None
@@ -407,10 +453,12 @@ class KernelHarness(Harness):
         self._model: str | None = None
         self.opened_with: dict | None = None    # the opening body, values masked (benches)
         self.kernel_mode: str | None = None     # the mode the kernel applies to the thread
+        self.session_closed: bool | None = None  # the session's DELETE at stop() answered 200
         # names of `deny_tools` the kernel did not match (`unknown_denied`, kernel host-3) that
         # were EXPECTED to be active tools: a refusal that would pass in silence
         self.deny_unmatched: list[str] = []
         self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
+        self._head_sent = False                 # the run's head went with its first turn
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -480,6 +528,7 @@ class KernelHarness(Harness):
             await self._close_client()
             raise ConnectionError(f"kernel events not reachable at {_url()}") from None
         body: dict[str, Any] = {"cwd": _cwd_map(spec.cwd)}
+        self._kcwd = body["cwd"]
         if spec.resume:
             # the kernel reopens an unknown thread as an empty one, without a word: a run
             # resumed from a session the kernel does not have is refused here (C4, honestly)
@@ -547,7 +596,7 @@ class KernelHarness(Harness):
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
         if r.status_code not in (200, 201):
             await self._close_client()
-            raise ConnectionError(f"kernel refused the session ({r.status_code}): {r.text[:200]}")
+            raise _refusal(r.status_code, r.text)
         out = r.json()
         self._thread = out["thread_id"]
         # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
@@ -641,6 +690,19 @@ class KernelHarness(Harness):
                 self._mail.put_nowait(ContextInjected(
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
+        if spec.head and not self._head_sent and not spec.resume:
+            # 4.0: the run's fixed context (organisation, project's validated work) = the host
+            # contract's `project` block. The kernel's host API has no head block yet: it goes
+            # in front of the FIRST turn of the thread, once — the thread keeps it, a resumed
+            # thread already has it. Inside a brief block: never shown as the person's words.
+            head = "\n\n".join(b.text for b in spec.head if b.text)
+            if head:
+                text = "<sokkan-brief>\n" + head + "\n</sokkan-brief>\n\n" + text
+                for b in spec.head:
+                    self._mail.put_nowait(ContextInjected(
+                        turn_id=turn, source="preamble", note_names=tuple(b.note_names),
+                        chars=len(b.text), channel="head"))
+        self._head_sent = True
         text = self._alias_paths(text)
         if _in_sandbox():
             text = self._sandbox_paths(text)
@@ -732,6 +794,16 @@ class KernelHarness(Harness):
             return False
         g["resolved"] = True            # applied once: a second decision is refused
         effective = decision
+        if g.get("outside") and not decision.denied:
+            # docker sandbox: an absolute path outside /workspace is not the run's folder — the
+            # kernel would write it INSIDE the sandbox (lost, never on the host) without a word
+            # (kernel gap n°27). The cockpit refuses the card itself, and says it like a confinement
+            effective = Decision.deny("outside the run's space: only /workspace is the run's folder",
+                                      by=decision.by, via="engine")
+            self._mail.put_nowait(Error(
+                code="confined", recoverable=True,
+                message="write refused: the path is outside the run's folder (/workspace)",
+                data={"gate_id": gate_id, "shell_off": False}))
         if decision.kind not in g["options"]:
             effective = Decision.deny(f"decision {decision.kind!r} is not offered for this "
                                       "request", by=decision.by, via="engine")
@@ -844,9 +916,29 @@ class KernelHarness(Harness):
             await self.interrupt()
             if self._turn is not None:      # nothing more will come: close the turn
                 self._end_turn(force=True)
+        await self._close_session()
         self._mail.put_nowait(RunEnded(status="ended", resumable=bool(self._thread),
                                        engine_session=self._thread or None))
         await self._close_client()
+
+    async def _close_session(self) -> None:
+        """End of the run: the kernel removes the session's sandbox container
+        (``DELETE /v1/local/sessions/{thread}``, kernel host-2). The thread and its history
+        stay: a resumed run opens a session again (``resume``). A kernel without the route
+        (404/405) or out of reach keeps its sandbox until its own idle/exit reaping: never a
+        reason to fail the end of a run."""
+        if not self._thread or self._client is None:
+            return
+        try:
+            r = await asyncio.wait_for(self._client.delete(
+                f"/v1/local/sessions/{self._thread}", headers=_headers()), 30)
+            self.session_closed = r.status_code == 200
+            if r.status_code not in (200, 404, 405):
+                log.warning("kernel thread %s: session not closed (%s): %s",
+                            self._thread, r.status_code, r.text[:200])
+        except (httpx.HTTPError, asyncio.TimeoutError) as e:
+            self.session_closed = False
+            log.warning("kernel thread %s: session not closed: %s", self._thread, e)
 
     async def _close_client(self) -> None:
         if self._sse is not None:
@@ -1010,6 +1102,8 @@ class KernelHarness(Harness):
         options = (ALLOW_ONCE, ALLOW_SESSION, DENY) if rules else (ALLOW_ONCE, DENY)
         call = a.get("call_id")
         self._gates[gid] = {"id": gid, "type": "card", "resolved": False, "options": options,
+                            "outside": kind == "file_write" and _outside_sandbox(
+                                str(args.get("path") or ""), self._kcwd),
                             "rules": rules, "call_id": call, "turn": self._turn,
                             "turn_id": self._turn,
                             "kturn": f"{self._thread}:{a.get('turn_index')}"}

@@ -157,11 +157,17 @@ class _Never(httpx.AsyncByteStream):
 
 
 class _Kernel:
-    def __init__(self, unknown=None):
+    def __init__(self, unknown=None, delete_status=200):
         self.sessions, self.modes, self.unknown = [], [], unknown
+        self.deleted, self.delete_status = [], delete_status
 
     def handler(self, req: httpx.Request) -> httpx.Response:
         p = req.url.path
+        if req.method == "DELETE" and p.startswith("/v1/local/sessions/"):
+            self.deleted.append(p.rsplit("/", 1)[1])
+            if self.delete_status == 200:
+                return httpx.Response(200, json={"closed": True, "thread_id": self.deleted[-1]})
+            return httpx.Response(self.delete_status, json={})
         if p == "/v1/events":
             return httpx.Response(200, stream=_Never(), headers={"content-type": "text/event-stream"})
         if p == "/v1/local/sessions":
@@ -438,3 +444,33 @@ def test_the_view_hides_a_rule_of_the_space_and_keeps_a_real_failure(tmp_path):
         out += v.feed(e)
     done = [e for e in out if e["type"] == "activity_done"]
     assert done[0]["reason"] == "policy" and "reason" not in done[1]
+
+
+def _open_then_stop(spec):
+    async def go():
+        h = kernel.KernelHarness()
+        stream = h.start(spec)
+        await stream.__anext__()
+        await h.stop()
+        evs = []
+        while not h._mail.empty():
+            evs.append(h._mail.get_nowait())
+        return h, evs
+    return asyncio.run(go())
+
+
+def test_the_end_of_a_run_closes_the_kernel_session_and_its_sandbox(mocked, tmp_path):
+    """Kernel host-2: `DELETE /v1/local/sessions/{thread}` removes the session's sandbox (the
+    thread stays, a resumed run reopens it). The adapter calls it once, at stop()."""
+    k = mocked()
+    h, evs = _open_then_stop(contract.RunSpec(run_id="r1", cwd=str(tmp_path), shell=False))
+    assert k.deleted == ["th_1"] and h.session_closed is True
+    ended = [e for e in evs if isinstance(e, contract.RunEnded)]
+    assert ended and ended[0].resumable and ended[0].engine_session == "th_1"
+
+
+def test_a_kernel_without_the_route_still_ends_the_run(mocked, tmp_path):
+    k = mocked(delete_status=404)
+    h, evs = _open_then_stop(contract.RunSpec(run_id="r1", cwd=str(tmp_path)))
+    assert k.deleted == ["th_1"] and h.session_closed is False
+    assert any(isinstance(e, contract.RunEnded) for e in evs)

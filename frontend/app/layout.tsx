@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { cookies } from "next/headers";
 import "./globals.css";
 import "./simple.css";
+import "./onboarding.css";
 
 // Baloo 2 (SIL OFL 1.1, fonts/Baloo2-OFL.txt), latin subset, variable weight: shipped in
 // the repository rather than fetched from Google Fonts at build time, so that a

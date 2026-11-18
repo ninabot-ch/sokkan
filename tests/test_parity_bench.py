@@ -110,12 +110,13 @@ def test_atelier_rules(tmp_path):
     assert p.decide(_gate("file_write", tool="Write", path=str(mem / "n.md"))).kind == "deny"
     doc = str(deliv / "Quiz.md")
     assert p.decide(_gate("file_write", tool="Write", path=doc)).kind == "allow_once"
-    assert p.decide(_gate("file_write", tool="Edit", path=doc)).kind == "deny"   # 2nd save
+    second = p.decide(_gate("file_write", tool="Edit", path=doc))      # 2nd save, same turn
+    assert (second.kind, second.by, second.via) == ("allow_once", policy.PERSON, "auto_rule")
     p.new_turn()
     assert p.decide(_gate("file_write", tool="Edit", path=doc)).kind == "allow_once"
     s = p.summary()
     assert s["shell_refused"] == 1 and s["memory_write_refused"] == 1
-    assert s["second_saves_refused"] == 1 and s["max_cards_per_document_per_turn"] == 1
+    assert s["same_document_by_rule"] == 1 and s["max_cards_per_document_per_turn"] == 1
     assert s["deliverable_cards"] == 2 and s["cards_shown_to_person"] == 2
 
 
@@ -155,6 +156,35 @@ def _run(engine, journey, kind, ok, **kw):
             "failures": {}, "first_draft_s": 10.0}
     base.update(kw)
     return base
+
+
+def test_a_quiz_counts_its_numbered_stems_and_its_answer_key():
+    """Bench n°4: « ? » alone counted 6 questions for 8 (stems ending in « … »), and a change
+    made in several saves (the 2nd turned away by rule) left a 9th question without its line in
+    the key — the check `change_complete` reads both parts."""
+    import run
+    q = "\n".join(f"**{i}.** La plage doit être…\n\nA. oui\nB. non\n" for i in range(1, 10))
+    key = "\n".join(f"| {i} | B | parce que |" for i in range(1, 9))
+    c = run.quiz_counts(f"# Quiz\n\nPuis le corrigé.\n\n## Questions\n{q}\n## Corrigé\n\n| N° | R | Pourquoi |\n|---|---|---|\n{key}\n")
+    assert c == {"questions": 9, "numbered": 9, "key_entries": 8, "has_key": True}
+    c = run.quiz_counts("# Quiz\n### Question 1\nQuoi ?\n### Question 2\nQui ?\n## Réponses\n1. a\n2. b\n")
+    assert c["questions"] == 2 and c["key_entries"] == 2
+    c = run.quiz_counts("# Quiz\n## Questions\n**1.** Quoi ?\n## La correction\n| 1 | a |\n")
+    assert c["has_key"] and c["key_entries"] == 1
+    c = run.quiz_counts("# Quiz\n### Question 1\nQuoi ?\n### Question 2\nQui ?\n## Barème\n| 1 | a |\n| 2 | b |\n")
+    assert c["has_key"] and c["key_entries"] == 2
+    c = run.quiz_counts("# Quiz\n**Question 1**\nQuoi ?\n## Réponses et explications\n"
+                        "**Réponse à la question 1**\nB\n")
+    assert c["key_entries"] == 1
+    c = run.quiz_counts("# Quiz\n1. Quoi ?\n2. Qui ?\n\n**Pour l'animateur**\n1. a\n2. b\n")
+    assert c == {"questions": 2, "numbered": 2, "key_entries": 2, "has_key": True}
+    assert journeys.ATELIER[0].expect.questions_after_change == 9
+
+
+def test_the_second_save_refusal_is_the_products_own_words():
+    """The bench mirrors agentchat.py: plain.POLICY_DENIED reads it as a rule of the space."""
+    import plain
+    assert any(m in policy.ONE_CARD for m in plain.POLICY_DENIED)
 
 
 def test_verdict_parity_then_gap_then_gap_closed():

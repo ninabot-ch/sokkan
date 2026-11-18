@@ -12,7 +12,7 @@ checks and renders it. A self-hoster adds a job by dropping a file in the folder
   (`level`), whether its work may ever be written with Claude (`claude`), its guard-rails (what
   the person reads, and the rule the agent is given), 6-10 task templates and 3-5 starter notes.
 * a **task template**: what to attach, what the agent produces, the deliverable's format
-  (`docx` = a Markdown file downloaded as Word, `xlsx` = a CSV file downloaded as Excel,
+  (`docx` = a Markdown file downloaded as Word, `xlsx` = a `format: xlsx` source rendered as Excel by `outputs`,
   `md` = text), the points a human must check, the mission given to the agent, and the TYPE of
   deliverable (`brief`) whose quality brief is added to the mission.
 * a **starter note**: a memory note « to fill in with your team » (charter, tone, house
@@ -35,6 +35,7 @@ from pathlib import Path
 BUILTIN = Path(__file__).with_name("roles")
 LANGS = ("fr", "en")
 FORMATS = ("docx", "xlsx", "md")
+USES = ("mail", "calendar", "files")   # connector families a template's work touches
 LEVELS = ("public", "team", "project", "confidential", "restricted")
 _ID = re.compile(r"[a-z][a-z0-9-]{1,40}")
 _NOTE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")
@@ -191,6 +192,9 @@ def check(data: dict) -> list[str]:
             elif t.get("brief") in briefs and briefs[t["brief"]].get("format") == "xlsx" \
                     and t["format"] != "xlsx":
                 out.append(f"{tw}: a table brief is an xlsx deliverable")
+            u = t.get("uses", [])
+            if not isinstance(u, list) or not set(u) <= set(USES):
+                out.append(f"{tw}: uses must list some of {USES}")
             m = t.get("mission")
             if not isinstance(m, str) or len(m.strip()) < 80:
                 out.append(f"{tw}: mission too short")
@@ -273,7 +277,8 @@ def public_template(r: dict, t: dict, lang: str) -> dict:
             "description": tx["description"], "hint": tx["hint"], "deliverable": tx["deliverable"],
             "attach": tx["attach"], "produces": tx["produces"], "checks": list(tx["checks"]),
             "format": t["format"], "kind": ((b.get("i18n") or {}).get(lang) or {}).get("label", ""),
-            "role": r["id"], "role_label": r["i18n"][lang]["label"], "claude": bool(r["claude"])}
+            "role": r["id"], "role_label": r["i18n"][lang]["label"], "claude": bool(r["claude"]),
+            "uses": list(t.get("uses") or [])}
 
 
 def public(r: dict, lang: str, with_templates: bool = True) -> dict:
@@ -318,15 +323,15 @@ def deliverable_brief(brief_id: str, fmt: str) -> str:
              "- To check: " + b["verify"].strip()]
     if fmt == "xlsx":
         lines += [
-            "- FORMAT: this deliverable is a TABLE the person opens in Excel. Save it as ONE "
-            "« .csv » file (instead of Markdown) in the same folder: UTF-8, separated by semicolons "
-            "« ; » (what Excel opens directly in Switzerland), the first row holds the column "
-            "headers, one row per line, a field that contains a semicolon, a quote or a line break "
-            "is wrapped in double quotes. EVERY row has exactly as many fields as the header. No "
-            "title line, no blank line, no Markdown in the file; a total is a row of its own, "
-            "labelled, with its figure in the same column as the figures it adds. A value the "
-            "documents do not give stays an EMPTY cell (no « [à définir] », no « non documenté »). "
-            "The points to check go in your message to the person, not in the table."]
+            "- FORMAT: this deliverable is an EXCEL file the person opens (SOKKAN builds it, "
+            "`outputs`): save ONE file in the same folder that starts with the three lines `---`, "
+            "`format: xlsx`, `---`, then `# Title`; each `## Heading` is a sheet, each Markdown table "
+            "a block of rows, the first row of a table holds the column headers, EVERY row has as "
+            "many cells as the header. A total, a balance or any figure derived from others is a "
+            "FORMULA (`=SUM(ABOVE)`, `=[Montant]-[Payé]`), never a number you computed: SOKKAN "
+            "computes it and gives you the result. A value the documents do not give stays an "
+            "EMPTY cell (no « [à définir] », no « non documenté »). The points to check go in your "
+            "message to the person, not in the table."]
     return "\n".join(lines)
 
 
@@ -357,9 +362,10 @@ def mission(tid: str, subject: str) -> str | None:
         "- List the rules, thresholds and conditions the documents state (a priority grid, a "
         "minimum or maximum, an approval required, a deadline, a sort order asked for) and apply "
         "each one to every item; say in your message which ones you applied.",
-        "- Compute every total, difference, ratio and ranking yourself from the source lines, "
-        "and show the calculation where it matters. Compare your result with any total the "
-        "document gives: a difference is a finding to report, never something to smooth over. "
+        "- Every total, difference and ratio is a FORMULA in a table (SOKKAN computes it and "
+        "gives you the result — quote only that); rank from those results. Compare them with "
+        "any total the document gives: a difference is a finding to report, never something to "
+        "smooth over. "
         "Never write « checked », « consistent » or « the best » without the calculation behind it.",
         "- When the person's request or a document decides a point, apply the decision; keep "
         "« [à définir] » for what nobody decided.",
@@ -381,6 +387,51 @@ def mission(tid: str, subject: str) -> str | None:
         rules + "\n" + closing,
     ]
     return "\n\n".join(p for p in parts if p)
+
+
+# What the agent is told about the mailbox / calendar a template's work would touch (« uses »),
+# from what the connectors really allow for this person and project — no false promise: a
+# reminder or an invitation is never « sent » by a work that cannot send it.
+_CONNECTOR_RULES = {
+    ("mail", "off"): "The person's mailbox is NOT connected to SOKKAN: you can neither read their "
+                     "e-mails nor write in their mailbox nor send anything. Save the text as the "
+                     "deliverable, ready to copy, and say in one sentence that the person sends it "
+                     "themselves. Never write that a message was sent, will be sent or is scheduled.",
+    ("mail", "read"): "The person's mailbox is connected (tools sokkan-connectors): you may read it "
+                      "and leave a DRAFT in it (mail_draft). Sending from SOKKAN is switched off by "
+                      "the administrator: the person sends the draft themselves; never write that "
+                      "it was sent.",
+    ("mail", "act"): "The person's mailbox is connected (tools sokkan-connectors): you may leave a "
+                     "DRAFT in it (mail_draft) and propose sending it (mail_propose_send). Nothing "
+                     "leaves before the person approves the card in Settings › Connectors: say "
+                     "« draft ready, sending awaits your approval », never « sent ».",
+    ("calendar", "off"): "The person's calendar is NOT connected to SOKKAN: you can neither see "
+                         "their availability nor create or send an invitation. Write the date and "
+                         "time as given; the person creates the event themselves. Never write that "
+                         "an invitation was sent or an event created.",
+    ("calendar", "read"): "The person's calendar is readable (calendar_events, calendar_free_slots) "
+                          "but no event can be created from SOKKAN: the person creates it "
+                          "themselves; never write that an invitation was sent.",
+    ("calendar", "act"): "The person's calendar is connected: you may propose the event "
+                         "(calendar_propose_event); it is created only after the person approves "
+                         "the card in Settings › Connectors — never write that it was sent before.",
+}
+
+
+def connector_rules(tid: str, caps: dict[str, str]) -> str:
+    """The lines for the families a template uses (``caps``: connectors.service.capabilities)."""
+    found = template(tid)
+    if found is None:
+        return ""
+    lines = [_CONNECTOR_RULES.get((f, caps.get(f, "off")), "") for f in found[1].get("uses") or []]
+    lines = [x for x in lines if x]
+    return ("MAILBOX AND CALENDAR (what this work can really do):\n" + "\n".join(f"- {x}" for x in lines)
+            ) if lines else ""
+
+
+def uses_of(tid: str) -> list[str]:
+    found = template(tid)
+    return list(found[1].get("uses") or []) if found else []
 
 
 def allows_claude(tid: str) -> bool:

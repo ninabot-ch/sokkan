@@ -66,6 +66,9 @@ _KERNEL_TOOLS = {"read_file": "Read", "search_files": "Grep", "write_file": "Wri
                  "patch": "Edit", "terminal": "Bash", "process_start": "Bash",
                  "delegate": "Task", "todo": "TodoWrite"}
 _DETAIL_MAX = 4000
+# what an approved call of these kinds changes stays in the instance (SOKKAN's own stores)
+INSIDE_KINDS = ("write_draft", "write_file", "save_memory", "board_card", "board_change",
+                "create_agent", "agent_change")
 DRAFT_MAX = 120_000
 # 3.6.7 — a tool call that did not run because SOMEONE said no is not a failure. The person's
 # own « No » (the card's Refuse) and a rule of the space that turned a call away (no shell in
@@ -78,10 +81,13 @@ PERSON_DENIED = ("Denied by the user", "The user doesn't want to proceed",
                  "The user declined", "user rejected")
 POLICY_DENIED = ("No shell in this conversation", "does not write memory files directly",
                  "is not in this agent's allowed tools", "This is an unattended agent run",
-                 "already approved this document in this turn",
+                 "already approved this document in this turn",     # 3.6.7 (replayed threads)
+                 "declined this document in this turn",             # 4.0
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
                  "No such tool available",
+                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
+                 "Not available in this conversation: the person works in SOKKAN Atelier",
                  # 4.0: the quality gate sent a deliverable back to be corrected before its card
                  "(Check before the card.)")
 
@@ -161,19 +167,25 @@ class View:
     None); ``on_write(name, tool_id)`` registers a saved deliverable and returns its version."""
 
     def __init__(self, *, docs_dir: Path | str | None = None, deliv_dir: Path | str | None = None,
-                 doc_lookup=None, on_write=None, attached: int = 0, lang: str = "fr"):
+                 doc_lookup=None, on_write=None, attached: int = 0, lang: str = "fr",
+                 project: str = ""):
         self.docs_dir = Path(docs_dir).resolve() if docs_dir else None
         self.deliv_dir = Path(deliv_dir).resolve() if deliv_dir else None
         self.doc_lookup = doc_lookup or (lambda _id: None)
         self.on_write = on_write or (lambda name, tool_id: 1)
         self.attached = attached
         self.lang = lang if lang in ("fr", "en") else "fr"
+        self.project = project                  # the project's name, said on a card (4.0)
         self._tools: dict[str, dict] = {}       # tool_use id → {kind, deliverable}
         self._used: dict[str, dict] = {}        # doc id → source (documents the agent opened)
         self._writes: dict[str, int] = {}       # deliverable name → version seen in this view
         self._refused: str | None = None        # study refusal already said in this turn
         self._asked: dict[str, str] = {}        # permission id → tool_use id it gates
         self._denied: set[str] = set()          # tool_use ids the person said no to
+        # 4.0: deliverables already saved in this turn — the later saves of the same document
+        # in the turn (approved by rule once the person approved the first) are the SAME
+        # version: one card, showing the document as it stands at the end of the turn
+        self._turn_saved: set[str] = set()
 
     # ---- paths ---------------------------------------------------------------------------
     def _resolve(self, p: str) -> Path | None:
@@ -322,7 +334,18 @@ class View:
             return {"text": text[:DRAFT_MAX], "partial": True, "truncated": len(text) > DRAFT_MAX}
         else:
             return None
-        return {"text": text[:DRAFT_MAX], "partial": False, "truncated": len(text) > DRAFT_MAX}
+        out = {"text": text[:DRAFT_MAX], "partial": False, "truncated": len(text) > DRAFT_MAX}
+        if text.lstrip("\ufeff").startswith("---") or re.search(r"\|\s*(\*\*)?=", text):
+            # 4.0 native formats: the card shows what the person will get — figures computed,
+            # one section per letter — while an edit still works on the text as written
+            try:
+                import outputs
+                name = Path(str(inp.get("file_path") or inp.get("path") or "")).name
+                out["preview"] = outputs.preview(name, text)[:DRAFT_MAX]
+                out["kind"] = outputs.kind_of(name, text)
+            except Exception:  # noqa: BLE001 — a preview never breaks a card
+                pass
+        return out
 
     # ---- the translation ------------------------------------------------------------------
     def feed(self, ev: dict) -> list[dict]:
@@ -361,6 +384,7 @@ class View:
             return [out]
         if t in ("user_echo", "user"):
             self._refused = None                # a new turn: a refusal is said again
+            self._turn_saved = set()            # … and a save is a new version again
         if t == "user_echo":
             return [{"type": "user", "text": ev.get("text") or "",
                      "documents": ev.get("documents") or []}]
@@ -393,10 +417,14 @@ class View:
             if ok and c.get("deliverable"):
                 name = c["deliverable"]
                 model = c.get("model") or ""
-                try:
-                    version = int(self.on_write(name, tid, model) or 1)
-                except TypeError:           # a two-argument callback (before 3.6.5)
-                    version = int(self.on_write(name, tid) or 1)
+                if name in self._turn_saved and name in self._writes:
+                    version = self._writes[name]    # same document, same turn: same version
+                else:
+                    try:
+                        version = int(self.on_write(name, tid, model) or 1)
+                    except TypeError:           # a two-argument callback (before 3.6.5)
+                        version = int(self.on_write(name, tid) or 1)
+                    self._turn_saved.add(name)
                 self._writes[name] = version
                 card = {"type": "deliverable", "name": name,
                         "title": self._deliverable_title(name), "version": version}
@@ -419,13 +447,21 @@ class View:
             tid = self._gated(tool, inp)
             if tid and ev.get("id"):
                 self._asked[ev["id"]] = tid
-            return [{"type": "approval", "id": ev.get("id") or "", "kind": c["kind"],
+            # 4.0 (audit coworker): what, where, with what — never a blind « an action »
+            import approvalcard
+            card = approvalcard.describe(tool, inp, {**c, "subject": title}, self.lang,
+                                         self.project)
+            if draft is None and card["preview"]:
+                # a note to retain, a mail draft: read before deciding (not editable here)
+                draft = {"text": card["preview"], "partial": False, "truncated": False}
+            return [{"type": "approval", "id": ev.get("id") or "", "kind": card["kind"],
                      "tool_id": tid,
-                     "title": title, "version": version,
+                     "title": card["subject"], "version": version,
+                     "where": card["where"], "facts": card["facts"], "diff": card["diff"],
                      "sources": sorted(self._used.values(), key=lambda s: s["name"].lower()),
                      "attached": self.attached,
                      # a save in the person's own space sends nothing outside the instance
-                     "stays_inside": c["kind"] in ("write_draft", "write_file", "save_memory"),
+                     "stays_inside": card["kind"] in INSIDE_KINDS,
                      "draft": draft, "detail": self._detail(ev),
                      # 4.0: what the quality gate checked before this card (None: not checked)
                      "check": ev.get("check")}]
@@ -449,10 +485,18 @@ class View:
             if ev.get("code") == "four_eyes":
                 # the four-eyes rule refused the owner's approval: the card is sent again
                 return [{"type": "notice", "code": "four_eyes", "detail": _short(msg, 1000)}]
+            if ev.get("code") in ("sandbox_unavailable", "engine_unavailable"):
+                # 4.0: the session's engine did not start (its sandbox, the kernel service):
+                # nothing the person can fix — their own sentence, the detail for the admin
+                return [{"type": "notice", "code": ev["code"], "detail": _short(msg, 1000)}]
             if ev.get("code") in STUDY_NOTICES:
                 # a refusal of the inference gateway about the study (backend/study.py): its
                 # own notice, in the person's language — never « you can send it again »
                 return self._refusal(ev["code"], msg)
+            # 4.0: the model or the engine's sandbox, said in words (llmerrors' codes)
+            human = _human_error(str(ev.get("code") or ""), msg)
+            if human:
+                return [{"type": "notice", "code": human, "detail": _short(msg, 1000)}]
             code = ("busy" if "already running" in low else
                     "budget" if "budget" in low else
                     "read_only" if "lecture seule" in low or "read-only" in low else
@@ -519,4 +563,30 @@ def last_line(events: list[dict], limit: int = 140, lang: str = "fr") -> str:
             out = (sentences[-1] if sentences else last).strip()
             out = re.sub(r"\s+", " ", out)
             return out if len(out) <= limit else out[: limit - 1].rstrip() + "…"
+    return ""
+
+
+# 4.0 — the errors a person can act on (or must hand to the administrator), as notice codes
+_MODEL_NOTICES = {"quota_exhausted": "model_quota", "rate_limited": "model_rate",
+                  "unreachable": "model_unreachable", "overloaded": "model_unreachable",
+                  "auth": "model_auth"}
+
+
+def _human_error(code: str, msg: str) -> str:
+    """`sandbox_unavailable` (the engine cannot open the work's sandbox: docker down), the
+    model's quota / rate / reachability / credentials — else '' (the generic sentence)."""
+    low = (msg or "").lower()
+    if code == "sandbox_unavailable" or "sandbox_unavailable" in low:
+        return "sandbox_unavailable"
+    if code in _MODEL_NOTICES:
+        return _MODEL_NOTICES[code]
+    try:
+        import llmerrors
+        h = llmerrors.from_text(msg)
+    except Exception:  # noqa: BLE001 — never break the stream on a message
+        h = None
+    if h and h.get("code") in _MODEL_NOTICES:
+        return _MODEL_NOTICES[h["code"]]
+    if "kernel events not reachable" in low or "connection refused" in low or "connecterror" in low:
+        return "model_unreachable"
     return ""

@@ -243,7 +243,9 @@ _REGISTRY: dict[str, dict] = {
             "is multiple choice, the right answer, a one-line explanation and the passage of "
             "the document it checks. Order them from easy to hard, no trick question, one "
             "idea per question. Give the questions first (ready to hand out), then the answer "
-            "key as a separate section."
+            "key as a separate section with one entry per question — a quiz saved without its "
+            "key is not finished; when a question is added, removed or renumbered, its key "
+            "entry follows in the same save."
         ),
     },
 }

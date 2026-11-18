@@ -43,6 +43,17 @@ waits for the person.
    shell command, and no shell runs in it: the shell tools are out of the work's catalogue (its sub-agents
    included), a `PreToolUse` hook refuses one called anyway — before the CLI's own approval of read-only
    commands — and the agent is told to use the file tools (3.6.8).
+   **One card per document per turn** (4.0, both engines, read from the gate: `file_write` and its
+   path): the first save of a document in a turn asks the person. Once they approved it, the later saves
+   of the SAME document in the SAME turn go through without a new card — approved by rule, journaled as
+   `policy:simple_same_document_same_turn` with the person who approved the first card as decider
+   (`via: auto_rule`), discreet in the thread like every rule of the space. A change made in several
+   edits (a question, its line in the answer key, the count) is the change they approved. If they
+   refused the first card, the document is not saved again in that turn (the agent is told to ask what
+   they want instead). Another document has its own card. The thread shows one version per document
+   per turn — the document as it stands at the end of the turn — and the person still validates the
+   deliverable afterwards. The brief still asks for a change in ONE save of the whole file; this rule is
+   the net. (3.6.7 refused the later saves, which left a document half-changed.)
 4. **Deliverable** — preview, *Télécharger en Word* (or the text), *Valider le livrable*: who, when and
    the SHA-256 of exactly what was validated go to the journal; a later change shows « modified since
    your validation ».
@@ -69,7 +80,7 @@ person chose; `<html lang>` follows. The technical profile stays in English.
 
 | | |
 |---|---|
-| Types | pdf, docx, pptx, xlsx, txt, md — the extension **and** the content are checked (a renamed executable, a zip called .docx, a macro-enabled package, a PNG called .pdf are refused) |
+| Types | pdf, docx, pptx, xlsx, txt, md, csv, eml, msg, jpg, png — the extension **and** the content are checked (a renamed executable, a zip called .docx, a macro-enabled package, a PNG called .pdf, a Word file called .msg, a text without mail headers called .eml are refused) |
 | Size | `SOKKAN_DOCUMENTS_MAX_MB` (25) per file, enforced while the upload streams; `SOKKAN_DOCUMENTS_MAX_PER_PROJECT` (500) |
 | Name | a label only: directory parts, control and reserved characters removed; the file is stored under an id SOKKAN generates |
 | Place | `<project space>/documents/<id>/<name>` — the workspace for the default project, `$SOKKAN_DATA_DIR/projects/<slug>/work` otherwise (what the project sandbox lets a session read) — plus a text copy `<name>.txt` the agent reads on any engine |
@@ -78,6 +89,24 @@ person chose; `<html lang>` follows. The technical profile stays in English.
 | Journal | `document.upload`, `document.refused` (with the reason), `document.download`, `document.attach`, `document.delete`; `session.spawn`, `deliverable.save`, `deliverable.download`, `deliverable.validate`, `profile.set` |
 
 Deliverables are the Markdown files an agent saves in `<project space>/deliverables/<session id>/`.
+
+**Native formats (4.0, `backend/outputs.py`).** The saved Markdown stays the source — what the card
+shows, what is versioned and what the validation seals. The person downloads the file they need,
+rendered from it each time: **Word** (python-docx; on the organisation's template when an admin gave
+one — Réglages › *Modèle Word de la maison*, `.dotx`/`.docx`, one by default and optionally one per kind
+of document, `wordtemplates.py`), **PDF** (reportlab, with the template's logo and footer), **Excel**
+for a source that starts with the front matter `format: xlsx` (or a `.csv` table): each `## ` heading
+is a sheet, figures are numbers, cells starting with `=` are real formulas written in the table's own
+coordinates, by column name (`=[Montant]-[Payé]`) or `=SUM(ABOVE)`; SOKKAN computes them (stored
+with the formula, shown in the preview, in Word/PDF tables too) and hands the results to the agent
+(`deliverables/<sid>/.calc/<name>.txt`, and the tool's context on the legacy engine), so it never
+quotes a total it computed in its head; **CSV** `;` for Swiss Excel; and **one document per
+recipient** (`format: letters`: a `{{Field}}` template plus a `## Destinataires` table, or letters
+separated by `---`) as a zip of Word or PDF files plus all the letters in one file. Nothing is sent
+to an outside conversion service. New inputs get a text copy too: **csv** (a `;` left unquoted in a
+cell is repaired), **eml** and **msg** (headers, text, attachments' text — `olefile`), **jpg/png** by
+OCR with Tesseract on the machine (the api image carries `tesseract-ocr` fra/deu/ita/eng; without it
+the state is `unavailable` and the agent is told to ask for the figures).
 
 `pypdf` (in `backend/requirements.txt`) extracts the text of a PDF; without it a PDF is stored with
 `text_state: unavailable` and the agent is pointed at the original file. The text copy is a plain
@@ -88,7 +117,8 @@ reading aid, **not** the memory ingestion (structure, chunks, notes), which is s
     GET/PUT /api/me/prefs                      PUT /api/admin/prefs/{email}
     GET /api/simple/home · /api/simple/works   POST /api/simple/start   (`request_id`: one work per id)
     GET /api/simple/sessions/{sid}             POST …/message   (`request_id`: taken once per work, 3.6.4)
-    GET|POST …/deliverables                    GET …/deliverables/{name}[/download?format=md|docx]
+    GET|POST …/deliverables                    GET …/deliverables/{name}[/download?format=md|docx|pdf|xlsx|csv|letters_docx|letters_pdf]
+    GET /api/admin/word-templates              PUT|DELETE /api/admin/word-templates/{kind}   (instance admin)
     POST …/deliverables/{name}/validate
     GET|PUT /api/documents                     GET|DELETE /api/documents/{id}
     GET /api/documents/{id}/content | /text    POST /api/documents/{id}/attach

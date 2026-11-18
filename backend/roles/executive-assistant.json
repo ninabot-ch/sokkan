@@ -69,6 +69,7 @@
       "id": "meeting-agenda",
       "brief": "plan",
       "format": "docx",
+      "uses": ["mail", "calendar"],
       "i18n": {
         "fr": {
           "label": "Ordre du jour et dossier de séance",
@@ -95,6 +96,7 @@
       "id": "reply-letter",
       "brief": "letter",
       "format": "docx",
+      "uses": ["mail"],
       "i18n": {
         "fr": {
           "label": "Réponse à un courrier",
@@ -121,6 +123,7 @@
       "id": "inbox-digest",
       "brief": "memo",
       "format": "docx",
+      "uses": ["mail"],
       "i18n": {
         "fr": {
           "label": "Tri du courrier entrant",

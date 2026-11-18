@@ -49,6 +49,10 @@ local:
   settings_path: /opt/data/settings.json
   allowed_hosts_env: NOKKER_ALLOWED_HOSTS
   max_calls: @MAX_CALLS@
+  # the label of this kernel's sandboxes (`nokker.instance`). Unset, the kernel takes a hash of its
+  # state folder AS IT SEES IT (/opt/data): every containerised kernel on one docker daemon gets the
+  # same label, and each one's start-up reaping removes the others' sandboxes (bench n°4)
+  instance: @INSTANCE@
   # host-embed flags of the kernel (its docs/HOST-EMBED.md; all off by default there), set as
   # SOKKAN will ship them: PARITY_HOST_EMBED=1 (default). memory_direct stays OFF: a note of a
   # conversation goes through SOKKAN's own MCP `memory_write` (quarantine), the kernel's
@@ -66,4 +70,8 @@ local:
     # work folder is mounted at the same path in the kernel, so the daemon sees it there too
     require_sandbox: @REQUIRE_SANDBOX@
     image: @SANDBOX_IMAGE@
+    # the sandbox's memory/CPU caps (kernel host-2; PARITY_SANDBOX_MEMORY / PARITY_SANDBOX_CPUS,
+    # docker sandbox only): set, the sandbox is created when the session opens and a cap docker
+    # does not apply refuses the session (503 sandbox_unavailable) — never an uncapped sandbox
+    # @SANDBOX_CAPS@
     host_roots: {"@ROOT@": "@ROOT@"}

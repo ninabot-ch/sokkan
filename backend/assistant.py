@@ -46,6 +46,14 @@ DAILY_LIMIT = env_num("SOKKAN_ASSISTANT_DAILY_LIMIT", 50)
 # project proposal (```sokkan-project```, 5-8 cards) is ~1 000 tokens of JSON: 800 left
 # answers EMPTY or cut in the middle of the block (manager journey of 08.10).
 MAX_TOKENS = max(256, env_num("SOKKAN_ASSISTANT_MAX_TOKENS", 2048))
+# 4.0 (audit coworker, 18.11): on the appliance's local model (27B, OpenAI door, served with a
+# reasoning parser) Nina THOUGHT before every answer — 79 s, the 2 048 tokens spent thinking,
+# then an empty answer naming this variable to the person. Nina answers from a knowledge base
+# she is given: no reasoning pass unless the operator turns it back on.
+THINKING = (os.environ.get("SOKKAN_ASSISTANT_THINKING") or "0").strip().lower() in (
+    "1", "true", "yes", "on")
+# endpoints that refused `chat_template_kwargs` (a strict OpenAI-compatible server): not sent again
+_NO_TEMPLATE_KWARGS: set[str] = set()
 # Le flux peut durer : sur du silicium maison une réponse détaillée met 40 s.
 # Ce n'est pas un problème tant qu'elle s'écrit à l'écran.
 STREAM_TIMEOUT = 300
@@ -243,6 +251,28 @@ def _fallback_config() -> dict | None:
             "model": os.environ.get("SOKKAN_ASSISTANT_LLM_FALLBACK_MODEL", "sokkan-ship")}
 
 
+def _openai_body(cfg: dict, system: str, msgs: list[dict], stream: bool = False) -> dict:
+    """The /chat/completions body. Without reasoning by default (vLLM / SGLang read
+    `chat_template_kwargs.enable_thinking`; Qwen3 and its kin honour it)."""
+    body: dict = {"model": cfg["model"], "max_tokens": MAX_TOKENS,
+                  "messages": [{"role": "system", "content": system}, *msgs]}
+    if stream:
+        body["stream"] = True
+    if not THINKING and cfg["url"] not in _NO_TEMPLATE_KWARGS:
+        body["chat_template_kwargs"] = {"enable_thinking": False}
+    return body
+
+
+def _refused_kwargs(cfg: dict, r: httpx.Response, body: dict) -> bool:
+    """A 400 to a body carrying `chat_template_kwargs`: the endpoint does not take it —
+    remembered, and the caller sends the request again without it."""
+    if getattr(r, "status_code", 200) == 400 and "chat_template_kwargs" in body:
+        _NO_TEMPLATE_KWARGS.add(cfg["url"])
+        print(f"[assistant] {cfg['url']} refuse chat_template_kwargs → renvoyé sans")
+        return True
+    return False
+
+
 # Un primaire injoignable ne doit pas coûter son timeout à CHAQUE message :
 # on le met au coin pendant PRIMARY_RETRY_S avant de retenter.
 PRIMARY_RETRY_S = 120
@@ -254,23 +284,27 @@ def _ask(cfg: dict, system: str, msgs: list[dict], user_email: str,
     """Un aller-retour modèle. Deux dialectes, une seule sortie texte."""
     hdr_user = llm.identity_headers(user_email, "assistant:")  # study mode: pseudonym
     if cfg.get("api") == "openai":
-        r = httpx.post(
-            f"{cfg['url']}/chat/completions",
-            headers={"Authorization": f"Bearer {cfg['token']}", **hdr_user},
-            json={"model": cfg["model"], "max_tokens": MAX_TOKENS,
-                  "messages": [{"role": "system", "content": system}, *msgs]},
-            timeout=120,  # un modèle local sur GPU maison est plus lent qu'une API
-        )
+        for _ in range(2):
+            body = _openai_body(cfg, system, msgs)
+            r = httpx.post(
+                f"{cfg['url']}/chat/completions",
+                headers={"Authorization": f"Bearer {cfg['token']}", **hdr_user},
+                json=body,
+                timeout=120,  # un modèle local sur GPU maison est plus lent qu'une API
+            )
+            if not _refused_kwargs(cfg, r, body):
+                break
         r.raise_for_status()
         ch = (r.json().get("choices") or [{}])[0]
         m = ch.get("message") or {}
+        cut = ch.get("finish_reason") == "length"
+        if cut and state is not None:
+            state["cut"] = True
         # les modèles à raisonnement rendent content=None et tout mettent dans
         # reasoning_content (piège déjà vu sur la passerelle d'inférence). `reasoning`
-        # (vLLM ≥ 0.10, gpt-oss) est la réflexion du modèle : jamais montrée.
-        out = (m.get("content") or m.get("reasoning_content") or "").strip()
-        if ch.get("finish_reason") == "length" and state is not None:
-            state["cut"] = True
-        return out
+        # (vLLM ≥ 0.10, gpt-oss) est la réflexion du modèle : jamais montrée. 4.0 : une
+        # réflexion COUPÉE (finish=length) n'est pas une réponse — jamais montrée non plus.
+        return (m.get("content") or ("" if cut else m.get("reasoning_content")) or "").strip()
     r = httpx.post(
         f"{cfg['url']}/v1/messages",
         headers={"x-api-key": cfg["token"], "anthropic-version": "2023-06-01", **hdr_user},
@@ -298,13 +332,17 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
     url = f"{cfg['url']}/chat/completions" if openai else f"{cfg['url']}/v1/messages"
     headers = ({"Authorization": f"Bearer {cfg['token']}"} if openai
                else {"x-api-key": cfg["token"], "anthropic-version": "2023-06-01"})
-    body: dict = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "stream": True}
     if openai:
-        body["messages"] = [{"role": "system", "content": system}, *msgs]
+        body = _openai_body(cfg, system, msgs, stream=True)
     else:
-        body["system"], body["messages"] = system, msgs
+        body = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "stream": True,
+                "system": system, "messages": msgs}
     with httpx.stream("POST", url, headers={**headers, **hdr_user}, json=body,
                       timeout=STREAM_TIMEOUT) as r:
+        if openai and _refused_kwargs(cfg, r, body):
+            r.close()
+            yield from _stream(cfg, system, msgs, user_email, state)
+            return
         r.raise_for_status()
         # Tous les endpoints n'honorent pas `stream: true` : la passerelle
         # répond en JSON d'un bloc sur les comptes maison. Sans ce repli, le
@@ -316,8 +354,10 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
             if openai:
                 ch0 = (data.get("choices") or [{}])[0]
                 m = ch0.get("message") or {}
-                whole = (m.get("content") or m.get("reasoning_content") or "").strip()
-                if ch0.get("finish_reason") == "length" and state is not None:
+                cut = ch0.get("finish_reason") == "length"
+                whole = (m.get("content") or ("" if cut else m.get("reasoning_content"))
+                         or "").strip()
+                if cut and state is not None:
                     state["cut"] = True
             else:
                 if data.get("stop_reason") == "max_tokens" and state is not None:
@@ -327,6 +367,9 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
             if whole:
                 yield whole
             return
+        said = False                 # a word of the ANSWER has been yielded
+        thought: list[str] = []      # reasoning_content, held back (see below)
+        cut = False
         for line in r.iter_lines():
             if not line.startswith("data:"):
                 continue
@@ -340,11 +383,17 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
             if openai:
                 ch0 = (ev.get("choices") or [{}])[0]
                 d = ch0.get("delta") or {}
-                # modèles à raisonnement : le texte peut arriver en reasoning_content ;
-                # `reasoning` (vLLM, gpt-oss) = la réflexion, jamais montrée
-                chunk = d.get("content") or d.get("reasoning_content") or ""
-                if ch0.get("finish_reason") == "length" and state is not None:
-                    state["cut"] = True
+                # `reasoning` (vLLM, gpt-oss) = la réflexion, jamais montrée. 4.0 :
+                # `reasoning_content` non plus pendant le flux — sur le 27B c'est la réflexion,
+                # que Nina affichait mot à mot ; il ne sert de réponse (passerelle qui y met
+                # tout) que si aucun mot de `content` n'est venu et que rien n'est coupé
+                chunk = d.get("content") or ""
+                if d.get("reasoning_content") and not said:
+                    thought.append(d["reasoning_content"])
+                if ch0.get("finish_reason") == "length":
+                    cut = True
+                    if state is not None:
+                        state["cut"] = True
             else:
                 chunk = (ev.get("delta") or {}).get("text", "") \
                     if ev.get("type") == "content_block_delta" else ""
@@ -352,7 +401,10 @@ def _stream(cfg: dict, system: str, msgs: list[dict], user_email: str,
                         and (ev.get("delta") or {}).get("stop_reason") == "max_tokens"):
                     state["cut"] = True
             if chunk:
+                said = True
                 yield chunk
+        if openai and not said and thought and not cut:
+            yield "".join(thought).strip()
 
 
 def _ask_with_fallback(cfg: dict, fb: dict | None, system: str, msgs: list[dict],
@@ -642,8 +694,10 @@ SIMPLE_PROFILE_GUIDE = """
 === CETTE PERSONNE UTILISE SOKKAN ATELIER (l'interface simple) ===
 Elle n'est pas développeuse et ne voit PAS les écrans techniques (Board, Sessions, Crew, Helm,
 Operate, Setup, terminal). Pour elle, tu es « Nina, son guide dans SOKKAN » — pas une
-ingénieure DevOps. Son écran a un menu à gauche : Accueil, Mes travaux, Documents, Mon équipe
-d'agents, puis ses travaux récents ; en bas, la jauge d'utilisation du jour et les Réglages
+ingénieure DevOps. Son écran a un menu à gauche : Accueil, Mes travaux, Documents, Mémoire (ce
+que les agents retiennent du projet : écrire « Retiens que … » dans un travail propose une note,
+qu'elle approuve), Mon équipe d'agents (consultation seulement), Notes à relire, puis ses travaux
+récents ; en bas, la jauge d'utilisation du jour et les Réglages
 (langue, apparence claire ou nuit, interface : « SOKKAN Atelier » ou « SOKKAN Cockpit »).
 Comment elle obtient un document :
 1. Accueil : elle écrit ce qu'elle veut obtenir dans la zone de saisie, ou choisit un modèle
@@ -657,8 +711,9 @@ Comment elle obtient un document :
 5. le livrable s'ouvre en aperçu : « Télécharger en Word », puis « Valider le livrable » quand
    elle l'a relu (la validation est datée et enregistrée) ; elle peut demander une
    modification dans la zone de réponse, sous le fil.
-Règles pour TES réponses à cette personne : des mots de tous les jours, phrases courtes, les
-libellés exacts de SON écran entre guillemets ; jamais les mots session, spawn, playbook, MCP,
+Règles pour TES réponses à cette personne : vouvoie-la toujours (jamais « tu ») ; va droit au
+but, 120 mots au plus sauf si elle demande le détail ; des mots de tous les jours, phrases
+courtes, les libellés exacts de SON écran entre guillemets ; jamais les mots session, spawn, playbook, MCP,
 tmux, vault, prompt, token, YOLO ni un nom d'écran technique ; si ce qu'elle demande n'existe
 que dans SOKKAN Cockpit, l'interface technique (créer un agent programmé, régler un budget, gérer les accès), dis
 que c'est la personne qui administre SOKKAN qui le fait, sans expliquer comment."""
@@ -678,15 +733,20 @@ def _is_fr(message: str) -> bool:
 
 
 def _empty_reply(message: str, cut: bool) -> str:
-    """What Nina says when the model gave no text — never a bare « (réponse vide) »."""
+    """What Nina says when the model gave no text — never a bare « (réponse vide) », and
+    never a setting's name (4.0: the person read « SOKKAN_ASSISTANT_MAX_TOKENS »). The
+    operator's hint goes to the log."""
+    if cut:
+        print(f"[assistant] réponse vide, coupée à {MAX_TOKENS} jetons (SOKKAN_ASSISTANT_MAX_TOKENS"
+              f", réflexion {'active' if THINKING else 'coupée'} : SOKKAN_ASSISTANT_THINKING)")
     if _is_fr(message):
-        return ("(Je n'ai rien pu écrire : le modèle a épuisé son budget de réponse avant de "
-                "répondre. Reformulez plus court, ou demandez à l'admin de relever "
-                "SOKKAN_ASSISTANT_MAX_TOKENS.)" if cut else
-                "(Réponse vide du modèle — reposez la question.)")
-    return ("(I could not write anything: the model used its whole answer budget before "
-            "replying. Ask again more briefly, or ask the admin to raise "
-            "SOKKAN_ASSISTANT_MAX_TOKENS.)" if cut else "(Empty answer from the model — please ask again.)")
+        return ("Je n'ai pas réussi à formuler une réponse cette fois-ci. Pouvez-vous reposer "
+                "votre question en une phrase plus courte ? Si cela se reproduit, signalez-le "
+                "à la personne qui administre SOKKAN." if cut else
+                "Je n'ai pas de réponse cette fois-ci. Pouvez-vous reposer la question ?")
+    return ("I could not put an answer together this time. Could you ask again in a shorter "
+            "sentence? If it happens again, tell the person who administers SOKKAN." if cut
+            else "I have no answer this time. Could you ask the question again?")
 
 
 def _cut_notice(message: str) -> str:

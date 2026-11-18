@@ -335,6 +335,11 @@ class RunSpec:
     budget_usd: float | None = None         # native cap, when the engine prices the model
     budget_tokens: int | None = None
     context: ContextProvider | None = None
+    # 4.0 — what the run knows from its first token, fixed for its life: the organisation's
+    # profile, the project's validated work (backend/househead.py). Not a recall: decided once
+    # by the cockpit, delivered by the engine where it costs least (legacy: the system prompt,
+    # a cached prefix; kernel: the contract's `project` block, today in front of the first turn)
+    head: tuple[ContextBlock, ...] = ()
     confinement: Confinement | None = None
     options: dict[str, Any] = field(default_factory=dict)   # engine-specific, by engine id
 
@@ -350,6 +355,7 @@ class RunSpec:
             "approval_mode": self.approval_mode, "shell": self.shell,
             "budget_usd": self.budget_usd, "budget_tokens": self.budget_tokens,
             "context": self.context is not None,
+            "head": [b.source for b in self.head],
             "confinement": self.confinement.project if self.confinement else None,
         }
 
@@ -502,7 +508,7 @@ class ContextInjected(Event):
     source: str                 # the delivery path: hook | preamble | mcp | native
     note_names: tuple[str, ...] = ()
     chars: int = 0
-    channel: str = "prompt"     # prompt | subagent
+    channel: str = "prompt"     # prompt | subagent | head (4.0: the run's fixed context)
     _tuples: ClassVar[tuple[str, ...]] = ("note_names",)
 
 
