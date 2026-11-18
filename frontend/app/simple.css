@@ -749,3 +749,10 @@ html[data-sk-theme] body {
 .sk-org-badge { display: flex; align-items: center; gap: var(--sk-s2); padding: 0 var(--sk-s2) var(--sk-s2); min-width: 0; }
 .sk-org-badge-logo { max-height: 32px; max-width: 96px; object-fit: contain; flex: none; }
 .sk-org-badge-name { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* 4.0.1 — a checkbox sits on its label's line (Settings › Connectors): the text-field rule of the
+   settings blocks gave it 36 px of height and padding */
+.sk-check { display: flex; align-items: center; gap: var(--sk-s2); }
+.sk-claude-set .sk-check input[type="checkbox"], .sk-check input[type="checkbox"] { min-height: 0; width: 16px; height: 16px;
+  padding: 0; margin: 0; flex: none; }
+.sk-conn-thread { display: flex; flex-direction: column; gap: var(--sk-s2); }

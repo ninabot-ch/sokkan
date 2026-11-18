@@ -105,7 +105,7 @@ export default function Board({ onOpenSession }: { onOpenSession: (sid: string) 
             <LevelSelect value={level} onChange={setLevel} />
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && create()}
-              placeholder="describe the task (prompt) — e.g. 'fix the jobup promo filter on the inbox side'"
+              placeholder="describe the task (prompt) — e.g. 'add a date filter to the invoices list'"
               className="min-w-64 flex-1 rounded border border-line bg-[#0b0f16] px-2.5 py-1.5 text-[12.5px] text-slate-100 outline-none focus:border-sea/50" />
             <button onClick={create} className="rounded bg-sea/80 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-sea">+ card</button>
             <span className="mx-1 h-5 w-px bg-line" />

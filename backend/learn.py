@@ -128,6 +128,30 @@ def _clip(s: str, n: int = MAX_FACT_CHARS) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+_SAMPLE_DOC = re.compile(r"^\s*(exemple|example|beispiel|esempio)\s*[-–—:_]|\((exemple|example|beispiel)\b", re.I)
+
+
+def is_sample(doc_name: str) -> bool:
+    """4.0.1 — an EXAMPLE document (the first work's « Exemple - compte rendu de réunion.md »,
+    the public demo's fictional files) is never offered as the template to follow: « retain »
+    proposed to model the team's minutes on a demo example."""
+    if _SAMPLE_DOC.search(doc_name or ""):
+        return True
+    try:
+        import onboarding_samples
+        names = {v["doc"][0] for lang in onboarding_samples.SAMPLES.values() for v in lang.values()
+                 if isinstance(v, dict) and v.get("doc")}
+        if doc_name in names:
+            return True
+    except Exception:  # noqa: BLE001 — the samples module is optional
+        pass
+    try:
+        import demo_atelier
+        return bool(demo_atelier.enabled())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def candidates(project: str, sid: str, name: str, lang: str = "fr") -> list[dict]:
     """The facts offered for this validated deliverable (0 to 3)."""
     import documents
@@ -160,7 +184,8 @@ def candidates(project: str, sid: str, name: str, lang: str = "fr") -> list[dict
         docs = documents.of_session(sid)
     except Exception:  # noqa: BLE001
         docs = []
-    tpl = next((d for d in docs if _TEMPLATE_DOC.search(d.get("name") or "")), None)
+    tpl = next((d for d in docs if _TEMPLATE_DOC.search(d.get("name") or "")
+                and not is_sample(d.get("name") or "")), None)
     if tpl is not None:
         out.append({"kind": "template", "why": T["why.template"],
                     "text": _clip(T["template"].format(kind=kind, doc=tpl["name"]))})

@@ -625,7 +625,7 @@ export const fr = {
   "conn.admin.secret": "Secret de l'application Microsoft",
   "conn.admin.secret.set": "Secret enregistré (le remplacer)",
   "conn.admin.save": "Enregistrer",
-  "conn.admin.more": "Serveurs IMAP / CalDAV / WebDAV, boîtes partagées et dossiers ouverts par projet : voir docs/enterprise/CONNECTORS.md (API /api/connectors/settings).",
+  "conn.admin.more": "Les adresses des serveurs IMAP, CalDAV et WebDAV, les boîtes partagées et les dossiers ouverts à chaque projet se règlent dans la configuration de l'instance : le guide des connecteurs l'explique pas à pas.",
 };
 
 export type Key = keyof typeof fr;
@@ -1233,5 +1233,5 @@ export const en: Record<Key, string> = {
   "conn.admin.secret": "Microsoft application secret",
   "conn.admin.secret.set": "Secret saved (replace it)",
   "conn.admin.save": "Save",
-  "conn.admin.more": "IMAP / CalDAV / WebDAV servers, shared mailboxes and folders opened per project: see docs/enterprise/CONNECTORS.md (API /api/connectors/settings).",
+  "conn.admin.more": "The IMAP, CalDAV and WebDAV server addresses, the shared mailboxes and the folders opened to each project are set in the instance's configuration: the connectors guide explains it step by step.",
 };

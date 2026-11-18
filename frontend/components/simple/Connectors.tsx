@@ -115,9 +115,9 @@ function Admin({ ov, onSaved, onError }: { ov: ConnectorsOverview; onSaved: () =
     <div className="sk-list">
       <div className="sk-small"><strong>{t("conn.admin")}</strong></div>
       {Object.keys(s.providers).map((p) => (
-        <label key={p} className="sk-small"><input type="checkbox" checked={!!s.providers[p].enabled} onChange={(e) => toggle(p, e.target.checked)} /> {t(`conn.p.${p}` as Key)}</label>
+        <label key={p} className="sk-small sk-check"><input type="checkbox" checked={!!s.providers[p].enabled} onChange={(e) => toggle(p, e.target.checked)} /> {t(`conn.p.${p}` as Key)}</label>
       ))}
-      <label className="sk-small"><input type="checkbox" checked={s.allow_send}
+      <label className="sk-small sk-check"><input type="checkbox" checked={s.allow_send}
         onChange={async (e) => { try { await saveConnectorsSettings({ allow_send: e.target.checked }); onSaved(); } catch (x) { onError(x); } }} /> {t("conn.admin.send")}</label>
       {!!s.providers.graph?.enabled && (
         <>

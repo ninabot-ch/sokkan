@@ -151,7 +151,9 @@ def test_a_person_chooses_their_jobs_once_and_can_say_later(world):
     assert [j["id"] for j in h["roles"]] == ["executive-assistant", "sales"]
     ids = [p["id"] for p in h["playbooks"]]
     assert ids[0].startswith("executive-assistant.") and any(i.startswith("sales.") for i in ids)
-    assert ids[-4:] == ["training-plan", "document-summary", "client-proposal", "assessment-quiz"]
+    # 4.0.1: the general templates a job kit replaces are gone (no trainer's quiz for sales)
+    assert ids[-1] == "document-summary"
+    assert not {"training-plan", "client-proposal", "assessment-quiz"} & set(ids)
     kit = h["playbooks"][0]
     assert kit["attach"] and kit["produces"] and kit["checks"] and kit["format"] in ("docx", "xlsx", "md")
     assert kit["role_label"] == "Assistant·e de direction"
@@ -354,3 +356,17 @@ def test_starter_notes_are_valid_memory_files(tmp_path):
         head = p.read_text(encoding="utf-8").split("---")[1]
         assert "name:" in head and "description: >-" in head and "status: to-fill" in head
     assert roles.seed_notes("finance", tmp_path, "en") == []
+
+
+def test_the_trainer_keeps_the_training_templates_through_the_kit(world):
+    """4.0.1: « Plan de formation » and « Quiz » are the training kit's, not everyone's."""
+    import playbooks
+    c = world["as"]("bob@x")
+    c.put("/api/me/prefs", json={"roles": ["training"]})
+    ids = [p["id"] for p in c.get("/api/simple/home", params={"lang": "fr"}).json()["playbooks"]]
+    assert "training.training-plan" in ids and "training.quiz" in ids
+    assert "assessment-quiz" not in ids and "training-plan" not in ids
+    c.put("/api/me/prefs", json={"roles": ["sales"]})
+    ids = [p["id"] for p in c.get("/api/simple/home", params={"lang": "fr"}).json()["playbooks"]]
+    assert not any("quiz" in i or "training" in i for i in ids)
+    assert playbooks.general_for([], [{"id": "assessment-quiz"}]) == [{"id": "assessment-quiz"}]
