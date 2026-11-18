@@ -685,8 +685,12 @@ class KernelHarness(Harness):
                 # given again at every reopening (the kernel forgot it), byte for byte
                 self.host_prompt = _load_host_prompt(spec.resume)
             elif spec.first_message:
-                self.host_prompt, self._first_rest = split_first_message(
+                system, self._first_rest = split_first_message(
                     spec.first_message, tuple(spec.head or ()))
+                # the brief names the run's folders as the cockpit does: as the message did,
+                # the prompt names them as the kernel's model can open them (hex-free aliases,
+                # `/workspace` in the sandbox) — bench n°6: host paths, all refused outside_root
+                self.host_prompt = self._model_paths(system) if system else ""
             if self.host_prompt:
                 body["system_prompt"] = self.host_prompt
                 body["prefix"] = "host"
@@ -821,11 +825,14 @@ class KernelHarness(Harness):
                         turn_id=turn, source="preamble", note_names=tuple(b.note_names),
                         chars=len(b.text), channel="head"))
         self._head_sent = True
-        text = self._alias_paths(text)
-        if _in_sandbox():
-            text = self._sandbox_paths(text)
+        text = self._model_paths(text)
         self._chat = asyncio.create_task(self._post_chat(turn, text))
         return turn
+
+    def _model_paths(self, text: str) -> str:
+        """The run's folders named as the kernel's model can open them."""
+        text = self._alias_paths(text)
+        return self._sandbox_paths(text) if _in_sandbox() else text
 
     def _sandbox_paths(self, text: str) -> str:
         """The run's folder named as the sandbox mounts it (``/workspace``)."""

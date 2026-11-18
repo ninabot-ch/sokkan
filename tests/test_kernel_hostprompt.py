@@ -141,3 +141,22 @@ def test_switched_off_or_without_a_brief_nothing_changes(k, tmp_path, monkeypatc
           [FIRST])
     assert "system_prompt" not in k.sessions[1]
     assert "You are helping" in k.chats[-1]
+
+
+def test_the_prompt_names_the_folders_as_the_model_opens_them(k, tmp_path, monkeypatch):
+    """Bench n°6: the brief moved to the system prompt kept the cockpit's host paths; in the
+    docker sandbox every read and save was refused outside_root. As the message was, the
+    prompt is rewritten: `/workspace`, hex-free aliases."""
+    monkeypatch.setenv("SOKKAN_KERNEL_SANDBOX", "docker")
+    work = tmp_path / "work"
+    deliv = work / "deliverables" / "5a4023a7a9bd4606934a62c31b659cfc"
+    deliv.mkdir(parents=True)
+    first = (f"<sokkan-brief>\nSave it in the folder {deliv} — one file.\n</sokkan-brief>\n\n"
+             "Fais le plan.")
+    h = _play(contract.RunSpec(run_id="r1", cwd=str(work), shell=False, first_message=first),
+              [first])
+    sp = k.sessions[0]["system_prompt"]
+    assert str(tmp_path) not in sp and "5a4023a7a9bd4606934a62c31b659cfc" not in sp
+    assert "/workspace/.sokkan-kernel/" in sp
+    assert k.chats[0] == "Fais le plan."
+    assert h.host_prompt == sp
