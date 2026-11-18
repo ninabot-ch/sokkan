@@ -57,6 +57,11 @@ services:
       SOKKAN_KERNEL_MCP_HEADERS: ${SOKKAN_KERNEL_MCP_HEADERS:-}
       # docker = the kernel runs a run's tools in a sandbox (paths handed as /workspace)
       SOKKAN_KERNEL_SANDBOX: ${SOKKAN_KERNEL_SANDBOX:-}
+      # 0 = an Atelier work's brief rides in its first message instead of the kernel session's
+      # system prompt (kernel host-prompt); kept by thread under SOKKAN_KERNEL_PROMPT_DIR
+      # (default <data>/kernel-prompts)
+      SOKKAN_KERNEL_HOST_PROMPT: ${SOKKAN_KERNEL_HOST_PROMPT:-1}
+      SOKKAN_KERNEL_PROMPT_DIR: ${SOKKAN_KERNEL_PROMPT_DIR:-}
       # daily update check (see .env.example); version written by install.sh
       SOKKAN_VERSION: ${SOKKAN_VERSION:-dev}
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
