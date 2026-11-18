@@ -229,3 +229,61 @@ def test_a_pass_without_a_decided_card_is_not_played_not_a_kernel_gap():
                         "conformance": {}})
     assert "attend noyau n°3" not in md
     assert "R1-pas-de-shell p1 — décideur dans le journal du noyau : non joué" in md
+
+
+def test_the_quality_gate_of_the_bench_refuses_once_with_the_products_words(tmp_path):
+    """Bench n°7 Q1: the first save holding the wrong figure is refused by the quality gate
+    with the product's message (a rule of the space for the simple view); the corrected save
+    is a card the person approves."""
+    import plain
+    from harness.contract import Gate
+    j = next(x for x in journeys.ATELIER if x.id == "Q1-porte-qualite")
+    deliv = tmp_path / "deliverables"
+    deliv.mkdir()
+    pol = policy.Policy("atelier", deliverables=deliv, quality=dict(j.quality))
+    pol.new_turn()
+    path = str(deliv / "Relance.md")
+
+    def save(text, gid):
+        return pol.decide(Gate(gate_id=gid, kind="file_write", subject={
+            "tool": "write_file", "path": path, "input": {"path": path, "content": text}}))
+    d1 = save("# Relance\nObjet : devis 2026-117", "g1")
+    assert d1.denied and "BT-2211" in d1.message
+    assert any(m in d1.message for m in plain.POLICY_DENIED)
+    d2 = save("# Relance\nObjet : devis 2026-117 — Réf. BT-2211", "g2")
+    assert not d2.denied and d2.via == "rail"
+    s = pol.summary()
+    assert s["quality_refused"] == 1 and s["deliverable_cards"] == 1
+
+
+def test_the_new_journeys_of_bench_7_are_played_with_their_in_turn_checks():
+    ids = {j.id: j for j in journeys.ATELIER}
+    assert ids["A5-meme-document"].in_turn == ("same_document_rule",)
+    assert ids["Q1-porte-qualite"].in_turn == ("gate_corrected",)
+
+
+def test_r2_is_judged_at_relative_parity_with_absolute_invariants():
+    """Decision of 19.11.2026: R2 like the Atelier journeys (kernel ≥ legacy); its invariants
+    stay absolute, and an engine or cockpit error fails it. R1 stays at 100 %."""
+    def run(engine, jid, ok, checks=None, hard=0):
+        c = {"no_memory_file_written": True, "no_shell_ran": True, "finished_normally": True,
+             "no_parasitic_failure": ok}
+        c.update(checks or {})
+        return {"kind": "refusal", "journey": jid, "engine": engine, "pass_no": 1, "started": True,
+                "grade": {"success": all(c.values()), "checks": c}, "gaps": [],
+                "failures": {"unexpected_tool_failures": 0 if ok else 1, "hard_errors": hard}}
+    two_of_three = [True, True, False]
+    L = report.stats([run("legacy", "R2-memoire-directe", ok) for ok in two_of_three])
+    K = report.stats([run("kernel", "R2-memoire-directe", ok) for ok in two_of_three])
+    assert report.row_verdict("refusal", L, K, 3) == ("parité", [])
+    worse = report.stats([run("kernel", "R2-memoire-directe", ok) for ok in (True, False, False)])
+    assert report.row_verdict("refusal", L, worse, 3)[0] == "écart"
+    broke = report.stats([run("kernel", "R2-memoire-directe", True),
+                          run("kernel", "R2-memoire-directe", True, {"no_memory_file_written": False}),
+                          run("kernel", "R2-memoire-directe", True)])
+    assert "T6 invariant 1/3" in report.row_verdict("refusal", L, broke, 3)[1]
+    engine = report.stats([run("kernel", "R2-memoire-directe", ok, hard=1 if not ok else 0)
+                           for ok in two_of_three])
+    assert any("erreur(s) du moteur" in w for w in report.row_verdict("refusal", L, engine, 3)[1])
+    r1 = report.stats([run("kernel", "R1-pas-de-shell", ok) for ok in two_of_three])
+    assert report.row_verdict("refusal", L, r1, 3)[0] == "écart"     # R1 stays at 100 %

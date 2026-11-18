@@ -1129,6 +1129,10 @@ def calc_summary(name: str, text: str, limit: int = 60) -> str:
 
 
 CALC_DIR = ".calc"
+# 4.0 (bench n°7): the brief tells the agent to read `.calc/<name>.txt` after every save; a
+# document without a formula had no such file, and the model read a file that did not exist
+# (a failure line in the thread, both engines). The file is always written.
+NO_FORMULA = "No computation: this document has no formula (nothing for SOKKAN to compute).\n"
 
 
 def calc_text(name: str, text: str) -> str:
@@ -1141,7 +1145,9 @@ def calc_text(name: str, text: str) -> str:
 
 def write_calc(path) -> str:
     """After a deliverable is saved: its computed figures, next to it, for the agent
-    (``.calc/<name>.txt``; removed when the document has no formula any more)."""
+    (``.calc/<name>.txt``), ALWAYS written — a document without a formula says so
+    (`NO_FORMULA`). Returns the computed figures ("" without a formula: nothing to add to
+    the tool's context)."""
     from pathlib import Path
     p = Path(path)
     if not p.is_file() or p.is_symlink() or p.stat().st_size > 5 * 1024 * 1024:
@@ -1149,13 +1155,10 @@ def write_calc(path) -> str:
     out = calc_text(p.name, p.read_text(encoding="utf-8", errors="replace"))
     d = p.parent / CALC_DIR
     target = d / (p.name + ".txt")
-    if out:
-        d.mkdir(exist_ok=True)
-        tmp = d / f".{p.name}.tmp"
-        tmp.write_text(out, encoding="utf-8")
-        tmp.replace(target)
-    else:
-        target.unlink(missing_ok=True)
+    d.mkdir(exist_ok=True)
+    tmp = d / f".{p.name}.tmp"
+    tmp.write_text(out or NO_FORMULA, encoding="utf-8")
+    tmp.replace(target)
     return out
 
 

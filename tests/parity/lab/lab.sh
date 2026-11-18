@@ -19,7 +19,7 @@
 # PARITY_KERNEL_SANDBOX=docker; the kernel then reaches the host's docker socket),
 # PARITY_SANDBOX_MEMORY (e.g. 4g) and PARITY_SANDBOX_CPUS (e.g. 4): the sandbox's caps (kernel
 # host-2, docker sandbox only; unset = no cap), PARITY_CONF_SANDBOX (local | docker: the
-# conformance kernel's sandbox).
+# conformance kernel's sandbox), PARITY_APPROVAL_WAIT_S (8: the kernel's approval_wait_s).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_HOME:=/srv/sokkan-parity}"
@@ -38,6 +38,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 : "${PARITY_SANDBOX_MEMORY:=}"
 : "${PARITY_SANDBOX_CPUS:=}"
 : "${PARITY_CONF_SANDBOX:=local}"
+: "${PARITY_APPROVAL_WAIT_S:=8}"
 PARITY_DOCKER_SOCK=/dev/null
 PARITY_CONF_DOCKER_SOCK=/dev/null
 PARITY_DOCKER_GID=65534
@@ -77,7 +78,7 @@ render() {   # template, out, upstream, model, root, context, max_calls, host, p
         caps="${caps:+$caps\n    }cpus: $PARITY_SANDBOX_CPUS"
     fi
     sed -e "s#@UPSTREAM@#$3#" -e "s#@MODEL@#$4#" -e "s#@ROOT@#$5#g" -e "s#@CONTEXT@#$6#" \
-        -e "s#@MAX_CALLS@#$7#" -e "s#@INSTANCE@#$R_INSTANCE#" -e "s#@HOST@#$8#" -e "s#@PORT@#$9#" \
+        -e "s#@MAX_CALLS@#$7#" -e "s#@INSTANCE@#$R_INSTANCE#" -e "s#@APPROVAL_WAIT@#$PARITY_APPROVAL_WAIT_S#" -e "s#@HOST@#$8#" -e "s#@PORT@#$9#" \
         -e "s#@SANDBOX@#$R_SANDBOX#" -e "s#@HOST_EMBED@#$he#" -e "s#@CHAIN_MAX@#$chain#" \
         -e "s#@REQUIRE_SANDBOX@#$req#" -e "s#@SANDBOX_IMAGE@#$sbi#" \
         -e "s|^    # @SANDBOX_CAPS@\$|${caps:+    $caps}|" "$1" > "$2"
@@ -160,6 +161,7 @@ export SOKKAN_KERNEL_TEST_TOKEN_FILE=$PARITY_HOME/kconf/token/local-token
 export SOKKAN_KERNEL_TEST_ROOT=$PARITY_HOME/conf-ws/root
 export SOKKAN_KERNEL_TEST_UPSTREAM_PORT=$PARITY_CONF_UPSTREAM_PORT
 export SOKKAN_KERNEL_TEST_SANDBOX=$PARITY_CONF_SANDBOX
+export PARITY_APPROVAL_WAIT_S=$PARITY_APPROVAL_WAIT_S
 export SOKKAN_KERNEL_TEST_RESTART_CMD='docker restart $PARITY_PROJECT-kernel-conf-1'
 EOF
     ;;

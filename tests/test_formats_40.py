@@ -341,7 +341,9 @@ def test_calc_file_and_legacy_hook_hand_the_figures_to_the_model(tmp_path):
     f.write_text("# Sans formule\n", encoding="utf-8")
     assert asyncio.run(hook({"hook_event_name": "PostToolUse", "tool_input": {"file_path": str(f)}},
                             "t2", None)) == {}
-    assert not (folder / ".calc" / "R.md.txt").exists()
+    # bench n°7: the brief says to read `.calc/<name>.txt` after every save — without a
+    # formula the file is still there and says so (the model never reads a missing file)
+    assert (folder / ".calc" / "R.md.txt").read_text(encoding="utf-8") == outputs.NO_FORMULA
     assert asyncio.run(hook({"hook_event_name": "PostToolUse",
                              "tool_input": {"file_path": str(tmp_path / "x.md")}}, "t3", None)) == {}
 
@@ -362,6 +364,35 @@ def test_both_engines_get_the_calc_file_from_the_event_stream(tmp_path, monkeypa
     s._note_deliverable_call(ev)
     s._deliverable_saved(contract.ToolResult(call_id="c1", output="ok", ok=True))
     assert "43'550.00" in (folder / ".calc" / "R.md.txt").read_text(encoding="utf-8")
+
+
+def test_a_document_without_formula_still_has_its_calc_file_for_both_engines(tmp_path):
+    """Bench n°7 (A5) and integration n°3 (legacy A4 p3): an agent told to read
+    `.calc/<name>.txt` read a file that did not exist — a failure line in the thread. The
+    cockpit (both engines, agentchat `_deliverable_saved`) and the legacy hook always write it."""
+    import asyncio
+
+    import agentchat
+    from harness import contract, legacy
+    folder = tmp_path / "deliverables" / DEFAULT_SID
+    folder.mkdir(parents=True)
+    plan = folder / "Plan.md"
+    plan.write_text("# Plan de formation\n\n## Objectifs\n- comprendre\n", encoding="utf-8")
+    s = agentchat.AgentSession.__new__(agentchat.AgentSession)
+    s.cwd = str(tmp_path)
+    ev = contract.ToolCalled(turn_id="t", call_id="c1", name="write_file",
+                             input={"path": f"/workspace/deliverables/{DEFAULT_SID}/Plan.md"},
+                             classification="file_write")
+    s._note_deliverable_call(ev)
+    s._deliverable_saved(contract.ToolResult(call_id="c1", output="ok", ok=True))
+    calc = folder / ".calc" / "Plan.md.txt"
+    assert calc.read_text(encoding="utf-8") == outputs.NO_FORMULA
+    calc.unlink()
+    hook = legacy.calc_hooks()[0].hooks[0]
+    out = asyncio.run(hook({"hook_event_name": "PostToolUse", "tool_name": "Write",
+                            "tool_input": {"file_path": str(plan)}}, "t1", None))
+    assert out == {}                                    # nothing to add to the context
+    assert calc.read_text(encoding="utf-8") == outputs.NO_FORMULA
 
 
 # ---- inputs ----------------------------------------------------------------------------------

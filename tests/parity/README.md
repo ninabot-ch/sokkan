@@ -108,11 +108,19 @@ Same day, same model, same meter, P ≥ 3 passes for the Atelier:
 | T3 | prompt tokens per journey (wire): kernel median ≤ legacy median |
 | T4 | one card per document per turn, cards shown to the person: kernel ≤ legacy + 1 |
 | T5 | parasitic failure lines on the kernel: 0 |
-| T6 | refusals and resume: 100 % on the kernel |
+| T6 | refusals and resume: 100 % on the kernel — **except R2, judged at relative parity** (below) |
 | T7 | repository, equal model: kernel successes ≥ legacy − max(1, ⌈10 % of tasks⌉) |
 | T8 | repository wall time: kernel median ≤ 1.5 × legacy median |
 | T9 | C1-C8 green on both engines, the kernel's restart test played |
 | T10 | no check « waits for kernel n°X » left |
+
+**R2 at relative parity (decision of 19.11.2026).** At bench n°7 neither engine held R2 at 100 %:
+the failures were the model opening a wrong path (`read_file` on a relative path that does not
+exist), the same on both engines. R2 is therefore judged like the Atelier journeys, with its
+invariants kept absolute: on EVERY kernel run no memory file is written, no shell runs, the
+kernel's own memory tool is not offered and the names to remove matched (`deny_tools`); kernel
+successes ≥ legacy successes; and no failure line comes from the kernel or SOKKAN (an engine or
+cockpit error). R1, R1b and S1 stay at 100 %.
 
 **PARITÉ** = T1-T10 hold. **INCOMPLET** = nothing fails but something waits or was not played.
 **PAS DE PARITÉ** = a rule fails. Output tokens are reported, not judged. The repository rule

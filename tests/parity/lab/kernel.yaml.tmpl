@@ -62,6 +62,9 @@ local:
   mcp_session_headers: @HOST_EMBED@
   conclude_on_green: @HOST_EMBED@
   chain_max_calls: @CHAIN_MAX@
+  # a card decided within this delay is applied inside its turn (kernel host-3e; SOKKAN ships
+  # 8, PARITY_APPROVAL_WAIT_S; 0 = the usual path, a continuation turn per card)
+  approval_wait_s: @APPROVAL_WAIT@
   memory_direct: false
   code:
     roots: [@ROOT@]

@@ -163,6 +163,28 @@ _FOLLOW_NOTE = re.compile(r"\s*<sokkan-brief>(?:Answer in [^<]*|The person wrote
 # read tool, `read_file` here): one wording, carried into the system prompt with the brief.
 
 
+# a refusal without words of its own: nothing worth a reason for the model
+_PLAIN_DENIALS = {"", "denied by the user", "refused.", "refused", "request cancelled",
+                  "settled by the engine", "the person declined to answer."}
+REASON_MAX = 500                        # kernel host-3e: more is a 400 bad_reason
+
+
+def refusal_reason(d: Decision) -> str:
+    """The reason sent with a refused card (kernel host-3e `reason`): the words of the
+    decision — the quality gate's defects, a rule of the space, what the person wrote. A
+    plain « no » sends none. At most 500 characters, cut at a word, never mid-word."""
+    if not d.denied:
+        return ""
+    msg = " ".join(str(d.message or "").split())
+    if msg.lower() in _PLAIN_DENIALS:
+        return ""
+    if len(msg) <= REASON_MAX:
+        return msg
+    cut = msg[:REASON_MAX - 1]
+    cut = cut[:cut.rfind(" ")] if " " in cut[REASON_MAX // 2:] else cut
+    return cut.rstrip(" ,;:-") + "…"
+
+
 def host_prompt_enabled() -> bool:
     """``SOKKAN_KERNEL_HOST_PROMPT`` (default on): the Atelier's instructions go in the kernel
     session's system prompt (`prefix: "host"`); ``0`` = in the first message, as before."""
@@ -516,7 +538,9 @@ class KernelHarness(Harness):
     name = NAME
     #: a card's reject reaches the kernel without its text (`/approvals/{id}/decide` takes no
     #: reason): the cockpit says a refusal's reason in a turn of its own (agentchat, 4.0)
-    deny_text_reaches_model = False
+    # kernel host-3e: a refused card's reason (`reason` → `decision_reason`) reaches the model
+    # in the refused tool result of the turn that goes on — no hidden follow-up turn needed
+    deny_text_reaches_model = True
 
     def __init__(self) -> None:
         self._spec: RunSpec | None = None
@@ -694,6 +718,11 @@ class KernelHarness(Harness):
             if self.host_prompt:
                 body["system_prompt"] = self.host_prompt
                 body["prefix"] = "host"
+                # the host prompt carries SOKKAN's own language line: one line, never two
+                # (kernel `lang_hint`, HOST-EMBED § 18). SOKKAN_KERNEL_LANG_HINT=1 keeps the
+                # kernel's line instead (measured at the parity bench n°7)
+                if os.environ.get("SOKKAN_KERNEL_LANG_HINT") != "1":
+                    body["lang_hint"] = False
         self.opened_with = _mask(body)
         try:
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
@@ -932,6 +961,7 @@ class KernelHarness(Harness):
         if decision.kind not in g["options"]:
             effective = Decision.deny(f"decision {decision.kind!r} is not offered for this "
                                       "request", by=decision.by, via="engine")
+        g["deciding"] = True            # a result of this call from now on may be the real one
         try:
             if g["type"] == "question":
                 cont = await self._answer(g, effective)
@@ -943,9 +973,25 @@ class KernelHarness(Harness):
                                         data={"gate_id": gate_id}))
             return False
         g["decision"] = effective
+        if cont == "decided":
+            # 409 not_pending: decided already (another client, a rule, its delay): what the
+            # kernel applied is read back — never a second execution, never a guessed refusal
+            applied = await self._card_applied(g)
+            g["decision"] = applied
+            self._resolve(gate_id, applied)
+            return False
         if cont is None:                # the kernel no longer had it pending
             self._resolve(gate_id, Decision.deny("settled by the engine", via="engine"))
             return False
+        if cont == "inline":
+            # kernel host-3e, decided within `approval_wait_s`: the turn that raised the card
+            # runs the tool itself and goes on — one turn, its result comes with the same
+            # call_id (no approval_id), no continuation turn. Announced now: nothing the turn
+            # writes from here was written before the decision.
+            g["inline"] = True
+            g["resolved"] = True
+            self._announce(gate_id, effective)
+            return True
         if cont in ("running", "queued"):
             # an approval runs the tool then continues the turn; a refusal too since kernel
             # host-3c (202 + continuation: its `tool.result` `declined` comes first, then the
@@ -965,16 +1011,35 @@ class KernelHarness(Harness):
             body["on_behalf_of"] = str(d.by)[:200]
         if d.via:
             body["via"] = str(d.via)[:200]
+        reason = refusal_reason(d)
+        if reason:
+            # kernel host-3e: the refusal's reason reaches the model inside the refused result
+            # (the quality gate's defects, a rule's words, what the person wrote)
+            body["reason"] = reason
         r = await self._client.post(f"/v1/local/approvals/{g['id']}/decide", headers=_headers(),
                                     json=body)
         if r.status_code == 403:
             info = (r.json() or {}).get("error") or {}
             raise _Refused(str(info.get("code") or "device_key_required"),
                            str(info.get("message") or "this card must be signed on a device"))
-        if r.status_code in (404, 409):
+        if r.status_code == 409:
+            return "decided"            # not_pending: decided already
+        if r.status_code == 404:
             return None
         r.raise_for_status()
         return str((r.json() or {}).get("continuation") or "none")
+
+    async def _card_applied(self, g: dict) -> Decision:
+        """What the kernel applied to a card decided elsewhere (409 on our decision)."""
+        try:
+            r = await self._client.get(f"/v1/approvals/{g['id']}", headers=_headers())
+            a = r.json() if r.status_code == 200 else {}
+        except (httpx.HTTPError, ValueError):
+            a = {}
+        status = str((a or {}).get("status") or "")
+        if status in ("approved", "executed", "executing"):
+            return Decision.allow(by=str(a.get("decided_by") or ""), via="engine")
+        return Decision.deny("settled by the engine", via="engine")
 
     async def _answer(self, g: dict, d: Decision) -> str | None:
         if d.denied:
@@ -1285,7 +1350,12 @@ class KernelHarness(Harness):
         reason = str(d.get("reason") or "")
         refused = str(d.get("status") or "") == "refused" or bool(reason)
         if call in self._held_calls and not d.get("approval_id") and not refused:
-            return                       # « waiting for approval »: not a result
+            g0 = self._gates.get(self._held_calls[call]) or {}
+            if not g0.get("deciding") or _HELD_RX.search(out):
+                return                   # « waiting for approval »: not a result
+            # kernel host-3e: the card was decided within the turn's wait — this result of
+            # the same call (no approval_id) is the tool's real output, and the only one
+            self._held_calls.pop(call, None)
         if call in self._settled_calls:
             return                       # its refusal is already out (_announce)
         gid = self._held_calls.pop(call, None) if (d.get("approval_id") or refused) else None
@@ -1296,6 +1366,9 @@ class KernelHarness(Harness):
             # the space, in the words the cockpit decided it with — not a failure
             g = self._gates.get(gid or str(d.get("approval_id") or "")) or next(
                 (x for x in self._gates.values() if x.get("call_id") == call), {})
+            if g.get("decision") is None and d.get("decision_reason"):
+                # decided elsewhere with a reason (kernel host-3e `decision_reason`)
+                g = {**g, "decision": Decision.deny(str(d["decision_reason"]))}
             out = self._declined_text(g, out)
             if call:
                 self._settled_calls.add(call)

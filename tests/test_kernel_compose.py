@@ -56,6 +56,7 @@ def test_render_puts_the_docker_sandbox_and_the_host_flags_on_top_of_the_operato
     for flag in ("surfaces_gate", "strict_resume", "mcp_session_headers", "conclude_on_green"):
         assert local[flag] is True, flag
     assert local["chain_max_calls"] == 60 and "memory_direct" not in local
+    assert local["approval_wait_s"] == 8     # a card decided at once: applied inside its turn
     code = local["code"]
     assert code["backend"] == "docker" and code["require_sandbox"] is True   # never `local`
     assert code["image"] == ENV["SOKKAN_KERNEL_SANDBOX_IMAGE"]
@@ -81,11 +82,13 @@ def test_the_sandbox_network_follows_the_setting(net, on):
 
 def test_caps_are_settings_of_the_env():
     env = {**ENV, "SOKKAN_KERNEL_SANDBOX_MEMORY": "512m", "SOKKAN_KERNEL_SANDBOX_CPUS": "1.5",
-           "SOKKAN_KERNEL_SANDBOX_IDLE_S": "0", "SOKKAN_KERNEL_CHAIN_MAX_CALLS": "30"}
+           "SOKKAN_KERNEL_SANDBOX_IDLE_S": "0", "SOKKAN_KERNEL_CHAIN_MAX_CALLS": "30",
+           "SOKKAN_KERNEL_APPROVAL_WAIT_S": "0"}
     cfg = kernel_config.render({}, env, "sokkan-0123456789abcdef")
     code = cfg["local"]["code"]
     assert (code["memory"], code["cpus"], code["idle_ttl_s"]) == ("512m", 1.5, 0)
     assert cfg["local"]["chain_max_calls"] == 30
+    assert cfg["local"]["approval_wait_s"] == 0
 
 
 @pytest.mark.parametrize("name, value", [
@@ -93,6 +96,7 @@ def test_caps_are_settings_of_the_env():
     ("SOKKAN_KERNEL_DATA_HOST", "/"), ("SOKKAN_KERNEL_WORKSPACE_HOST", "/a/../b"),
     ("SOKKAN_KERNEL_SANDBOX_IMAGE", ""), ("SOKKAN_KERNEL_SANDBOX_MEMORY", "2gb"),
     ("SOKKAN_KERNEL_SANDBOX_MEMORY", "32m"), ("SOKKAN_KERNEL_SANDBOX_CPUS", "0"),
+    ("SOKKAN_KERNEL_APPROVAL_WAIT_S", "-1"), ("SOKKAN_KERNEL_APPROVAL_WAIT_S", "121"),
     ("SOKKAN_KERNEL_SANDBOX_CPUS", "1.234"), ("SOKKAN_KERNEL_SANDBOX_IDLE_S", "30"),
     ("SOKKAN_KERNEL_SANDBOX_NET", "lan"), ("SOKKAN_KERNEL_CHAIN_MAX_CALLS", "0"),
 ])

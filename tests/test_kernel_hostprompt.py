@@ -128,6 +128,7 @@ def test_the_session_opens_with_the_host_prompt_and_the_message_is_the_persons(k
     h = _play(spec, [FIRST, later])
     body = k.sessions[0]
     assert body["prefix"] == "host" and body["system_prompt"] == h.host_prompt
+    assert body["lang_hint"] is False      # SOKKAN's language line is in the host prompt: one line
     assert "You are helping" in body["system_prompt"]
     assert h.opened_with["system_prompt"]["chars"] == len(h.host_prompt)     # no text kept
     first, second = k.chats
@@ -154,6 +155,7 @@ def test_a_resumed_thread_gets_the_same_prompt_byte_for_byte(k, tmp_path):
 def test_switched_off_or_without_a_brief_nothing_changes(k, tmp_path, monkeypatch):
     _play(contract.RunSpec(run_id="r1", cwd=str(tmp_path), shell=False), ["Bonjour."])
     assert "system_prompt" not in k.sessions[0] and "prefix" not in k.sessions[0]
+    assert "lang_hint" not in k.sessions[0]  # no host prompt: the kernel's own language line
     monkeypatch.setenv("SOKKAN_KERNEL_HOST_PROMPT", "0")
     _play(contract.RunSpec(run_id="r2", cwd=str(tmp_path), shell=False, first_message=FIRST),
           [FIRST])

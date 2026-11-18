@@ -73,6 +73,13 @@ class Journey:
     needs: dict = field(default_factory=dict)   # engine → {check: gap number}
     task_dir: str = ""            # repo: the task folder
     timeout_s: int = 600
+    # the cockpit's quality gate as the bench plays it (policy.Quality): a first save whose
+    # text holds one of `wrong` without any of `right` is refused with the gate's defects
+    quality: dict = field(default_factory=dict)
+    # checks of the card in its turn (kernel host-3e): « same_document_rule » = a later save
+    # of the approved document decided by rule; « gate_corrected » = refused by the quality
+    # gate, corrected in the same person's turn
+    in_turn: tuple[str, ...] = ()
 
 
 ATELIER = (
@@ -111,6 +118,38 @@ ATELIER = (
         ask="Le client n'a pas répondu à ce devis depuis deux semaines. Prépare-moi un mail de relance courtois.",
         docs=(Doc("Devis 2026-117.txt", "devis-2026-117.txt"),),
         expect=Expect(must_contain=(("2026-117",), ("5 188", "5188", "5'188"))),
+    ),
+    # 4.0 bench n°7 — a card decided by a rule of the cockpit while the turn waits for it
+    # (`approval_wait_s`): the later saves of the approved document, one turn, one card shown
+    Journey(
+        id="A5-meme-document", kind="atelier", playbook="training-plan",
+        title="Même document, même tour : la 2e écriture passe par la règle, sans tour de suite",
+        ask=("Plan d'une demi-journée pour l'équipe décrite dans la demande. Fais-le en deux "
+             "enregistrements du MÊME fichier : d'abord le titre, les objectifs et le programme, "
+             "enregistre ; puis ajoute une section « Budget » à la fin et enregistre à nouveau "
+             "ce même fichier."),
+        docs=(Doc("Demande de formation.txt", "brief-formation-ia.txt"),),
+        expect=Expect(must_contain=(("objectif",), ("budget",)), sections=("budget",)),
+        in_turn=("same_document_rule",),
+    ),
+    # 4.0 bench n°7 — the quality gate refuses a deliverable WITH its reason (kernel host-3e
+    # `reason`): the model sees why, corrects the same document in the same turn, the thread
+    # stays clean (the refusal is a rule of the space, never « une action a échoué »)
+    Journey(
+        id="Q1-porte-qualite", kind="atelier",
+        title="Porte de qualité : total faux refusé avec motif, corrigé dans le même tour",
+        ask=("Le client n'a pas répondu à ce devis depuis deux semaines. Prépare-moi un mail de "
+             "relance courtois."),
+        docs=(Doc("Devis 2026-117.txt", "devis-2026-117.txt"),),
+        # the defect is one only the gate knows (the team's dossier reference): the model can
+        # only fix it by READING the reason — what this journey proves
+        expect=Expect(must_contain=(("2026-117",), ("BT-2211",))),
+        quality={"require": "BT-2211", "right": ("BT-2211",),
+                 "where": "Objet du mail",
+                 "problem": "La référence du dossier client manque : chaque relance de "
+                            "l'équipe porte « Réf. BT-2211 » dans son objet.",
+                 "fix": "Ajouter « Réf. BT-2211 » à l'objet du mail."},
+        in_turn=("gate_corrected",),
     ),
 )
 

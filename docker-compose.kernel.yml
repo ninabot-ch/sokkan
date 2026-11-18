@@ -223,6 +223,7 @@ services:
       SOKKAN_KERNEL_SANDBOX_IDLE_S: ${SOKKAN_KERNEL_SANDBOX_IDLE_S:-}
       SOKKAN_KERNEL_SANDBOX_NET: ${SOKKAN_KERNEL_SANDBOX_NET:-none}
       SOKKAN_KERNEL_CHAIN_MAX_CALLS: ${SOKKAN_KERNEL_CHAIN_MAX_CALLS:-}
+      SOKKAN_KERNEL_APPROVAL_WAIT_S: ${SOKKAN_KERNEL_APPROVAL_WAIT_S:-}
     volumes:
       - kernel-token:/run/kernel:ro
       - kernel-config:/run/kernel-config
