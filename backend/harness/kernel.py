@@ -719,8 +719,10 @@ class KernelHarness(Harness):
                 body["system_prompt"] = self.host_prompt
                 body["prefix"] = "host"
                 # the host prompt carries SOKKAN's own language line: one line, never two
-                # (kernel `lang_hint`, HOST-EMBED § 18)
-                body["lang_hint"] = False
+                # (kernel `lang_hint`, HOST-EMBED § 18). SOKKAN_KERNEL_LANG_HINT=1 keeps the
+                # kernel's line instead (measured at the parity bench n°7)
+                if os.environ.get("SOKKAN_KERNEL_LANG_HINT") != "1":
+                    body["lang_hint"] = False
         self.opened_with = _mask(body)
         try:
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)

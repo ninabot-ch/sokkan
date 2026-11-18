@@ -156,7 +156,10 @@ class Policy:
             return None
         text = str(gate.input.get("content") or gate.input.get("new_string")
                    or gate.input.get("patch") or "")
-        if not any(w in text for w in q["wrong"]) or any(r in text for r in q["right"]):
+        if q.get("require"):
+            if q["require"] in text:
+                return None
+        elif not any(w in text for w in q["wrong"]) or any(r in text for r in q["right"]):
             return None
         self._quality_bounced.add(path)
         import qualitygate

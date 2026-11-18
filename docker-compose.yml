@@ -62,6 +62,8 @@ services:
       # (default <data>/kernel-prompts)
       SOKKAN_KERNEL_HOST_PROMPT: ${SOKKAN_KERNEL_HOST_PROMPT:-1}
       SOKKAN_KERNEL_PROMPT_DIR: ${SOKKAN_KERNEL_PROMPT_DIR:-}
+      # 1 = the kernel adds its own language line to every turn too (default: SOKKAN's line only)
+      SOKKAN_KERNEL_LANG_HINT: ${SOKKAN_KERNEL_LANG_HINT:-}
       # daily update check (see .env.example); version written by install.sh
       SOKKAN_VERSION: ${SOKKAN_VERSION:-dev}
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}

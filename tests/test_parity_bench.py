@@ -247,10 +247,10 @@ def test_the_quality_gate_of_the_bench_refuses_once_with_the_products_words(tmp_
     def save(text, gid):
         return pol.decide(Gate(gate_id=gid, kind="file_write", subject={
             "tool": "write_file", "path": path, "input": {"path": path, "content": text}}))
-    d1 = save("# Relance\nMontant : 4 800 CHF", "g1")
-    assert d1.denied and "5 188.80" in d1.message
+    d1 = save("# Relance\nObjet : devis 2026-117", "g1")
+    assert d1.denied and "BT-2211" in d1.message
     assert any(m in d1.message for m in plain.POLICY_DENIED)
-    d2 = save("# Relance\nMontant : 5 188.80 CHF TTC", "g2")
+    d2 = save("# Relance\nObjet : devis 2026-117 — Réf. BT-2211", "g2")
     assert not d2.denied and d2.via == "rail"
     s = pol.summary()
     assert s["quality_refused"] == 1 and s["deliverable_cards"] == 1

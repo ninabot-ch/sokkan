@@ -25,6 +25,15 @@ def _text(msg: dict) -> str:
     return str(c or "")
 
 
+def _waiting(text: str) -> bool:
+    """The kernel's « waiting for approval » placeholder — not a decided card's result: since
+    kernel host-3e a card decided within the turn (`approval_wait_s`) comes back in the SAME
+    turn as its outcome, refused or done, which also names `[approval:…]`."""
+    up = text.upper()
+    return "[approval:" in text and ("EN ATTENTE D'APPROBATION" in up or "AWAITING APPROVAL" in up
+                                      or "WAITING FOR APPROVAL" in up)
+
+
 class ScriptedUpstream:
     def __init__(self, port: int = 0, workspace: str | None = None) -> None:
         self.turns: deque = deque()
@@ -115,7 +124,7 @@ class ScriptedUpstream:
             # the same scripted turn goes on
             if last.get("role") == "user" and "[Approbation]" not in _text(last):
                 self._current = deque(self.turns.popleft()) if self.turns else deque()
-            if last.get("role") == "tool" and "[approval:" in _text(last):
+            if last.get("role") == "tool" and _waiting(_text(last)):
                 # the kernel's « waiting for approval » placeholder: a model waits quietly; the
                 # scripted turn goes on in the continuation, with the call's real outcome
                 return {"role": "assistant", "content": ""}, "stop"

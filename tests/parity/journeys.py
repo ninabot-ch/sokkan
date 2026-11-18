@@ -138,15 +138,17 @@ ATELIER = (
     Journey(
         id="Q1-porte-qualite", kind="atelier",
         title="Porte de qualité : total faux refusé avec motif, corrigé dans le même tour",
-        ask=("Le client n'a pas répondu à ce devis. Prépare un mail de relance courtois et "
-             "rappelle-lui le montant de 4 800 CHF."),
+        ask=("Le client n'a pas répondu à ce devis depuis deux semaines. Prépare-moi un mail de "
+             "relance courtois."),
         docs=(Doc("Devis 2026-117.txt", "devis-2026-117.txt"),),
-        expect=Expect(must_contain=(("2026-117",), ("5 188", "5188", "5'188"))),
-        quality={"wrong": ("4 800", "4800", "4'800"), "right": ("5 188", "5188", "5'188"),
-                 "where": "Montant rappelé au client",
-                 "problem": "4 800.00 CHF est le total HT du devis ; le client doit le total TTC, "
-                            "5 188.80 CHF (TVA 8,1 % comprise).",
-                 "fix": "Indiquer 5 188.80 CHF TTC (4 800.00 HT + TVA)."},
+        # the defect is one only the gate knows (the team's dossier reference): the model can
+        # only fix it by READING the reason — what this journey proves
+        expect=Expect(must_contain=(("2026-117",), ("BT-2211",))),
+        quality={"require": "BT-2211", "right": ("BT-2211",),
+                 "where": "Objet du mail",
+                 "problem": "La référence du dossier client manque : chaque relance de "
+                            "l'équipe porte « Réf. BT-2211 » dans son objet.",
+                 "fix": "Ajouter « Réf. BT-2211 » à l'objet du mail."},
         in_turn=("gate_corrected",),
     ),
 )
