@@ -376,6 +376,8 @@ class View:
             if reasoning_aloud(text, self.lang):
                 return []           # the model thinking aloud, in English: not for this thread
             out = {"type": "text", "text": text}
+            if ev.get("supersedes"):
+                out["supersedes"] = True    # 4.0: SOKKAN rewrote a delivery message that was false
             if ev.get("pending"):
                 out["pending"] = True   # written while a decision is awaited: a discreet note
             eng = _engine(ev.get("model"), self.lang)

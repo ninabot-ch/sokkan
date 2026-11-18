@@ -58,7 +58,7 @@ export interface TechDetail { tool?: string; title?: string; input?: unknown; re
 export type PlainEvent =
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string; documents: { id: string; name: string }[] }
-  | { type: "text"; text: string; engine?: Engine; pending?: boolean }
+  | { type: "text"; text: string; engine?: Engine; pending?: boolean; supersedes?: boolean }
   | { type: "activity"; id: string; kind: string; subject: string; detail: TechDetail }
   /** 3.6.7 — `reason` tells a refusal from a failure: « denied » = the person said no,
    *  « policy » = a rule of the space turned the call away (the agent goes on otherwise) */

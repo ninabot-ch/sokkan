@@ -306,13 +306,14 @@ def content_after(tool: str, inp: dict, path: str) -> str | None:
 # ---- the gate ----------------------------------------------------------------------------
 def review(*, text: str, name: str, ask: str = "", mission: str = "",
            sources: list[tuple[str, str]] | None = None, secondary: str = "", lang: str = "fr",
-           level: int | None = None, previous: dict | None = None, use_model: bool = True) -> dict:
+           level: int | None = None, previous: dict | None = None, use_model: bool = True,
+           attached: str | None = None) -> dict:
     """Both passes on one document → the gate's verdict (blocking; call it from a thread)."""
     t0 = time.monotonic()
     sources = sources or []
     primary = "\n".join(b for _, b in sources)
     det = factcheck.check(text, primary=primary, secondary=secondary, ask=ask, lang=lang,
-                          name=name)
+                          name=name, attached=attached)
     out = {"findings": det, "defects": [], "verified": [], "to_check": [], "reviewer": None,
            "route": "", "tokens_in": 0, "tokens_out": 0, "review_ms": 0, "error": ""}
     rv = reviewer_for(level) if (use_model and enabled()) else None
@@ -438,5 +439,208 @@ def work_context(sid: str, project: str) -> dict:
         level = claudetier.project_level(project)     # the project's classification
     except Exception:  # noqa: BLE001 — unknown level = treated as confidential
         level = None
+    attached = []
+    try:   # the documents handed to THIS work (an appraisal comes only from them)
+        for d in documents.of_session(sid):
+            tp = documents.text_path_of(d)
+            if tp is not None:
+                attached.append(tp.read_text(encoding="utf-8", errors="replace")[:200_000])
+    except Exception:  # noqa: BLE001
+        attached = []
     return {"ask": ask, "lang": lang, "mission": mission, "sources": sources,
-            "secondary": "\n".join(secondary), "level": level}
+            "secondary": "\n".join(secondary), "level": level,
+            "attached": "\n".join(attached) if attached else None}
+
+
+# ---- (a) tables built and validated by SOKKAN, not typed by the model (20.11 calibration) ----
+# The most frequent defect of every model on the kits' real runs: a CSV broken by a « ; » left
+# unquoted in a cell (27B and Claude alike). SOKKAN now writes the table itself from the rows
+# the model gives, and checks it; the model gets ONE precise error, never a broken file.
+def _rows_from(text: str) -> tuple[list[list[str]] | None, str]:
+    """The rows the model gave: a Markdown table, JSON (list of lists or of objects), or CSV.
+    → (rows, how) — rows None when nothing readable."""
+    import outputs
+    t = (text or "").lstrip("﻿").strip()
+    if t.startswith(("[", "{")):
+        try:
+            data = json.loads(t)
+        except ValueError:
+            return None, "json"
+        if isinstance(data, dict):
+            data = data.get("rows") or data.get("lignes") or []
+        if data and all(isinstance(r, dict) for r in data):
+            head = list(dict.fromkeys(k for r in data for k in r))
+            return [head] + [["" if r.get(k) is None else str(r.get(k)) for k in head] for r in data], "json"
+        if data and all(isinstance(r, list) for r in data):
+            return [["" if c is None else str(c) for c in r] for r in data], "json"
+        return None, "json"
+    _meta, body = outputs.front_matter(t)
+    tables = list(outputs._md_tables(body))
+    if tables:
+        return tables[0][2], "markdown"
+    return outputs.csv_rows(t), "csv"
+
+
+def _width_error(rows: list[list[str]], where: str = "") -> str:
+    n = len(rows[0])
+    bad = [(i + 1, len(r)) for i, r in enumerate(rows) if len(r) != n]
+    if not bad:
+        return ""
+    i, k = bad[0]
+    return (f"{where}row {i} has {k} cells but the header has {n}"
+            + (f" (and {len(bad) - 1} more row(s) like it)" if len(bad) > 1 else "")
+            + ". Give every row exactly the header's cells; a cell that contains « ; » or « | » "
+              "must be written inside double quotes, or give the rows as a Markdown table.")
+
+
+def build_table(name: str, text: str) -> tuple[str | None, str]:
+    """→ (the file SOKKAN writes instead, '') or (None, one precise error for the model).
+    A ``.csv`` deliverable is rebuilt by SOKKAN (« ; », quotes, UTF-8 with BOM for Swiss Excel)
+    from the rows given as a Markdown table, JSON or CSV — an unquoted « ; » is repaired when the
+    row lines up again (outputs.csv_rows), refused otherwise. A spreadsheet source
+    (``format: xlsx``) is checked table by table. Anything else: (text, '') unchanged."""
+    import csv
+    import io
+    try:
+        import outputs
+    except ImportError:
+        return text, ""
+    if (name or "").lower().endswith(".csv"):
+        rows, how = _rows_from(text)
+        if not rows or len(rows) < 2:
+            return None, ("The table is empty or unreadable" + (" (invalid JSON)" if how == "json" else "")
+                          + ": give the header and the rows as a Markdown table.")
+        if how == "csv":
+            raw_n = [len(r) for r in csv.reader(io.StringIO((text or "").lstrip("﻿")),
+                                                 delimiter=";" if (text or "").split("\n", 1)[0].count(";")
+                                                 >= (text or "").split("\n", 1)[0].count(",") else ",")
+                     if any(c.strip() for c in r)]
+            if raw_n and any(k < raw_n[0] for k in raw_n[1:]):
+                i = next(j for j, k in enumerate(raw_n) if k < raw_n[0])
+                return None, (f"Row {i + 1} has {raw_n[i]} cells but the header has {raw_n[0]}: a cell is "
+                              "missing. Give every row exactly the header's cells.")
+        err = _width_error(rows)
+        if err:
+            return None, err
+        buf = io.StringIO()
+        csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n").writerows(rows)
+        out = "﻿" + buf.getvalue()
+        back = list(csv.reader(io.StringIO(out.lstrip("﻿")), delimiter=";"))
+        if any(len(r) != len(rows[0]) for r in back if r) or out.encode("utf-8").decode("utf-8") != out:
+            return None, "SOKKAN could not write this table: give it again as a Markdown table."
+        return out, ""
+    if outputs.kind_of(name, text) == "spreadsheet":
+        _meta, body = outputs.front_matter(text)
+        for _s, _e, rows, heading in outputs._md_tables(body):
+            if len(rows) >= 2:
+                err = _width_error(rows, f"In the table « {heading} », " if heading else "")
+                if err:
+                    return None, err
+    return text, ""
+
+
+def table_message(error: str) -> str:
+    return ("SOKKAN builds the table file itself and could not do it: " + error
+            + " Save the document again, complete. Do not mention this to the person. "
+            + factcheck.AGENT_MARK)
+
+
+# ---- (b) the delivery message says what the file really holds ------------------------------
+_NUMWORDS = {"un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7,
+             "huit": 8, "neuf": 9, "dix": 10, "onze": 11, "douze": 12, "treize": 13, "quatorze": 14,
+             "quinze": 15, "seize": 16, "dix-sept": 17, "dix-huit": 18, "dix-neuf": 19, "vingt": 20}
+_COUNT = re.compile(r"\b(\d{1,3}|" + "|".join(sorted(_NUMWORDS, key=len, reverse=True)) + r")\s+"
+                    r"(lignes?|entrées?|tickets?|risques?|décisions?|actions?|questions?|points?|"
+                    r"formulations?|inscriptions?|demandes?|affaires?|publications?|factures?|"
+                    r"activités?|traitements?|opportunités?|sessions?|collaborateurs?|personnes?)"
+                    r"((?:\s+\w+){0,3}?\s+(?:à vérifier|à confirmer|signalée?s?|marquée?s?))?", re.I)
+
+
+def _facts(name: str, content: str) -> dict:
+    """What the saved file holds, read by SOKKAN: its tables (formulas computed), the data rows,
+    the rows flagged « à vérifier », the items of « Points à vérifier », the figures."""
+    import outputs
+    text = (content or "").lstrip("﻿")
+    if (name or "").lower().endswith(".csv"):
+        rows = outputs.csv_rows(text)
+        tables = [rows] if rows else []
+        body = ""
+    else:
+        _meta, body = outputs.front_matter(text)
+        body = outputs.computed_markdown(body)
+        tables = [rows for _s, _e, rows, _h in outputs._md_tables(body)]
+    data = []
+    flagged = 0
+    for t in tables:
+        if len(t) < 2:
+            continue
+        head = [factcheck.fold(h) for h in t[0]]
+        vcol = next((j for j, h in enumerate(head) if "verifier" in h or "confirmer" in h), None)
+        for r in t[1:]:
+            if r and re.search(r"\btotal", factcheck.fold(r[0] or "")):
+                continue
+            data.append(r)
+            if vcol is not None and vcol < len(r):
+                v = factcheck.fold(r[vcol]).strip()
+                if v and v not in ("non", "no", "-", "—", "0", "false"):
+                    flagged += 1
+    points = 0
+    m = re.search(r"^#+\s.*(?:points?\s+[àa]\s+(?:v[ée]rifier|confirmer)|points to (?:check|confirm)).*$"
+                  r"((?:\n(?!#+\s).*)*)", body or "", re.I | re.M)
+    if m:
+        points = len(re.findall(r"^\s*(?:[-*+]|\d+[.)])\s+", m.group(1), re.M))
+    figures = set()
+    for v in factcheck.numbers(text if not body else body):
+        figures.add(round(v, 2))
+    return {"rows": data, "n_rows": len(data), "flagged": flagged, "points": points,
+            "figures": figures, "tables": len(tables), "kind": outputs.kind_of(name, text)}
+
+
+def check_message(message: str, name: str, content: str) -> list[str]:
+    """The claims of the delivery message SOKKAN can verify against the saved file and finds
+    false: counts (« 13 lignes », « 7 lignes à vérifier », « 6 points à vérifier », « 4
+    décisions ») and totals (« total de CHF 93'030 »). [] = nothing provably false."""
+    try:
+        f = _facts(name, content)
+    except Exception:  # noqa: BLE001 — never block on a reading problem
+        return []
+    out = []
+    for m in _COUNT.finditer(message or ""):
+        n = int(m.group(1)) if m.group(1).isdigit() else _NUMWORDS[m.group(1).lower()]
+        noun = factcheck.fold(m.group(2))
+        flag = bool(m.group(3))
+        stem = noun.rstrip("s")
+        if stem == "point" and flag:
+            have = f["points"] or f["flagged"]
+        elif flag:
+            have = f["flagged"]
+        elif stem in ("ligne", "entree"):
+            have = f["n_rows"]
+        else:
+            have = sum(1 for r in f["rows"] if any(factcheck.fold(c).startswith(stem) for c in r))
+            if not have:
+                continue        # not verifiable from the file: not said to be false
+        if have != n:
+            out.append(f"« {m.group(0).strip()} » : le fichier en contient {have}")
+    for m in re.finditer(r"total[^.\n]{0,40}?((?:CHF|Fr\.?)\s*)?(\d{1,3}(?:['’ ]\d{3})+(?:[.,]\d{2})?|\d{4,}(?:[.,]\d{2})?)",
+                         message or "", re.I):
+        v = factcheck.parse_number(m.group(2))
+        if v is not None and v >= 100 and not any(abs(v - x) <= 0.5 for x in f["figures"]):
+            out.append(f"« {m.group(0).strip()} » : ce montant ne figure pas dans le fichier")
+    return out
+
+
+def factual_message(name: str, content: str, title: str = "") -> str:
+    """The delivery message SOKKAN writes from the file itself, when the agent's was false."""
+    f = _facts(name, content)
+    what = f"« {title or name} »"
+    if f["kind"] == "spreadsheet" or f["tables"]:
+        s = f"J'ai enregistré {what} : {f['n_rows']} ligne{'s' if f['n_rows'] != 1 else ''}"
+        if f["flagged"]:
+            s += f", dont {f['flagged']} marquée{'s' if f['flagged'] != 1 else ''} à vérifier"
+        s += "."
+    else:
+        s = f"J'ai enregistré {what}."
+    if f["points"]:
+        s += f" La section « Points à vérifier » en liste {f['points']}."
+    return s + " Ouvrez l'aperçu pour le relire avant de le valider."

@@ -683,7 +683,37 @@ _LEAVING_SRC = re.compile(r"motif (?:du|de|de son) depart|raison (?:du|de son) d
                           r"depart a (?:sa|la) demande|retraite", re.I)
 
 
-def _certificate(text: str, ask: str, sources: str) -> list[dict]:
+# (c) 20.11 — an appraisal in a work certificate must come from the documents of THIS work (the
+# manager's notes, the appraisal): an earlier attachment or a previous deliverable is not a
+# source of praise (the « Théo » case: an error copied from an older document). Stems, folded.
+_APPRAISAL = [
+    "excellen", "remarquabl", "exemplair", "irreprochabl", "exceptionnel", "brillant",
+    "entiere satisfaction", "pleine satisfaction", "toute satisfaction", "tres bon", "tres bien",
+    "consciencieu", "rigoureu", "rigueur", "fiabl", "fiabilite", "autonom", "dynamique", "motive",
+    "polyvalen", "ponctuel", "ponctualite", "serein", "constructi", "chaleureu", "loyal", "loyaute",
+    "devoue", "devouement", "minutieu", "efficac", "competen", "efforce", "sociabl", "agreabl",
+    "courtois", "professionnalisme", "serieux", "disponibilite", "esprit d'equipe",
+    "initiative", "proacti", "soigne", "apprecie", "enthousias", "creati", "perseveran", "toujours respect", "parfaitement",
+]
+
+
+def _appraisal_unsourced(text: str, attached: str) -> list[str]:
+    src = fold(attached)
+    out = []
+    for line in _flat(text):
+        fl = fold(line)
+        if re.search(r"points? a (?:verifier|confirmer)|formulation|alternative|a verifier", fl):
+            continue        # the agent's own table of wordings to check
+        for stem in _APPRAISAL:
+            if re.search(rf"(?<![a-z]){re.escape(stem)}", fl) and not re.search(
+                    rf"(?<![a-z]){re.escape(stem[:max(5, len(stem) - 2)])}", src):
+                word = re.search(rf"(?<![a-z]){re.escape(stem)}[a-z'-]*", fl).group(0)
+                if word not in out:
+                    out.append(word)
+    return out
+
+
+def _certificate(text: str, ask: str, sources: str, attached: str | None = None) -> list[dict]:
     if not (_CERT.search(ask or "") or _CERT.search((text or "")[:400])):
         return []
     out = []
@@ -719,6 +749,15 @@ def _certificate(text: str, ask: str, sources: str) -> list[dict]:
                           f"Reason for leaving without a source: « {line.strip()[:120]} » — in Switzerland it "
                           "is given only at the employee's request", line=line.strip()))
             break
+    missing = _appraisal_unsourced(text, (attached if attached is not None else sources) + "\n" + (ask or ""))
+    if missing:
+        out.append(_f("certificate_appraisal", "block",
+                      "Appréciation absente des documents de ce travail : "
+                      + ", ".join(f"« {w} »" for w in missing[:8])
+                      + " — retirez-la, ou mettez-la sous « à vérifier par vous » (art. 330a CO : véridique)",
+                      "Appraisal not found in this work's documents: "
+                      + ", ".join(f"« {w} »" for w in missing[:8])
+                      + " — remove it or list it under « to check by you »", words=missing))
     _ = t
     return out
 
@@ -821,7 +860,8 @@ def with_computed(name: str, text: str) -> tuple[str, list[dict]]:
 
 
 def check(text: str, *, primary: str = "", secondary: str = "", ask: str = "", lang: str = "fr",
-          country: str | None = None, form: str | None = None, name: str = "") -> list[dict]:
+          country: str | None = None, form: str | None = None, name: str = "",
+          attached: str | None = None) -> list[dict]:
     """The findings on one deliverable. ``primary`` = the text of the sources a person gave or
     approved (documents of the project, memory notes, the request); ``secondary`` = earlier
     deliverables of the project (an agent wrote them: an error there must not be confirmed by
@@ -841,7 +881,7 @@ def check(text: str, *, primary: str = "", secondary: str = "", ask: str = "", l
     for fn in (lambda: _totals(text), lambda: _tables_check(text), lambda: _vat(text, country),
                lambda: _weekdays(text), lambda: _people(text, primary_all, secondary or ""),
                lambda: _orgs(text, primary_all), lambda: _law(text, ask, primary_all, country),
-               lambda: _certificate(text, ask, primary_all), lambda: _style(text, lang, country, form)):
+               lambda: _certificate(text, ask, primary_all, attached), lambda: _style(text, lang, country, form)):
         try:
             findings += fn()
         except Exception:  # noqa: BLE001 — a check that breaks never blocks a save

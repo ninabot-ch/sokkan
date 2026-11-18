@@ -65,6 +65,9 @@ class GatedPolicy(P.Policy):
         self._bounced: dict[str, dict] = {}
         self.reads: list[str] = []
         self.unread_bounces = 0
+        self.table_bounces = 0
+        self.tables_rebuilt = 0
+        self.saved: tuple[str, str] | None = None
 
     def on_event(self, ev) -> None:
         import qualitygate
@@ -95,13 +98,32 @@ class GatedPolicy(P.Policy):
         text = qualitygate.content_after(gate.tool, gate.input, path)
         if text is None:
             return self.decide(gate)
+        from harness.contract import Decision, EDIT
         prev = self._bounced.get(path)
+        # (a) the table is built and checked by SOKKAN (agentchat._quality_gate, same calls)
+        rebuilt = None
+        built, err = qualitygate.build_table(os.path.basename(path), text)
+        if err and ("table:" + path) not in self._bounced:
+            self._bounced["table:" + path] = {"error": err}
+            self.table_bounces += 1
+            self.gate_log.append({"path": os.path.basename(path), "pass": 0, "table_error": err})
+            card = P.Card(gate_id=gate.gate_id, kind=gate.kind, tool=gate.tool, target=path[:300],
+                          t=round(time.monotonic() - self._turn_t0, 1), turn=self.turn,
+                          rule="policy:table_built_by_sokkan", deliverable=True)
+            d = Decision.deny(qualitygate.table_message(err), by="policy", via="auto_rule")
+            card.decision, card.by, card.via = d.kind, d.by, d.via
+            self.journal.append(card)
+            return d
+        if built is not None and built != text and "content" in gate.input and EDIT in gate.options:
+            rebuilt = {**gate.input, "content": built}
+            text = built
+            self.tables_rebuilt += 1
         srcs = [(d["name"], t) for d, t in zip(self.sp["docs"], self.sp["sources"])]
         t0 = time.monotonic()
         res = await asyncio.to_thread(
             qualitygate.review, text=text, name=os.path.basename(path), ask=self.case["ask"],
             mission=self.mission, sources=srcs, lang=self.case.get("lang", "fr"), level=self.level,
-            previous=prev)
+            previous=prev, attached="\n".join(self.sp["sources"]))
         entry = {"path": os.path.basename(path), "pass": 2 if prev else 1,
                  "wall_s": round(time.monotonic() - t0, 1), "review_ms": res["review_ms"],
                  "reviewer": res["reviewer"], "route": res["route"],
@@ -122,7 +144,12 @@ class GatedPolicy(P.Policy):
             return d
         entry["card"] = qualitygate.card(res, corrected=prev is not None, lang=self.case.get("lang", "fr"))
         entry["unread_at_card"] = qualitygate.unread(self.sp["docs"], self.reads)
-        return self.decide(gate)
+        self.saved = (path, text)
+        d = self.decide(gate)
+        if rebuilt is not None and d.allowed:
+            entry["table_rebuilt"] = True
+            return Decision.edit(rebuilt, by=d.by, via=d.via)
+        return d
 
 
 # Anthropic's list prices, USD per million tokens (input, output); cache read = 0.1 × input
@@ -307,6 +334,16 @@ async def play_case(case: dict, base: Path, timeout_s: float) -> dict:
     out["unread_at_end"] = qualitygate.unread(sp["docs"], getattr(pol, "reads", []))
     if GATE:
         out["gate"] = pol.gate_log
+        out["tables"] = {"bounced": pol.table_bounces, "rebuilt": pol.tables_rebuilt}
+        # (b) the delivery message checked against the file really saved (agentchat
+        # _check_delivery_message): a false one is replaced by SOKKAN's own, from the file
+        if files and out.get("answer"):
+            name, content = next(iter(files.items()))
+            problems = qualitygate.check_message(out["answer"], name, content)
+            if problems:
+                out["answer_agent"] = out["answer"]
+                out["answer"] = qualitygate.factual_message(name, content)
+                out["message_rewritten"] = problems
     out["grade"] = grade(case, play, sp, files)
     out["deliverable_texts"] = {k: v[:12000] for k, v in files.items()}
     return out

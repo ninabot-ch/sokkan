@@ -497,3 +497,67 @@ def test_by_default_a_defect_found_only_by_the_review_goes_to_the_card_not_back_
     text, ask = _case("offre-v1")          # a deterministic finding still sends it back
     reviewer.answers = ['{"verdict":"ok","defects":[]}']
     assert qualitygate.review(text=text, name="o.md", ask=ask, sources=[], lang="fr", level=1)["needs_fix"]
+
+
+# ---- 20.11: (a) tables built by SOKKAN, (b) delivery message = file, (c) appraisal sourced ----
+def test_a_csv_with_an_unquoted_separator_is_rebuilt_by_sokkan():
+    pytest.importorskip("outputs")
+    hand = "Client;Montant;Note\nRégie du Lac;12350;partiel; reste à payer\nCèdres;0;soldé\n"
+    built, err = qualitygate.build_table("Suivi.csv", hand)
+    assert not err and built.startswith("﻿")
+    import csv
+    import io
+    rows = list(csv.reader(io.StringIO(built.lstrip("﻿")), delimiter=";"))
+    assert all(len(r) == 3 for r in rows) and rows[1][2] == "partiel; reste à payer"
+
+
+def test_rows_given_as_markdown_or_json_become_a_csv():
+    pytest.importorskip("outputs")
+    md = "| Client | Montant |\n|---|---|\n| A; B | 10 |\n| C | 20 |\n"
+    built, err = qualitygate.build_table("t.csv", md)
+    assert not err and '"A; B";10' in built
+    js = '[{"Client": "A", "Montant": 10}, {"Client": "C", "Montant": 20}]'
+    built, err = qualitygate.build_table("t.csv", js)
+    assert not err and built.lstrip("﻿").splitlines()[0] == "Client;Montant"
+
+
+def test_a_table_that_cannot_be_rebuilt_gets_one_precise_error():
+    pytest.importorskip("outputs")
+    built, err = qualitygate.build_table("t.csv", "A;B;C\n1;2\n")
+    assert built is None and "Row 2 has 2 cells but the header has 3" in err
+    src = "---\nformat: xlsx\n---\n# Suivi\n\n## Factures\n\n| N° | Montant |\n|---|---|\n| 1 | 10 | 3 |\n"
+    built, err = qualitygate.build_table("Suivi.md", src)
+    assert built is None and "« Factures »" in err and "3 cells but the header has 2" in err
+    assert factcheck.AGENT_MARK in qualitygate.table_message(err)
+
+
+def test_a_false_delivery_message_is_caught_and_rewritten_from_the_file():
+    pytest.importorskip("outputs")
+    csvt = ("Ticket;Priorité;À vérifier\n4811;P2;oui\n4812;P1;\n4813;P3;oui\n4815;P1;non\n")
+    bad = "J'ai trié les 5 lignes ; 3 lignes à vérifier. Le total est de CHF 93'030."
+    problems = qualitygate.check_message(bad, "Tri.csv", csvt)
+    assert any("5 lignes" in p and "4" in p for p in problems)
+    assert any("3 lignes à vérifier" in p for p in problems)
+    assert any("93'030" in p for p in problems)
+    assert qualitygate.check_message("J'ai trié les 4 lignes ; 2 lignes à vérifier.", "Tri.csv", csvt) == []
+    msg = qualitygate.factual_message("Tri.csv", csvt, "Tri des tickets")
+    assert "4 lignes" in msg and "2 marquées à vérifier" in msg
+
+
+def test_counted_points_to_check_and_computed_totals():
+    pytest.importorskip("outputs")
+    doc = ("# Rapport\n\n| Poste | Montant |\n|---|---|\n| A | 100 |\n| B | 200 |\n| Total | =SUM(ABOVE) |\n\n"
+           "## Points à vérifier\n\n- un\n- deux\n")
+    assert qualitygate.check_message("Total : CHF 300. 2 points à vérifier.", "r.md", doc) == []
+    assert qualitygate.check_message("Total : CHF 400 ; 3 points à vérifier.", "r.md", doc) != []
+
+
+def test_an_appraisal_absent_from_this_work_s_documents_is_flagged():
+    cert = ("# Certificat de travail\n\nMme Monnier a travaillé du 01.03.2021 au 31.12.2026. Son travail "
+            "était excellent et son comportement exemplaire. Elle est fiable.\n")
+    notes = "Évaluation : travail fiable, prestations très bonnes, s'est efforcée sur les délais."
+    old_pv = "Mme Monnier, au comportement exemplaire selon l'ancien PV"
+    f = factcheck.check(cert, primary=notes + "\n" + old_pv, attached=notes,
+                        ask="certificat de travail de Claire Monnier", lang="fr", country="CH")
+    a = next(x for x in f if x["kind"] == "certificate_appraisal")
+    assert "excellent" in a["fr"] and "exemplaire" in a["fr"] and "fiable" not in a["data"]["words"]

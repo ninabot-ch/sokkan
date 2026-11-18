@@ -16,6 +16,7 @@
     }
   },
   "guardrails": [
+    {"i18n": {"fr": {"text": "Un certificat de travail ne contient aucune appréciation qui ne figure pas dans les documents joints à ce travail (notes du responsable, évaluation) : SOKKAN la signale avant la carte."}, "en": {"text": "A work certificate holds no appraisal that is not in the documents attached to this work (the manager's notes, the appraisal): SOKKAN flags it before the card."}}, "agent": "In a work certificate, write each appraisal (performance, conduct, any praise or qualifier such as « excellent », « fiable », « rigoureux », « s'est efforcé ») only when a document attached to THIS work says it — never from an older document, a previous deliverable or your own judgement; a quality the documents do not give is left out, or listed under « Points à vérifier » for the HR manager."},
     {
       "i18n": {
         "fr": {"text": "Les dossiers du personnel sont confidentiels : ce poste travaille dans un projet « Confidentiel », avec le modèle local uniquement, jamais avec Claude."},
