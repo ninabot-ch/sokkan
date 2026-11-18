@@ -543,6 +543,9 @@ def quiz_counts(text: str) -> dict:
             "key_entries": _numbered_run(key), "has_key": cut >= 0}
 
 
+_FRONT_MATTER = re.compile(r"\A---\n(?:[A-Za-z_][\w-]*:[^\n]*\n)+---\n")
+
+
 def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
                   files_after_first: dict[str, str]) -> dict:
     text = "\n".join(files.values())
@@ -550,7 +553,10 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
     e = j.expect
     contains = {"|".join(g): any(fold(s) in ftext for s in g) for g in e.must_contain}
     sections_ok = all(re.search(r"^#+ .*" + re.escape(fold(s)), ftext, re.M) for s in e.sections)
-    titled = all(v.lstrip().startswith("# ") for v in files.values()) if files else False
+    # 4.0 native formats (outputs.py): a deliverable may open with a front matter that names
+    # its output (« ---\nformat: letters\n--- »); the title is the first line after it
+    titled = all(_FRONT_MATTER.sub("", v.lstrip(), count=1).lstrip().startswith("# ")
+                 for v in files.values()) if files else False
     quiz = quiz_counts(text) if e.min_questions else {}
     questions = max(text.count("?"), quiz.get("numbered", 0))
     pol = play.pol.summary()
