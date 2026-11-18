@@ -297,7 +297,8 @@ def _session(monkeypatch, tmp_path):
     s._perms, s._questions, s.redact_values, s._turn_model = {}, {}, [], ""
     s._pending = {}
     s._simple_work = True
-    s._approved_saves = set()
+    s._approved_saves, s._declined_saves = {}, {}
+    s._open_gates = set()
     s.events = []
     s._emit = lambda ev: s.events.append(ev)
     journal = []
