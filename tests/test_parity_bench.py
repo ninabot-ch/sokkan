@@ -229,3 +229,34 @@ def test_a_pass_without_a_decided_card_is_not_played_not_a_kernel_gap():
                         "conformance": {}})
     assert "attend noyau n°3" not in md
     assert "R1-pas-de-shell p1 — décideur dans le journal du noyau : non joué" in md
+
+
+def test_the_quality_gate_of_the_bench_refuses_once_with_the_products_words(tmp_path):
+    """Bench n°7 Q1: the first save holding the wrong figure is refused by the quality gate
+    with the product's message (a rule of the space for the simple view); the corrected save
+    is a card the person approves."""
+    import plain
+    from harness.contract import Gate
+    j = next(x for x in journeys.ATELIER if x.id == "Q1-porte-qualite")
+    deliv = tmp_path / "deliverables"
+    deliv.mkdir()
+    pol = policy.Policy("atelier", deliverables=deliv, quality=dict(j.quality))
+    pol.new_turn()
+    path = str(deliv / "Relance.md")
+
+    def save(text, gid):
+        return pol.decide(Gate(gate_id=gid, kind="file_write", subject={
+            "tool": "write_file", "path": path, "input": {"path": path, "content": text}}))
+    d1 = save("# Relance\nMontant : 4 800 CHF", "g1")
+    assert d1.denied and "5 188.80" in d1.message
+    assert any(m in d1.message for m in plain.POLICY_DENIED)
+    d2 = save("# Relance\nMontant : 5 188.80 CHF TTC", "g2")
+    assert not d2.denied and d2.via == "rail"
+    s = pol.summary()
+    assert s["quality_refused"] == 1 and s["deliverable_cards"] == 1
+
+
+def test_the_new_journeys_of_bench_7_are_played_with_their_in_turn_checks():
+    ids = {j.id: j for j in journeys.ATELIER}
+    assert ids["A5-meme-document"].in_turn == ("same_document_rule",)
+    assert ids["Q1-porte-qualite"].in_turn == ("gate_corrected",)

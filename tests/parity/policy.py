@@ -89,10 +89,13 @@ class Policy:
     deliverables: Path | None = None
     memory: Path | None = None
     has_documents: bool = False
+    # the quality gate's refusal (journeys.Journey.quality): {wrong, right, where, problem, fix}
+    quality: dict = field(default_factory=dict)
     journal: list[Card] = field(default_factory=list)
     turn: int = 0
     _turn_t0: float = 0.0
     _saved_this_turn: set = field(default_factory=set)
+    _quality_bounced: set = field(default_factory=set)
 
     def new_turn(self) -> None:
         self.turn += 1
@@ -126,6 +129,10 @@ class Policy:
                 return Decision.deny(NO_MEMORY_FILE, by="policy", via="auto_rule")
             if self.deliverables is not None and inside(path, self.deliverables):
                 card.deliverable = True
+                refused = self._quality(gate, path)
+                if refused is not None:
+                    card.rule = "policy:quality_gate"
+                    return refused
                 if path in self._saved_this_turn:
                     # agentchat.py 4.0: the person's first decision carries the later saves
                     card.rule = "policy:simple_same_document_same_turn"
@@ -138,6 +145,24 @@ class Policy:
             return self._answer(gate, by=PERSON, via="rail")
         card.rule = "person"
         return Decision.allow(by=PERSON, via="rail")
+
+    def _quality(self, gate, path: str) -> Decision | None:
+        """agentchat `_quality_gate`, played deterministically: the FIRST save of a deliverable
+        whose text holds a wrong figure and not the right one is refused, ONCE, with the
+        product's own message (qualitygate.agent_message, ending with factcheck.AGENT_MARK,
+        which plain.POLICY_DENIED reads as a rule of the space)."""
+        q = self.quality
+        if not q or path in self._quality_bounced:
+            return None
+        text = str(gate.input.get("content") or gate.input.get("new_string")
+                   or gate.input.get("patch") or "")
+        if not any(w in text for w in q["wrong"]) or any(r in text for r in q["right"]):
+            return None
+        self._quality_bounced.add(path)
+        import qualitygate
+        msg = qualitygate.agent_message({"findings": [], "defects": [
+            {"where": q.get("where", ""), "problem": q["problem"], "fix": q.get("fix", "")}]})
+        return Decision.deny(msg, by="policy", via="auto_rule")
 
     @staticmethod
     def _answer(gate, *, by: str, via: str) -> Decision:
@@ -171,6 +196,7 @@ class Policy:
                 1 for c in j if c.rule == "policy:simple_same_document_same_turn"),
             "shell_refused": sum(1 for c in j if c.rule == "policy:simple_profile_no_shell"),
             "memory_write_refused": sum(1 for c in j if c.rule == "policy:documents_memory_write"),
+            "quality_refused": sum(1 for c in j if c.rule == "policy:quality_gate"),
             "non_deliverable_writes_approved": sum(
                 1 for c in j if c.kind == "file_write" and not c.deliverable
                 and c.decision.startswith("allow")),

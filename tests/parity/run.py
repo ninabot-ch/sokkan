@@ -616,7 +616,7 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     if engine == "kernel":
         open_to_kernel(base)
     pol = P.Policy("atelier", deliverables=space["deliverables"], memory=space["memory"],
-                   has_documents=bool(space["docs"]))
+                   has_documents=bool(space["docs"]), quality=dict(j.quality))
     play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8),
                 cwd=space["work"], deny_tools=deny_tools, profile="atelier",
                 first_message=prompt), pol, j.timeout_s)
@@ -654,7 +654,42 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     out["deliverable_texts"] = {k: v[:4000] for k, v in files.items()}
     if engine == "kernel" and play.engine_session:
         out["kernel_journal"] = kernel_journal(play.engine_session, pol)
+    if j.in_turn:
+        grade_in_turn(j, play, out, files)
     return out
+
+
+def kernel_turns(out: dict) -> int | None:
+    """Turns the kernel ran for the run (its own record, `trace_calls`): the person's turns,
+    plus one continuation per card decided outside its turn. None when not read."""
+    calls = (out.get("kernel_trace_calls") or {}).get("calls")
+    if not calls:
+        return None
+    return len({c.get("turn") for c in calls if not c.get("sub")})
+
+
+def grade_in_turn(j: J.Journey, play: Play, out: dict, files: dict[str, str]) -> None:
+    """Bench n°7 — a card decided while its turn waits (kernel host-3e `approval_wait_s`):
+    no continuation turn; for the quality gate, the reason seen and the document corrected in
+    the person's turn. The legacy engine decides a card inside its call: one turn by design."""
+    pol = out["cards"]
+    person_turns = len(play.turns)
+    turns = kernel_turns(out) if play.engine == "kernel" else person_turns
+    checks = dict(out["grade"]["checks"])
+    if "same_document_rule" in j.in_turn:
+        checks["same_document_by_rule"] = pol.get("same_document_by_rule", 0) >= 1
+        checks["one_card_shown"] = pol.get("deliverable_cards", 0) == 1
+    if "gate_corrected" in j.in_turn:
+        text = "\n".join(files.values())
+        checks["quality_gate_refused"] = pol.get("quality_refused", 0) == 1
+        checks["corrected_in_the_turn"] = any(r in text for r in j.quality["right"]) \
+            and pol.get("deliverable_cards", 0) >= 1
+    if play.engine == "kernel":
+        checks["no_continuation_turn"] = turns is not None and turns <= person_turns
+    out["grade"]["checks"] = checks
+    out["grade"]["success"] = all(checks.values())
+    out["in_turn"] = {"kernel_turns": turns, "person_turns": person_turns,
+                      "approval_wait_s": env("PARITY_APPROVAL_WAIT_S", "")}
 
 
 def grade_refusal(j: J.Journey, play: Play, out: dict, deny_tools) -> dict:
