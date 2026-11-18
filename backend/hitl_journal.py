@@ -343,6 +343,31 @@ def engine_chosen(session_id: str, *, actor: str, project: str, model: str,
     audit.log(a, "hitl.engine_claude", f"session:{session_id}", f"{model} · {level}", project=project)
 
 
+def pii_decision(session_id: str, *, actor: str, project: str, choice: str, counts: dict,
+                 model: str = "", step: str = "start") -> None:
+    """4.0 « PII sandwich »: the personal data found in what a person was about to send to
+    Claude, and what they chose (kind `pii`, decision `anonymize` | `local` | `declined`): who,
+    when, which categories and how many. NEVER a value. Best-effort: never breaks the start."""
+    what = ", ".join(f"{k}:{int(v)}" for k, v in sorted((counts or {}).items())) or "-"
+    a = (actor or "").lower().strip()
+    try:
+        import uuid
+        now = time.time()
+        con = _con()
+        con.execute(
+            "INSERT INTO hitl(request_id, kind, session_id, project, owner, actor, origin, tool,"
+            " title, requested_at, decided_at, delay_ms, decision, message, model)"
+            " VALUES(?,'pii',?,?,?,?,'owner','claude',?,?,?,0,?,?,?)",
+            (uuid.uuid4().hex, session_id, project, a, a,
+             f"Données personnelles avant Claude ({step}) — {choice}"[:300], now, now, choice,
+             f"trouvé : {what}"[:SUMMARY_MAX], (model or "")[:120]))
+        con.commit()
+        con.close()
+    except Exception:  # noqa: BLE001
+        pass
+    audit.log(a, f"claude.pii.{choice}", f"session:{session_id}", f"{step} · {what}", project=project)
+
+
 def mark_interrupted(before: float | None = None) -> int:
     """At API start: a request still `pending` belongs to a process that is gone (its
     future lived in memory). It is closed as `interrupted`, never left looking live."""

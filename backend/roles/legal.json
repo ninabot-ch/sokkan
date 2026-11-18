@@ -2,7 +2,6 @@
   "id": "legal",
   "order": 70,
   "level": "confidential",
-  "claude": false,
   "i18n": {
     "fr": {
       "label": "Juridique et conformité",

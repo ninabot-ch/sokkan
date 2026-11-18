@@ -2051,7 +2051,8 @@ _AUTH_FREE = ("/api/auth/", "/api/health", "/api/version", "/api/edge/ask", "/ap
               "/api/scim/",  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)
               "/api/teams/messages",  # 3.4 : JWT Bot Framework vérifié par teams.botauth
               "/api/study/export",  # study_mode : jeton d'export en lecture seule, ou admin
-              "/api/internal/claude-grant")  # 3.6.5 : le routeur seul (secret partagé, hors proxy)
+              "/api/internal/claude-grant",  # 3.6.5 : le routeur seul (secret partagé, hors proxy)
+              "/api/internal/claude-pii")  # 4.0 : PII sandwich, le routeur seul (même porte)
 
 
 @app.middleware("http")

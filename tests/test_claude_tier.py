@@ -31,6 +31,7 @@ class Up:
 
     def __init__(self, model="x"):
         self.model, self.status, self.seen, self.get_body, self.get_status = model, 200, [], {}, 200
+        self.pii, self.pii_status, self.sse = None, 200, None
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -50,8 +51,20 @@ class Up:
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
                 outer.seen.append({"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()},
                                    "body": json.loads(raw or b"{}")})
+                if self.path.startswith("/api/internal/claude-pii"):
+                    # 4.0: the api's PII sandwich — handed back as it came (tests/test_claude_pii.py
+                    # plays the real one)
+                    body = json.loads(raw or b"{}")
+                    out = json.dumps(outer.pii(body) if outer.pii else
+                                     {"payload": body.get("payload"), "restore": {}, "found": {}}).encode()
+                    self.send_response(outer.pii_status)
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(out)))
+                    self.end_headers()
+                    self.wfile.write(out)
+                    return
                 if outer.status == 200:
-                    out, ctype = SSE % outer.model.encode(), "text/event-stream"
+                    out, ctype = (outer.sse or SSE % outer.model.encode()), "text/event-stream"
                 else:
                     out, ctype = json.dumps({"type": "error", "error": {"type": "x", "message": "no"}}).encode(), \
                         "application/json"
@@ -101,7 +114,8 @@ def ask(text="Rédige le module 3 du cours", model="claude-opus-5-5", **kw):
             "messages": [{"role": "user", "content": text}], **kw}
 
 
-CLAUDE = {"x-sokkan-tier": "claude", "x-sokkan-project": "cours", "x-sokkan-user": "ana@school.example",
+CLAUDE = {"x-sokkan-tier": "claude", "x-sokkan-project": "cours", "x-sokkan-work": "w1",
+          "x-sokkan-user": "ana@school.example",
           "x-sokkan-study": "s1", "x-api-key": "local", "authorization": "Bearer local",
           "anthropic-version": "2023-06-01", "anthropic-beta": "some-beta"}
 
@@ -326,7 +340,7 @@ def test_start_with_claude_on_a_public_project_and_refusal_on_a_confidential_one
     env = claudetier.session_env(sid, "cours", {"ANTHROPIC_CUSTOM_HEADERS": "x-sokkan-user: P1"})
     assert env["ANTHROPIC_MODEL"] == "claude-sonnet-5-5"
     assert env["ANTHROPIC_CUSTOM_HEADERS"].split("\n") == ["x-sokkan-user: P1", "x-sokkan-tier: claude",
-                                                         "x-sokkan-project: cours"]
+                                                         "x-sokkan-project: cours", f"x-sokkan-work: {sid}"]
     # the journal of validations has the gesture
     rows = [x for x in hitl_journal.query(project="cours", limit=50) if x["kind"] == "engine"]
     assert len(rows) == 1 and rows[0]["decision"] == "claude" and rows[0]["model"] == "claude-sonnet-5-5"

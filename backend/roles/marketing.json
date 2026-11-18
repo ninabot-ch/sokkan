@@ -2,7 +2,6 @@
   "id": "marketing",
   "order": 60,
   "level": "team",
-  "claude": true,
   "i18n": {
     "fr": {
       "label": "Marketing et communication",

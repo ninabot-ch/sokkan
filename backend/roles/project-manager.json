@@ -2,7 +2,6 @@
   "id": "project-manager",
   "order": 80,
   "level": "team",
-  "claude": true,
   "i18n": {
     "fr": {
       "label": "Chef·fe de projet",

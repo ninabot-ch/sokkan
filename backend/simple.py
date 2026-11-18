@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import re
 import sqlite3
@@ -72,6 +73,9 @@ def _con() -> sqlite3.Connection:
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, report TEXT NOT NULL,
             at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
         );
+        CREATE TABLE IF NOT EXISTS pii_maps (
+            sid TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS validations (
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, by TEXT NOT NULL,
             at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
@@ -80,7 +84,9 @@ def _con() -> sqlite3.Connection:
     # 3.6.5 « Write with Claude »: the engine chosen for the work, the model that wrote each save
     for table, col, ddl in (("works", "tier", "TEXT NOT NULL DEFAULT ''"),
                             ("works", "claude_model", "TEXT NOT NULL DEFAULT ''"),
-                            ("deliverable_writes", "model", "TEXT NOT NULL DEFAULT ''")):
+                            ("deliverable_writes", "model", "TEXT NOT NULL DEFAULT ''"),
+                            # 4.0 PII sandwich: '' (nothing found yet) | anonymize (the person agreed)
+                            ("works", "pii", "TEXT NOT NULL DEFAULT ''")):
         if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     return con
@@ -94,6 +100,33 @@ def add_work(sid: str, project: str, owner: str, ask: str, playbook: str, lang: 
                 " tier, claude_model) VALUES(?,?,?,?,?,?,?,?,?)",
                 (sid, project, (owner or "").lower().strip(), ask[:4000], playbook, lang, time.time(),
                  tier, claude_model))
+    con.commit()
+    con.close()
+
+
+def set_work_pii(sid: str, choice: str) -> None:
+    con = _con()
+    con.execute("UPDATE works SET pii=? WHERE sid=?", (choice, sid))
+    con.commit()
+    con.close()
+
+
+def get_pii_map(sid: str) -> dict:
+    """The pseudonyms of a Claude work (backend/claudepii.py). Values in clear: they never leave
+    the machine — the same file already holds the request as the person typed it."""
+    con = _con()
+    r = con.execute("SELECT data FROM pii_maps WHERE sid=?", (sid,)).fetchone()
+    con.close()
+    try:
+        return json.loads(r["data"]) if r else {}
+    except ValueError:
+        return {}
+
+
+def save_pii_map(sid: str, data: dict) -> None:
+    con = _con()
+    con.execute("INSERT OR REPLACE INTO pii_maps(sid, data, updated_at) VALUES(?,?,?)",
+                (sid, json.dumps(data, ensure_ascii=False), time.time()))
     con.commit()
     con.close()
 
