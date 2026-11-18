@@ -633,3 +633,25 @@ def test_the_card_says_what_the_agent_corrected_in_words():
     still = {**res, "findings": [prev["findings"][1]]}
     assert "Le 3 mars 2027 est un mercredi, pas un lundi" not in qualitygate.card(still, corrected=True, previous=prev)["fixed"]
     assert qualitygate.card(res, corrected=False, previous=prev)["fixed"] == []
+
+
+def test_the_rewritten_delivery_message_names_the_document_never_a_md_file():
+    """4.0.1: « J'ai enregistré « x.md » : … » showed a technical file name to a person."""
+    pytest.importorskip("outputs")
+    xl = ("---\nformat: xlsx\n---\n# Offre formation 2027\n\n| Poste | Montant |\n|---|---|\n| A | 100 |\n"
+          "| B | 200 |\n| Total | =SUM(ABOVE) |\n")
+    msg = qualitygate.factual_message("offre-formation-2027.md", xl)
+    assert "« Offre formation 2027 » (à télécharger en Excel)" in msg and ".md" not in msg
+    assert "tableau principal compte 2 lignes" in msg
+    doc = "Notes sans titre\n\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+    msg = qualitygate.factual_message("compte-rendu_equipe.md", doc)
+    assert "« Compte rendu equipe » (à télécharger en Word)" in msg and ".md" not in msg
+    en = qualitygate.factual_message("offre-formation-2027.md", xl, lang="en")
+    assert en.startswith("I prepared “Offre formation 2027” (to download as Excel)")
+
+
+def test_a_count_the_document_itself_states_is_not_called_false():
+    pytest.importorskip("outputs")
+    doc = ("# Offre\n\nLa formation se donne en 2 sessions d'une demi-journée.\n\n"
+           "| Session | Date |\n|---|---|\n| Session 1 | 3 mars |\n| Session 2 | 10 mars |\n| Session 3 | 17 mars |\n")
+    assert qualitygate.check_message("L'offre prévoit 2 sessions d'une demi-journée.", "o.md", doc) == []

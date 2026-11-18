@@ -946,7 +946,9 @@ class AgentSession:
             problems = qualitygate.check_message(said, os.path.basename(key), content)
             if not problems:
                 return
-            text = qualitygate.factual_message(os.path.basename(key), content)
+            import simple
+            lang = (simple.get_work(self.sid) or {}).get("lang") or "fr"
+            text = qualitygate.factual_message(os.path.basename(key), content, lang=lang)
         except Exception as e:  # noqa: BLE001 — never breaks the end of a turn
             print(f"[sokkan] delivery message of {self.sid}: {e!r}", file=sys.stderr)
             return

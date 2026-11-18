@@ -692,9 +692,12 @@ def check_message(message: str, name: str, content: str) -> list[str]:
     except Exception:  # noqa: BLE001 — never block on a reading problem
         return []
     out = []
+    said_in_file = factcheck.fold(content or "")
     for m in _COUNT.finditer(message or ""):
         if not f["tables"] and not f["points"]:
             break               # nothing SOKKAN could read: no count is said to be false
+        if re.search(r"\b" + re.escape(factcheck.fold(m.group(0).strip())) + r"\b", said_in_file):
+            continue            # 4.0.1: the document itself says it (« 2 sessions d'une demi-journée »)
         n = int(m.group(1)) if m.group(1).isdigit() else _NUMWORDS[m.group(1).lower()]
         noun = factcheck.fold(m.group(2))
         flag = bool(m.group(3))
@@ -723,19 +726,66 @@ def check_message(message: str, name: str, content: str) -> list[str]:
     return out
 
 
-def factual_message(name: str, content: str, title: str = "") -> str:
-    """The delivery message SOKKAN writes from the file itself, when the agent's was false."""
+_FORMAT_WORDS = {
+    "fr": {"xlsx": "Excel", "docx": "Word", "pdf": "PDF", "csv": "Excel (CSV)",
+           "letters_docx": "Word, une lettre par destinataire", "letters_pdf": "PDF"},
+    "en": {"xlsx": "Excel", "docx": "Word", "pdf": "PDF", "csv": "Excel (CSV)",
+           "letters_docx": "Word, one letter per recipient", "letters_pdf": "PDF"},
+}
+
+
+def doc_title(name: str, content: str) -> str:
+    """How a person calls the document: its title (front matter, then the first « # »
+    heading), else its file name without folder, extension or dashes — never « x.md »."""
+    import outputs
+    meta, body = outputs.front_matter((content or "").lstrip("\ufeff"))
+    if (meta.get("title") or "").strip():
+        return meta["title"].strip()
+    m = re.search(r"^#\s+(.+?)\s*#*\s*$", body or "", re.M)
+    if m:
+        return outputs.plain_text(m.group(1)).strip()
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", (name or "").rsplit("/", 1)[-1])
+    stem = re.sub(r"[-_]+", " ", stem).strip()
+    return (stem[:1].upper() + stem[1:]) if stem else "document"
+
+
+def download_format(name: str, content: str, lang: str = "fr") -> str:
+    """« Excel » / « Word »…: the format the person downloads (outputs.formats_for, first)."""
+    import outputs
+    words = _FORMAT_WORDS.get(lang) or _FORMAT_WORDS["fr"]
+    if (name or "").lower().endswith(".csv"):
+        return words["csv"]
+    fmts = outputs.formats_for(name, content or "")
+    return words.get(fmts[0], fmts[0].upper()) if fmts else ""
+
+
+def factual_message(name: str, content: str, title: str = "", lang: str = "fr") -> str:
+    """The delivery message SOKKAN writes from the file itself, when the agent's was false.
+    4.0.1: it names the document by its title and its download format (« à télécharger en
+    Excel »), never by a file name such as « x.md » — the person is not technical."""
     f = _facts(name, content)
-    what = f"« {title or name} »"
+    fmt = download_format(name, content, lang)
+    en = lang == "en"
+    t = title or doc_title(name, content)
+    what = (f"“{t}”" if en else f"« {t} »") + (
+        (f" (to download as {fmt})" if en else f" (à télécharger en {fmt})") if fmt else "")
     if f["main_rows"]:
         n, k = f["main_rows"], f["main_flagged"]
         more = len([x for x in f["per_table"] if x[0]]) - 1
-        s = (f"J'ai enregistré {what} : le tableau principal compte {n} ligne{'s' if n != 1 else ''}"
-             + (f", dont {k} marquée{'s' if k != 1 else ''} à vérifier" if k else "")
-             + (f" ; le document contient {more} autre{'s' if more != 1 else ''} tableau{'x' if more != 1 else ''}"
-                if more > 0 else "") + ".")
+        if en:
+            s = (f"I prepared {what}: the main table has {n} row{'s' if n != 1 else ''}"
+                 + (f", {k} of them marked to check" if k else "")
+                 + (f"; the document has {more} other table{'s' if more != 1 else ''}" if more > 0 else "")
+                 + ".")
+        else:
+            s = (f"J'ai préparé {what} : le tableau principal compte {n} ligne{'s' if n != 1 else ''}"
+                 + (f", dont {k} marquée{'s' if k != 1 else ''} à vérifier" if k else "")
+                 + (f" ; le document contient {more} autre{'s' if more != 1 else ''} tableau{'x' if more != 1 else ''}"
+                    if more > 0 else "") + ".")
     else:
-        s = f"J'ai enregistré {what}."
+        s = f"I prepared {what}." if en else f"J'ai préparé {what}."
     if f["points"]:
-        s += f" La section « Points à vérifier » en liste {f['points']}."
-    return s + " Ouvrez l'aperçu pour le relire avant de le valider."
+        s += (f" The « Points to check » section lists {f['points']}." if en
+              else f" La section « Points à vérifier » en liste {f['points']}.")
+    return s + (" Open the preview to read it before you validate it." if en
+                else " Ouvrez l'aperçu pour le relire avant de le valider.")
