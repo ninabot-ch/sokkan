@@ -63,6 +63,7 @@ from .contract import (
 
 NAME = "legacy"
 LABEL = "Claude Code CLI (Claude Agent SDK)"
+TOOL_SEARCH_ENV = "ENABLE_TOOL_SEARCH"   # Claude Code: MCP tools deferred behind ToolSearch
 
 HOOK_TIMEOUT_S = 5          # hard limit given to the CLI; the recall budget is ~1.5 s
 SUBAGENT_TOOLS = ("Task", "Agent")
@@ -523,8 +524,14 @@ class LegacyHarness(Harness):
             kw["add_dirs"] = []
         if hooks:
             kw["hooks"] = hooks
-        if spec.env:
-            kw["env"] = {**os.environ, **spec.env}
+        env = {**os.environ, **spec.env} if spec.env else {}
+        if not (env.get(TOOL_SEARCH_ENV) or os.environ.get(TOOL_SEARCH_ENV)):
+            # Claude Code 2.1.326 (claude-agent-sdk 0.2.183) offers the MCP tools of a run only
+            # behind ToolSearch (« deferred tools »), 2.1.259 offered them all: keep the whole
+            # catalogue loaded — same tools, same prefix, a local model is not asked to search
+            # first. ENABLE_TOOL_SEARCH set by the operator wins.
+            env[TOOL_SEARCH_ENV] = "false"
+        kw["env"] = env
         if spec.model:
             kw["model"] = spec.model
         if spec.resume:

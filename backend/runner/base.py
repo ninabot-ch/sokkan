@@ -39,7 +39,7 @@ STREAM_LIMIT = 64 * 1024 * 1024
 # variables of the api's environment that a session legitimately needs (model access);
 # everything else of the api (DB URLs, OIDC secrets, vault key…) never reaches a container
 ENV_PASS_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDE_AGENT_SDK_")
-ENV_PASS_EXACT = ("DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "NO_PROXY")
+ENV_PASS_EXACT = ("DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "NO_PROXY", "ENABLE_TOOL_SEARCH")
 # never forwarded, even when the session env sets them (the container sets its own)
 ENV_DROP = ("HOME", "PATH", "PWD", "CLAUDE_CONFIG_DIR", "HOSTNAME", "SHLVL", "_",
             "SOKKAN_SESSION_TOKEN", "SOKKAN_RELAY_TOKEN", "SOKKAN_RELAY_ADDR")

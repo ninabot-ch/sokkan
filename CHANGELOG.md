@@ -201,6 +201,20 @@ shell tool of the kernel (`deny_tools`).
   its flow is unchanged.
 
 ### Fixed
+- **Claude Opus 5.5 runs on every runner.** `claude-agent-sdk` 0.2.152 bundled Claude Code
+  2.1.259, which the API refuses for Opus 5.5 (« version 2.1.280 or newer is required »): a
+  Claude work that started the SDK's own CLI — on the docker / kubernetes runner, whose session
+  image copies that CLI, or outside the api image when no newer `claude` is on the PATH — failed
+  on its first request. The SDK is pinned to 0.2.183 (Claude Code 2.1.326), the api image's npm
+  CLI to the same 2.1.326, the session image build checks the version it copies, and
+  `tests/test_claude_cli_min_version.py` fails when a pinned or bundled CLI is older than
+  `MIN_CLAUDE_CLI`. SDK changes in between: new options `client_app`, `verbatim_prompts`, a
+  `custom` system prompt form; settings that cannot be read now fail the connection instead of
+  being dropped; the SDK waits for the CLI's `idle` state before closing a run;
+  `SandboxIgnoreViolations` is gone (unused here). Claude Code 2.1.326 offers the MCP tools of a
+  run only behind `ToolSearch` (deferred tools): the legacy engine sets `ENABLE_TOOL_SEARCH=false`
+  for its CLI (also forwarded to a session container), so a run keeps its whole catalogue as
+  before; a value set by the operator wins.
 - **A wrong passphrase is always refused at restore.** An encrypted key of a backup set
   (`vault.key.enc`…) is AES-CBC: about one wrong passphrase in 256 passed the padding check,
   and `restore.sh` installed the garbage as the vault key. `backup.sh` now writes the key

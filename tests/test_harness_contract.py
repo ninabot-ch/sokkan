@@ -480,8 +480,11 @@ def test_a_run_spec_becomes_the_options_the_cli_was_started_with_before():
         assert kw["max_budget_usd"] == 1.5
     bare = legacy.LegacyHarness()._options(contract.RunSpec(run_id="s", cwd="/w"))
     assert bare["permission_mode"] == "default"      # never a bypass mode in the engine
-    assert not ({"hooks", "env", "model", "resume", "disallowed_tools", "max_budget_usd"}
+    assert not ({"hooks", "model", "resume", "disallowed_tools", "max_budget_usd"}
                 & set(bare))
+    # the only variable of a bare run: MCP tools stay loaded (Claude Code 2.1.326 defers them)
+    if not os.environ.get("ENABLE_TOOL_SEARCH"):
+        assert bare["env"] == {"ENABLE_TOOL_SEARCH": "false"}
 
 
 # ---- the cockpit consumes the contract ---------------------------------------------------
