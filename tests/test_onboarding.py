@@ -442,9 +442,65 @@ def test_the_validations_page_shows_validated_deliverables_and_exports_them(box)
     audit.log("ana@example.org", "deliverable.validate", "v" * 32, "Synthèse.md · sha256 abc", project="default")
     rows = c.get("/api/team/validations").json()["entries"]
     assert rows[0] | {"at": 0} == {"kind": "deliverable", "decision": "validate", "title": "Synthèse.md",
-                                   "actor": "ana@example.org", "owner": "ana@example.org", "project": "default",
+                                   "label": "Synthèse", "actor": "ana@example.org", "owner": "ana@example.org", "project": "default",
                                    "session_id": "v" * 32, "at": 0, "auto": False, "edited": False}
     assert c.get("/api/team/validations?decision=deny").json()["entries"] == []
     assert c.get("/api/team/validations?actor=bob@example.org").json()["entries"] == []
     csv = c.get("/api/team/validations?format=csv")
     assert csv.headers["content-type"].startswith("text/csv") and "Synthèse.md" in csv.text
+
+
+def test_the_validations_page_never_says_accepted_for_a_refusal_and_shows_no_path(box):
+    """4.0.1: a refusal of the quality check (auto_deny, policy:quality_gate) is a refusal in the
+    journal; the « refused » filter finds it; titles are words, not server paths or tool names."""
+    import board
+    import hitl_journal
+    c = _owner(box)
+    sid = "q" * 32
+    board.add_sdk_session(sid, "x", title="w", project="default", owner="ana@example.org")
+    hitl_journal.automatic("permission", session_id=sid, tool="Write",
+                           title="/data/projects/default/work/deliverables/abc/offre-pre-vert.md",
+                           input_data={}, allowed=False, reason="policy:quality_gate")
+    hitl_journal.automatic("permission", session_id=sid, tool="mcp__sokkan-connectors__mail_draft",
+                           title="", input_data={"subject": "Re: Offre 2027", "body": "x"},
+                           allowed=True, reason="policy:x")
+    rows = c.get("/api/team/validations").json()["entries"]
+    by = {r["decision"]: r for r in rows}
+    assert by["auto_deny"]["auto_reason"] == "policy:quality_gate"
+    assert by["auto_deny"]["label"] == "Enregistrer « offre-pre-vert »"
+    assert "/" not in by["auto_deny"]["label"]
+    assert by["auto_allow"]["label"] == "Préparer un brouillon de mail — « Re: Offre 2027 »"
+    en = c.get("/api/team/validations?lang=en").json()["entries"]
+    assert {r["label"] for r in en} >= {"Save “offre-pre-vert”"}
+    refused = c.get("/api/team/validations?decision=deny").json()["entries"]
+    assert [r["decision"] for r in refused] == ["auto_deny"]
+    accepted = c.get("/api/team/validations?decision=allow").json()["entries"]
+    assert [r["decision"] for r in accepted] == ["auto_allow"]
+
+
+def test_readable_titles():
+    import onboarding as ob
+    assert ob.doc_name("/data/x/deliverables/1/Synthèse.md") == "Synthèse"
+    assert ob.doc_name("rapport v2") == "rapport v2"
+    assert ob.readable_title({"kind": "deliverable", "title": "Synthèse.md"}) == "Synthèse"
+    assert ob.readable_title({"tool": "Edit", "title": "/a/b/plan.md"}) == "Modifier « plan »"
+    assert ob.readable_title({"tool": "mcp__sokkan-connectors__mail_propose_send", "title": ""}) == "Envoyer un mail"
+    assert ob.readable_title({"tool": "mcp__x__do_thing", "title": "mcp__x__do_thing"}) == "Do thing"
+    assert ob.readable_title({"tool": "", "title": "Envoyer « Re: X » à a@example.org"}) == "Envoyer « Re: X » à a@example.org"
+
+
+def test_usage_speaks_the_organisation_currency_with_a_stated_rate(box, monkeypatch):
+    """4.0.1: a Swiss instance showed its consumption in USD with no word about it."""
+    import onboarding
+    monkeypatch.delenv("SOKKAN_USAGE_CURRENCY", raising=False)
+    monkeypatch.delenv("SOKKAN_FX_USD_PER_CHF", raising=False)
+    d = onboarding.display_currency()
+    assert d["currency"] == "CHF" and d["source"] == "USD" and d["usd_per_chf"] > 0 and not d["rate_declared"]
+    monkeypatch.setenv("SOKKAN_FX_USD_PER_CHF", "1.25")
+    d = onboarding.display_currency()
+    assert d["usd_per_chf"] == 1.25 and d["rate_declared"]
+    monkeypatch.setenv("SOKKAN_USAGE_CURRENCY", "USD")
+    assert onboarding.display_currency() == {"currency": "USD", "source": "USD"}
+    monkeypatch.delenv("SOKKAN_USAGE_CURRENCY")
+    c = _owner(box)
+    assert c.get("/api/team/usage").json()["display"]["currency"] == "CHF"

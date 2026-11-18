@@ -326,6 +326,8 @@ services:
       SOKKAN_AGENTS_MAX_TOKENS_PER_RUN: ${SOKKAN_AGENTS_MAX_TOKENS_PER_RUN:-5000000}
       SOKKAN_MODEL_PRICES: ${SOKKAN_MODEL_PRICES:-}
       SOKKAN_FX_USD_PER_CHF: ${SOKKAN_FX_USD_PER_CHF:-1.30}
+      # 4.0.1 : devise de la page Consommation (CHF si l'organisation est en Suisse, sinon USD), convertie au taux SOKKAN_FX_USD_PER_CHF
+      SOKKAN_USAGE_CURRENCY: ${SOKKAN_USAGE_CURRENCY:-}
       # 3.4.4 : coût estimé du 1er appel d'un run (tokens écrits au cache) — un budget en dessous ne démarre pas
       SOKKAN_AGENTS_FIRST_CALL_TOKENS: ${SOKKAN_AGENTS_FIRST_CALL_TOKENS:-}
       # lots 6/8 — révocation (SCIM, « Revoke now ») et bac à sable par projet

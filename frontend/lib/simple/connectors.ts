@@ -17,6 +17,7 @@ export interface ConnectorsOverview { me: ConnectorsMe; is_admin: boolean; setti
   accounts: { provider: Provider; login: string; consented_at: number }[] }
 export interface ConnectorAction {
   id: string; kind: "mail.send" | "calendar.create" | "files.write"; provider: string; title: string;
+  session_id?: string; project?: string;
   status: string; created_at: number; expires_at: number; result: string;
   preview: Record<string, unknown>;
 }

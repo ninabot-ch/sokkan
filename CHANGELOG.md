@@ -3,7 +3,17 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased — 4.0.1
+## 4.0.1 — 2026-11-18 — "Seven seas"
+
+**« Write with Claude » for every job, with personal data pseudonymised first, and the fixes found
+while filming the 4.0 launch.** Claude is offered on demand on every project that is not
+confidential: before anything leaves, SOKKAN finds the personal data in the request, the
+attachments and every request of the work (IBAN, AVS, phones, e-mails, dates of birth, addresses,
+names of the organisation's directory, columns under a personal header), asks the person, and only
+then sends a pseudonymised version; the real values come back in the answer and the files.
+Without the person's yes, the work stays on your own models. Confidential projects never go to
+Claude. Two independent security reviews before release; the limits (a name alone in running text
+may be missed — the card says so) are written in `docs/enterprise/CLAUDE-PRIVACY.md`.
 
 ### Changed — Claude on demand, personal data anonymised first (decision of 18.11.2026)
 - **« Write with Claude » is offered on demand for the work of every project that is not
@@ -77,6 +87,53 @@ Notable changes, newest first. Versions: semver + release hash (see
   both), prompt injection on the work's own pseudonyms, deterministic detection, no new card for what the agent reads during the
   work, lowering a project's level removes D9 for it, and a confidential document stored in a
   `team` project can be read by its path during a Claude work (to be checked at read time).
+
+### Fixed — found while filming the 4.0 launch video
+- **The validations journal no longer lies.** Every decision kind is said in words: a refusal of the
+  quality check reads « Refusé · automatique, par la vérification de qualité » (4.0.0 showed it as
+  « Accepté »), an unknown kind reads « Inconnu », never « Accepté ». The « Refusé » filter also
+  finds automatic refusals. Lines name the document or the action (« Enregistrer « Offre … » »,
+  « Préparer un brouillon de mail — « Re: … » »), never a server path or a raw tool name.
+- **No more false « table written on one line » refusal** for well-formed Markdown tables of 5
+  columns or more; a table really glued on one line is still refused.
+- **The approval card says what the agent corrected**, in words (« Corrigé : Total HT : 6'480 →
+  6'600 »), and « Vérifié (n) » is open by default.
+- **Delivery message.** The agent's message is kept when it is right (a count the document itself
+  states is no longer called false); when SOKKAN rewrites it, it names the document by its title
+  and its download format (« à télécharger en Excel »), never a « .md » file name.
+- **Mail cards.** A reply draft shows its recipient, its subject and the beginning of its text
+  (never « brouillon de mail : « » »); the approval to SEND appears in the work's thread, not only
+  in Settings › Connectors. While a card waits, no spinner says the agent is writing.
+- **Excel and preview.** A section title is no longer shown cut to Excel's 31-character sheet
+  name; a sheet name is cut at a word. The client line stays on the sheet of its table (one sheet
+  per section that carries a table). « TVA 8,1 % » and « Total TTC » become Excel formulas when
+  unambiguous, with the rate written in the document; otherwise the figure is kept and marked
+  « à vérifier » (cell comment, preview, PDF/CSV).
+- **Usage in the organisation's currency.** A Swiss organisation sees CHF, converted from the
+  models' USD prices at a rate stated on the page (`SOKKAN_FX_USD_PER_CHF`, new
+  `SOKKAN_USAGE_CURRENCY` to force USD or CHF).
+- **The organisation's logo shows**: at the top of the Atelier with the organisation's name, and in
+  Settings › Organisation.
+- **Atelier details.** Job kits no longer add the general « Plan de formation » and « Quiz » to
+  every job (they are the Training kit's); the tour mentions Excel; « Retenir » never offers an
+  example document as the template to follow; Settings › Connectors: checkboxes aligned, no
+  repository path on screen.
+- **Cockpit.** The task field's example names no real company. The Cockpit stays in English (no
+  dictionary yet: its translation is a separate piece of work).
+- **An Atelier work no longer sees the tools its space refuses.** 4.0.0 still offered the agent
+  of an Atelier work the internet (`WebFetch`, `WebSearch`), sub-agents (`Agent`/`Task`,
+  `ListAgents`, `SendMessage`), scheduling (`CronCreate`, `CronDelete`, `CronList`,
+  `ScheduleWakeup`, `RemoteTrigger`), `Workflow` and worktrees (`EnterWorktree`, `ExitWorktree`),
+  filtered only downstream. They now leave its catalogue as the shell did in 3.6.8: the legacy
+  engine takes them out of the run (`disallowed_tools`, sub-agents included) and a `PreToolUse`
+  hook refuses one called anyway; the kernel engine sends their equivalents in `deny_tools`
+  (`web_search`, `web_fetch`, `delegate`, `delegate_status`, `delegate_cancel`, `agent_draft`,
+  `session_send`, and the tools that change the kernel's own setup: `skill_install`,
+  `skill_remove`, `pack_install`, `pack_remove`, `mcp_server_add`, `mcp_server_remove`,
+  `mcp_server_read_tools`); the cockpit's gate refuses them as a last line. Each refusal is in the
+  journal of validations as a rule of the space (`policy:simple_profile_tool_off`) and is not an
+  orange failure in the thread. No setting brings the internet back into the Atelier. The Cockpit
+  is unchanged.
 
 ## 4.0.0 — 2026-11-18 — "Seven seas"
 

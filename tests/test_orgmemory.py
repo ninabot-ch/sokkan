@@ -86,6 +86,9 @@ def test_the_logo_is_an_image_and_only_an_image(world):
     r = world["as"]("bob@x").get("/api/org/logo")
     assert r.status_code == 200 and r.content == png and r.headers["content-type"] == "image/png"
     assert world["as"]("bob@x").delete("/api/org/logo").status_code == 403
+    # 4.0.1: every member reads that there is a logo, with its own cache key (top of the Atelier)
+    prof = world["as"]("bob@x").get("/api/org/profile").json()
+    assert prof["logo"] is True and prof["logo_v"] > 0
 
 
 def test_the_block_says_who_and_where_and_keeps_the_iban_for_payments(world):
@@ -357,3 +360,14 @@ def test_the_first_message_says_who_the_work_is_for(world):
     assert text.startswith("<sokkan-brief>You are working with: Bob Martin, Assistant de direction.")
     import plain
     assert plain.strip_brief(text).startswith("Prépare l'ordre du jour")
+
+
+def test_an_example_document_is_never_offered_as_the_template_to_follow(monkeypatch):
+    """4.0.1: « Retenir » proposed to model the team's minutes on the first work's EXAMPLE."""
+    import learn
+    monkeypatch.delenv("SOKKAN_DEMO_ATELIER", raising=False)
+    assert learn.is_sample("Exemple - compte rendu de réunion.md")
+    assert learn.is_sample("Example - meeting minutes.md")
+    assert learn.is_sample("Compte rendu (exemple).md")
+    assert not learn.is_sample("Modèle de compte rendu.docx")
+    assert not learn.is_sample("Exemples de clauses validées.docx")

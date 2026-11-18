@@ -362,9 +362,50 @@ def agent_message(res: dict) -> str:
     return "\n".join(lines)
 
 
-def card(res: dict, *, corrected: bool, lang: str = "fr") -> dict:
-    """What the approval card shows: what was checked, what the agent corrected, and what
-    remains for the person — in their language."""
+def _finding_key(f: dict) -> tuple:
+    d = f.get("data") or {}
+    return (f.get("kind"), str(d.get("label") or ""), f.get("fr") if not d else "")
+
+
+def fixed(previous: dict | None, res: dict, lang: str = "fr") -> list[str]:
+    """4.0.1 — what the agent corrected after the gate refused its first save, in words: each
+    defect of the first pass that the final version no longer has (« Total HT : 6'480.00 →
+    6'600.00 »). The person sees WHAT changed, not only that something did."""
+    if not previous:
+        return []
+    key = "fr" if lang == "fr" else "en"
+    now = {_finding_key(f) for f in (res.get("findings") or [])}
+    now_defects = {((d.get("where") or "").strip(), (d.get("problem") or "").strip())
+                   for d in (res.get("defects") or [])}
+    out: list[str] = []
+    for f in factcheck.blocking(previous.get("findings") or []):
+        if _finding_key(f) in now:
+            continue
+        d = f.get("data") or {}
+        label = str(d.get("label") or "").strip()
+        if "found" in d and "expected" in d:
+            what = label or {"vat": "TVA", "vat_total": "Total TTC" if key == "fr" else "Total incl. VAT",
+                             "sum": "Total"}.get(f.get("kind") or "", "")
+            out.append(f"{what + ' : ' if what else ''}{factcheck.swiss(d['found'])} → "
+                       f"{factcheck.swiss(d['expected'])}")
+        elif f.get("kind") == "totals" and d.get("values"):
+            vals = d["values"]
+            out.append(f"« {label} » : {' / '.join(factcheck.swiss(v) for v in vals)} → "
+                       + ("un seul total" if key == "fr" else "one total"))
+        else:
+            out.append(f[key])
+    for d in (previous.get("defects") or []):
+        where, problem = (d.get("where") or "").strip(), (d.get("problem") or "").strip()
+        if (where, problem) in now_defects or not (problem or d.get("fix")):
+            continue
+        fix = (d.get("fix") or "").strip()
+        out.append(f"{where + ' : ' if where else ''}{fix or problem}")
+    return out[:8]
+
+
+def card(res: dict, *, corrected: bool, lang: str = "fr", previous: dict | None = None) -> dict:
+    """What the approval card shows: what was checked, what the agent corrected (4.0.1: in
+    words, `fixed`), and what remains for the person — in their language."""
     shown = factcheck.shown(res.get("findings") or [])
     key = "fr" if lang == "fr" else "en"
     remaining = [f[key] for f in shown]
@@ -374,6 +415,7 @@ def card(res: dict, *, corrected: bool, lang: str = "fr") -> dict:
         "reviewed_by": "strong" if res.get("route") == "strong" else ("local" if res.get("route") else "rules"),
         "review_failed": bool(res.get("error")),
         "corrected": corrected,
+        "fixed": fixed(previous, res, lang) if corrected else [],
         "ok": not remaining,
         "remaining": remaining[:10],
         "verified": (res.get("verified") or [])[:6],
@@ -493,6 +535,42 @@ def _width_error(rows: list[list[str]], where: str = "") -> str:
               "must be written inside double quotes, or give the rows as a Markdown table.")
 
 
+_SEP_LINE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_EMPTY_BOUNDARY = re.compile(r"\|[ \t]+\|")
+
+
+def _cells(line: str) -> int:
+    return len(line.strip().strip("|").split("|"))
+
+
+def glued_table_line(text: str) -> int:
+    """4.0.1 — the line number (1-based) of a Markdown table written on ONE line, 0 if none.
+    Read LINE BY LINE: a well-formed table of 5 to 8 columns was refused because the old pattern
+    let its blank match span the line breaks (header, separator and first row read as « one
+    line »). Glued = a table line that is not followed by a separator line while it should be
+    (a header that carries the rows: more than 12 « | » with an empty-cell boundary), or a row
+    that carries at least twice the cells of its table's header."""
+    lines = (text or "").split("\n")
+    width = 0
+    for i, line in enumerate(lines):
+        if not line.lstrip().startswith("|"):
+            width = 0
+            continue
+        if _SEP_LINE.match(line):
+            continue
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if width == 0:
+            if _SEP_LINE.match(nxt):
+                width = _cells(line)          # a header, followed by its separator
+                continue
+            if line.count("|") > 12 and _EMPTY_BOUNDARY.search(line):
+                return i + 1                  # a header with the rows glued after it
+            continue
+        if _cells(line) >= 2 * width and width >= 2 and _EMPTY_BOUNDARY.search(line):
+            return i + 1                      # several rows of the table on one line
+    return 0
+
+
 def build_table(name: str, text: str) -> tuple[str | None, str]:
     """→ (the file SOKKAN writes instead, '') or (None, one precise error for the model).
     A ``.csv`` deliverable is rebuilt by SOKKAN (« ; », quotes, UTF-8 with BOM for Swiss Excel)
@@ -529,14 +607,9 @@ def build_table(name: str, text: str) -> tuple[str | None, str]:
         if any(len(r) != len(rows[0]) for r in back if r) or out.encode("utf-8").decode("utf-8") != out:
             return None, "SOKKAN could not write this table: give it again as a Markdown table."
         return out, ""
-    glued = re.search(r"^\s*\|[^\n]*\|\s+\|[^\n]*\|\s+\|", text or "", re.M)
-    if glued:
-        line = glued.group(0)
-        nxt = (text or "")[glued.end():].split("\n", 1)
-        sep_follows = len(nxt) > 1 and re.match(r"\s*\|?\s*:?-{2,}", nxt[1] or "")
-        if not sep_follows and line.count("|") > 12:
-            return None, ("A table was written on ONE line (its rows are glued together after the "
-                          "header). Write the header, then the line `|---|---|…`, then ONE row per line.")
+    if glued_table_line(text):
+        return None, ("A table was written on ONE line (its rows are glued together after the "
+                      "header). Write the header, then the line `|---|---|…`, then ONE row per line.")
     if outputs.kind_of(name, text) == "spreadsheet":
         _meta, body = outputs.front_matter(text)
         for _s, _e, rows, heading in outputs._md_tables(body):
@@ -619,9 +692,12 @@ def check_message(message: str, name: str, content: str) -> list[str]:
     except Exception:  # noqa: BLE001 — never block on a reading problem
         return []
     out = []
+    said_in_file = factcheck.fold(content or "")
     for m in _COUNT.finditer(message or ""):
         if not f["tables"] and not f["points"]:
             break               # nothing SOKKAN could read: no count is said to be false
+        if re.search(r"\b" + re.escape(factcheck.fold(m.group(0).strip())) + r"\b", said_in_file):
+            continue            # 4.0.1: the document itself says it (« 2 sessions d'une demi-journée »)
         n = int(m.group(1)) if m.group(1).isdigit() else _NUMWORDS[m.group(1).lower()]
         noun = factcheck.fold(m.group(2))
         flag = bool(m.group(3))
@@ -650,19 +726,66 @@ def check_message(message: str, name: str, content: str) -> list[str]:
     return out
 
 
-def factual_message(name: str, content: str, title: str = "") -> str:
-    """The delivery message SOKKAN writes from the file itself, when the agent's was false."""
+_FORMAT_WORDS = {
+    "fr": {"xlsx": "Excel", "docx": "Word", "pdf": "PDF", "csv": "Excel (CSV)",
+           "letters_docx": "Word, une lettre par destinataire", "letters_pdf": "PDF"},
+    "en": {"xlsx": "Excel", "docx": "Word", "pdf": "PDF", "csv": "Excel (CSV)",
+           "letters_docx": "Word, one letter per recipient", "letters_pdf": "PDF"},
+}
+
+
+def doc_title(name: str, content: str) -> str:
+    """How a person calls the document: its title (front matter, then the first « # »
+    heading), else its file name without folder, extension or dashes — never « x.md »."""
+    import outputs
+    meta, body = outputs.front_matter((content or "").lstrip("\ufeff"))
+    if (meta.get("title") or "").strip():
+        return meta["title"].strip()
+    m = re.search(r"^#\s+(.+?)\s*#*\s*$", body or "", re.M)
+    if m:
+        return outputs.plain_text(m.group(1)).strip()
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", (name or "").rsplit("/", 1)[-1])
+    stem = re.sub(r"[-_]+", " ", stem).strip()
+    return (stem[:1].upper() + stem[1:]) if stem else "document"
+
+
+def download_format(name: str, content: str, lang: str = "fr") -> str:
+    """« Excel » / « Word »…: the format the person downloads (outputs.formats_for, first)."""
+    import outputs
+    words = _FORMAT_WORDS.get(lang) or _FORMAT_WORDS["fr"]
+    if (name or "").lower().endswith(".csv"):
+        return words["csv"]
+    fmts = outputs.formats_for(name, content or "")
+    return words.get(fmts[0], fmts[0].upper()) if fmts else ""
+
+
+def factual_message(name: str, content: str, title: str = "", lang: str = "fr") -> str:
+    """The delivery message SOKKAN writes from the file itself, when the agent's was false.
+    4.0.1: it names the document by its title and its download format (« à télécharger en
+    Excel »), never by a file name such as « x.md » — the person is not technical."""
     f = _facts(name, content)
-    what = f"« {title or name} »"
+    fmt = download_format(name, content, lang)
+    en = lang == "en"
+    t = title or doc_title(name, content)
+    what = (f"“{t}”" if en else f"« {t} »") + (
+        (f" (to download as {fmt})" if en else f" (à télécharger en {fmt})") if fmt else "")
     if f["main_rows"]:
         n, k = f["main_rows"], f["main_flagged"]
         more = len([x for x in f["per_table"] if x[0]]) - 1
-        s = (f"J'ai enregistré {what} : le tableau principal compte {n} ligne{'s' if n != 1 else ''}"
-             + (f", dont {k} marquée{'s' if k != 1 else ''} à vérifier" if k else "")
-             + (f" ; le document contient {more} autre{'s' if more != 1 else ''} tableau{'x' if more != 1 else ''}"
-                if more > 0 else "") + ".")
+        if en:
+            s = (f"I prepared {what}: the main table has {n} row{'s' if n != 1 else ''}"
+                 + (f", {k} of them marked to check" if k else "")
+                 + (f"; the document has {more} other table{'s' if more != 1 else ''}" if more > 0 else "")
+                 + ".")
+        else:
+            s = (f"J'ai préparé {what} : le tableau principal compte {n} ligne{'s' if n != 1 else ''}"
+                 + (f", dont {k} marquée{'s' if k != 1 else ''} à vérifier" if k else "")
+                 + (f" ; le document contient {more} autre{'s' if more != 1 else ''} tableau{'x' if more != 1 else ''}"
+                    if more > 0 else "") + ".")
     else:
-        s = f"J'ai enregistré {what}."
+        s = f"I prepared {what}." if en else f"J'ai préparé {what}."
     if f["points"]:
-        s += f" La section « Points à vérifier » en liste {f['points']}."
-    return s + " Ouvrez l'aperçu pour le relire avant de le valider."
+        s += (f" The « Points to check » section lists {f['points']}." if en
+              else f" La section « Points à vérifier » en liste {f['points']}.")
+    return s + (" Open the preview to read it before you validate it." if en
+                else " Ouvrez l'aperçu pour le relire avant de le valider.")

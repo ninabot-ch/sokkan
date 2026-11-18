@@ -254,3 +254,41 @@ def test_with_a_connected_mailbox_the_brief_offers_a_draft_never_a_send(tmp_path
     assert "they send it themselves" in _brief(tmp_path, monkeypatch)
     status["content_allowed"] = False                          # a confidential project
     assert "send or receive e-mail" in _brief(tmp_path, monkeypatch)
+
+
+def test_a_reply_draft_says_to_whom_about_what_and_how_it_begins():
+    """4.0.1 (vidéo de lancement): « L'agent veut préparer un brouillon de mail : « » » with no
+    recipient and no subject — a reply names only the message it answers."""
+    v = plain.View(lang="fr", project="Clients")
+    listing = {"provider": "demo", "messages": [
+        {"id": "m1", "thread_id": "conv-1", "subject": "Offre de formation 2027", "from": "client@example.ch",
+         "to": ["moi@example.ch"], "cc": [], "date": "2026-11-18T08:00:00Z", "is_draft": False,
+         "has_attachments": False, "snippet": "Bonjour"}]}
+    v.feed({"type": "tool_use", "id": "t1", "tool": "mcp__sokkan-connectors__mail_list", "input": {}})
+    v.feed({"type": "tool_result", "tool_use_id": "t1", "text": json.dumps(listing)})
+    body = ("Bonjour Madame,\n\nMerci pour votre message. Voici notre offre de formation 2027 au tarif de "
+            "notre modèle d'offre : 2 jours, 12 personnes au plus, 6'600.00 CHF HT. " + "Détail. " * 40)
+    ev = _card("mcp__sokkan-connectors__mail_draft", {"reply_to": "m1", "body": body}, view=v)
+    assert ev["title"] == "Re: Offre de formation 2027"
+    assert {"label": "À", "value": "client@example.ch"} in ev["facts"]
+    assert {"label": "Objet", "value": "Re: Offre de formation 2027"} in ev["facts"]
+    opening = next(f["value"] for f in ev["facts"] if f["label"] == "Début du texte")
+    assert opening.startswith("Bonjour Madame, Merci pour votre message.") and opening.endswith("…")
+    assert len(opening) < 260
+
+
+def test_a_reply_to_an_unread_message_never_shows_an_empty_recipient():
+    ev = _card("sokkan-connectors__mail_draft", {"reply_to": "zz", "body": "Bonjour"})
+    assert ev["title"] == ""          # the front says « un brouillon de réponse »
+    assert {"label": "À", "value": "l'expéditeur du message auquel l'agent répond"} in ev["facts"]
+    assert {"label": "Début du texte", "value": "Bonjour"} in ev["facts"]
+
+
+def test_a_cut_listing_still_feeds_the_reply_card():
+    v = plain.View(lang="en")
+    v.feed({"type": "tool_use", "id": "t1", "tool": "sokkan-connectors__mail_read_thread", "input": {}})
+    v.feed({"type": "tool_result", "tool_use_id": "t1",
+            "text": '{"provider": "imap", "messages": [{"id": "<a@b>", "subject": "Re: Devis", "from": "x@example.org", "body": "tr'})
+    ev = _card("sokkan-connectors__mail_draft", {"reply_to": "<a@b>", "body": "Hello"}, lang="en", view=v)
+    assert ev["title"] == "Re: Devis"
+    assert {"label": "To", "value": "x@example.org"} in ev["facts"]

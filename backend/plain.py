@@ -30,6 +30,15 @@ import os
 import re
 from pathlib import Path
 
+
+def _mcp_name(tool: str) -> tuple[str, str]:
+    """(server, tool) in either naming (``mcp__srv__tool`` / ``srv__tool``), else ("", tool)."""
+    t = (tool or "")[5:] if (tool or "").startswith("mcp__") else (tool or "")
+    if "__" in t:
+        srv, _, name = t.partition("__")
+        return srv, name
+    return "", tool or ""
+
 BRIEF_RX = re.compile(r"<sokkan-brief>.*?</sokkan-brief>\s*", re.S)
 _REMINDER_RX = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.S)
 # the study refusals of the inference gateway (sokkan-cloud infer/pilote-etude.md § Refus):
@@ -89,7 +98,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  # 4.0: a file tool pointed outside the run's folder, refused by the kernel
                  # before it ran (`outside_root`, harness/refusals.py)
                  "Outside this conversation's folder",
-                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
+                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work; 4.0.1:
+                 # an engine tool the Atelier never has (internet, sub-agents, scheduling,
+                 # workflows, worktrees — harness/refusals.py ATELIER_NO_TOOL), same words
                  "Not available in this conversation: the person works in SOKKAN Atelier",
                  # 4.0: the quality gate sent a deliverable back to be corrected before its card
                  "(Check before the card.)")
@@ -189,6 +200,53 @@ class View:
         # in the turn (approved by rule once the person approved the first) are the SAME
         # version: one card, showing the document as it stands at the end of the turn
         self._turn_saved: set[str] = set()
+        # 4.0.1: the messages the agent listed or read (connectors), by id — a reply draft names
+        # only the message it answers: its card says to whom and about what from here
+        self._mail: dict[str, dict] = {}
+
+    # ---- mail seen in this work (4.0.1) ------------------------------------------------------
+    _MAIL_READ = ("mail_list", "mail_read_thread", "mail_search")
+
+    def _remember_mail(self, tool: str, text: str) -> None:
+        import json as _json
+        srv, name = _mcp_name(tool)
+        if srv != "sokkan-connectors" or name not in self._MAIL_READ or not text:
+            return
+        try:
+            data = _json.loads(text)
+            msgs = data.get("messages") if isinstance(data, dict) else None
+        except (ValueError, TypeError):
+            msgs = None
+        if not isinstance(msgs, list):     # a cut result: the fields of each message, as written
+            msgs = [{"id": m.group(1), "subject": m.group(2), "from": m.group(3)} for m in re.finditer(
+                r'"id":\s*"([^"]+)"[^{}]*?"subject":\s*"((?:[^"\\]|\\.)*)"[^{}]*?"from":\s*"((?:[^"\\]|\\.)*)"',
+                text)]
+        for m in msgs[:200]:
+            if isinstance(m, dict) and m.get("id"):
+                frm = m.get("from")
+                if isinstance(frm, dict):
+                    frm = frm.get("address") or frm.get("email") or frm.get("name") or ""
+                self._mail[str(m["id"])] = {"subject": str(m.get("subject") or ""), "from": str(frm or "")}
+
+    def _mail_input(self, tool: str, inp: dict) -> dict:
+        """A reply draft (`reply_to` only): its recipient and « Re: subject » from the message
+        it answers, when this work read it — the card never says « a draft: « » »."""
+        srv, name = _mcp_name(tool)
+        if srv != "sokkan-connectors" or name != "mail_draft" or not isinstance(inp, dict):
+            return inp
+        rid = str(inp.get("reply_to") or "")
+        orig = self._mail.get(rid)
+        if not rid or (inp.get("to") and inp.get("subject")):
+            return inp
+        out = dict(inp)
+        if orig:
+            subj = orig["subject"]
+            if not out.get("subject") and subj:
+                out["subject"] = subj if subj.lower().startswith(("re:", "aw:", "tr:")) else f"Re: {subj}"
+            if not out.get("to") and orig["from"]:
+                out["to"] = [orig["from"]]
+        out["_reply"] = True
+        return out
 
     # ---- paths ---------------------------------------------------------------------------
     def _resolve(self, p: str) -> Path | None:
@@ -409,6 +467,11 @@ class View:
             c = self._tools.get(tid) or {}
             if c:
                 c["done"] = True
+                if not ev.get("is_error"):
+                    try:
+                        self._remember_mail(c.get("tool") or "", str(ev.get("text") or ""))
+                    except Exception:  # noqa: BLE001 — a card detail, never a broken thread
+                        pass
             ok = not ev.get("is_error")
             done = {"type": "activity_done", "id": tid, "ok": ok,
                     "detail": {"result": _short(ev.get("text") or "", 2000)}}
@@ -454,8 +517,8 @@ class View:
                 self._asked[ev["id"]] = tid
             # 4.0 (audit coworker): what, where, with what — never a blind « an action »
             import approvalcard
-            card = approvalcard.describe(tool, inp, {**c, "subject": title}, self.lang,
-                                         self.project)
+            card = approvalcard.describe(tool, self._mail_input(tool, inp), {**c, "subject": title},
+                                         self.lang, self.project)
             if draft is None and card["preview"]:
                 # a note to retain, a mail draft: read before deciding (not editable here)
                 draft = {"text": card["preview"], "partial": False, "truncated": False}

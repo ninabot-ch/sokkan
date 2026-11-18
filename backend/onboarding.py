@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -665,12 +666,101 @@ def usage_view(days: int = 30) -> dict:
     return {"days": days, "from": start, "to": today, "billing": s["billing"],
             "people": people_rows, "projects": proj_rows,
             "total": tot(rows), "instance_budget": inst, "today_total": round(day_total, 4),
-            "project_budgets": budgets.enabled(), "alerts": alerts}
+            "project_budgets": budgets.enabled(), "alerts": alerts, "display": display_currency()}
+
+
+def display_currency() -> dict:
+    """4.0.1 — the currency the Usage page speaks: the organisation's (CHF for a Swiss one, the
+    default), the amounts being estimated in USD at the models' prices and converted at a rate
+    the page states (SOKKAN_FX_USD_PER_CHF, the one budgets already use). A non-Swiss
+    organisation, or SOKKAN_USAGE_CURRENCY=USD, keeps USD."""
+    import agentcost
+    want = (os.environ.get("SOKKAN_USAGE_CURRENCY") or "").strip().upper()
+    if want not in ("CHF", "USD"):
+        try:
+            import orgprofile
+            want = "CHF" if (orgprofile.get().get("country") or "CH") == "CH" else "USD"
+        except Exception:  # noqa: BLE001
+            want = "CHF"
+    rate = agentcost.fx_usd_per_chf()
+    declared = bool((os.environ.get("SOKKAN_FX_USD_PER_CHF") or "").strip())
+    return {"currency": want, "source": "USD", "usd_per_chf": rate,
+            "rate_declared": declared} if want == "CHF" else {"currency": "USD", "source": "USD"}
 
 
 # ---- the validations journal, readable --------------------------------------------------------
+# 4.0.1: a filter on the page groups what a person reads as one decision (« Refusé » covers the
+# refusal of a person AND the automatic one of a rule or of the quality check).
+DECISION_GROUPS = {
+    "allow": ("allow", "auto_allow", "edit"),
+    "deny": ("deny", "auto_deny", "declined"),
+    "answer": ("answer",),
+    "pending": ("pending",),
+}
+
+# the tools of the Atelier, in words (never a raw `mcp__server__tool` on screen)
+_TOOL_WORDS = {
+    "fr": {"mail_draft": "Préparer un brouillon de mail", "mail_propose_send": "Envoyer un mail",
+           "calendar_propose_event": "Proposer un rendez-vous dans l'agenda",
+           "files_propose_write": "Déposer un fichier dans les dossiers partagés",
+           "save": "Enregistrer « {n} »", "change": "Modifier « {n} »", "note": "Retenir une note",
+           "search": "Rechercher sur Internet", "read": "Lire une page Internet",
+           "command": "Lancer une commande"},
+    "en": {"mail_draft": "Prepare a mail draft", "mail_propose_send": "Send a mail",
+           "calendar_propose_event": "Propose a calendar event",
+           "files_propose_write": "Put a file in the shared folders",
+           "save": "Save “{n}”", "change": "Change “{n}”", "note": "Keep a note",
+           "search": "Search the internet", "read": "Read a web page",
+           "command": "Run a command"},
+}
+_WRITE_TOOLS = {"Write": "save", "write_file": "save", "Edit": "change", "MultiEdit": "change",
+                "NotebookEdit": "change", "patch": "change"}
+_PATH = re.compile(r"(?:[A-Za-z]:)?(?:/[^\s/«»\"']+)+/([^\s/«»\"']+)")
+
+
+def doc_name(name: str) -> str:
+    """« /data/…/deliverables/<id>/offre-pre-vert.md » → « offre-pre-vert »: what a person
+    calls the document (no folder, no technical extension)."""
+    base = (name or "").strip().rstrip("/").rsplit("/", 1)[-1]
+    stem, dot, ext = base.rpartition(".")
+    return stem if dot and stem and 1 <= len(ext) <= 5 and ext.isalnum() else base
+
+
+def readable_title(row: dict, lang: str = "fr") -> str:
+    """The line a person reads in the journal: no server path, no raw tool name."""
+    import approvalcard
+    w = _TOOL_WORDS.get(lang) or _TOOL_WORDS["fr"]
+    title = str(row.get("title") or "").strip()
+    tool = str(row.get("tool") or "").strip()
+    if row.get("kind") == "deliverable":
+        return doc_name(title)
+    srv, name = approvalcard.mcp_name(tool)
+    if srv:
+        words = w.get(name) or approvalcard.readable_tool(name)
+        subject = ""
+        try:
+            inp = json.loads(row.get("input_summary") or "{}")
+            if isinstance(inp, dict):
+                subject = str(inp.get("subject") or inp.get("path") or "").strip()
+        except (ValueError, TypeError):
+            pass
+        if subject and "/" in subject:
+            subject = doc_name(subject)
+        if title and title != tool and not title.startswith("mcp__") and "__" not in title:
+            return _PATH.sub(lambda m: doc_name(m.group(1)), title)
+        return f"{words} — « {subject} »" if subject and lang == "fr" else \
+            (f"{words} — “{subject}”" if subject else words)
+    if tool in _WRITE_TOOLS and (not title or "/" in title or title == tool):
+        return w[_WRITE_TOOLS[tool]].format(n=doc_name(title or tool))
+    if title.startswith("/") or (title and " " not in title and "/" in title):
+        return w["save"].format(n=doc_name(title))
+    if title == tool and title:
+        return approvalcard.readable_tool(title)
+    return _PATH.sub(lambda m: doc_name(m.group(1)), title)
+
+
 def validations(project: str = "", actor: str = "", since: float | None = None,
-                decision: str = "", limit: int = 2000) -> list[dict]:
+                decision: str = "", limit: int = 2000, lang: str = "fr") -> list[dict]:
     """What a person validated, newest first: the deliverables they signed off (« Validate the
     deliverable », action journal) AND the approvals they gave or refused while the agent worked
     (journal of human validations, hitl_journal). One shape for both."""
@@ -690,14 +780,20 @@ def validations(project: str = "", actor: str = "", since: float | None = None,
             who = _norm(e.get("user") or "")
             if actor and _norm(actor) not in (who, owner):
                 continue
-            out.append({"kind": "deliverable", "decision": "validate", "title": (e.get("detail") or "").split(" · ")[0],
+            title = (e.get("detail") or "").split(" · ")[0]
+            out.append({"kind": "deliverable", "decision": "validate", "title": title,
+                        "label": readable_title({"kind": "deliverable", "title": title}, lang),
                         "actor": who, "owner": owner, "project": e.get("project") or "", "session_id": sid,
                         "at": float(e.get("ts") or 0), "auto": False, "edited": False})
     if decision != "validate":
+        group = DECISION_GROUPS.get(decision)
         for r in hitl_journal.query(project=project or None, actor=actor, since=since,
-                                    decision=decision, limit=limit):
+                                    decision="" if group else decision, limit=limit):
+            if group and (r.get("decision") or "") not in group:
+                continue
             out.append({"kind": r.get("kind") or "permission", "decision": r.get("decision") or "",
-                        "title": r.get("title") or r.get("tool") or "", "actor": r.get("actor") or "",
+                        "title": r.get("title") or r.get("tool") or "",
+                        "label": readable_title(r, lang), "actor": r.get("actor") or "",
                         "owner": r.get("owner") or "", "project": r.get("project") or "",
                         "session_id": r.get("session_id") or "",
                         "at": float(r.get("decided_at") or r.get("requested_at") or 0),
@@ -713,7 +809,7 @@ def validations_csv(rows: list[dict]) -> str:
     import io
     buf = io.StringIO()
     w = csv.writer(buf)
-    cols = ["at_iso", "kind", "decision", "title", "actor", "owner", "project", "session_id", "auto", "edited"]
+    cols = ["at_iso", "kind", "decision", "title", "label", "actor", "owner", "project", "session_id", "auto", "edited"]
     w.writerow(cols)
     for r in rows:
         iso = datetime.datetime.fromtimestamp(r["at"], datetime.timezone.utc).isoformat(timespec="seconds")
@@ -1034,14 +1130,15 @@ def router(require) -> APIRouter:
 
     @r.get("/api/team/validations")
     def team_validations(project: str = "", actor: str = "", since: str = "", decision: str = "",
-                         format: str = "json", u: dict = Depends(admin)):  # noqa: A002
+                         format: str = "json", lang: str = "fr",  # noqa: A002
+                         u: dict = Depends(admin)):
         import hitl_journal
         from fastapi.responses import PlainTextResponse
         try:
             t0 = hitl_journal.parse_when(since)
         except ValueError:
             raise HTTPException(400, "since: an ISO date or epoch seconds")
-        rows = validations(project, actor, t0, decision)
+        rows = validations(project, actor, t0, decision, lang=lang)
         audit.log(u["email"], "hitl.journal.read", project or "*",
                   f"{len(rows)} rows (team)" + (" (csv)" if format == "csv" else ""), project="")
         if format == "csv":

@@ -20,6 +20,7 @@ import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
 import QualityCheck from "./QualityCheck";
+import ConnectorCards from "./ConnectorCards";
 import EngineBadge, { engineText } from "./EngineBadge";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
@@ -85,6 +86,8 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
 
   const canDrive = !!work?.can_drive;
   const waiting = items.some((it) => it.k === "approval" && !it.decided);
+  // 4.0.1: a send / an event / a deposit waiting for this person's approval, in the thread
+  const [connWaiting, setConnWaiting] = useState(0);
   const lastDeliverable = work?.deliverables[0];
   // study mode: the work is tagged by its first turn, the two questions come with the
   // validation — the tag is asked again when either can have changed
@@ -113,7 +116,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
     );
   }
 
-  const pill = waiting ? <span className="sk-pill sk-pill-wait"><span className="sk-dot" />{t("state.waiting")}</span>
+  const pill = waiting || connWaiting > 0 ? <span className="sk-pill sk-pill-wait"><span className="sk-dot" />{t("state.waiting")}</span>
     : working ? <span className="sk-pill sk-pill-work"><span className="sk-dot" />{t("state.working")}</span>
     : lastDeliverable?.validated ? <span className="sk-pill sk-pill-ok"><Icon name="check" small />{t("state.validated")}</span>
     : lastDeliverable ? <span className="sk-pill sk-pill-ok"><span className="sk-dot" />{t("state.done")}</span>
@@ -178,7 +181,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                     {canDrive && it.text.length >= KEEP_FROM && !turnSaved.has(i) && <Keep sid={sid} text={it.text} onKept={(name) => { reload(); onChanged(); setSide({ kind: "deliverable", name }); }} />}
                   </div>
                 );
-                if (it.k === "acts") return <Activities key={i} acts={it.acts} />;
+                if (it.k === "acts") return <Activities key={i} acts={it.acts} paused={waiting || connWaiting > 0} />;
                 if (it.k === "approval") return it.decided
                   ? <div key={i} className="sk-act is-done"><span className="sk-act-ico"><Icon name={it.decided === "allow" ? "check" : "close"} small /></span><span>{t(it.decided === "allow" ? "ap.allowed" : "ap.denied", { what: headline(t, it.ev) })}</span></div>
                   : <ApprovalCard key={i} ev={it.ev} canDrive={canDrive} onDecide={(d) => decide(it.ev, d)}
@@ -228,7 +231,8 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   onAnswer={(a) => { sock.current?.answer(it.id, a); setItems((cur) => cur.filter((x) => !(x.k === "question" && x.id === it.id))); }} />;
               })}
               {study?.tag?.tagged && canDrive && lastDeliverable?.validated && <StudyFeedback sid={sid} />}
-              {working && !liveAct && !waiting && (
+              <ConnectorCards sid={sid} tick={items.length} onWaiting={setConnWaiting} />
+              {working && !liveAct && !waiting && connWaiting === 0 && (
                 <Working />
               )}
             </div>
@@ -385,6 +389,8 @@ function versioned(t: ReturnType<typeof useT>, ev: Approval): string {
 }
 
 function headline(t: ReturnType<typeof useT>, ev: Approval): string {
+  // 4.0.1: a reply draft whose subject is unknown never reads « … brouillon de mail : « » »
+  if (ev.kind === "mail_draft" && !ev.title.trim()) return t("ap.mail_draft.reply");
   const key = (`ap.${KNOWN_KINDS.includes(ev.kind) ? ev.kind : "other"}`) as Key;
   return t(key, { title: versioned(t, ev) });
 }
@@ -472,10 +478,12 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
   );
 }
 
-function Activities({ acts }: { acts: Act[] }) {
+function Activities({ acts, paused = false }: { acts: Act[]; paused?: boolean }) {
   const t = useT();
   const sentence = (a: Act) => {
     if (a.state === "fail") return t("act.failed");
+    // 4.0.1: while a card waits for the person nothing is being written — no turning wheel
+    if (a.state === "live" && paused) return t("act.waiting");
     if (a.state === "denied") return t("act.denied");
     const base = `act.${a.kind}${a.state === "done" ? ".done" : ""}`;
     const text = t(base as Key, { subject: a.subject });
@@ -495,7 +503,8 @@ function Activities({ acts }: { acts: Act[] }) {
     <div className="sk-activity">
       {rows.map((a) => (
         <div key={a.id} className={`sk-act is-${a.state}`}>
-          {a.state === "live" ? <span className="sk-spin" aria-hidden /> : <span className="sk-act-ico"><Icon name={a.state === "fail" ? "alert" : a.state === "denied" ? "close" : activityIcon(a.kind)} small /></span>}
+          {a.state === "live" && !paused ? <span className="sk-spin" aria-hidden />
+            : a.state === "live" ? <span className="sk-act-ico"><Icon name="shield" small /></span> : <span className="sk-act-ico"><Icon name={a.state === "fail" ? "alert" : a.state === "denied" ? "close" : activityIcon(a.kind)} small /></span>}
           <span>{sentence(a)}{a.n > 1 ? ` (×${a.n})` : ""}</span>
         </div>
       ))}

@@ -297,12 +297,16 @@ def test_no_shell_runs_in_an_atelier_work_nor_in_its_sub_agent(cli_env, monkeypa
     assert len(res) >= 2, res
     everything = str(mock.requests)
     assert CANARY not in everything, "a shell command ran"        # neither ls listed the folder
-    # the sub-agent was really started and really asked for its shell
-    assert any(SUB in _text_of((r.get("messages") or [{}])[0].get("content"))
-               for r in mock.main_requests() if "Plan" not in str(r.get("messages", [{}])[0]))
-    # no shell tool in either catalogue, and no card for anyone
+    # 4.0.1: an Atelier work has no sub-agent at all (Agent / Task out of its catalogue,
+    # test_atelier_tools_off_401.py): the hand-over is refused, no sub-agent ever starts
+    assert not {"Agent", "Task"} & mock.tools_offered(sub=False)
+    # nor any other tool its space refuses, in the catalogue the REAL CLI sends the model
+    assert not set(legacy.ATELIER_OFF_TOOLS) & mock.tools_offered(sub=False)
+    assert {"Read", "Write", "Edit"} <= mock.tools_offered(sub=False)
+    assert not any(SUB in _text_of((r.get("messages") or [{}])[0].get("content"))
+                   for r in mock.main_requests() if "Plan" not in str(r.get("messages", [{}])[0]))
+    # no shell tool in the catalogue, and no card for anyone
     assert "Bash" not in mock.tools_offered(sub=False)
-    assert "Bash" not in mock.tools_offered(sub=True)
     assert set(s.cards) <= {"Agent", "Task"}, s.cards     # never a card for a shell
     # each refusal reached the thread as a rule of the space, not as a failure
     import plain
@@ -320,4 +324,7 @@ def test_cause_the_cli_runs_a_read_only_command_without_asking(cli_env, monkeypa
     CLI runs a read-only `ls` — and the sub-agent's `pwd && ls` — without calling it."""
     s, mock = _play(cli_env, monkeypatch, simple_work=False)
     assert CANARY in str(mock.results())
+    # the Cockpit keeps its catalogue (4.0.1 changes the Atelier only)
+    assert {"Bash", "WebFetch", "WebSearch"} <= mock.tools_offered(sub=False)
+    assert {"Agent", "Task"} & mock.tools_offered(sub=False)
     assert set(s.cards) <= {"Agent", "Task"}, s.cards     # both `ls` ran without a card

@@ -264,6 +264,21 @@ def catalog(audience: str = "", lang: str = "en") -> list[dict]:
             for pid, p in _REGISTRY.items() if not p.get("audience")]
 
 
+# 4.0.1 — the general templates of the first Atelier, each one now the template of a job kit.
+# A person who chose their jobs sees their kits, not these doubles (a salesperson was offered
+# « Plan de formation » and « Quiz », the trainer's): kept only for a person with no job yet.
+COVERED_BY_KITS = {"training-plan": "training", "assessment-quiz": "training",
+                   "client-proposal": "sales"}
+
+
+def general_for(kit: list[dict], general: list[dict]) -> list[dict]:
+    """The general templates shown next to a person's kit templates: all of them while the
+    person has no job (no kit template), else only those no job kit replaces."""
+    if not kit:
+        return general
+    return [g for g in general if g.get("id") not in COVERED_BY_KITS]
+
+
 def _kit(playbook_id: str) -> dict | None:
     """A job kit's template (``<job>.<template>``, backend/roles.py) in the shape of a simple
     playbook — so that a start, its title and its mission need nothing else."""

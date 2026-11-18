@@ -48,6 +48,8 @@ export interface Deliverable { name: string; title: string; ext: string; size: n
   formats?: string[]; kind?: "document" | "spreadsheet" | "letters" }
 /** 4.0 — what the session checked before the card (backend/qualitygate.py · card) */
 export interface QualityCheck { reviewed_by: "strong" | "local" | "rules"; review_failed: boolean; corrected: boolean;
+  /** 4.0.1 — what the agent corrected after the check, in words (« Total HT : 6'480.00 → 6'600.00 ») */
+  fixed?: string[];
   ok: boolean; remaining: string[]; verified: string[]; to_check: string[] }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
   documents: Doc[]; deliverables: Deliverable[];

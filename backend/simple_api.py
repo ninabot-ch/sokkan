@@ -400,7 +400,7 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         return {"first_name": first, "project": slug,
                 "project_name": (projects.get(slug) or {}).get("name") or slug,
                 "can_start": iam.rank(pu["role"]) >= iam.rank("dev"),
-                "playbooks": kit + playbooks.catalog("simple", lang),
+                "playbooks": kit + playbooks.general_for(kit, playbooks.catalog("simple", lang)),
                 # 4.0 job kits: the person's jobs, the project's own, and whether to offer the choice
                 "roles": jobs, "project_role": bound,
                 "ask_roles": prefs.get("roles") is None and not demo_atelier.enabled(),

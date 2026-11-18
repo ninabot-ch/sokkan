@@ -205,7 +205,8 @@ Every variable `docker-compose.yml` passes to the `api` container (357). Set the
 | `SOKKAN_MEMORY_QUARANTINE_DIR` | — | backend/features.py, memory/quarantine.py | 3.1 : réglages fins déjà documentés (docs/AGENTS.md), jusqu'ici non transmis |
 | `SOKKAN_AGENTS_MAX_TOKENS_PER_RUN` | `5000000` | backend/agentcost.py | 3.1.2 : coût des runs sur un modèle non-Claude (passerelle, endpoint custom) — plafond en tokens si le prix est inconnu, table de prix (JSON), change CHF→USD |
 | `SOKKAN_MODEL_PRICES` | — | backend/agentcost.py | 3.1.2 : coût des runs sur un modèle non-Claude (passerelle, endpoint custom) — plafond en tokens si le prix est inconnu, table de prix (JSON), change CHF→USD |
-| `SOKKAN_FX_USD_PER_CHF` | `1.30` | backend/agentcost.py | 3.1.2 : coût des runs sur un modèle non-Claude (passerelle, endpoint custom) — plafond en tokens si le prix est inconnu, table de prix (JSON), change CHF→USD |
+| `SOKKAN_FX_USD_PER_CHF` | `1.30` | backend/agentcost.py, backend/onboarding.py | 3.1.2 : coût des runs sur un modèle non-Claude (passerelle, endpoint custom) — plafond en tokens si le prix est inconnu, table de prix (JSON), change CHF→USD |
+| `SOKKAN_USAGE_CURRENCY` | — | backend/onboarding.py | 4.0.1 : devise de la page Consommation (CHF si l'organisation est en Suisse, sinon USD), convertie au taux SOKKAN_FX_USD_PER_CHF |
 | `SOKKAN_AGENTS_FIRST_CALL_TOKENS` | — | backend/agentcost.py | 3.4.4 : coût estimé du 1er appel d'un run (tokens écrits au cache) — un budget en dessous ne démarre pas |
 | `SOKKAN_FEATURE_REVOCATION` | — | backend/features.py | lots 6/8 — révocation (SCIM, « Revoke now ») et bac à sable par projet |
 | `SOKKAN_SCIM_TOKEN` | — | backend/features.py, backend/revocation.py | lots 6/8 — révocation (SCIM, « Revoke now ») et bac à sable par projet |

@@ -60,6 +60,7 @@ L = {
         "c_archive": "archiver la carte", "c_comment": "commenter la carte",
         "c_link": "lier la carte", "default_model": "le modèle de l'instance",
         "lines": "{n} lignes",
+        "reply_sender": "l'expéditeur du message auquel l'agent répond", "opening": "Début du texte",
     },
     "en": {
         "where": "Where", "column": "Column", "tag": "Label", "description": "Description",
@@ -86,6 +87,7 @@ L = {
         "c_archive": "archive the card", "c_comment": "comment on the card",
         "c_link": "link the card", "default_model": "the instance's model",
         "lines": "{n} lines",
+        "reply_sender": "the sender of the message the agent answers", "opening": "Beginning",
     },
 }
 
@@ -137,6 +139,15 @@ def human_schedule(trigger: str, schedule: str = "", lang: str = "fr") -> str:
     if dow == "*" and re.fullmatch(r"\d{1,2}", dom):
         return t["every_month"].format(n=int(dom), t=at)
     return t["cron"].format(c=schedule)
+
+
+def _opening(body: str, n: int = 240) -> str:
+    """The first lines of a mail, on one line, cut at a word (4.0.1: read on the card itself)."""
+    flat = re.sub(r"\s+", " ", body or "").strip()
+    if len(flat) <= n:
+        return flat
+    cut = flat[:n].rsplit(" ", 1)[0]
+    return cut + " …"
 
 
 def _facts(*pairs) -> list[dict]:
@@ -263,11 +274,15 @@ def describe(tool: str, inp: dict, base: dict, lang: str = "fr", project: str = 
     if srv == "sokkan-connectors":
         if name == "mail_draft":
             to = inp.get("to") or []
+            to_s = ", ".join(map(str, to)) if isinstance(to, list) else str(to)
+            if not to_s and inp.get("reply_to"):
+                to_s = t["reply_sender"]    # 4.0.1: a reply never shows an empty recipient
+            body = str(inp.get("body") or "")
             out.update(kind="mail_draft", subject=_cut(inp.get("subject") or "", 160),
                        where=t["mailbox"])
-            out["facts"] = _facts((t["to"], ", ".join(to) if isinstance(to, list) else to),
-                                  (t["subject"], inp.get("subject")))
-            out["preview"] = str(inp.get("body") or "")[:_MAX_PREVIEW]
+            out["facts"] = _facts((t["to"], to_s), (t["subject"], inp.get("subject")),
+                                  (t["opening"], _opening(body)))
+            out["preview"] = body[:_MAX_PREVIEW]
             return out
         if name == "calendar_propose_event":
             att = inp.get("attendees") or []

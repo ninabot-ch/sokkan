@@ -29,6 +29,7 @@ import Welcome from "./onboarding/Welcome";
 import { TeamPage, UsagePage, ValidationsPage } from "./onboarding/AdminPages";
 import { fetchOnboarding, progress, type Onboarding } from "@/lib/simple/onboarding";
 import { useOT } from "@/lib/simple/dictOnboarding";
+import OrgBadge from "./OrgBadge";
 
 // 4.0: « setup » (the administrator's first launch) and the administration pages
 type AdminView = "setup" | "admin_team" | "admin_usage" | "admin_validations";
@@ -175,6 +176,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
           <Brand />
           <button className="sk-btn sk-btn-quiet sk-btn-icon sk-push sk-only-narrow" onClick={() => setDrawer(false)} aria-label={t("nav.close")}><Icon name="close" /></button>
         </div>
+        <OrgBadge />
         <ProjectPicker last={prefs.project || ""} only={demo ? feats.demo_atelier_projects || [] : null} />
         <div className="sk-nav">
           {nav.map((n) => (

@@ -582,3 +582,76 @@ def test_a_table_written_on_one_line_is_refused_and_never_described_as_empty():
     assert built is None and "ONE line" in err
     # the delivery message is never rewritten from a file SOKKAN could not read
     assert qualitygate.check_message("J'ai rapproché les 9 lignes.", "r.md", glued) == []
+
+
+def _table(cols: int, rows: int = 3, empty: bool = True) -> str:
+    head = "| " + " | ".join(f"Col {i + 1}" for i in range(cols)) + " |"
+    sep = "|" + "|".join("---" for _ in range(cols)) + "|"
+    body = ["| " + " | ".join(("" if empty and j == 2 else f"v{r}{j}") for j in range(cols)) + " |"
+            for r in range(rows)]
+    return "\n".join([head, sep, *body])
+
+
+@pytest.mark.parametrize("cols", [5, 6, 7, 8])
+def test_a_wide_markdown_table_on_several_lines_is_not_refused(cols):
+    """4.0.1: a table of 5 columns or more was refused as « written on one line » — the old
+    pattern's blank spanned the header, the separator and the first row."""
+    pytest.importorskip("outputs")
+    text = f"# Offre\n\nClient : Exemple SA\n\n{_table(cols)}\n\n| | | | | **Total** | 1 |\n"
+    built, err = qualitygate.build_table("offre.md", text)
+    assert err == "" and built == text
+    assert qualitygate.glued_table_line(text) == 0
+    # same with no empty cell and with an aligned separator
+    t2 = _table(cols, empty=False).replace("---", ":---:")
+    assert qualitygate.glued_table_line(t2) == 0
+
+
+@pytest.mark.parametrize("cols", [5, 8])
+def test_a_really_glued_wide_table_is_still_refused(cols):
+    pytest.importorskip("outputs")
+    lines = _table(cols, rows=3).split("\n")
+    glued = " ".join([lines[0], *lines[2:]])            # header + rows on one line, no separator
+    built, err = qualitygate.build_table("t.md", f"# T\n\n{glued}\n")
+    assert built is None and "ONE line" in err
+    # rows glued after a proper header and separator
+    rows_glued = "\n".join([lines[0], lines[1], " ".join(lines[2:])])
+    assert qualitygate.glued_table_line(rows_glued) == 3
+
+
+def test_the_card_says_what_the_agent_corrected_in_words():
+    """4.0.1: « L'agent a corrigé ce que la vérification a trouvé » said THAT, never WHAT."""
+    prev = {"findings": [factcheck._f("sum", "block", "« Total » : la somme des lignes donne 6'600.00, "
+                                      "le document dit 6'480.00", "x", expected=6600.0, found=6480.0),
+                         factcheck._f("weekday", "block", "Le 3 mars 2027 est un mercredi, pas un lundi", "x")],
+            "defects": [{"where": "Conditions", "problem": "délai absent", "fix": "délai de paiement 30 jours"}]}
+    res = {"findings": [], "defects": [], "verified": ["totaux recalculés"], "to_check": [], "route": ""}
+    card = qualitygate.card(res, corrected=True, previous=prev)
+    assert card["fixed"][0] == "Total : 6'480 → 6'600"
+    assert "Le 3 mars 2027 est un mercredi, pas un lundi" in card["fixed"]
+    assert "Conditions : délai de paiement 30 jours" in card["fixed"]
+    # what is still there is not « corrected »
+    still = {**res, "findings": [prev["findings"][1]]}
+    assert "Le 3 mars 2027 est un mercredi, pas un lundi" not in qualitygate.card(still, corrected=True, previous=prev)["fixed"]
+    assert qualitygate.card(res, corrected=False, previous=prev)["fixed"] == []
+
+
+def test_the_rewritten_delivery_message_names_the_document_never_a_md_file():
+    """4.0.1: « J'ai enregistré « x.md » : … » showed a technical file name to a person."""
+    pytest.importorskip("outputs")
+    xl = ("---\nformat: xlsx\n---\n# Offre formation 2027\n\n| Poste | Montant |\n|---|---|\n| A | 100 |\n"
+          "| B | 200 |\n| Total | =SUM(ABOVE) |\n")
+    msg = qualitygate.factual_message("offre-formation-2027.md", xl)
+    assert "« Offre formation 2027 » (à télécharger en Excel)" in msg and ".md" not in msg
+    assert "tableau principal compte 2 lignes" in msg
+    doc = "Notes sans titre\n\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+    msg = qualitygate.factual_message("compte-rendu_equipe.md", doc)
+    assert "« Compte rendu equipe » (à télécharger en Word)" in msg and ".md" not in msg
+    en = qualitygate.factual_message("offre-formation-2027.md", xl, lang="en")
+    assert en.startswith("I prepared “Offre formation 2027” (to download as Excel)")
+
+
+def test_a_count_the_document_itself_states_is_not_called_false():
+    pytest.importorskip("outputs")
+    doc = ("# Offre\n\nLa formation se donne en 2 sessions d'une demi-journée.\n\n"
+           "| Session | Date |\n|---|---|\n| Session 1 | 3 mars |\n| Session 2 | 10 mars |\n| Session 3 | 17 mars |\n")
+    assert qualitygate.check_message("L'offre prévoit 2 sessions d'une demi-journée.", "o.md", doc) == []

@@ -215,7 +215,9 @@ def get(reveal: bool = False) -> dict:
             p["lang"] = onboarding.org_lang() or "fr"
         except Exception:  # noqa: BLE001
             p["lang"] = "fr"
-    p["logo"] = logo_path() is not None
+    lp = logo_path()
+    p["logo"] = lp is not None
+    p["logo_v"] = int(lp.stat().st_mtime) if lp else 0   # 4.0.1: the screens' cache key
     p["updated_at"] = d.get("updated_at")
     p["updated_by"] = d.get("updated_by", "")
     if not reveal and p.get("iban"):

@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/simple/api";
 import { dropOrgLogo, fetchOrgPreview, fetchOrgProfile, saveOrgProfile, uploadOrgLogo,
   type OrgPerson, type OrgProfile as Profile } from "@/lib/simple/org";
 import { useOrgT, type OrgKey } from "@/lib/simple/dictOrg";
+import { logoUrl } from "@/lib/simple/orgLogo";
 import Icon from "./icons";
 
 const TEXT: (keyof Profile)[] = ["name", "legal_name", "legal_form", "sector", "street", "postcode", "city", "country",
@@ -30,7 +31,7 @@ export default function OrgProfile() {
       for (const k of TEXT) (body as Record<string, unknown>)[k] = p[k];
       Object.assign(body, { lang: p.lang, address_form: p.address_form, formats: p.formats,
         people: p.people.filter((x) => x.name.trim()), signatories: p.signatories.filter((x) => x.name.trim()) });
-      setP(await saveOrgProfile(body)); setMsg(orgT("org.saved"));
+      setP(await saveOrgProfile(body)); setMsg(orgT("org.saved")); window.dispatchEvent(new Event("sk-org-changed"));
     } catch (e) {
       const k = e instanceof ApiError ? (`org.err.${e.code}` as OrgKey) : null;
       setErr(k && orgT(k) !== k ? orgT(k) : orgT("org.failed", { why: e instanceof Error ? e.message : "" }));
@@ -89,14 +90,15 @@ export default function OrgProfile() {
       <p className="sk-xs sk-muted">{orgT("org.people.hint")}</p>
       {rows("people")}
       <div className="sk-small"><strong>{orgT("org.logo")}</strong></div>
-      {p.logo && <img src={`/api/org/logo?v=${p.updated_at || 0}`} alt={orgT("org.logo")} className="sk-org-logo" />}
+      {p.logo ? <img src={logoUrl(p.logo_v || p.updated_at)} alt={orgT("org.logo")} className="sk-org-logo" />
+        : <p className="sk-xs sk-muted">{orgT("org.logo.none")}</p>}
       {edit && (
         <div className="sk-row">
           <label className="sk-btn sk-btn-quiet"><input type="file" accept=".png,.jpg,.jpeg,.svg" hidden onChange={async (e) => {
             const f = e.target.files?.[0]; if (!f) return;
-            try { await uploadOrgLogo(f); setP(await fetchOrgProfile()); } catch (x) { setErr(orgT("org.failed", { why: x instanceof Error ? x.message : "" })); }
+            try { await uploadOrgLogo(f); setP(await fetchOrgProfile()); window.dispatchEvent(new Event("sk-org-changed")); } catch (x) { setErr(orgT("org.failed", { why: x instanceof Error ? x.message : "" })); }
           }} />{orgT("org.logo.add")}</label>
-          {p.logo && <button className="sk-btn sk-btn-quiet" onClick={async () => { await dropOrgLogo(); setP(await fetchOrgProfile()); }}>{orgT("org.logo.drop")}</button>}
+          {p.logo && <button className="sk-btn sk-btn-quiet" onClick={async () => { await dropOrgLogo(); setP(await fetchOrgProfile()); window.dispatchEvent(new Event("sk-org-changed")); }}>{orgT("org.logo.drop")}</button>}
         </div>
       )}
       {p.completeness && p.completeness.missing.length > 0 && (
