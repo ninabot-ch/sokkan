@@ -56,6 +56,9 @@ this repository. Compare the printed SHA-256 with the one of that file **obtaine
 (the public repository, or read to you by the publisher): a key and a release downloaded from
 the same site only prove that the site agrees with itself. Other places the installer accepts:
 `SOKKAN_COSIGN=<path to the binary>`, `SOKKAN_COSIGN_PUB=<path to the key>`.
+Since 4.0.2 every profile fails closed on a release from 3.6.1 on whose `.sha256` / `.sig` is missing
+or wrong ([docs/UPGRADE.md](../UPGRADE.md#verification-of-a-release-fail-closed)); the appliance keeps
+`SOKKAN_REQUIRE_SIGNATURE=1`, which also ignores `SOKKAN_ALLOW_UNSIGNED`.
 
 **Then the install:**
 

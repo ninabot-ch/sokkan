@@ -41,6 +41,7 @@ fi
 # verified with the script of the release that is RUNNING (it carries this machine's rules)
 [ "$(sed -n 's/^SOKKAN_REQUIRE_SIGNATURE=//p' .env | tail -n 1)" = 1 ] && SOKKAN_REQUIRE_SIGNATURE=1
 export SOKKAN_REQUIRE_SIGNATURE="${SOKKAN_REQUIRE_SIGNATURE:-0}"
+export SOKKAN_INSTALL_LOG="${SOKKAN_INSTALL_LOG:-$PWD/.sokkan-install.log}"
 if [ -f scripts/verify-release.sh ]; then
   sh scripts/verify-release.sh "$TB" || { echo "✗ rollback: the release did not pass verification — nothing was changed." >&2; exit 3; }
 fi

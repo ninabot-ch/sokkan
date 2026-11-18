@@ -3,6 +3,34 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 4.0.2
+
+### Security — the installer fails closed when a release cannot be verified
+- **`install.sh` refuses a release whose `.sha256` or `.sig` is missing, empty, unreadable or
+  wrong, for every release since 3.6.1 (the first one published signed) and every profile.**
+  Until now, outside the appliance profile (`SOKKAN_REQUIRE_SIGNATURE=0` by default), a release
+  whose signature files could not be downloaded was installed **without any check** — which
+  happened for about 40 minutes on 18.11.2026, while sokkan.ch did not serve the `.sig` and
+  `.sha256` of 4.0.1. Nothing is installed or changed when the check fails; the message (English
+  and French) names the URL that failed and what to do.
+- **`SOKKAN_ALLOW_UNSIGNED=1`** is the explicit way out: it installs anyway, with a red warning on
+  stderr (what is missing, the risk, the variable used) also written to `.sokkan-install.log` in
+  the install folder. It never accepts a digest or a signature that does not match.
+- **`SOKKAN_REQUIRE_SIGNATURE`** keeps its meaning for `=1` (strict, the appliance profile; it now
+  also wins over `SOKKAN_ALLOW_UNSIGNED`). `=0` no longer lets an unsigned release through.
+- **No cosign needed on a workstation**: without `cosign`, the signature is checked with `openssl`
+  (same ECDSA P-256 signature). Without a key of its own (`SOKKAN_COSIGN_PUB`,
+  `/etc/sokkan/cosign.pub`), the installer uses the release public key written in it — the same as
+  `deploy/appliance/cosign.pub` and `https://sokkan.ch/cosign.pub`.
+- `scripts/verify-release.sh` (used by `upgrade.sh` and `rollback.sh`) applies the same rules, and
+  `./scripts/upgrade.sh` without argument now fetches the exact current release (`dist/VERSION`)
+  with its signature instead of `sokkan-latest.tar.gz`, which has none.
+- Releases older than 3.6.1, never signed, still install when pinned, with a notice.
+- Tests: `tests/test_install_fail_closed.py` — a local HTTP dist (no external network, no Docker),
+  a key pair generated for the test: `.sig` 404, `.sha256` 404, empty or unreadable files, a
+  signature from another key, `SOKKAN_ALLOW_UNSIGNED=1`, and a complete valid release.
+  Details: [docs/UPGRADE.md](docs/UPGRADE.md#verification-of-a-release-fail-closed).
+
 ## 4.0.1 — 2026-11-18 — "Seven seas"
 
 **« Write with Claude » for every job, with personal data pseudonymised first, and the fixes found

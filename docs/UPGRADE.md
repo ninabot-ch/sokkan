@@ -61,11 +61,9 @@ tar xzf /tmp/sokkan.tar.gz --strip-components=1 sokkan/scripts/upgrade.sh
 What every upgrade does since 3.6, in this order:
 
 1. **Verify before touching anything** (`scripts/verify-release.sh`): the tarball's sha256
-   against the published `.sha256` (a mismatch always stops), and its cosign signature
-   (`.sig`) against the public key already on your machine (`/etc/sokkan/cosign.pub`,
-   `SOKKAN_COSIGN_PUB`). With `SOKKAN_REQUIRE_SIGNATURE=1` in `.env` a release with no valid
-   signature is refused; without it, an unsigned release is accepted with a warning — a
-   wrong signature never is.
+   against the published `.sha256`, and its cosign signature (`.sig`) against the public key
+   already on your machine. Since 4.0.2 this **fails closed** — see
+   [Verification of a release](#verification-of-a-release-fail-closed) below.
 2. Record the version that was running in `.sokkan-previous`.
 3. Put the release in place (the manifest logic above), write `SOKKAN_VERSION=<version>+<commit>`
    and `SOKKAN_COMMIT` in `.env`.
@@ -76,6 +74,47 @@ What every upgrade does since 3.6, in this order:
 
 `./scripts/upgrade.sh` of a tree **older than 3.6** still works, but it is that older script:
 no verification, no wait. Use the installer once to get on the new path.
+
+### Verification of a release (fail closed)
+
+Every release since **3.6.1** is published on `https://sokkan.ch/dist/` with two files next to
+the tarball: `sokkan-<version>+<commit>.tar.gz.sha256` and `….tar.gz.sig` (a cosign key-pair
+signature). Since **4.0.2**, `install.sh`, `upgrade.sh` and `rollback.sh` refuse such a release —
+and change nothing — when either file is **missing, empty, unreadable or wrong**, whatever the
+profile. The error names the URL that failed and what to do: retry a few minutes later (a
+release may be being published), check that `https://sokkan.ch/dist/` lists the tarball with its
+`.sha256` and `.sig`, or use the explicit way out below.
+
+| Situation | Before 4.0.2 (community) | Since 4.0.2 |
+|---|---|---|
+| `.sig` or `.sha256` missing / empty / unreadable | installed **without any check** | **refused** |
+| `.sig` from another key, or a wrong sha256 | refused | refused — never bypassed |
+| same, with `SOKKAN_ALLOW_UNSIGNED=1` | — | missing/unreadable: installed with a red **warning**, logged; wrong: refused |
+| complete and valid | installed | installed |
+
+- **The key.** `SOKKAN_COSIGN_PUB` if you set it; else `/etc/sokkan/cosign.pub` if the machine
+  has one; else the release key written in `install.sh` itself (the same file as
+  `deploy/appliance/cosign.pub` and `https://sokkan.ch/cosign.pub`) — it reaches you over the
+  connection you already trusted to run the installer, never with the tarball it checks. An
+  installed SOKKAN (`upgrade.sh`, `rollback.sh`) falls back to the key of the installed release.
+- **The tool.** `cosign` when it is installed (`SOKKAN_COSIGN`), otherwise `openssl`, which
+  checks the same signature (ECDSA P-256 over SHA-256). With neither, the signature "cannot be
+  checked": refused.
+- **`SOKKAN_ALLOW_UNSIGNED=1`** — the explicit way out, e.g. while the site is being repaired:
+  the release is installed even though its `.sha256` / `.sig` is missing or cannot be checked,
+  with a warning on stderr (what is missing, the risk, the variable used), appended to
+  `.sokkan-install.log` in the install folder (mode 600). It never lets through a digest or a
+  signature that does **not match**. Remove it as soon as the files are served again.
+- **`SOKKAN_REQUIRE_SIGNATURE`** is kept: `=1` (the appliance profile) stays strict — it also
+  refuses releases older than 3.6.1 and it ignores `SOKKAN_ALLOW_UNSIGNED`. `=0` **no longer**
+  lets an unsigned release through: only `SOKKAN_ALLOW_UNSIGNED=1` does.
+- **Releases older than 3.6.1** were never signed: pinning one (`--version 3.5.1+6f7fee5`) still
+  installs it, with a notice that it is not verified (unless `SOKKAN_REQUIRE_SIGNATURE=1`).
+- `./scripts/upgrade.sh` with no argument now downloads the exact current release
+  (`dist/VERSION`), not `sokkan-latest.tar.gz`, which has no signature.
+- The rules apply to the verifier that runs: `install.sh` always uses its own; `upgrade.sh` and
+  `rollback.sh` use the `verify-release.sh` of the **installed** release, so a tree older than
+  4.0.2 keeps its former, lenient rules until it is updated once through the installer.
 
 ### Roll back to the previous version
 

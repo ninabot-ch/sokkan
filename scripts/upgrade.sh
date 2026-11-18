@@ -2,7 +2,8 @@
 # sokkan upgrade — put a release in place WITHOUT leaving the files it no longer ships.
 # Run from the sokkan folder (the installer and the managed fleet call it too):
 #
-#   ./scripts/upgrade.sh                       the current release (sokkan.ch/dist/sokkan-latest.tar.gz)
+#   ./scripts/upgrade.sh                       the current release (sokkan.ch/dist/VERSION, resolved to
+#                                              its exact <version>+<commit> tarball and its signature)
 #   ./scripts/upgrade.sh <hash>                a pinned release, e.g. 3.4.3+1a2b3c4
 #   ./scripts/upgrade.sh ./sokkan-x.tar.gz     a tarball you already have
 #   ./scripts/upgrade.sh https://…/x.tar.gz    a tarball served elsewhere
@@ -17,8 +18,9 @@
 # downloads the release and runs THIS script from it — same steps, same checks.
 #
 # Before anything changes: the release is verified (scripts/verify-release.sh — sha256, and
-# the cosign signature against the public key already on this machine; with
-# SOKKAN_REQUIRE_SIGNATURE=1 a release without a valid signature is refused).
+# the cosign signature against the public key already on this machine). Fail closed since 4.0.2:
+# a release from 3.6.1 on whose .sha256 or .sig is missing or cannot be checked is refused, unless
+# SOKKAN_ALLOW_UNSIGNED=1 (a warning, kept in .sokkan-install.log); a wrong one always is.
 # After `docker compose up`: the script waits until /api/version answers the version it just
 # installed (SOKKAN_UPGRADE_WAIT_S, default 900 s). If it does not, it says so, exits 1 and
 # prints the rollback command (the previous version is recorded in .sokkan-previous).
@@ -47,6 +49,7 @@ main() {
   # signature policy: the strictest of .env and the environment (a 1 is never lowered)
   [ "$(sed -n 's/^SOKKAN_REQUIRE_SIGNATURE=//p' .env | tail -n 1)" = 1 ] && SOKKAN_REQUIRE_SIGNATURE=1
   export SOKKAN_REQUIRE_SIGNATURE="${SOKKAN_REQUIRE_SIGNATURE:-0}"
+  export SOKKAN_INSTALL_LOG="${SOKKAN_INSTALL_LOG:-$PWD/.sokkan-install.log}"
   IMAGES="$(sed -n 's/^SOKKAN_IMAGES=//p' .env | tail -n 1)"
   for a in "$@"; do
     case "$a" in
@@ -54,7 +57,7 @@ main() {
       --dry-run) DRY=1 ;;
       --images) IMAGES=1 ;;
       --no-wait) WAIT=0 ;;
-      -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+      -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
       *) REF="$a" ;;
     esac
   done
@@ -67,8 +70,10 @@ main() {
   # ---- fetch ----------------------------------------------------------------------------
   VER=""
   if [ -z "$REF" ]; then
-    SRC="$BASE/dist/sokkan-latest.tar.gz"
-    VER="$(curl -fsSL "$BASE/dist/VERSION" 2>/dev/null || true)"
+    # « the current release » resolved to its exact name: its .sha256 and .sig are published under
+    # that name only (sokkan-latest.tar.gz has none, and would be refused)
+    VER="$(curl -fsSL "$BASE/dist/VERSION" 2>/dev/null | tr -d ' \r\n' || true)"
+    if [ -n "$VER" ]; then SRC="$BASE/dist/sokkan-$VER.tar.gz"; else SRC="$BASE/dist/sokkan-latest.tar.gz"; fi
   elif [ -f "$REF" ]; then
     SRC="$REF"
     VER="$(basename "$REF" .tar.gz)"; VER="${VER#sokkan-}"; [ "$VER" = latest ] && VER=""

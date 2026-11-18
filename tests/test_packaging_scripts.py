@@ -78,7 +78,7 @@ def world(tmp_path):
     for f in bin_.iterdir():
         f.chmod(0o755)
     pub = tmp_path / "cosign.pub"
-    pub.write_text("PUBLIC KEY\n")
+    pub.write_text("-----BEGIN PUBLIC KEY-----\nstub\n-----END PUBLIC KEY-----\n")
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HOME": str(tmp_path),
            "SOKKAN_BASE": f"file://{tmp_path}", "SOKKAN_UPGRADE_NO_WAIT": "1",
            "SOKKAN_ROLLBACK_NO_WAIT": "1", "SOKKAN_SKIP_HOST_SETUP": "1",
@@ -325,13 +325,20 @@ def test_required_signature_without_the_means_to_check_is_a_refusal(world, missi
     assert r.returncode != 0 and "REFUSED" in r.stderr and not (tmp / "x").exists()
 
 
-def test_unsigned_release_is_accepted_with_a_warning_when_not_required(world):
+def test_a_release_older_than_signatures_is_accepted_with_a_warning_when_not_required(world):
+    """3.6.0 and before were never published signed: they install as they always did, said out
+    loud. A BAD signature is still refused. From 3.6.1 on, the same files missing is a refusal
+    (4.0.2, fail closed — tests/test_install_fail_closed.py)."""
     tmp, env = world
     tb = _publish(tmp / "dist", V_NEW, _release(V_NEW), sha=False)
     r = _sh(S / "verify-release.sh", str(tb), cwd=tmp, env=env)
-    assert r.returncode == 0 and "WARNING" in r.stderr and "no signature" in r.stderr
+    assert r.returncode == 0 and "WARNING" in r.stderr and "predates signed releases" in r.stderr
     (tb.parent / (tb.name + ".sig")).write_text("FORGED")            # but a BAD one never is
     assert _sh(S / "verify-release.sh", str(tb), cwd=tmp, env=env).returncode == 3
+    v2 = "3.6.1+5151515"
+    tb2 = _publish(tmp / "dist", v2, _release(v2), sha=False)
+    r = _sh(S / "verify-release.sh", str(tb2), cwd=tmp, env=env)
+    assert r.returncode == 3 and "REFUSED" in r.stderr and "SOKKAN_ALLOW_UNSIGNED=1" in r.stderr
 
 
 def test_an_image_is_only_verified_by_digest(world):
@@ -376,7 +383,7 @@ def test_images_mode_without_an_image_list_is_refused(world):
     _publish(tmp / "dist", V_NEW, _release(V_NEW), latest=False)
     d = _installed(tmp, env, V_NEW)
     v2 = "3.6.1+5151515"
-    _publish(tmp / "dist", v2, _release(v2))
+    _publish(tmp / "dist", v2, _release(v2), sig="GOOD")
     r = _sh(d / "scripts" / "upgrade.sh", v2, "--images", cwd=d, env=env)
     assert r.returncode == 1 and "no image list" in r.stderr and _env(d)["SOKKAN_VERSION"] == V_NEW
 

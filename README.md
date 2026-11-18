@@ -59,7 +59,7 @@ Spawning a session *is* the "check your memory" ritual — and since 2.0 it's a 
 curl -fsSL https://sokkan.ch/install.sh | sh
 ```
 
-— downloads the latest release from sokkan.ch (no GitHub dependency), generates an access token, and tells you what to fill in. First time? The [First steps guide](https://sokkan.ch/en/docs/first-steps/) takes you from login to a working memory in 20 minutes. Or the manual way:
+— downloads the latest release from sokkan.ch (no GitHub dependency), **checks its sha256 and its signature before anything is installed** (fail closed: a release whose `.sha256` or `.sig` is missing or wrong is refused — [why and how](docs/UPGRADE.md#verification-of-a-release-fail-closed)), generates an access token, and tells you what to fill in. First time? The [First steps guide](https://sokkan.ch/en/docs/first-steps/) takes you from login to a working memory in 20 minutes. Or the manual way:
 
 ```bash
 git clone https://github.com/ninabot-ch/sokkan && cd sokkan

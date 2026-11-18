@@ -18,8 +18,18 @@
 #   SOKKAN_BASE=https://…                    where releases are served (default https://sokkan.ch)
 #   SOKKAN_INSTALL_DOCKER=1                  install Docker without asking (Linux)
 #   SOKKAN_ACCEPT_GEMMA_TERMS=1|0            memory model licence answer (1 EmbeddingGemma, 0 MIT model)
-#   SOKKAN_REQUIRE_SIGNATURE=1               refuse a release without a valid signature (appliance: on)
-#   SOKKAN_COSIGN_PUB, SOKKAN_COSIGN         public key / cosign binary used to verify
+#   SOKKAN_REQUIRE_SIGNATURE=1               strict: refuse ANY release without a valid signature,
+#                                            even one older than 3.6.1 (appliance: on). 0 no longer
+#                                            lets an unsigned release through: see the next line
+#   SOKKAN_ALLOW_UNSIGNED=1                  install a release whose .sha256 / .sig is missing or
+#                                            cannot be checked, with a warning (logged in
+#                                            <dir>/.sokkan-install.log). Never a WRONG digest or signature
+#   SOKKAN_COSIGN_PUB, SOKKAN_COSIGN         public key / cosign binary used to verify (default key:
+#                                            /etc/sokkan/cosign.pub, else the one written below;
+#                                            no cosign: openssl checks the same signature)
+#
+# Verification (fail closed): every release since 3.6.1 is published with <tarball>.sha256 and
+# <tarball>.sig. If either is missing, unreadable or wrong, NOTHING is installed.
 #
 # An existing install (folder with a .env) is UPDATED by the release's own scripts/upgrade.sh —
 # the one upgrade path: same verification, same steps, same health check.
@@ -40,7 +50,7 @@ while [ $# -gt 0 ]; do
     --dir) DIR="${2:?--dir <folder>}"; shift ;;
     --tarball) TARBALL="${2:?--tarball <file>}"; shift ;;
     --kernel) KERNEL_IMAGE="${2:?--kernel <pinned kernel image>}"; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "install: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -50,10 +60,20 @@ case "$PROFILE" in community|appliance) ;; *) echo "install: --profile community
 case "$DIR" in /*) ;; *) DIR="$(pwd)/$DIR" ;; esac     # absolute: scripts change directory
 REQUIRE="${SOKKAN_REQUIRE_SIGNATURE:-}"
 [ -n "$REQUIRE" ] || { [ "$PROFILE" = appliance ] && REQUIRE=1 || REQUIRE=0; }
-PUB="${SOKKAN_COSIGN_PUB:-/etc/sokkan/cosign.pub}"
+ALLOW_UNSIGNED="${SOKKAN_ALLOW_UNSIGNED:-0}"
+# The first release published with .sha256 + .sig: from it on, both are REQUIRED.
+FIRST_SIGNED=3.6.1
+# The public key of the SOKKAN releases — deploy/appliance/cosign.pub of the repository, also served at
+# https://sokkan.ch/cosign.pub. Used when this machine has no key of its own: it came with this script,
+# over the same connection you trusted to run it, never with the release it checks.
+RELEASE_KEY='-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWvfuLU4YglC5Y/42OV5gidEgvpNd
+MvSzrF4Y8uZ4r92UVM9rCIRpwWPVkSXJe6Ggm2D3WZdSS2m21tGDjLGwAw==
+-----END PUBLIC KEY-----'
 
 say() { printf '%s\n' "$*"; }
 die() { printf '✗ %s\n' "$*" >&2; exit 1; }
+red() { if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then printf '\033[1;31m%s\033[0m\n' "$*" >&2; else printf '%s\n' "$*" >&2; fi; }
 rand_hex() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 # ---------------------------------------------------------------- docker
@@ -90,6 +110,16 @@ $DC compose version >/dev/null 2>&1 || {
 # ---------------------------------------------------------------- fetch + verify
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/sokkan-install.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
+if [ -n "${SOKKAN_COSIGN_PUB:-}" ]; then PUB="$SOKKAN_COSIGN_PUB"          # explicit: no fallback
+elif [ -r /etc/sokkan/cosign.pub ]; then PUB=/etc/sokkan/cosign.pub
+else PUB="$WORK/cosign.pub"; printf '%s\n' "$RELEASE_KEY" > "$PUB"; fi
+LOG="$WORK/install.log"; : > "$LOG"
+# what the install log of the target folder keeps (only what a person must be able to find later)
+log() { printf '%s install.sh %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG"; }
+keep_log() {   # keep_log <install folder>
+  [ -s "$LOG" ] || return 0
+  cat "$LOG" >> "$1/.sokkan-install.log" && chmod 600 "$1/.sokkan-install.log" 2>/dev/null || true
+}
 
 fetch() {
   if [ -n "$TARBALL" ]; then
@@ -117,30 +147,96 @@ fetch() {
 
 # Same rules as scripts/verify-release.sh — written here too because the FIRST install has no
 # installed script to trust, and the one inside the download cannot vouch for itself.
+
+# signed_era <version> → 0 when that release was published signed (>= FIRST_SIGNED, or unknown)
+signed_era() {
+  v="${1#v}"; v="${v%%+*}"
+  case "$v" in ''|*[!0-9.]*|.*|*.) return 0 ;; esac
+  awk -v v="$v" -v f="$FIRST_SIGNED" 'BEGIN { n = split(v, a, "."); split(f, b, ".")
+    for (i = 1; i <= 3; i++) { x = (i <= n) ? a[i] + 0 : 0; y = b[i] + 0
+      if (x > y) exit 0; if (x < y) exit 1 }
+    exit 0 }'
+}
+
+# sig_check <file> <signature> → 0 good · 1 WRONG signature · 2 cannot check (no tool, no key)
+sig_check() {
+  if [ ! -r "$PUB" ] || ! grep -q 'BEGIN PUBLIC KEY' "$PUB" 2>/dev/null; then WHY="no readable public key at $PUB"; return 2; fi
+  if [ -n "${SOKKAN_COSIGN:-}" ]; then
+    [ -x "$SOKKAN_COSIGN" ] || { WHY="SOKKAN_COSIGN=$SOKKAN_COSIGN is not an executable"; return 2; }
+    COSIGN="$SOKKAN_COSIGN"
+  else
+    COSIGN="$(command -v cosign 2>/dev/null || true)"
+    [ -n "$COSIGN" ] || { [ -x /opt/sokkan/libexec/cosign ] && COSIGN=/opt/sokkan/libexec/cosign; }
+  fi
+  if [ -n "$COSIGN" ]; then
+    "$COSIGN" verify-blob --key "$PUB" --signature "$2" --insecure-ignore-tlog=true "$1" >/dev/null 2>&1 && return 0
+    return 1
+  fi
+  # no cosign: a cosign key-pair signature is a base64 ECDSA P-256 / SHA-256 signature — openssl checks it
+  command -v openssl >/dev/null 2>&1 || { WHY="neither cosign nor openssl is installed"; return 2; }
+  openssl pkey -pubin -in "$PUB" -noout >/dev/null 2>&1 || { WHY="the public key $PUB cannot be read"; return 2; }
+  tr -d ' \r\n' < "$2" | openssl base64 -d -A > "$WORK/sig.der" 2>/dev/null && [ -s "$WORK/sig.der" ] || return 1
+  openssl dgst -sha256 -verify "$PUB" -signature "$WORK/sig.der" "$1" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# the place a file came from, for the messages
+where() { if [ -n "$TARBALL" ]; then echo "$1"; else echo "$BASE/dist/$(basename "$1")"; fi; }
+
 verify() {
-  f="$1"
+  f="$1"; name="$(basename "$f")"; MISSING=""
   if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$f" | cut -d' ' -f1)"
   else got="$(shasum -a 256 "$f" | cut -d' ' -f1)"; fi
-  if [ -f "$f.sha256" ]; then
-    want="$(tr -d '\r' < "$f.sha256" | awk 'NR==1{print $1}')"
-    [ "$want" = "$got" ] || die "sha256 mismatch on $(basename "$f") — REFUSED, nothing was changed."
-  elif [ "$REQUIRE" = 1 ]; then die "signature required but $(basename "$f").sha256 is missing — REFUSED."
+  want=""
+  [ -s "$f.sha256" ] && want="$(tr -d '\r' < "$f.sha256" | awk 'NR==1{print $1}')"
+  if [ -z "$want" ]; then MISSING="$MISSING
+    - $(where "$f.sha256") : missing or empty / absent ou vide"
+  elif [ "${#want}" != 64 ] || [ -n "$(printf '%s' "$want" | tr -d '0-9a-f')" ]; then MISSING="$MISSING
+    - $(where "$f.sha256") : unreadable, not a sha256 / illisible"
+  elif [ "$want" != "$got" ]; then
+    die "sha256 mismatch on $name: the release says $want, the download is $got — REFUSED, nothing was changed.
+  (FR) l'empreinte sha256 de $name ne correspond pas : REFUSÉ, rien n'a été modifié.
+  This is never bypassed (not even by SOKKAN_ALLOW_UNSIGNED=1). Retry later; if it persists, report it to security@sokkan.ch."
   fi
-  if [ ! -f "$f.sig" ]; then
-    [ "$REQUIRE" = 1 ] && die "signature required but $(basename "$f").sig is missing — REFUSED."
+  if [ ! -s "$f.sig" ]; then MISSING="$MISSING
+    - $(where "$f.sig") : missing or empty / absente ou vide"
+  else
+    rc=0; WHY=""; sig_check "$f" "$f.sig" || rc=$?
+    case "$rc" in
+      0) say "  ✔ signature verified ($name)" ;;
+      1) die "the signature of $name does not match the SOKKAN release key ($PUB) — REFUSED, nothing was changed.
+  (FR) la signature de $name ne correspond pas à la clé des releases SOKKAN : REFUSÉ, rien n'a été modifié.
+  This is never bypassed (not even by SOKKAN_ALLOW_UNSIGNED=1). Retry later; if it persists, report it to security@sokkan.ch." ;;
+      *) MISSING="$MISSING
+    - signature of $name cannot be checked: $WHY / signature non vérifiable" ;;
+    esac
+  fi
+  [ -n "$MISSING" ] || return 0
+
+  if [ "$REQUIRE" != 1 ] && ! signed_era "$VER"; then
+    # releases before 3.6.1 were never signed: what they always were, said out loud
+    say "  ! $name was published before signatures existed ($FIRST_SIGNED): it is NOT verified:$MISSING"
     return 0
   fi
-  COSIGN="${SOKKAN_COSIGN:-}"
-  [ -n "$COSIGN" ] || COSIGN="$(command -v cosign 2>/dev/null || true)"
-  [ -n "$COSIGN" ] || { [ -x /opt/sokkan/libexec/cosign ] && COSIGN=/opt/sokkan/libexec/cosign; }
-  if [ -z "$COSIGN" ] || [ ! -x "$COSIGN" ] || [ ! -r "$PUB" ]; then
-    [ "$REQUIRE" = 1 ] && die "signature required but cosign or the public key ($PUB) is missing — REFUSED."
-    say "  ! signature present but not verified (no cosign / no key at $PUB)"
+  if [ "$ALLOW_UNSIGNED" = 1 ] && [ "$REQUIRE" != 1 ]; then
+    red "!! WARNING — SOKKAN_ALLOW_UNSIGNED=1: installing $name WITHOUT a complete verification.
+   What is missing:$MISSING
+   Risk: nothing proves this release is the one the SOKKAN publishers built and signed; a modified or
+   corrupted release would be installed and run with the rights of this installer.
+   Variable used: SOKKAN_ALLOW_UNSIGNED=1 — remove it as soon as https://sokkan.ch/dist/ serves the files again.
+!! AVERTISSEMENT — SOKKAN_ALLOW_UNSIGNED=1 : installation de $name SANS vérification complète.
+   Risque : rien ne prouve que cette release est celle signée par l'éditeur. Recorded in .sokkan-install.log."
+    log "WARNING SOKKAN_ALLOW_UNSIGNED=1: $name installed WITHOUT complete verification;$(printf '%s' "$MISSING" | tr '\n' ' ' | tr -s ' ')"
     return 0
   fi
-  "$COSIGN" verify-blob --key "$PUB" --signature "$f.sig" --insecure-ignore-tlog=true "$f" >/dev/null 2>&1 \
-    || die "the signature of $(basename "$f") does not match $PUB — REFUSED, nothing was changed."
-  say "  ✔ signature verified ($(basename "$f"))"
+  [ "$ALLOW_UNSIGNED" = 1 ] && printf '  (SOKKAN_ALLOW_UNSIGNED=1 is ignored: SOKKAN_REQUIRE_SIGNATURE=1 is stricter)\n' >&2
+  die "SOKKAN ${VER:-$name}: the release cannot be verified — REFUSED, nothing was changed.$MISSING
+  What to do: retry in a few minutes (a release may be being published); check that
+  https://sokkan.ch/dist/ lists $name with its .sha256 and .sig; or, knowing the risk,
+  run the installer again with SOKKAN_ALLOW_UNSIGNED=1 (docs/UPGRADE.md, « Verification »).
+  (FR) La release ne peut pas être vérifiée : REFUSÉE, rien n'a été modifié. Que faire : réessayer dans
+  quelques minutes ; vérifier que https://sokkan.ch/dist/ liste $name avec son .sha256 et son .sig ;
+  ou, en connaissance du risque, relancer l'installeur avec SOKKAN_ALLOW_UNSIGNED=1."
 }
 
 fetch
@@ -167,12 +263,13 @@ if [ -e "$DIR" ]; then
     say "→ Existing install found in $DIR — updating to $VER…"
     if [ -f "$WORK/src/scripts/upgrade.sh" ]; then
       # THE upgrade path: the upgrade.sh of the release being installed, run in the install
+      keep_log "$DIR"
       mkdir -p "$DIR/scripts"
       cp "$WORK/src/scripts/upgrade.sh" "$DIR/scripts/.upgrade-$VER.sh"
       ST="$(stage_tarball "$DIR")"
       rc=0
-      SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" \
-        sh "$DIR/scripts/.upgrade-$VER.sh" "$ST" || rc=$?
+      SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_ALLOW_UNSIGNED="$ALLOW_UNSIGNED" SOKKAN_COSIGN_PUB="$PUB" \
+        SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" sh "$DIR/scripts/.upgrade-$VER.sh" "$ST" || rc=$?
       rm -f "$DIR/scripts/.upgrade-$VER.sh"; unstage "$ST"
       exit "$rc"
     fi
@@ -186,6 +283,7 @@ fi
 # ---------------------------------------------------------------- new install
 mkdir -p "$DIR"
 tar -C "$WORK/src" -cf - . | tar -xf - -C "$DIR"
+keep_log "$DIR"
 cd "$DIR"
 
 gemma_flag() {
@@ -336,8 +434,8 @@ chmod 600 .env
 # the instance answers as $VER
 ST="$(stage_tarball "$PWD")"
 rc=0
-SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_COSIGN_PUB="$PUB" SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" \
-  sh scripts/upgrade.sh "$ST" || rc=$?
+SOKKAN_REQUIRE_SIGNATURE="$REQUIRE" SOKKAN_ALLOW_UNSIGNED="$ALLOW_UNSIGNED" SOKKAN_COSIGN_PUB="$PUB" \
+  SOKKAN_KERNEL_ENABLE_IMAGE="$KERNEL_IMAGE" sh scripts/upgrade.sh "$ST" || rc=$?
 unstage "$ST"
 [ "$rc" = 0 ] || die "SOKKAN $VER is installed in $DIR but did not start — see: cd $DIR && $DC compose ps"
 
