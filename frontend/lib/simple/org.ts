@@ -8,7 +8,7 @@ export interface OrgProfile {
   name: string; legal_name: string; legal_form: string; street: string; postcode: string; city: string;
   country: string; uid: string; vat: string; iban: string; bank: string; phone: string; email: string;
   website: string; lang: string; address_form: "vous" | "tu" | ""; formats: string; tone: string; sector: string;
-  signatories: OrgPerson[]; people: OrgPerson[]; logo: boolean; can_edit?: boolean; iban_masked?: boolean; updated_at?: number | null;
+  signatories: OrgPerson[]; people: OrgPerson[]; logo: boolean; logo_v?: number; can_edit?: boolean; iban_masked?: boolean; updated_at?: number | null;
   completeness?: { filled: string[]; missing: string[]; ready: boolean };
 }
 export interface LearnFact { id: string; kind: "correction" | "template" | "structure"; why: string; text: string }

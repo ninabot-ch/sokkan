@@ -86,6 +86,9 @@ def test_the_logo_is_an_image_and_only_an_image(world):
     r = world["as"]("bob@x").get("/api/org/logo")
     assert r.status_code == 200 and r.content == png and r.headers["content-type"] == "image/png"
     assert world["as"]("bob@x").delete("/api/org/logo").status_code == 403
+    # 4.0.1: every member reads that there is a logo, with its own cache key (top of the Atelier)
+    prof = world["as"]("bob@x").get("/api/org/profile").json()
+    assert prof["logo"] is True and prof["logo_v"] > 0
 
 
 def test_the_block_says_who_and_where_and_keeps_the_iban_for_payments(world):

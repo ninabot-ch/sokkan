@@ -744,3 +744,8 @@ html[data-sk-theme] body {
 .sk-qc-list { margin: 0; padding-left: 1.2em; font-size: var(--sk-fs-sm, 0.875rem); overflow-wrap: anywhere; }
 .sk-qc-more summary { cursor: pointer; font-size: var(--sk-fs-sm, 0.875rem); }
 .sk-panel-check { padding: 8px 16px 0; }
+
+/* 4.0.1 — the organisation at the top of the Atelier (logo + name) */
+.sk-org-badge { display: flex; align-items: center; gap: var(--sk-s2); padding: 0 var(--sk-s2) var(--sk-s2); min-width: 0; }
+.sk-org-badge-logo { max-height: 32px; max-width: 96px; object-fit: contain; flex: none; }
+.sk-org-badge-name { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
