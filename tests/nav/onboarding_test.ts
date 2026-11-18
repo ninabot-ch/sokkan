@@ -49,3 +49,10 @@ test("small formats", () => {
   assert.equal(money(0.004, "CHF"), "< 0.01 CHF");
   assert.equal(money(12.345), "12.35 USD");
 });
+
+test("4.0.1: a Swiss instance shows its usage in CHF at the stated rate, USD stays USD", async () => {
+  const { shown } = await import("../../frontend/lib/simple/onboarding.ts");
+  assert.equal(shown(13, { currency: "CHF", source: "USD", usd_per_chf: 1.3 }), 10);
+  assert.equal(shown(13, { currency: "USD", source: "USD" }), 13);
+  assert.equal(shown(13, undefined), 13);
+});

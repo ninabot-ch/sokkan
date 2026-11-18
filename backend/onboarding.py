@@ -666,7 +666,26 @@ def usage_view(days: int = 30) -> dict:
     return {"days": days, "from": start, "to": today, "billing": s["billing"],
             "people": people_rows, "projects": proj_rows,
             "total": tot(rows), "instance_budget": inst, "today_total": round(day_total, 4),
-            "project_budgets": budgets.enabled(), "alerts": alerts}
+            "project_budgets": budgets.enabled(), "alerts": alerts, "display": display_currency()}
+
+
+def display_currency() -> dict:
+    """4.0.1 — the currency the Usage page speaks: the organisation's (CHF for a Swiss one, the
+    default), the amounts being estimated in USD at the models' prices and converted at a rate
+    the page states (SOKKAN_FX_USD_PER_CHF, the one budgets already use). A non-Swiss
+    organisation, or SOKKAN_USAGE_CURRENCY=USD, keeps USD."""
+    import agentcost
+    want = (os.environ.get("SOKKAN_USAGE_CURRENCY") or "").strip().upper()
+    if want not in ("CHF", "USD"):
+        try:
+            import orgprofile
+            want = "CHF" if (orgprofile.get().get("country") or "CH") == "CH" else "USD"
+        except Exception:  # noqa: BLE001
+            want = "CHF"
+    rate = agentcost.fx_usd_per_chf()
+    declared = bool((os.environ.get("SOKKAN_FX_USD_PER_CHF") or "").strip())
+    return {"currency": want, "source": "USD", "usd_per_chf": rate,
+            "rate_declared": declared} if want == "CHF" else {"currency": "USD", "source": "USD"}
 
 
 # ---- the validations journal, readable --------------------------------------------------------

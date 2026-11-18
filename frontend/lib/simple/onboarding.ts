@@ -34,7 +34,13 @@ export interface UsageRow { cost: number; api_equiv: number; turns: number; out_
 export interface Usage { days: number; from: string; to: string; people: (UsageRow & { email: string; name: string })[];
   projects: (UsageRow & { slug: string; name: string; budget: Budget | null })[]; total: UsageRow;
   instance_budget: { budget_day_usd: number; budget_session_usd: number }; today_total: number; project_budgets: boolean;
-  alerts: { project: string; name: string; state: "warn" | "stop"; pct_day?: number; pct_month?: number; currency?: string }[] }
+  alerts: { project: string; name: string; state: "warn" | "stop"; pct_day?: number; pct_month?: number; currency?: string }[];
+  /** 4.0.1 — the currency shown (the organisation's), the amounts being estimated in USD */
+  display?: { currency: "CHF" | "USD"; source: "USD"; usd_per_chf?: number; rate_declared?: boolean } }
+/** An amount estimated in USD, in the currency the page speaks (converted at the stated rate). */
+export function shown(usd: number, d?: Usage["display"]): number {
+  return d && d.currency === "CHF" && d.usd_per_chf ? usd / d.usd_per_chf : usd;
+}
 export interface Validation { kind: string; decision: string; title: string; label?: string; actor: string; owner: string; project: string;
   session_id: string; at: number; auto: boolean; edited: boolean; auto_reason?: string }
 

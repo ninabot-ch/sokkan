@@ -5,7 +5,7 @@
 // loading, empty and error state.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  disablePerson, enablePerson, fetchTeam, fetchUsage, fetchValidations, money, newCode, ObError, patchPerson, saveBudget,
+  disablePerson, enablePerson, fetchTeam, fetchUsage, fetchValidations, money, newCode, shown, ObError, patchPerson, saveBudget,
   validationsCsvUrl, type Added, type Person, type Usage, type Validation,
 } from "@/lib/simple/onboarding";
 import { useOT, type OKey } from "@/lib/simple/dictOnboarding";
@@ -151,7 +151,8 @@ export function UsagePage() {
   const [editing, setEditing] = useState<string | null>(null);
   const load = useCallback(() => { setFailed(false); fetchUsage(days).then(setU).catch(() => setFailed(true)); }, [days]);
   useEffect(load, [load]);
-  const cur = "USD";
+  const cur = u?.display?.currency || "USD";
+  const m = (v: number) => money(shown(v, u?.display), cur);
   return (
     <div className="sk-scroll"><div className="sk-page sk-page-wide">
       <div><h1 className="sk-h1">{t("us.title")}</h1><p className="sk-lede">{t("us.lede")}</p></div>
@@ -166,10 +167,13 @@ export function UsagePage() {
                 : t(a.state === "stop" ? "us.alert.inst.stop" : "us.alert.inst.warn", { pct: Math.round(a.pct_day || 0) })}</span></div>
           ))}
           <div className="sk-stats">
-            <div className="sk-stat"><b>{money(u.total.cost, cur)}</b><span>{t("us.total")}</span></div>
-            <div className="sk-stat"><b>{money(u.today_total, cur)}</b><span>{t("us.today")}</span></div>
+            <div className="sk-stat"><b>{m(u.total.cost)}</b><span>{t("us.total")}</span></div>
+            <div className="sk-stat"><b>{m(u.today_total)}</b><span>{t("us.today")}</span></div>
             <div className="sk-stat"><b>{u.total.turns}</b><span>{t("us.works")}</span></div>
           </div>
+          <p className="sk-small sk-muted">{u.display?.currency === "CHF" && u.display.usd_per_chf
+            ? t(u.display.rate_declared ? "us.fx.declared" : "us.fx.default", { rate: (1 / u.display.usd_per_chf).toFixed(2) })
+            : t("us.fx.usd")}</p>
           {u.total.turns > 0 && u.total.cost === 0 && <div className="sk-notice is-info"><Icon name="info" /><span>{t("us.local")}</span></div>}
           <h2 className="sk-h3">{t("us.by.person")}</h2>
           {u.people.length === 0 ? <p className="sk-muted">{t("us.nobody")}</p> : (
@@ -177,7 +181,7 @@ export function UsagePage() {
               <thead><tr><th scope="col">{t("tm.col.person")}</th><th scope="col">{t("us.col.cost")}</th><th scope="col">{t("us.col.today")}</th><th scope="col">{t("us.col.turns")}</th></tr></thead>
               <tbody>{u.people.map((p) => (
                 <tr key={p.email}><th scope="row">{p.email === "—" ? t("us.unknown") : p.name || p.email}</th>
-                  <td>{money(p.cost, cur)}</td><td>{money(p.today, cur)}</td><td>{p.turns}</td></tr>
+                  <td>{m(p.cost)}</td><td>{m(p.today)}</td><td>{p.turns}</td></tr>
               ))}</tbody>
             </table></div>
           )}
@@ -186,7 +190,7 @@ export function UsagePage() {
             <thead><tr><th scope="col">{t("ob.ppl.projects")}</th><th scope="col">{t("us.col.cost")}</th><th scope="col">{t("us.col.turns")}</th>
               {u.project_budgets && <th scope="col">{t("us.col.budget")}</th>}</tr></thead>
             <tbody>{u.projects.map((p) => (
-              <tr key={p.slug}><th scope="row">{p.name}</th><td>{money(p.cost, cur)}</td><td>{p.turns}</td>
+              <tr key={p.slug}><th scope="row">{p.name}</th><td>{m(p.cost)}</td><td>{p.turns}</td>
                 {u.project_budgets && <td>
                   <BudgetCell b={p.budget} />
                   <button className="sk-btn sk-btn-quiet" onClick={() => setEditing(editing === p.slug ? null : p.slug)}

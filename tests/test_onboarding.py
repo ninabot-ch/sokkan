@@ -487,3 +487,20 @@ def test_readable_titles():
     assert ob.readable_title({"tool": "mcp__sokkan-connectors__mail_propose_send", "title": ""}) == "Envoyer un mail"
     assert ob.readable_title({"tool": "mcp__x__do_thing", "title": "mcp__x__do_thing"}) == "Do thing"
     assert ob.readable_title({"tool": "", "title": "Envoyer « Re: X » à a@example.org"}) == "Envoyer « Re: X » à a@example.org"
+
+
+def test_usage_speaks_the_organisation_currency_with_a_stated_rate(box, monkeypatch):
+    """4.0.1: a Swiss instance showed its consumption in USD with no word about it."""
+    import onboarding
+    monkeypatch.delenv("SOKKAN_USAGE_CURRENCY", raising=False)
+    monkeypatch.delenv("SOKKAN_FX_USD_PER_CHF", raising=False)
+    d = onboarding.display_currency()
+    assert d["currency"] == "CHF" and d["source"] == "USD" and d["usd_per_chf"] > 0 and not d["rate_declared"]
+    monkeypatch.setenv("SOKKAN_FX_USD_PER_CHF", "1.25")
+    d = onboarding.display_currency()
+    assert d["usd_per_chf"] == 1.25 and d["rate_declared"]
+    monkeypatch.setenv("SOKKAN_USAGE_CURRENCY", "USD")
+    assert onboarding.display_currency() == {"currency": "USD", "source": "USD"}
+    monkeypatch.delenv("SOKKAN_USAGE_CURRENCY")
+    c = _owner(box)
+    assert c.get("/api/team/usage").json()["display"]["currency"] == "CHF"
