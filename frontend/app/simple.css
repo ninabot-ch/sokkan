@@ -748,7 +748,8 @@ html[data-sk-theme] body {
 /* 4.0.1 — the organisation at the top of the Atelier (logo + name) */
 .sk-org-badge { display: flex; align-items: center; gap: var(--sk-s2); padding: 0 var(--sk-s2) var(--sk-s2); min-width: 0; }
 .sk-org-badge-logo { max-height: 32px; max-width: 96px; object-fit: contain; flex: none; }
-.sk-org-badge-name { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sk-org-badge-name { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); line-height: 1.25; min-width: 0; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* 4.0.1 — a checkbox sits on its label's line (Settings › Connectors): the text-field rule of the
    settings blocks gave it 36 px of height and padding */
@@ -756,3 +757,5 @@ html[data-sk-theme] body {
 .sk-claude-set .sk-check input[type="checkbox"], .sk-check input[type="checkbox"] { min-height: 0; width: 16px; height: 16px;
   padding: 0; margin: 0; flex: none; }
 .sk-conn-thread { display: flex; flex-direction: column; gap: var(--sk-s2); }
+/* a mail's text on a card wraps like the mail will (it ran off the card in the thread) */
+.sk-card-approval .sk-pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; max-height: 16em; overflow-y: auto; }
