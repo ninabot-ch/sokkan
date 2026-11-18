@@ -42,6 +42,15 @@ Notable changes, newest first. Versions: semver + release hash (see
   - **Classification no longer depends on the Claude tier** (`PUT /api/projects/{slug}/level`), and
     it is set from the room; `council` declares it needs no other feature.
   - **Attach a file** in the room (the Documents upload when on, a text file otherwise).
+  - **Raise the ceiling and resume**: a council stopped on its token or CHF ceiling can be given a
+    higher one by its owner or an admin, from the room (`POST /api/council/{id}/budget`); it resumes
+    where it stopped, without asking again the roles that already answered. Journaled
+    (`council.budget_raise`); a ceiling not above what was already spent is refused.
+  - On a phone, a turn's « model · tokens · ms » line stays on one line.
+
+### Under the hood
+- **ESLint in the front-end** (flat config, `next/core-web-vitals` + `next/typescript`), run by both
+  CIs after `tsc`. No rule turned off globally.
 
 ## Unreleased — 4.0.2
 
