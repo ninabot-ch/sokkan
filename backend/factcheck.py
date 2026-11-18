@@ -348,7 +348,7 @@ def _tables_check(text: str) -> list[dict]:
                                       f"{swiss(whole)}, le document dit {swiss(vals[0])}",
                                       f"« {label} » ({rows[0][j] or 'amount'}): the lines add up to "
                                       f"{swiss(whole)}, the document says {swiss(vals[0])}",
-                                      expected=whole, found=vals[0]))
+                                      expected=whole, found=vals[0], label=label))
                     break
                 if len(vals) == 1:
                     acc.append(vals[0])

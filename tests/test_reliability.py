@@ -616,3 +616,20 @@ def test_a_really_glued_wide_table_is_still_refused(cols):
     # rows glued after a proper header and separator
     rows_glued = "\n".join([lines[0], lines[1], " ".join(lines[2:])])
     assert qualitygate.glued_table_line(rows_glued) == 3
+
+
+def test_the_card_says_what_the_agent_corrected_in_words():
+    """4.0.1: « L'agent a corrigé ce que la vérification a trouvé » said THAT, never WHAT."""
+    prev = {"findings": [factcheck._f("sum", "block", "« Total » : la somme des lignes donne 6'600.00, "
+                                      "le document dit 6'480.00", "x", expected=6600.0, found=6480.0),
+                         factcheck._f("weekday", "block", "Le 3 mars 2027 est un mercredi, pas un lundi", "x")],
+            "defects": [{"where": "Conditions", "problem": "délai absent", "fix": "délai de paiement 30 jours"}]}
+    res = {"findings": [], "defects": [], "verified": ["totaux recalculés"], "to_check": [], "route": ""}
+    card = qualitygate.card(res, corrected=True, previous=prev)
+    assert card["fixed"][0] == "Total : 6'480.00 → 6'600.00"
+    assert "Le 3 mars 2027 est un mercredi, pas un lundi" in card["fixed"]
+    assert "Conditions : délai de paiement 30 jours" in card["fixed"]
+    # what is still there is not « corrected »
+    still = {**res, "findings": [prev["findings"][1]]}
+    assert "Le 3 mars 2027 est un mercredi, pas un lundi" not in qualitygate.card(still, corrected=True, previous=prev)["fixed"]
+    assert qualitygate.card(res, corrected=False, previous=prev)["fixed"] == []

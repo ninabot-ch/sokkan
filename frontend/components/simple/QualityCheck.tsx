@@ -10,10 +10,11 @@ export default function QualityCheck({ check }: { check: Check | null | undefine
   const t = useT();
   if (!check) return null;
   const warn = !check.ok;
+  const fixed = check.fixed || [];
   return (
     <div className={`sk-qc${warn ? " is-warn" : ""}`} role={warn ? "alert" : "note"}>
       <div className="sk-qc-title"><Icon name={warn ? "info" : "check"} small />{t(warn ? "qc.title.warn" : "qc.title.ok")}</div>
-      <p className="sk-small sk-muted">{t(`qc.by.${check.reviewed_by}`)}{check.corrected ? ` ${t("qc.corrected")}` : ""}</p>
+      <p className="sk-small sk-muted">{t(`qc.by.${check.reviewed_by}`)}{check.corrected ? ` ${t(fixed.length ? "qc.corrected.list" : "qc.corrected")}` : ""}</p>
       {check.review_failed && <p className="sk-small sk-muted">{t("qc.failed")}</p>}
       {check.remaining.length > 0 && (
         <>
@@ -21,10 +22,14 @@ export default function QualityCheck({ check }: { check: Check | null | undefine
           <ul className="sk-qc-list">{check.remaining.map((x, i) => <li key={`r${i}`}>{x}</li>)}</ul>
         </>
       )}
-      {check.verified.length > 0 && (
-        <details className="sk-qc-more">
-          <summary>{t("qc.verified")} ({check.verified.length})</summary>
-          <ul className="sk-qc-list">{check.verified.map((x, i) => <li key={`v${i}`}>{x}</li>)}</ul>
+      {(fixed.length > 0 || check.verified.length > 0) && (
+        // 4.0.1: open by default, and WHAT the agent corrected comes first, in words
+        <details className="sk-qc-more" open>
+          <summary>{t("qc.verified")} ({fixed.length + check.verified.length})</summary>
+          <ul className="sk-qc-list">
+            {fixed.map((x, i) => <li key={`f${i}`} className="sk-qc-fixed"><b>{t("qc.fixed")}</b> {x}</li>)}
+            {check.verified.map((x, i) => <li key={`v${i}`}>{x}</li>)}
+          </ul>
         </details>
       )}
       {check.to_check.length > 0 && (

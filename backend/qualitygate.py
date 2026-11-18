@@ -362,9 +362,50 @@ def agent_message(res: dict) -> str:
     return "\n".join(lines)
 
 
-def card(res: dict, *, corrected: bool, lang: str = "fr") -> dict:
-    """What the approval card shows: what was checked, what the agent corrected, and what
-    remains for the person — in their language."""
+def _finding_key(f: dict) -> tuple:
+    d = f.get("data") or {}
+    return (f.get("kind"), str(d.get("label") or ""), f.get("fr") if not d else "")
+
+
+def fixed(previous: dict | None, res: dict, lang: str = "fr") -> list[str]:
+    """4.0.1 — what the agent corrected after the gate refused its first save, in words: each
+    defect of the first pass that the final version no longer has (« Total HT : 6'480.00 →
+    6'600.00 »). The person sees WHAT changed, not only that something did."""
+    if not previous:
+        return []
+    key = "fr" if lang == "fr" else "en"
+    now = {_finding_key(f) for f in (res.get("findings") or [])}
+    now_defects = {((d.get("where") or "").strip(), (d.get("problem") or "").strip())
+                   for d in (res.get("defects") or [])}
+    out: list[str] = []
+    for f in factcheck.blocking(previous.get("findings") or []):
+        if _finding_key(f) in now:
+            continue
+        d = f.get("data") or {}
+        label = str(d.get("label") or "").strip()
+        if "found" in d and "expected" in d:
+            what = label or {"vat": "TVA", "vat_total": "Total TTC" if key == "fr" else "Total incl. VAT",
+                             "sum": "Total"}.get(f.get("kind") or "", "")
+            out.append(f"{what + ' : ' if what else ''}{factcheck.swiss(d['found'])} → "
+                       f"{factcheck.swiss(d['expected'])}")
+        elif f.get("kind") == "totals" and d.get("values"):
+            vals = d["values"]
+            out.append(f"« {label} » : {' / '.join(factcheck.swiss(v) for v in vals)} → "
+                       + ("un seul total" if key == "fr" else "one total"))
+        else:
+            out.append(f[key])
+    for d in (previous.get("defects") or []):
+        where, problem = (d.get("where") or "").strip(), (d.get("problem") or "").strip()
+        if (where, problem) in now_defects or not (problem or d.get("fix")):
+            continue
+        fix = (d.get("fix") or "").strip()
+        out.append(f"{where + ' : ' if where else ''}{fix or problem}")
+    return out[:8]
+
+
+def card(res: dict, *, corrected: bool, lang: str = "fr", previous: dict | None = None) -> dict:
+    """What the approval card shows: what was checked, what the agent corrected (4.0.1: in
+    words, `fixed`), and what remains for the person — in their language."""
     shown = factcheck.shown(res.get("findings") or [])
     key = "fr" if lang == "fr" else "en"
     remaining = [f[key] for f in shown]
@@ -374,6 +415,7 @@ def card(res: dict, *, corrected: bool, lang: str = "fr") -> dict:
         "reviewed_by": "strong" if res.get("route") == "strong" else ("local" if res.get("route") else "rules"),
         "review_failed": bool(res.get("error")),
         "corrected": corrected,
+        "fixed": fixed(previous, res, lang) if corrected else [],
         "ok": not remaining,
         "remaining": remaining[:10],
         "verified": (res.get("verified") or [])[:6],

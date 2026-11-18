@@ -918,7 +918,7 @@ class AgentSession:
         if not hasattr(self, "_qg_cards"):
             self._qg_cards = {}
         self._qg_cards[gate.gate_id] = qualitygate.card(res, corrected=prev is not None,
-                                                        lang=ctx["lang"])
+                                                        lang=ctx["lang"], previous=prev)
         try:
             import hashlib
             import simple
