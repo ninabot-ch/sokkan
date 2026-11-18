@@ -19,7 +19,7 @@ def test_no_repository_path_in_the_atelier_sentences():
 
 def test_the_cockpit_example_names_no_real_company():
     board = (FRONT / "components" / "Board.tsx").read_text()
-    assert "jobup" not in board.lower()
+    assert "e.g. 'add a date filter to the invoices list'" in board   # a neutral example
 
 
 def test_the_tour_names_excel():
