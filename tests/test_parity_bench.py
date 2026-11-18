@@ -209,3 +209,23 @@ def test_every_kernel_gap_quoted_by_a_journey_is_named():
     for j in journeys.all_journeys():
         for gap in (j.needs.get("kernel") or {}).values():
             assert gap in journeys.KERNEL_GAPS
+
+
+def test_a_pass_without_a_decided_card_is_not_played_not_a_kernel_gap():
+    """n°3 (who decided, in the kernel's journal): no card decided in a pass = nothing to
+    check, said « non joué » — never « attend noyau n°3 » (bench n°6, R1). A card decided
+    and not named by the kernel still waits."""
+    assert not report.journal_waits({"status": "not played", "cards_found": 0, "gap": None})
+    # results written before the « not played » status
+    assert not report.journal_waits({"status": "waits", "cards_found": 0, "gap": 3})
+    assert report.journal_waits({"status": "waits", "cards_found": 1, "gap": 3})
+    assert not report.journal_waits({"status": "pass", "cards_found": 2})
+    run = {"kind": "refusal", "journey": "R1-pas-de-shell", "engine": "kernel", "pass_no": 1,
+           "started": True, "grade": {"success": True, "checks": {}}, "gaps": [],
+           "kernel_journal": {"status": "waits", "cards_found": 0, "gap": 3, "sample": []}}
+    st = report.stats([run])
+    assert 3 not in st["gaps"]
+    md = report.markdown({"runs": [run, {**run, "engine": "legacy", "kernel_journal": None}],
+                        "conformance": {}})
+    assert "attend noyau n°3" not in md
+    assert "R1-pas-de-shell p1 — décideur dans le journal du noyau : non joué" in md

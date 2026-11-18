@@ -760,6 +760,10 @@ def kernel_journal(thread: str, pol: P.Policy) -> dict:
     exact = bool(seen) and all(s["kernel_says"]["by"] == s["cockpit_said"]["by"]
                                and s["kernel_says"]["via"] == s["cockpit_said"]["via"]
                                for s in seen)
+    if not seen:
+        # no card decided in this pass: nothing to check (report.journal_waits) — not a gap
+        return {"cards_found": 0, "decider_recorded": None, "sample": [],
+                "status": "not played", "gap": None}
     return {"cards_found": len(seen), "decider_recorded": exact, "sample": seen[:3],
             "status": "pass" if exact else GAP, "gap": None if exact else 3}
 
