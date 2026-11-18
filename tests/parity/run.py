@@ -92,8 +92,8 @@ def new_harness(engine: str):
 
 
 def spec_for(engine: str, *, run_id: str, cwd: Path, resume: str | None = None,
-             deny_tools: tuple[str, ...] | None = None, profile: str = "atelier"
-             ) -> contract.RunSpec:
+             deny_tools: tuple[str, ...] | None = None, profile: str = "atelier",
+             first_message: str = "") -> contract.RunSpec:
     """The run as the cockpit builds it (agentchat `_run_spec`) for a profile: the Atelier is
     a simple work (no shell: `shell=False`, approval mode `default`); the Cockpit plays the
     developer's « bypass » (`approval_mode=bypassPermissions`, no « never » rule can fire in a
@@ -101,7 +101,10 @@ def spec_for(engine: str, *, run_id: str, cwd: Path, resume: str | None = None,
     s = contract.RunSpec(run_id=run_id, cwd=str(cwd), project="parity", user="u-parity",
                          resume=resume, deny_tools=deny_tools,
                          approval_mode="bypassPermissions" if profile == "cockpit" else "default",
-                         shell=profile != "atelier")
+                         shell=profile != "atelier",
+                         # an Atelier work's first message, known at start (agentchat): the
+                         # kernel opens its session with the brief as its system prompt
+                         first_message=first_message if profile == "atelier" else "")
     if engine == "legacy":
         s.model = env("PARITY_LEGACY_MODEL", "claude-sonnet-4-5")
         s.auto_allow = ("Read", "Glob", "Grep", "TodoWrite", "NotebookRead")   # SAFE_TOOLS
@@ -601,7 +604,8 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     pol = P.Policy("atelier", deliverables=space["deliverables"], memory=space["memory"],
                    has_documents=bool(space["docs"]))
     play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8),
-                cwd=space["work"], deny_tools=deny_tools, profile="atelier"), pol, j.timeout_s)
+                cwd=space["work"], deny_tools=deny_tools, profile="atelier",
+                first_message=prompt), pol, j.timeout_s)
     play.space = space
     if not await play.start():
         return {"started": False, "start_error": play.start_error}

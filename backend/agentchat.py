@@ -465,6 +465,9 @@ class AgentSession:
             # the Atelier never runs a command: an engine that can remove its shell does
             shell=not (not pol and self._is_simple_work()),
             budget_usd=self._sdk_max_budget(), context=recall, head=head,
+            # the work's first message (its brief): the kernel opens its session with it
+            first_message=(getattr(self, "_first_message", "") or "")
+            if not pol and self._is_simple_work() else "",
             confinement=confinement, options={"legacy": legacy_opts})
 
     async def ensure_started(self) -> None:
@@ -1160,6 +1163,9 @@ class AgentSession:
             self._project_budget_warned = True
             self._emit({"type": "error", "message": f"Heads-up: {bmsg}"})
         self.last_active = time.monotonic()
+        if self._stream is None and not self.resume:
+            # a run that starts with this message: the engine may take its brief at the opening
+            self._first_message = text
         try:
             await self.ensure_started()
         except Exception as e:  # noqa: BLE001 — said to the person, never a silent dead session

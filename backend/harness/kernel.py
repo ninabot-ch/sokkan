@@ -147,6 +147,90 @@ _RECALL_RX = re.compile(r"^\s*<memory-recall\b.*?</memory-recall>\s*", re.S)
 _HEAD_RX = re.compile(r"^\s*<sokkan-brief>\n<sokkan-(?:house|project)>.*?\n</sokkan-brief>\s*", re.S)
 
 
+# ---- the host's prompt (kernel host-prompt: `system_prompt` + `prefix: "host"`) ---------------
+# An Atelier work's instructions (its brief, the job kit's mission, the organisation's profile,
+# the project's continuity) go in the session's system prompt, behind the kernel's safety
+# invariants only, instead of riding in the person's message in front of the kernel's code
+# persona. Fixed for the thread (the prefix the model's cache keeps): nothing that changes from
+# one turn to the next goes there — the memory recall stays in the message.
+_BRIEF_BLOCK = re.compile(r"<sokkan-brief>(.*?)</sokkan-brief>\s*", re.S)
+_RECALL_IN_BRIEF = re.compile(
+    r"\n*=== Project memory \(auto-recalled\) ===.*?\(Notes from this project's memory\.[^\n]*\)",
+    re.S)
+# later messages (simple.follow_up): its constant notes repeat the system prompt's rules
+_FOLLOW_NOTE = re.compile(r"\s*<sokkan-brief>(?:Answer in [^<]*|The person wrote:)</sokkan-brief>\s*")
+READ_DOCS = ("- Before you write anything, read every attached document with the `read_file` tool "
+             "(a real read of the file); never write from a document's name or from memory. A "
+             "figure, a date, a name or a reference you use comes from what you read.")
+
+
+def host_prompt_enabled() -> bool:
+    """``SOKKAN_KERNEL_HOST_PROMPT`` (default on): the Atelier's instructions go in the kernel
+    session's system prompt (`prefix: "host"`); ``0`` = in the first message, as before."""
+    return os.environ.get("SOKKAN_KERNEL_HOST_PROMPT", "1") != "0"
+
+
+def split_first_message(first: str, head: tuple = ()) -> tuple[str, str]:
+    """(system prompt, message) of a work's first message: every brief block (minus the
+    memory recall) and the run's head go to the system prompt, with the rule to read the
+    attached documents; the message keeps the person's words and the recall. ("", first)
+    when the message carries no brief."""
+    blocks = [m.group(1) for m in _BRIEF_BLOCK.finditer(first or "")]
+    if not blocks:
+        return "", first
+    recall: list[str] = []
+
+    def keep_recall(m: re.Match) -> str:
+        recall.append(m.group(0).strip())
+        return ""
+    parts = [b.text.strip() for b in head if getattr(b, "text", "").strip()]
+    for i, b in enumerate(blocks):
+        txt = _RECALL_IN_BRIEF.sub(keep_recall, b).strip()
+        if txt:
+            parts.append(txt)
+        if i == 0:
+            parts.append(READ_DOCS)
+    words = _BRIEF_BLOCK.sub("", first).strip()
+    message = words
+    if recall:
+        message = "<sokkan-brief>\n" + "\n\n".join(recall) + "\n</sokkan-brief>\n\n" + words
+    return "\n\n".join(parts), message
+
+
+def _prompt_store() -> str:
+    base = os.environ.get("SOKKAN_KERNEL_PROMPT_DIR") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "kernel-prompts")
+    return base
+
+
+def _save_host_prompt(thread: str, text: str) -> None:
+    """The kernel keeps a session's system prompt in memory only (host-embed § 12): the host
+    gives it again at every reopening. Kept by thread, readable by the cockpit only."""
+    if not _THREAD_RX.fullmatch(thread or ""):
+        return
+    d = _prompt_store()
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        tmp = os.path.join(d, f".{thread}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, os.path.join(d, f"{thread}.txt"))
+    except OSError as e:
+        log.warning("kernel thread %s: host prompt not kept (%s)", thread, e)
+
+
+def _load_host_prompt(thread: str) -> str:
+    if not _THREAD_RX.fullmatch(thread or ""):
+        return ""
+    try:
+        with open(os.path.join(_prompt_store(), f"{thread}.txt"), encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
 def _approval_block(text: str) -> dict | None:
     """The kernel's ``[Approbation]`` block (continuation of a decided card), or None:
     {tool, decision, result}."""
@@ -280,6 +364,12 @@ def _mask(body: dict) -> dict:
         if isinstance(v, dict):
             out[key] = {k: ({h: "***" for h in sub} if isinstance(sub, dict) else "***")
                         for k, sub in v.items()}
+    if isinstance(out.get("system_prompt"), str):
+        # the host's prompt is the work's brief: kept as its fingerprint (same text = same
+        # cached prefix), never as text
+        sp = out["system_prompt"]
+        out["system_prompt"] = {"sha256": hashlib.sha256(sp.encode()).hexdigest()[:16],
+                                "chars": len(sp)}
     return out
 
 
@@ -461,6 +551,8 @@ class KernelHarness(Harness):
         self.deny_unmatched: list[str] = []
         self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
         self._head_sent = False                 # the run's head went with its first turn
+        self.host_prompt: str = ""              # the session's system prompt (host-prompt)
+        self._first_rest: str | None = None     # the first message, without what went there
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -588,6 +680,16 @@ class KernelHarness(Harness):
             mcp_off = sorted(spec.mcp_servers or {})
         if mcp_env:
             body["mcp_env"] = mcp_env
+        if host_prompt_enabled():
+            if spec.resume:
+                # given again at every reopening (the kernel forgot it), byte for byte
+                self.host_prompt = _load_host_prompt(spec.resume)
+            elif spec.first_message:
+                self.host_prompt, self._first_rest = split_first_message(
+                    spec.first_message, tuple(spec.head or ()))
+            if self.host_prompt:
+                body["system_prompt"] = self.host_prompt
+                body["prefix"] = "host"
         self.opened_with = _mask(body)
         try:
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
@@ -605,6 +707,8 @@ class KernelHarness(Harness):
             raise _refusal(r.status_code, r.text)
         out = r.json()
         self._thread = out["thread_id"]
+        if self.host_prompt and not spec.resume:
+            _save_host_prompt(self._thread, self.host_prompt)
         # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
         # `unknown_denied` (absent on older kernels: nothing to check). Naming: the name the
         # model sees, `<server>__<tool>` for an MCP tool.
@@ -685,6 +789,14 @@ class KernelHarness(Harness):
         self._mail.put_nowait(TurnStarted(turn_id=turn, prompt_ref=prompt_ref(prompt)))
         text = prompt
         spec = self._spec
+        if self.host_prompt:
+            # the instructions are in the session's system prompt: the message carries the
+            # person's words (and the recall) only
+            if self._first_rest is not None and prompt == spec.first_message:
+                text = self._first_rest
+            else:
+                text = _FOLLOW_NOTE.sub("\n\n", prompt).strip()
+            self._first_rest = None
         if spec.context is not None:
             try:
                 block = await spec.context(ContextRequest(text=prompt, channel="prompt",
@@ -696,7 +808,7 @@ class KernelHarness(Harness):
                 self._mail.put_nowait(ContextInjected(
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
-        if spec.head and not self._head_sent and not spec.resume:
+        if spec.head and not self._head_sent and not spec.resume and not self.host_prompt:
             # 4.0: the run's fixed context (organisation, project's validated work) = the host
             # contract's `project` block. The kernel's host API has no head block yet: it goes
             # in front of the FIRST turn of the thread, once — the thread keeps it, a resumed

@@ -340,6 +340,11 @@ class RunSpec:
     # by the cockpit, delivered by the engine where it costs least (legacy: the system prompt,
     # a cached prefix; kernel: the contract's `project` block, today in front of the first turn)
     head: tuple[ContextBlock, ...] = ()
+    # 4.0 — the run's first message when the cockpit knows it at start (an Atelier work: its
+    # internal brief, then the person's words). It is still sent by `send()`; an engine that
+    # takes the host's instructions when its session opens (the kernel's `system_prompt`,
+    # host-prompt) reads them here, so that they sit in a stable, cached prefix
+    first_message: str = ""
     confinement: Confinement | None = None
     options: dict[str, Any] = field(default_factory=dict)   # engine-specific, by engine id
 
@@ -356,6 +361,7 @@ class RunSpec:
             "budget_usd": self.budget_usd, "budget_tokens": self.budget_tokens,
             "context": self.context is not None,
             "head": [b.source for b in self.head],
+            "first_message": bool(self.first_message),
             "confinement": self.confinement.project if self.confinement else None,
         }
 
