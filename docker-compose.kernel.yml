@@ -1,0 +1,243 @@
+# 4.0 « Seven seas » — the kernel engine as a service next to the api (backend/harness/kernel.py,
+# docs/KERNEL.md). Switched on and off by scripts/kernel.sh (enable | disable | refresh | status),
+# never by hand-editing this file:
+#   sh scripts/kernel.sh enable --image <pinned kernel image>
+# adds this file to COMPOSE_FILE and `kernel` to COMPOSE_PROFILES, writes the host paths and the
+# database passwords to .env, and sets SOKKAN_ENGINE_RUNTIME=kernel.
+#
+# * The kernel is a CONTAINER IMAGE (SOKKAN_KERNEL_IMAGE, pinned), never source in this
+#   repository. Its configuration is RENDERED at every start of the api
+#   (backend/harness/kernel_config.py): the operator's deploy/kernel/config.yaml (else the
+#   shipped config.example.yaml) with SOKKAN's block on top — the sandbox, its caps and network,
+#   the instance label, the host flags. The kernel reads the result from the volume kernel-config.
+# * The model's commands NEVER run in the kernel's container: every session of code gets a
+#   SANDBOX container (local.code.backend docker, require_sandbox). The kernel reaches docker
+#   only through `kernel-dockerproxy` (the kernel's own filtering proxy of the docker socket:
+#   containers labelled nokker.sandbox only, no privilege, no host namespace, no device, no
+#   published port, bind mounts of the project folders only), on a network it shares with no
+#   one else. The raw socket is mounted in the proxy alone.
+# * A sandbox reaches nothing but `kernel-egress-filter` (internal network): no network at all
+#   by default (SOKKAN_KERNEL_SANDBOX_NET=none), package registries only (`registries`), or any
+#   public address (`open`); the kernel's `kernel-egress` behind it refuses every private range.
+# * Caps of each sandbox: SOKKAN_KERNEL_SANDBOX_MEMORY (2g), _CPUS (2), _IDLE_S (1800 s). Docker
+#   must apply them (cgroup controllers delegated): otherwise the session is refused with
+#   « sandbox_unavailable », never run without its caps.
+# * The kernel's threads, cards and ledger live in SOKKAN's Postgres, schema `kernel`, roles
+#   kernel_owner (migrations) and kernel_app (the kernel): deploy/kernel/db-init.sql.
+# * The api reads the kernel's local token from the shared volume kernel-token (same uid 1000).
+#   Nothing here publishes a port; every long-running service is read-only and without any
+#   capability (the socket proxy runs as root to open the socket, still without capability).
+x-kernel-hardening: &hardening
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  # one-shot: the two named volumes start root-owned; the kernel runs as 1000
+  kernel-init:
+    image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
+    profiles: ["kernel"]
+    user: "0"
+    entrypoint: ["sh", "-c", "chown 1000:1000 /opt/data /run/kernel && chmod 0750 /run/kernel"]
+    volumes:
+      - kernel-state:/opt/data
+      - kernel-token:/run/kernel
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+
+  # one-shot: the kernel's schema and roles in SOKKAN's Postgres (deploy/kernel/db-init.sql)
+  kernel-db:
+    image: pgvector/pgvector:pg16
+    profiles: ["kernel"]
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["psql", "-q", "-v", "owner_password=${SOKKAN_KERNEL_DB_OWNER_PASSWORD:?set SOKKAN_KERNEL_DB_OWNER_PASSWORD}",
+                 "-v", "app_password=${SOKKAN_KERNEL_DB_APP_PASSWORD:?set SOKKAN_KERNEL_DB_APP_PASSWORD}",
+                 "-f", "/sql/db-init.sql"]
+    environment:
+      PGHOST: db
+      PGUSER: sokkan
+      PGDATABASE: sokkan
+      PGPASSWORD: ${SOKKAN_DB_PASSWORD:-sokkan}
+    volumes:
+      - ./deploy/kernel/db-init.sql:/sql/db-init.sql:ro
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+  # one-shot: the kernel's migrations, as the schema's owner (configuration rendered by the api)
+  kernel-migrate:
+    <<: *hardening
+    image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
+    profiles: ["kernel"]
+    user: "1000:1000"
+    depends_on:
+      kernel-db:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    entrypoint: ["python3", "-m", "nokker", "--config", "/etc/kernel/config.yaml", "migrate"]
+    environment:
+      NOKKER_PG_DSN: postgresql://kernel_owner:${SOKKAN_KERNEL_DB_OWNER_PASSWORD:?}@db:5432/sokkan
+    volumes:
+      - kernel-config:/etc/kernel:ro
+    tmpfs: ["/tmp"]
+
+  # the only way from the kernel to docker (the kernel's sandboxd image, dockerproxy.py)
+  kernel-dockerproxy:
+    <<: *hardening
+    image: ${SOKKAN_KERNEL_SANDBOXD_IMAGE:?set SOKKAN_KERNEL_SANDBOXD_IMAGE (the kernel's sandboxd image, socket proxy per instance)}
+    profiles: ["kernel"]
+    restart: unless-stopped
+    # the kernel's own dockerproxy.py; it serves ONE kernel instance (NOKKER_INSTANCE: the
+    # sandboxes labelled nokker.instance=<it> only) — the label the api rendered from the
+    # instance key, read from the kernel's configuration at start (the proxy refuses to start
+    # without it)
+    entrypoint: ["sh", "-c", "NOKKER_INSTANCE=\"$$(sed -n 's/^  instance: //p' /etc/kernel/config.yaml)\" exec python3 dockerproxy.py"]
+    user: "0"            # owner of the socket; no capability, read-only file system
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # the host folders a sandbox may mount (read-write): the default project, the projects'
+      # spaces and their opaque aliases — paths ON THE HOST, written by scripts/kernel.sh
+      NOKKER_HOST_WORKSPACE: "${SOKKAN_KERNEL_WORKSPACE_HOST:?run scripts/kernel.sh enable}:${SOKKAN_KERNEL_DATA_HOST:?run scripts/kernel.sh enable}/projects:${SOKKAN_KERNEL_DATA_HOST}/engine-roots"
+      NOKKER_HOST_SKILLS: ""
+      NOKKER_SANDBOX_NETWORK: ${SOKKAN_KERNEL_SANDBOX_NETWORK:-sokkan-kernel-sandbox}
+      NOKKER_SANDBOX_EGRESS: http://kernel-egress-filter:3128
+      NOKKER_SANDBOX_IMAGES: ${SOKKAN_KERNEL_SANDBOX_IMAGE:-ghcr.io/nokker-ai/sandbox:0.1.0-rc.9.32}
+    volumes:
+      - ${SOKKAN_KERNEL_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - kernel-config:/etc/kernel:ro
+    networks: [kernel-dockerapi]
+    mem_limit: 64m
+
+  # what a sandbox may reach (deploy/kernel/egress_filter.py): nothing, registries, or any name
+  kernel-egress-filter:
+    <<: *hardening
+    image: ${SOKKAN_KERNEL_SANDBOXD_IMAGE:?set SOKKAN_KERNEL_SANDBOXD_IMAGE (the kernel's sandboxd image, socket proxy per instance)}
+    profiles: ["kernel"]
+    restart: unless-stopped
+    entrypoint: ["python3", "/opt/sokkan/egress_filter.py"]
+    depends_on:
+      kernel-egress:
+        condition: service_started
+    environment:
+      SOKKAN_KERNEL_SANDBOX_NET: ${SOKKAN_KERNEL_SANDBOX_NET:-none}
+      SOKKAN_KERNEL_EGRESS_ALLOW: ${SOKKAN_KERNEL_EGRESS_ALLOW:-}
+      SOKKAN_KERNEL_EGRESS_UPSTREAM: http://kernel-egress:3128
+    volumes:
+      - ./deploy/kernel/egress_filter.py:/opt/sokkan/egress_filter.py:ro
+    networks: [kernel-sandbox, kernel-egress]
+    mem_limit: 64m
+
+  # the kernel's egress proxy (egress.py): resolves, refuses private / loopback / docker ranges
+  kernel-egress:
+    <<: *hardening
+    image: ${SOKKAN_KERNEL_SANDBOXD_IMAGE:?set SOKKAN_KERNEL_SANDBOXD_IMAGE (the kernel's sandboxd image, socket proxy per instance)}
+    profiles: ["kernel"]
+    restart: unless-stopped
+    command: ["python3", "egress.py"]
+    networks: [kernel-egress, kernel-outbound]
+    mem_limit: 64m
+
+  kernel:
+    <<: *hardening
+    image: ${SOKKAN_KERNEL_IMAGE:?set SOKKAN_KERNEL_IMAGE to a pinned kernel image}
+    profiles: ["kernel"]
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    # NOKKER_INSTANCE = local.instance of the rendered configuration (the same label as its proxy)
+    entrypoint: ["sh", "-c", "NOKKER_INSTANCE=\"$$(sed -n 's/^  instance: //p' /etc/kernel/config.yaml)\" exec python3 -m nokker --config /etc/kernel/config.yaml serve"]
+    depends_on:
+      kernel-init:
+        condition: service_completed_successfully
+      kernel-migrate:
+        condition: service_completed_successfully
+      kernel-dockerproxy:
+        condition: service_started
+      kernel-egress-filter:
+        condition: service_started
+    environment:
+      NOKKER_CONFIG: /etc/kernel/config.yaml
+      NOKKER_HOME: /opt/data
+      NOKKER_ALLOWED_HOSTS: kernel:8742,127.0.0.1:8742   # the api, and the healthcheck
+      # the key of the model tiers (deploy/kernel/config.yaml `api_key_env`). The kernel counts a
+      # tier as a model only when it HAS a key (otherwise every turn ends « no model configured »):
+      # a local model or the appliance's router takes any value, hence the default
+      SOKKAN_KERNEL_MODEL_KEY: ${SOKKAN_KERNEL_MODEL_KEY:-local}
+      # threads, cards and ledger in SOKKAN's Postgres, schema `kernel` (a session survives a
+      # restart of the kernel); the role owns nothing and is subject to the kernel's row policies
+      NOKKER_PG_DSN: postgresql://kernel_app:${SOKKAN_KERNEL_DB_APP_PASSWORD:?}@db:5432/sokkan
+      # docker through the proxy only; the docker CLI's config in the tmpfs (read-only image)
+      DOCKER_HOST: tcp://kernel-dockerproxy:2375
+      DOCKER_CONFIG: /tmp/docker
+      NOKKER_SANDBOX_NETWORK: ${SOKKAN_KERNEL_SANDBOX_NETWORK:-sokkan-kernel-sandbox}
+    volumes:
+      - kernel-config:/etc/kernel:ro
+      - kernel-state:/opt/data
+      - kernel-token:/run/kernel
+      # the projects at the SAME paths as in the api — and nothing else of SOKKAN's data volume
+      # (no key, no database): its sub-folders `projects` and `engine-roots` only (docker >= 26)
+      - ${SOKKAN_WORKSPACE:-./workspace}:/workspace
+      - type: volume
+        source: sokkan-data
+        target: /data/projects
+        volume:
+          subpath: projects
+      - type: volume
+        source: sokkan-data
+        target: /data/engine-roots
+        volume:
+          subpath: engine-roots
+    tmpfs: ["/tmp"]
+    networks: [default, kernel-dockerapi]
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8742/healthz', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  api:
+    environment:
+      SOKKAN_KERNEL_URL: ${SOKKAN_KERNEL_URL:-http://kernel:8742}
+      SOKKAN_KERNEL_TOKEN_FILE: /run/kernel/local-token
+      # the kernel runs a run's tools in its sandbox: paths are handed as /workspace
+      SOKKAN_KERNEL_SANDBOX: docker
+      # the kernel's configuration, rendered at every start of the api (kernel_config.py)
+      SOKKAN_KERNEL_CONFIG_SRC: /etc/kernel/src
+      SOKKAN_KERNEL_CONFIG_OUT: /run/kernel-config/config.yaml
+      SOKKAN_KERNEL_SANDBOX_IMAGE: ${SOKKAN_KERNEL_SANDBOX_IMAGE:-ghcr.io/nokker-ai/sandbox:0.1.0-rc.9.32}
+      SOKKAN_KERNEL_DATA_HOST: ${SOKKAN_KERNEL_DATA_HOST:?run scripts/kernel.sh enable}
+      SOKKAN_KERNEL_WORKSPACE_HOST: ${SOKKAN_KERNEL_WORKSPACE_HOST:?run scripts/kernel.sh enable}
+      SOKKAN_KERNEL_SANDBOX_MEMORY: ${SOKKAN_KERNEL_SANDBOX_MEMORY:-}
+      SOKKAN_KERNEL_SANDBOX_CPUS: ${SOKKAN_KERNEL_SANDBOX_CPUS:-}
+      SOKKAN_KERNEL_SANDBOX_IDLE_S: ${SOKKAN_KERNEL_SANDBOX_IDLE_S:-}
+      SOKKAN_KERNEL_SANDBOX_NET: ${SOKKAN_KERNEL_SANDBOX_NET:-none}
+      SOKKAN_KERNEL_CHAIN_MAX_CALLS: ${SOKKAN_KERNEL_CHAIN_MAX_CALLS:-}
+      SOKKAN_KERNEL_APPROVAL_WAIT_S: ${SOKKAN_KERNEL_APPROVAL_WAIT_S:-}
+    volumes:
+      - kernel-token:/run/kernel:ro
+      - kernel-config:/run/kernel-config
+      - ./deploy/kernel:/etc/kernel/src:ro
+
+networks:
+  kernel-dockerapi: {internal: true}     # kernel ↔ kernel-dockerproxy, no one else
+  kernel-sandbox:                         # the sandboxes ↔ kernel-egress-filter, no one else
+    name: ${SOKKAN_KERNEL_SANDBOX_NETWORK:-sokkan-kernel-sandbox}
+    internal: true
+  kernel-egress: {internal: true}        # kernel-egress-filter ↔ kernel-egress
+  kernel-outbound: {}                    # kernel-egress alone: the way out
+
+volumes:
+  kernel-state:
+  kernel-token:
+  kernel-config:

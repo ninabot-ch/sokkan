@@ -1,0 +1,321 @@
+{
+  "id": "customer-support",
+  "order": 50,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Support client",
+      "description": "Réponses aux réclamations, FAQ, articles d'aide, tri et synthèse des tickets, réponses types.",
+      "project": "Support client"
+    },
+    "en": {
+      "label": "Customer support",
+      "description": "Complaint replies, FAQs, help articles, ticket triage and summaries, reply macros.",
+      "project": "Customer support"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Les données des clients (coordonnées, numéros de compte, historique) ne servent qu'au cas traité ; dans une FAQ, un article ou une synthèse, aucun client n'est identifiable."},
+        "en": {"text": "Customer data (contact details, account numbers, history) is used only for the case at hand; in an FAQ, an article or a summary, no customer can be identified."}
+      },
+      "agent": "Use a customer's personal data (name, address, phone, e-mail, account or order number, payment details) only in a reply to that same customer; in FAQs, articles, summaries, macros and tables meant for the team, replace it with a ticket number or a neutral description, and never copy passwords or card numbers anywhere."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Geste commercial, remboursement, délai d'intervention : l'agent n'accorde que ce que votre politique ou votre demande prévoit."},
+        "en": {"text": "Goodwill gesture, refund, response time: the agent grants only what your policy or your request provides for."}
+      },
+      "agent": "Never promise a refund, credit, replacement, compensation or deadline that is not in the team's policy note, the documents or the person's request; when the case calls for one, write « [à décider] » and list it under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "On ne reconnaît pas une faute ou une responsabilité juridique par écrit sans l'accord de la direction."},
+        "en": {"text": "No fault or legal liability is admitted in writing without management's approval."}
+      },
+      "agent": "Acknowledge the customer's inconvenience and the facts established in the documents, but never word an admission of legal liability or fault; when a complaint mentions a lawyer, an injury or legal action, say in one sentence that the case must be escalated before replying."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Une procédure ou une réponse technique décrit l'outil tel que vos documents le décrivent : pas d'étape devinée."},
+        "en": {"text": "A procedure or technical answer describes the tool as your documents describe it: no guessed steps."}
+      },
+      "agent": "Name screens, buttons, menus and settings exactly as the documents name them; a step not found in the documents is marked « (à vérifier) » and listed under « Points to confirm »."
+    }
+  ],
+  "templates": [
+    {
+      "id": "complaint-reply",
+      "brief": "letter",
+      "format": "docx",
+      "uses": ["mail"],
+      "i18n": {
+        "fr": {
+          "label": "Réponse à une réclamation",
+          "description": "Une réponse juste et apaisante",
+          "hint": "Quelle réclamation, que proposez-vous ? Ex. « Répondre à Mme Favre : livraison en retard de 10 jours, nous offrons les frais de port »",
+          "attach": "La réclamation reçue, l'historique du ticket ou de la commande, votre politique de gestes commerciaux",
+          "produces": "Une réponse qui reconnaît le problème, explique les faits, annonce la solution et la suite",
+          "deliverable": "Réponse au client",
+          "checks": ["Les faits et dates repris de l'historique", "Le geste commercial proposé", "Le ton au regard de la gravité"]
+        },
+        "en": {
+          "label": "Complaint reply",
+          "description": "A fair, calming reply",
+          "hint": "Which complaint, what do you offer? E.g. “Reply to Ms Favre: delivery 10 days late, we waive the shipping fee”",
+          "attach": "The complaint received, the ticket or order history, your goodwill policy",
+          "produces": "A reply that acknowledges the problem, explains the facts, announces the solution and the next step",
+          "deliverable": "Customer reply",
+          "checks": ["Facts and dates taken from the history", "The goodwill gesture offered", "The tone given the severity"]
+        }
+      },
+      "mission": "Draft the reply to a customer complaint. What the person asked for: {subject}\n\nThank the customer and restate the complaint in one sentence, referring to the order or ticket number. Explain what happened using only the facts in the history, answer every point the customer raised in their order, and state the solution and its timing exactly as the person's request or the policy gives it. Where the history contradicts the customer's account, state the facts calmly without accusing. End with a named contact or channel for follow-up."
+    },
+    {
+      "id": "faq-from-tickets",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "FAQ depuis les tickets",
+          "description": "Les vraies questions des clients",
+          "hint": "Sur quel sujet ou quelle période ? Ex. « FAQ facturation à partir des tickets d'octobre »",
+          "attach": "Un export des tickets ou des e-mails clients, les réponses données, la documentation produit",
+          "produces": "Une FAQ : questions regroupées par thème, formulées comme les clients, avec une réponse validable et leur fréquence",
+          "deliverable": "FAQ",
+          "checks": ["L'exactitude de chaque réponse", "Les questions sans réponse documentée", "L'absence de données clients"]
+        },
+        "en": {
+          "label": "FAQ from tickets",
+          "description": "The customers' real questions",
+          "hint": "On which topic or period? E.g. “Billing FAQ from the October tickets”",
+          "attach": "An export of tickets or customer e-mails, the answers given, the product documentation",
+          "produces": "An FAQ: questions grouped by theme, worded as customers ask them, with an answer to validate and their frequency",
+          "deliverable": "FAQ",
+          "checks": ["The accuracy of each answer", "Questions without a documented answer", "No customer data left in"]
+        }
+      },
+      "mission": "Write an FAQ from the support tickets attached. What the person asked for: {subject}\n\nGroup recurring questions by theme, word each question as customers ask it, and give the number of tickets it comes from. Write each answer from the replies already given and the documentation; when the replies given disagree or no answer is documented, say so instead of choosing. Remove every customer name, address and number from the examples."
+    },
+    {
+      "id": "help-article",
+      "brief": "procedure",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Article d'aide (procédure)",
+          "description": "Un pas-à-pas pour les clients",
+          "hint": "Quelle opération ? Ex. « Comment modifier son adresse de livraison dans l'espace client »",
+          "attach": "La documentation ou des captures de l'outil, les tickets sur le sujet",
+          "produces": "Un article d'aide : à qui il s'adresse, prérequis, étapes numérotées avec le résultat attendu, problèmes fréquents",
+          "deliverable": "Article d'aide",
+          "checks": ["Le nom exact des écrans et boutons", "Les étapes déduites plutôt que lues", "Le contact en cas de blocage"]
+        },
+        "en": {
+          "label": "Help article (how-to)",
+          "description": "A step-by-step for customers",
+          "hint": "Which task? E.g. “How to change your delivery address in the customer area”",
+          "attach": "The documentation or screenshots of the tool, the tickets on the topic",
+          "produces": "A help article: who it is for, prerequisites, numbered steps with the expected result, common problems",
+          "deliverable": "Help article",
+          "checks": ["The exact names of screens and buttons", "Steps inferred rather than read", "The contact when stuck"]
+        }
+      },
+      "mission": "Write a customer-facing help article. What the person asked for: {subject}\n\nUse plain words a non-technical customer understands, one action per numbered step, each with what the customer should see afterwards. Take screen and button names from the documentation exactly. Add a « Problèmes fréquents » section built from the tickets attached, each with its fix, and end with where to get help."
+    },
+    {
+      "id": "weekly-ticket-summary",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Synthèse hebdomadaire des tickets",
+          "description": "Volumes, tendances, problèmes récurrents",
+          "hint": "Quelle semaine ? Ex. « Synthèse de la semaine 46 pour la séance du lundi »",
+          "attach": "L'export des tickets de la semaine (et de la précédente pour comparer)",
+          "produces": "Une synthèse : volumes par catégorie, délais de réponse, problèmes récurrents, cas sensibles et actions proposées",
+          "deliverable": "Synthèse hebdomadaire",
+          "checks": ["Les volumes et délais calculés", "Les cas signalés comme sensibles", "Les actions proposées et leurs responsables"]
+        },
+        "en": {
+          "label": "Weekly ticket summary",
+          "description": "Volumes, trends, recurring problems",
+          "hint": "Which week? E.g. “Summary of week 46 for Monday's meeting”",
+          "attach": "The export of the week's tickets (and the previous week's to compare)",
+          "produces": "A summary: volumes per category, response times, recurring problems, sensitive cases and proposed actions",
+          "deliverable": "Weekly summary",
+          "checks": ["The volumes and times computed", "The cases flagged as sensitive", "Proposed actions and their owners"]
+        }
+      },
+      "mission": "Write the weekly summary of support tickets. What the person asked for: {subject}\n\nCount tickets by category and status in a table, with the comparison to the previous period when it is attached, and show how each figure was computed. Identify the three to five recurring problems with the number of tickets each, the oldest open tickets and the sensitive cases (by ticket number, without customer names). Propose actions for product, documentation or process, each tied to the problem it addresses."
+    },
+    {
+      "id": "ticket-triage",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Tableau de tri des tickets",
+          "description": "Priorités et attributions en Excel",
+          "hint": "Quels tickets ? Ex. « Trier les 40 tickets ouverts de la boîte support, urgents d'abord »",
+          "attach": "L'export des tickets ou les e-mails reçus, votre grille de priorités",
+          "produces": "Un tableau Excel : ticket, date, catégorie, résumé, priorité, équipe proposée, prochaine action, à vérifier",
+          "deliverable": "Tri des tickets",
+          "checks": ["La priorité de chaque ticket urgent", "L'équipe proposée", "Les tickets en doublon"]
+        },
+        "en": {
+          "label": "Ticket triage table",
+          "description": "Priorities and assignments in Excel",
+          "hint": "Which tickets? E.g. “Sort the 40 open tickets of the support inbox, urgent first”",
+          "attach": "The ticket export or e-mails received, your priority grid",
+          "produces": "An Excel table: ticket, date, category, summary, priority, proposed team, next action, to check",
+          "deliverable": "Ticket triage",
+          "checks": ["The priority of each urgent ticket", "The proposed team", "Duplicate tickets"]
+        }
+      },
+      "mission": "Triage the support tickets attached into a table. What the person asked for: {subject}\n\nColumns: Ticket, Reçu le, Catégorie, Résumé (one line, no customer name), Priorité (P1 to P4), Équipe proposée, Prochaine action, Doublon de, Source, À vérifier. Apply the team's priority grid when the memory has one; otherwise rank by impact (service down, money, deadline) and mark the priority « À vérifier ». Assign only to teams named in the documents or the memory. Sort by priority, then by date received."
+    },
+    {
+      "id": "reply-macros",
+      "brief": "short",
+      "format": "md",
+      "i18n": {
+        "fr": {
+          "label": "Macros de réponses types",
+          "description": "Réponses prêtes pour cas fréquents",
+          "hint": "Pour quels cas ? Ex. « Macros pour : retard de livraison, demande de facture, mot de passe oublié »",
+          "attach": "Des réponses déjà envoyées qui ont bien fonctionné, votre charte de ton, la politique concernée",
+          "produces": "Une série de réponses types courtes, avec des champs à remplir [prénom], [n° de commande], et quand les utiliser",
+          "deliverable": "Macros",
+          "checks": ["Chaque engagement de délai ou de geste", "Les champs à remplir", "Le ton"]
+        },
+        "en": {
+          "label": "Reply macros",
+          "description": "Ready replies for frequent cases",
+          "hint": "For which cases? E.g. “Macros for: late delivery, invoice request, forgotten password”",
+          "attach": "Replies already sent that worked well, your tone charter, the policy concerned",
+          "produces": "A set of short reply templates, with fields to fill [first name], [order no.], and when to use each",
+          "deliverable": "Macros",
+          "checks": ["Every deadline or gesture committed to", "The fields to fill", "The tone"]
+        }
+      },
+      "mission": "Write reply macros for frequent support cases. What the person asked for: {subject}\n\nFor each case: a title, when to use it and when not to, then the reply (60 to 150 words) with fields in square brackets such as [prénom] or [numéro de commande] instead of any real customer data. Reuse the wording of the replies attached that worked, follow the team's tone charter, and state deadlines or gestures only as the policy gives them. Replace the « alternative hooks » of the brief with one shorter variant per macro for chat or SMS."
+    },
+    {
+      "id": "escalation-note",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Note d'escalade",
+          "description": "Transmettre un cas difficile",
+          "hint": "Quel cas, à qui ? Ex. « Escalader le ticket 4812 au responsable technique : panne répétée depuis 3 semaines »",
+          "attach": "L'historique du ticket, les échanges avec le client, les diagnostics déjà faits",
+          "produces": "Une note courte : le cas en 5 lignes, la chronologie, ce qui a été essayé, l'impact et la décision attendue",
+          "deliverable": "Note d'escalade",
+          "checks": ["La chronologie et les dates", "L'impact pour le client", "La décision demandée et son échéance"]
+        },
+        "en": {
+          "label": "Escalation note",
+          "description": "Hand over a difficult case",
+          "hint": "Which case, to whom? E.g. “Escalate ticket 4812 to the technical lead: repeated outage for 3 weeks”",
+          "attach": "The ticket history, the exchanges with the customer, the diagnostics already done",
+          "produces": "A short note: the case in 5 lines, the timeline, what was tried, the impact and the decision expected",
+          "deliverable": "Escalation note",
+          "checks": ["The timeline and dates", "The impact for the customer", "The decision requested and its deadline"]
+        }
+      },
+      "mission": "Write an escalation note for a support case. What the person asked for: {subject}\n\nOpen with the decision or help expected, from whom and by when. Give the case in five lines, a dated timeline of contacts and actions from the history, what was already tried and its result, and the impact for the customer (service, money, deadline, risk of churn or dispute). Keep customer data to what the recipient needs to act."
+    },
+    {
+      "id": "incident-notice",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Avis aux clients (incident)",
+          "description": "Informer d'une panne ou d'un retard",
+          "hint": "Quel incident, qui est touché ? Ex. « Informer les abonnés de la coupure du service du 18 novembre, 7 h à 9 h »",
+          "attach": "Le rapport ou les notes d'incident, la liste des services touchés (sans données clients)",
+          "produces": "Un message aux clients : ce qui se passe, qui est touché, depuis quand, ce qu'il faut faire et quand on donne des nouvelles",
+          "deliverable": "Avis aux clients",
+          "checks": ["Les heures et services touchés", "Ce qui est promis pour la suite", "Le canal d'envoi"]
+        },
+        "en": {
+          "label": "Customer notice (incident)",
+          "description": "Announce an outage or delay",
+          "hint": "Which incident, who is affected? E.g. “Tell subscribers about the service outage on 18 November, 7 to 9 am”",
+          "attach": "The incident report or notes, the list of affected services (no customer data)",
+          "produces": "A message to customers: what is happening, who is affected, since when, what to do and when the next update comes",
+          "deliverable": "Customer notice",
+          "checks": ["Times and services affected", "What is promised next", "The sending channel"]
+        }
+      },
+      "mission": "Draft a notice to customers about an incident. What the person asked for: {subject}\n\nSay plainly what is affected, since when and for whom, using only times and facts from the incident notes. Tell customers what they need to do, if anything, and when the next update will come. Apologise for the inconvenience without speculating about causes or responsibility the notes do not establish."
+    }
+  ],
+  "notes": [
+    {
+      "name": "support-charte-ton",
+      "i18n": {
+        "fr": {
+          "title": "Charte de ton du support",
+          "description": "Comment le support parle aux clients : vouvoiement, formules, signature, mots à éviter — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment le support s'adresse aux clients.\n\n- Vouvoiement ou tutoiement : [À compléter]\n- Formule d'ouverture : [À compléter : ex. « Bonjour Madame Favre, »]\n- Formule de fin et signature (prénom, équipe) : [À compléter]\n- Mots ou tournures à éviter : [À compléter : ex. « malheureusement », « comme indiqué »]\n- Délai de réponse annoncé aux clients : [À compléter]\n- Langues dans lesquelles on répond : [À compléter]"
+        },
+        "en": {
+          "title": "Support tone charter",
+          "description": "How support speaks to customers: formality, phrases, signature, words to avoid — for the team to fill in.",
+          "body": "This note tells the agent how support speaks to customers.\n\n- Formal or informal address: [To fill]\n- Opening: [To fill: e.g. “Dear Ms Favre,”]\n- Closing and signature (first name, team): [To fill]\n- Words or phrases to avoid: [To fill: e.g. “unfortunately”, “as stated”]\n- Response time announced to customers: [To fill]\n- Languages we reply in: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "support-politique-gestes",
+      "i18n": {
+        "fr": {
+          "title": "Politique de gestes commerciaux et de remboursement",
+          "description": "Ce que le support peut accorder seul, ce qui demande un accord, et les plafonds — à compléter par l'équipe.",
+          "body": "L'agent ne propose que ce qui figure ici.\n\n| Situation | Geste possible | Plafond | Qui décide |\n|---|---|---|---|\n| [À compléter : ex. retard de livraison > 5 jours] | [À compléter : ex. frais de port offerts] | [À compléter : CHF] | [À compléter] |\n\n- Délai de remboursement : [À compléter]\n- Conditions de retour ou d'échange : [À compléter]\n- Cas toujours transmis à la direction : [À compléter : ex. mention d'un avocat, blessure, presse]"
+        },
+        "en": {
+          "title": "Goodwill and refund policy",
+          "description": "What support may grant alone, what requires approval, and the caps — for the team to fill in.",
+          "body": "The agent offers only what appears here.\n\n| Situation | Possible gesture | Cap | Who decides |\n|---|---|---|---|\n| [To fill: e.g. delivery more than 5 days late] | [To fill: e.g. shipping fee waived] | [To fill: CHF] | [To fill] |\n\n- Refund delay: [To fill]\n- Return or exchange conditions: [To fill]\n- Cases always passed to management: [To fill: e.g. a lawyer mentioned, an injury, press]"
+        }
+      }
+    },
+    {
+      "name": "support-grille-priorites",
+      "i18n": {
+        "fr": {
+          "title": "Grille de priorités et équipes",
+          "description": "Les niveaux de priorité des tickets, leurs délais et l'équipe qui traite chaque catégorie — à compléter par l'équipe.",
+          "body": "Cette grille sert au tri des tickets.\n\n| Priorité | Définition | Délai de première réponse |\n|---|---|---|\n| P1 | [À compléter : ex. service indisponible pour un client] | [À compléter] |\n| P2 | [À compléter] | [À compléter] |\n| P3 | [À compléter] | [À compléter] |\n| P4 | [À compléter] | [À compléter] |\n\n| Catégorie | Équipe ou fonction |\n|---|---|\n| [À compléter : ex. facturation] | [À compléter] |"
+        },
+        "en": {
+          "title": "Priority grid and teams",
+          "description": "The ticket priority levels, their response times and the team that handles each category — for the team to fill in.",
+          "body": "This grid is used to triage tickets.\n\n| Priority | Definition | First response time |\n|---|---|---|\n| P1 | [To fill: e.g. service unavailable for a customer] | [To fill] |\n| P2 | [To fill] | [To fill] |\n| P3 | [To fill] | [To fill] |\n| P4 | [To fill] | [To fill] |\n\n| Category | Team or function |\n|---|---|\n| [To fill: e.g. billing] | [To fill] |"
+        }
+      }
+    },
+    {
+      "name": "support-produits-et-limites",
+      "i18n": {
+        "fr": {
+          "title": "Produits, services et limites connues",
+          "description": "Ce que nous vendons, les problèmes connus et leurs contournements, ce que le support ne fait pas — à compléter par l'équipe.",
+          "body": "L'agent s'appuie sur cette note pour les réponses techniques.\n\n- Produits et services couverts par le support : [À compléter]\n- Problèmes connus et contournement validé : [À compléter : problème — contournement — depuis quand]\n- Ce que le support ne fait pas (renvoyer vers…) : [À compléter]\n- Horaires du support et canaux : [À compléter]"
+        },
+        "en": {
+          "title": "Products, services and known limits",
+          "description": "What we sell, known problems and their workarounds, what support does not do — for the team to fill in.",
+          "body": "The agent relies on this note for technical answers.\n\n- Products and services covered by support: [To fill]\n- Known problems and validated workaround: [To fill: problem — workaround — since when]\n- What support does not do (refer to…): [To fill]\n- Support hours and channels: [To fill]"
+        }
+      }
+    }
+  ]
+}

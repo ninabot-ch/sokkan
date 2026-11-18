@@ -150,7 +150,8 @@ def test_transcript_found_when_the_directory_name_has_other_characters(env, monk
     monkeypatch.setattr(agentchat, "project_cwd", lambda _sid: str(odd))
     _write_transcript(env["tmp"] / "claude", str(odd), csid)
 
-    assert agentchat._transcript_path(csid, str(odd)).exists()
+    from harness import cli_transcript   # where the CLI keeps it: read by its adapter only
+    assert cli_transcript.path(csid, str(odd)).exists()
     shown = _plain(agentchat.get_or_create(sid, user="alice@x").events)
     assert {"type": "text", "text": "Brouillon prêt."} in shown, shown
 

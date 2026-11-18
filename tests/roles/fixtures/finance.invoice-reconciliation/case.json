@@ -1,0 +1,19 @@
+{
+  "template": "finance.invoice-reconciliation",
+  "lang": "fr",
+  "ask": "Rapproche les factures fournisseurs d'octobre avec le relevé bancaire d'octobre et dis-moi ce qui ne joue pas.",
+  "documents": [
+    {"name": "Factures fournisseurs octobre 2026.docx", "source": "factures-fournisseurs-octobre.md", "as_docx": true},
+    {"name": "Relevé bancaire octobre 2026.txt", "source": "releve-bancaire-octobre.txt", "as_docx": false}
+  ],
+  "must_contain": [
+    ["732.40", "732,40"],
+    ["723.40", "723,40"],
+    ["2'318.75", "2318.75", "2 318.75"],
+    ["415.20", "415,20"],
+    ["Garage Exemple"],
+    ["T-2026-417", "F-2026-102"],
+    ["1'850.00", "1850.00", "1 850.00"]
+  ],
+  "min_rows": 8
+}

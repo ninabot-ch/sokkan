@@ -1,0 +1,321 @@
+{
+  "id": "sales",
+  "order": 40,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Commercial·e",
+      "description": "Offres, relances, comptes rendus de rendez-vous, appels d'offres et suivi du pipeline.",
+      "project": "Ventes"
+    },
+    "en": {
+      "label": "Sales",
+      "description": "Quotes, follow-ups, client meeting reports, tenders and pipeline tracking.",
+      "project": "Sales"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Les prix, remises et délais viennent de votre grille ou de vos documents : l'agent n'en invente aucun et n'accorde rien de lui-même."},
+        "en": {"text": "Prices, discounts and lead times come from your price list or your documents: the agent invents none and grants nothing on its own."}
+      },
+      "agent": "Never state a price, discount, payment term, lead time or warranty that is not in the documents, the request or the team's price-list note; when one is missing write « [à définir] » and list it under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Une offre ou un engagement envoyé au client vous engage : l'agent prépare, vous relisez et signez."},
+        "en": {"text": "A quote or commitment sent to a client binds you: the agent prepares, you review and sign."}
+      },
+      "agent": "Draft every offer, commitment or concession for the person's signature; never word it as already approved by management, and list every commitment it makes under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les informations sur un client ou un concurrent se limitent à ce que disent vos documents : pas de rumeur, pas de donnée personnelle superflue."},
+        "en": {"text": "Information about a client or a competitor is limited to what your documents say: no rumours, no unnecessary personal data."}
+      },
+      "agent": "Use only facts about clients, contacts and competitors that are in the documents; do not speculate about a competitor's prices or a contact's private life, and keep personal data to name, function and business contact details."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Dans un appel d'offres, les exigences et les délais du cahier des charges priment : l'agent les cite mot pour mot."},
+        "en": {"text": "In a tender, the requirements and deadlines of the specification prevail: the agent quotes them word for word."}
+      },
+      "agent": "When working on a tender or a client's specification, quote every requirement, eligibility criterion, award criterion and deadline word for word with its section, and never claim the organisation meets a requirement unless the documents show it."
+    }
+  ],
+  "templates": [
+    {
+      "id": "quote-from-brief",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Offre depuis un brief client",
+          "description": "Une offre prête à envoyer",
+          "hint": "Pour quel client, quelle prestation ? Ex. « Offre pour la Fiduciaire Morand : maintenance annuelle de 25 postes »",
+          "attach": "La demande ou le brief du client, vos notes de rendez-vous, votre grille tarifaire",
+          "produces": "Une offre structurée : rappel du besoin, prestations, prix détaillés, conditions, validité et prochaine étape",
+          "deliverable": "Offre",
+          "checks": ["Chaque prix et chaque remise", "Les conditions de paiement et la durée de validité", "Le nom et la fonction du destinataire"]
+        },
+        "en": {
+          "label": "Quote from a client brief",
+          "description": "A quote ready to send",
+          "hint": "For which client, which service? E.g. “Quote for Fiduciaire Morand: annual maintenance of 25 workstations”",
+          "attach": "The client's request or brief, your meeting notes, your price list",
+          "produces": "A structured quote: the need restated, services, detailed prices, terms, validity and next step",
+          "deliverable": "Quote",
+          "checks": ["Every price and discount", "Payment terms and validity period", "The addressee's name and title"]
+        }
+      },
+      "mission": "Write a commercial offer from the client's brief. What the person asked for: {subject}\n\nRestate the client's need in the client's own words, then list the services offered as a table (item, quantity, unit price, total excl. VAT), taking every price from the price list or documents attached. Show subtotal, VAT and total as computed lines with their calculation. State validity, payment terms and lead time only as given; a need of the brief the offer does not cover is named, not ignored. End with one concrete next step (call, visit, signature)."
+    },
+    {
+      "id": "offer-follow-up",
+      "brief": "letter",
+      "format": "docx",
+      "uses": ["mail"],
+      "i18n": {
+        "fr": {
+          "label": "Relance d'une offre",
+          "description": "Relancer sans insister lourdement",
+          "hint": "Quelle offre, envoyée quand ? Ex. « Relancer l'offre 2026-041 envoyée au Garage Rochat le 28 octobre »",
+          "attach": "L'offre envoyée, les échanges depuis l'envoi",
+          "produces": "Un e-mail de relance court qui rappelle l'offre, apporte un élément utile et propose une suite simple",
+          "deliverable": "E-mail de relance",
+          "checks": ["La référence et la date de l'offre", "L'échéance de validité citée", "Toute concession proposée"]
+        },
+        "en": {
+          "label": "Quote follow-up",
+          "description": "Follow up without pushing",
+          "hint": "Which quote, sent when? E.g. “Follow up quote 2026-041 sent to Garage Rochat on 28 October”",
+          "attach": "The quote sent, the exchanges since then",
+          "produces": "A short follow-up e-mail recalling the quote, adding something useful and proposing a simple next step",
+          "deliverable": "Follow-up e-mail",
+          "checks": ["The quote's reference and date", "The validity deadline quoted", "Any concession offered"]
+        }
+      },
+      "mission": "Draft the follow-up of a quote already sent. What the person asked for: {subject}\n\nRefer to the quote by its number and date, recall in one sentence what it solves for the client, and answer any question raised in the exchanges since. Mention the validity deadline when the quote states one. Propose one easy next step (a 15-minute call, a date). Offer no new discount or condition unless the person's request gives it."
+    },
+    {
+      "id": "client-meeting-report",
+      "brief": "minutes",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Compte rendu de rendez-vous client",
+          "description": "Depuis vos notes de visite",
+          "hint": "Quel client, quel jour ? Ex. « Compte rendu de la visite chez Menuiserie Dubois du 12 novembre »",
+          "attach": "Vos notes de rendez-vous, l'offre ou les documents présentés",
+          "produces": "Un compte rendu : participants, besoins exprimés, objections, décisions, actions et prochaine étape",
+          "deliverable": "Compte rendu",
+          "checks": ["Les besoins et chiffres attribués au client", "Les engagements pris de notre côté", "Les échéances des actions"]
+        },
+        "en": {
+          "label": "Client meeting report",
+          "description": "From your visit notes",
+          "hint": "Which client, which day? E.g. “Report of the visit to Menuiserie Dubois on 12 November”",
+          "attach": "Your meeting notes, the quote or documents presented",
+          "produces": "A meeting report: participants, needs expressed, objections, decisions, actions and next step",
+          "deliverable": "Meeting report",
+          "checks": ["Needs and figures attributed to the client", "Commitments made on our side", "Deadlines of the actions"]
+        }
+      },
+      "mission": "Write the report of a client meeting from the notes attached. What the person asked for: {subject}\n\nList participants with their function, then the client's situation and needs, budget and timing as stated, objections raised and how they were answered, and decisions. Separate what the client said from what we promised. Gather the actions in a table (action, owner, deadline) and state the next step and its date. Keep any figure or name the notes leave unclear marked as such."
+    },
+    {
+      "id": "meeting-prep",
+      "brief": "memo",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Préparation d'un rendez-vous",
+          "description": "Arriver préparé chez le client",
+          "hint": "Quel client, quel objectif ? Ex. « Préparer le rendez-vous du 20 novembre avec la Clinique des Tilleuls, objectif : renouvellement »",
+          "attach": "L'historique du client (offres, comptes rendus, factures), sa demande, le site ou rapport du client",
+          "produces": "Une note d'une page : objectif, ce qu'on sait du client, questions à poser, objections probables, proposition",
+          "deliverable": "Note de préparation",
+          "checks": ["Les faits sur le client et leur date", "L'objectif et la proposition", "Les chiffres de l'historique"]
+        },
+        "en": {
+          "label": "Meeting preparation",
+          "description": "Arrive prepared at the client",
+          "hint": "Which client, which goal? E.g. “Prepare the 20 November meeting with Clinique des Tilleuls, goal: renewal”",
+          "attach": "The client's history (quotes, reports, invoices), their request, the client's website or report",
+          "produces": "A one-page note: goal, what we know about the client, questions to ask, likely objections, proposal",
+          "deliverable": "Preparation note",
+          "checks": ["Facts about the client and their date", "The goal and the proposal", "Figures from the history"]
+        }
+      },
+      "mission": "Prepare a briefing note for an upcoming client meeting. What the person asked for: {subject}\n\nStart with the meeting's goal and the outcome to aim for. Summarise the relationship from the documents (past quotes, orders, open issues, with dates and amounts), then list 5 to 8 open questions to ask, the objections likely from the history and a short answer to each, and the proposal to make. Flag anything stale or contradictory in the history."
+    },
+    {
+      "id": "tender-analysis",
+      "brief": "review",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Analyse d'un appel d'offres",
+          "description": "Marchés publics : répondre ou non",
+          "hint": "Quel appel d'offres ? Ex. « Analyser l'appel d'offres de la commune pour l'entretien des espaces verts, délai 9 décembre »",
+          "attach": "Le cahier des charges, le règlement de l'appel d'offres, les annexes et formulaires",
+          "produces": "Une analyse : exigences et critères cités, délais, pièces à fournir, points bloquants, questions à poser et recommandation go / no-go",
+          "deliverable": "Analyse d'appel d'offres",
+          "checks": ["Le délai de dépôt et les délais de questions", "Les critères d'aptitude et d'adjudication avec leur pondération", "Les points où nous ne remplissons pas une exigence"]
+        },
+        "en": {
+          "label": "Tender analysis",
+          "description": "Public tenders: bid or not",
+          "hint": "Which tender? E.g. “Analyse the town's tender for green-space maintenance, deadline 9 December”",
+          "attach": "The specification, the tender rules, the annexes and forms",
+          "produces": "An analysis: requirements and criteria quoted, deadlines, documents to provide, blocking points, questions to ask and a bid / no-bid recommendation",
+          "deliverable": "Tender analysis",
+          "checks": ["The submission deadline and the question deadline", "Eligibility and award criteria with their weighting", "The points where we do not meet a requirement"]
+        }
+      },
+      "mission": "Analyse a call for tenders to prepare the bid / no-bid decision. What the person asked for: {subject}\n\nQuote word for word, with section numbers, the submission deadline, the deadline for questions, the eligibility criteria, the award criteria and their weighting, and every mandatory document or form. In the review table, mark each requirement as met, not met or unknown based only on the documents. List the questions to send to the contracting authority and end with a bid / no-bid recommendation stated as an option for the person to decide."
+    },
+    {
+      "id": "pipeline-from-notes",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Pipeline depuis vos notes",
+          "description": "Un tableau Excel des affaires",
+          "hint": "Sur quelle période ? Ex. « Toutes les affaires en cours d'après mes notes d'octobre et novembre »",
+          "attach": "Vos notes de rendez-vous, e-mails, offres envoyées",
+          "produces": "Un tableau Excel : client, affaire, montant, étape, probabilité, prochaine action, échéance, source",
+          "deliverable": "Pipeline",
+          "checks": ["Les montants et leur source", "L'étape de chaque affaire", "Les doublons entre notes"]
+        },
+        "en": {
+          "label": "Pipeline from your notes",
+          "description": "An Excel table of deals",
+          "hint": "Over which period? E.g. “All open deals from my October and November notes”",
+          "attach": "Your meeting notes, e-mails, quotes sent",
+          "produces": "An Excel table: client, deal, amount, stage, probability, next action, deadline, source",
+          "deliverable": "Pipeline",
+          "checks": ["Amounts and their source", "The stage of each deal", "Duplicates between notes"]
+        }
+      },
+      "mission": "Build the sales pipeline from the notes attached. What the person asked for: {subject}\n\nColumns: Client, Affaire, Montant (CHF HT), Étape (prospect / offre envoyée / négociation / gagnée / perdue), Probabilité (%), Prochaine action, Échéance, Source, À vérifier. One row per deal; when a deal appears in several notes keep the latest state and name every note in Source. Take probabilities from the team's stage scale when the memory has one, otherwise leave them empty. End with a total row of open amounts, labelled as computed."
+    },
+    {
+      "id": "objection-reply",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Réponse à une objection",
+          "description": "Prix, délai, concurrence, confiance",
+          "hint": "Quelle objection, de qui ? Ex. « Le client trouve notre offre 15 % plus chère que la concurrence »",
+          "attach": "L'échange où l'objection est formulée, l'offre concernée, vos arguments ou références",
+          "produces": "Une réponse écrite qui reconnaît l'objection, répond par des faits et propose une suite",
+          "deliverable": "Réponse",
+          "checks": ["Chaque argument chiffré et sa source", "Toute concession proposée", "Les références clients citées (accord pour les nommer)"]
+        },
+        "en": {
+          "label": "Objection reply",
+          "description": "Price, timing, competition, trust",
+          "hint": "Which objection, from whom? E.g. “The client finds our quote 15% more expensive than the competition”",
+          "attach": "The exchange where the objection is raised, the quote concerned, your arguments or references",
+          "produces": "A written reply that acknowledges the objection, answers with facts and proposes a next step",
+          "deliverable": "Reply",
+          "checks": ["Every figure-based argument and its source", "Any concession offered", "Client references quoted (consent to name them)"]
+        }
+      },
+      "mission": "Draft a reply to a client's objection. What the person asked for: {subject}\n\nRestate the objection fairly in one sentence, then answer it with facts from the documents (what the price includes, lead times, references, guarantees), never by criticising a competitor. If the objection is justified on a point, say so. Propose one next step; offer a concession only when the person's request authorises it, and state it exactly as authorised."
+    },
+    {
+      "id": "account-review",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Bilan d'un client clé",
+          "description": "Chiffre d'affaires, historique, opportunités",
+          "hint": "Quel client, quelle période ? Ex. « Bilan 2026 du client Boulangeries Perret avant la revue annuelle »",
+          "attach": "Les factures ou l'extrait du chiffre d'affaires, les offres, comptes rendus et réclamations",
+          "produces": "Un bilan : chiffre d'affaires par période, prestations, incidents, satisfaction, risques et opportunités",
+          "deliverable": "Bilan client",
+          "checks": ["Les montants et les périodes", "Les variations calculées", "Les opportunités proposées"]
+        },
+        "en": {
+          "label": "Key account review",
+          "description": "Revenue, history, opportunities",
+          "hint": "Which client, which period? E.g. “2026 review of Boulangeries Perret before the annual meeting”",
+          "attach": "The invoices or revenue extract, quotes, meeting reports and complaints",
+          "produces": "A review: revenue by period, services, incidents, satisfaction, risks and opportunities",
+          "deliverable": "Account review",
+          "checks": ["Amounts and periods", "The computed variations", "The opportunities proposed"]
+        }
+      },
+      "mission": "Write the review of a key account. What the person asked for: {subject}\n\nShow revenue by period in a table with its source, and compute variations with the calculation shown. Summarise services bought, open quotes, incidents and complaints with their dates. Identify risks (dependence, dissatisfaction, contract end) and two to four opportunities grounded in the documents, each with the next step it would require."
+    }
+  ],
+  "notes": [
+    {
+      "name": "sales-grille-tarifaire",
+      "i18n": {
+        "fr": {
+          "title": "Grille tarifaire et conditions",
+          "description": "Les prix, remises autorisées, conditions de paiement et validité des offres — à compléter par l'équipe.",
+          "body": "L'agent ne cite que les prix et conditions écrits ici ou dans les documents joints.\n\n| Prestation ou produit | Unité | Prix HT (CHF) | Remarque |\n|---|---|---|---|\n| [À compléter : ex. Heure de technicien] | [À compléter : heure] | [À compléter] | [À compléter] |\n\n- Taux de TVA appliqué : [À compléter]\n- Remise maximale sans accord de la direction : [À compléter : ex. 5 %]\n- Conditions de paiement standard : [À compléter : ex. 30 jours net]\n- Durée de validité d'une offre : [À compléter : ex. 30 jours]\n- Frais de déplacement : [À compléter]"
+        },
+        "en": {
+          "title": "Price list and terms",
+          "description": "Prices, authorised discounts, payment terms and quote validity — for the team to fill in.",
+          "body": "The agent quotes only the prices and terms written here or in the documents attached.\n\n| Service or product | Unit | Price excl. VAT (CHF) | Remark |\n|---|---|---|---|\n| [To fill: e.g. Technician hour] | [To fill: hour] | [To fill] | [To fill] |\n\n- VAT rate applied: [To fill]\n- Maximum discount without management approval: [To fill: e.g. 5%]\n- Standard payment terms: [To fill: e.g. 30 days net]\n- Quote validity: [To fill: e.g. 30 days]\n- Travel costs: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "sales-argumentaire",
+      "i18n": {
+        "fr": {
+          "title": "Argumentaire et références",
+          "description": "Ce qui nous distingue, les preuves, les références clients citables et les réponses aux objections fréquentes — à compléter par l'équipe.",
+          "body": "L'agent n'utilise que les arguments et références listés ici.\n\n- Ce qui nous distingue (avec la preuve) : [À compléter : ex. intervention en 4 h, prouvée par le rapport SLA 2026]\n- Références clients que l'on peut nommer (accord obtenu) : [À compléter]\n- Certifications, labels : [À compléter]\n\n| Objection fréquente | Notre réponse | Preuve |\n|---|---|---|\n| [À compléter : ex. « trop cher »] | [À compléter] | [À compléter] |"
+        },
+        "en": {
+          "title": "Sales arguments and references",
+          "description": "What sets us apart, the proofs, the client references we may name and the answers to frequent objections — for the team to fill in.",
+          "body": "The agent uses only the arguments and references listed here.\n\n- What sets us apart (with the proof): [To fill: e.g. on-site within 4 hours, proven by the 2026 SLA report]\n- Client references we may name (consent obtained): [To fill]\n- Certifications, labels: [To fill]\n\n| Frequent objection | Our answer | Proof |\n|---|---|---|\n| [To fill: e.g. “too expensive”] | [To fill] | [To fill] |"
+        }
+      }
+    },
+    {
+      "name": "sales-etapes-pipeline",
+      "i18n": {
+        "fr": {
+          "title": "Étapes du pipeline et probabilités",
+          "description": "Les étapes de vente de l'équipe, leur probabilité et la règle de passage d'une étape à l'autre — à compléter par l'équipe.",
+          "body": "Cette échelle sert au tableau du pipeline.\n\n| Étape | Probabilité | Passe à l'étape quand… |\n|---|---|---|\n| Prospect | [À compléter : ex. 10 %] | [À compléter] |\n| Offre envoyée | [À compléter] | [À compléter] |\n| Négociation | [À compléter] | [À compléter] |\n| Gagnée / perdue | 100 % / 0 % | [À compléter : ex. commande signée] |\n\n- Délai de relance après l'envoi d'une offre : [À compléter : ex. 10 jours ouvrables]\n- Seuil d'une affaire à signaler à la direction : [À compléter]"
+        },
+        "en": {
+          "title": "Pipeline stages and probabilities",
+          "description": "The team's sales stages, their probability and the rule to move from one stage to the next — for the team to fill in.",
+          "body": "This scale is used for the pipeline table.\n\n| Stage | Probability | Moves to the stage when… |\n|---|---|---|\n| Prospect | [To fill: e.g. 10%] | [To fill] |\n| Quote sent | [To fill] | [To fill] |\n| Negotiation | [To fill] | [To fill] |\n| Won / lost | 100% / 0% | [To fill: e.g. signed order] |\n\n- Follow-up delay after a quote is sent: [To fill: e.g. 10 working days]\n- Deal size to report to management: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "sales-modele-offre",
+      "i18n": {
+        "fr": {
+          "title": "Modèle d'offre de la maison",
+          "description": "Structure, mentions obligatoires et conditions générales de nos offres — à compléter par l'équipe.",
+          "body": "Les offres suivent ce modèle.\n\n- Numérotation des offres : [À compléter : ex. AAAA-NNN]\n- Rubriques dans l'ordre : [À compléter : ex. contexte, prestations, prix, conditions, validité, signature]\n- Mentions obligatoires (CG, TVA, n° IDE) : [À compléter]\n- Qui signe les offres et au-delà de quel montant la direction cosigne : [À compléter]\n- Formule de conclusion habituelle : [À compléter]"
+        },
+        "en": {
+          "title": "House quote template",
+          "description": "Structure, mandatory mentions and general terms of our quotes — for the team to fill in.",
+          "body": "Quotes follow this template.\n\n- Quote numbering: [To fill: e.g. YYYY-NNN]\n- Sections in order: [To fill: e.g. context, services, prices, terms, validity, signature]\n- Mandatory mentions (general terms, VAT, company ID number): [To fill]\n- Who signs quotes and above which amount management co-signs: [To fill]\n- Usual closing sentence: [To fill]"
+        }
+      }
+    }
+  ]
+}

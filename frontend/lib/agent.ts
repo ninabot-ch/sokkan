@@ -17,20 +17,27 @@ export type AgentEvent =
   | { type: "session"; claude_session_id: string }
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string }
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; pending?: boolean }
   | { type: "thinking"; text: string }
-  | { type: "tool_use"; id?: string; tool: string; title: string; input: Record<string, unknown> }
+  // `kind`: the contract's classification of the call (shell, file_write, …), 4.0
+  | { type: "tool_use"; id?: string; tool: string; title: string; input: Record<string, unknown>; kind?: string }
   | { type: "tool_result"; tool_use_id?: string; text: string; is_error: boolean; truncated: boolean }
-  | { type: "permission"; id: string; tool: string; title: string; input: Record<string, unknown> }
+  | { type: "permission"; id: string; tool: string; title: string; input: Record<string, unknown>; kind?: string }
   | { type: "question"; id: string; questions: AgentQuestion[] }
   | { type: "permission_resolved"; id: string }
   | { type: "question_resolved"; id: string }
   | { type: "result"; text: string; is_error: boolean; num_turns?: number; cost_usd?: number }
   | { type: "model"; model: string }
   | { type: "perm_mode"; mode: PermMode }
-  | { type: "error"; message: string }
+  // `code` four_eyes: the decision was refused by the four-eyes rule, the card is sent again
+  | { type: "error"; message: string; code?: string }
   // 3.2 lot 8: the project's sandbox is hooks-only (banner) / Bash was just refused (denied)
-  | { type: "sandbox"; mode: string; message: string; denied?: string };
+  | { type: "sandbox"; mode: string; message: string; denied?: string }
+  // 4.0: what the session's engine cannot do — sent only when something is absent (an
+  // absent capability is greyed out, never emulated)
+  | { type: "capabilities"; plan: boolean; question: boolean }
+  // 4.0: the session's engine cannot read its thread back (Harness.history): said, not rebuilt
+  | { type: "history"; available: boolean };
 
 export async function createAgentSession(): Promise<string> {
   const r = await fetch("/api/agent/session", { method: "POST" });

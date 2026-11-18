@@ -22,6 +22,25 @@ export default function Login({ mode }: { mode: string }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // 4.0 — an invitation link (/?invite=…): one click signs the person in and shows their own
+  // code once, to keep for the next visits (backend/onboarding.py, POST /api/auth/invite)
+  const invite = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const v = new URLSearchParams(window.location.search).get("invite") || "";
+    return /^[A-Za-z0-9_-]{16,80}$/.test(v) ? v : "";
+  }, []);
+  const [inv, setInv] = useState<"ask" | "busy" | { code: string; name: string } | "gone">(invite ? "ask" : "gone");
+  const acceptInvite = async () => {
+    setInv("busy"); setErr("");
+    try {
+      const r = await fetch("/api/auth/invite", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: invite }) });
+      if (r.ok) { const d = await r.json(); setInv({ code: d.code, name: d.name }); return; }
+      setErr(t(r.status === 410 || r.status === 404 ? "login.invite.gone" : r.status === 429 ? "login.throttled" : "login.failed"));
+    } catch { setErr(t("login.failed")); }
+    setInv("gone");
+  };
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -56,8 +75,27 @@ export default function Login({ mode }: { mode: string }) {
           <img src="/sokkan-icon.svg" alt="" />
           <span className="g" aria-hidden>K</span><span className="k" aria-hidden>K</span><span className="g" aria-hidden>AN</span>
         </span>
-        <h1 className="sk-login-title">{t("login.title")}</h1>
-        {mode === "local" ? (
+        <h1 className="sk-login-title">{t(invite && inv !== "gone" ? "login.invite.title" : "login.title")}</h1>
+        {mode === "local" && invite && inv !== "gone" ? (
+          typeof inv === "object" ? (
+            <div className="sk-login-form">
+              <p>{t("login.invite.code", { name: inv.name })}</p>
+              <code className="sk-ob-secret" tabIndex={0}>{inv.code}</code>
+              <button className="sk-btn" type="button" onClick={async () => {
+                try { await navigator.clipboard.writeText(inv.code); setCopied(true); } catch { /* selectable */ }
+              }}>{t(copied ? "login.invite.copied" : "login.invite.copy")}</button>
+              <p className="sk-small sk-muted">{t("login.invite.keep")}</p>
+              <button className="sk-btn sk-btn-primary sk-login-submit" type="button"
+                onClick={() => window.location.assign("/")}>{t("login.invite.enter")}</button>
+            </div>
+          ) : (
+            <div className="sk-login-form">
+              <p>{t("login.invite.text")}</p>
+              <button className="sk-btn sk-btn-primary sk-login-submit" type="button" onClick={acceptInvite} disabled={inv === "busy"}>
+                {inv === "busy" ? t("login.busy") : t("login.invite.accept")}</button>
+            </div>
+          )
+        ) : mode === "local" ? (
           <form className="sk-login-form" onSubmit={submit}>
             <label className="sk-field">
               <span>{t("login.code")}</span>

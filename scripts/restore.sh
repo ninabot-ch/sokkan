@@ -125,7 +125,8 @@ trap 'rm -rf "$WORK"; rm -f "$SUMS"' EXIT INT TERM
 SECRETS="$(field secrets_provider)"
 SECRETS="${SECRETS:-file}"
 PY="${SOKKAN_PYTHON:-python3}"
-KEYFILES="vault.key forge.key teams.key"
+# engine-identity.key (4.0): absent from older sets — then the current one is kept, as for any key
+KEYFILES="vault.key forge.key teams.key engine-identity.key"
 KEY_TAG="$(field key_tag)"
 KEYS_OK=""
 mkdir "$WORK/keys" "$WORK/wrapped"

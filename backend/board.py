@@ -247,11 +247,29 @@ def _memory_howto() -> str:
     )
 
 
+def _engine_has_memory_tools() -> bool:
+    """Can the engine of new sessions call the memory MCP tools? The kernel engine runs
+    without the cockpit's MCP servers until it can carry a session's identity to them
+    (harness/kernel.py): its seed must not send the model looking for tools it does not have."""
+    try:
+        from harness import registry
+        return registry.selected() == "legacy" or registry.capabilities().mcp_stdio
+    except Exception:  # noqa: BLE001 — unknown = today's engine
+        return True
+
+
 def _seed_text(prompt: str, recall: str = "") -> str:
     """Seed d'une session. `recall` = bloc mémoire PRÉ-INJECTÉ (recherche faite
     côté serveur au spawn — déterministe, n'attend pas que le modèle obéisse).
     Sans recall (mémoire vide, backend down, spawn tmux), on retombe sur le
     rituel textuel historique."""
+    if not _engine_has_memory_tools():
+        # 4.0 kernel engine: the recall reaches the model in front of each prompt; no tool
+        # to name (they would be searched for, and not found)
+        body = f"{prompt.strip()}\n\n{recall}\nThe notes above were recalled from project memory " \
+               "for this task.\n" if recall else f"{prompt.strip()} "
+        return (body + "Then propose a short plan — don't execute anything without my "
+                "go-ahead.").strip()
     if recall:
         return (
             f"{prompt.strip()}\n\n{recall}\n"

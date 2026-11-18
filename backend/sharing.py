@@ -279,21 +279,34 @@ def recipient_share(user: dict, share_id: int) -> dict:
 
 # ---- delegated HITL approval ------------------------------------------------------------
 
+def approvers(session_id: str) -> list[dict]:
+    """The active shares of a session that carry its delegated approval (four-eyes: the
+    owner asked someone else to validate). Cheap: no share store = none."""
+    if not DB.exists():
+        return []
+    con = _con()
+    rows = [_row(r) for r in con.execute(
+        "SELECT * FROM shares WHERE kind='session' AND target=? AND approver=1"
+        " AND access='write' AND revoked_at IS NULL", (session_id,))]
+    con.close()
+    return [r for r in rows if active(r)]
+
+
 def pending_approvals(session_id: str) -> list[dict]:
-    """Tool approvals the session is waiting for (live chat session in this API)."""
+    """Tool approvals the session is waiting for (live chat session in this API), read
+    from the session's pending GATES (the contract), not from the flow sent to the pane."""
     import agentchat
     sess = agentchat.peek(session_id)
     if sess is None:
         return []
-    waiting = set(getattr(sess, "_perms", {}) or {})
-    out = []
-    for ev in list(getattr(sess, "events", []) or []):
-        if ev.get("type") == "permission" and ev.get("id") in waiting:
-            out.append({"id": ev["id"], "tool": ev.get("tool", ""), "title": ev.get("title", "")})
-    return out
+    return [{"id": g["id"], "tool": g["tool"], "title": g["title"]}
+            for g in sess.pending_gates() if not g["question"]]
 
 
 def decide(user: dict, share_id: int, permission_id: str, allow: bool, message: str = "") -> dict:
+    """The reviewer's decision, through the session's one decision path (the contract's
+    `Decision`, by = the reviewer, via = share): the journal of validations and the engine
+    both get the person who really decided."""
     v = recipient_share(user, share_id)
     if v["kind"] != "session" or not v["approver"]:
         raise ShareError(403, "this share does not delegate the approval to you")
@@ -301,12 +314,16 @@ def decide(user: dict, share_id: int, permission_id: str, allow: bool, message: 
     if permission_id not in pend:
         raise ShareError(404, "no such pending approval (already decided?)")
     import agentchat
+    from harness import contract
     sess = agentchat.peek(v["target"])
-    who = user.get("email") or ""
-    import hitl_journal
-    hitl_journal.attribute(permission_id, who, "share")   # the journal names who decided
-    sess.resolve_permission(permission_id, {
-        "decision": "allow" if allow else "deny",
-        "message": None if allow else (message or f"Denied by {who} (delegated review)")})
+    who = (user.get("email") or "").lower()
+    d = (contract.Decision.allow(by=who, via="share") if allow else contract.Decision.deny(
+        message or f"Denied by {who} (delegated review)", by=who, via="share"))
+    out = sess.decide_threadsafe(permission_id, d)
+    if out == "four_eyes":
+        raise ShareError(403, "four-eyes approval: another person than the session's owner "
+                              "approves")
+    if out != "ok":
+        raise ShareError(404, "no such pending approval (already decided?)")
     return {"ok": True, "decision": "allow" if allow else "deny", "tool": pend[permission_id]["tool"],
             "title": pend[permission_id]["title"], "session_id": v["target"]}

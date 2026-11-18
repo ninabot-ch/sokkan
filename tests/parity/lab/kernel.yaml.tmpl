@@ -1,0 +1,80 @@
+# A kernel of the parity lab (lab.sh writes it from this template). Same settings as
+# deploy/kernel/config.example.yaml, except: the model endpoint (@UPSTREAM@ = the bench's meter
+# for the kernel under test, the scripted endpoint for the conformance kernel) and the code root
+# (the bench's work folder, mounted at the same path in the kernel and for the bench).
+pg_dsn_env: NOKKER_PG_DSN
+memory_mcp_url: ""
+api_keys: []
+telegram_ids: {}
+extra_go_senders: [local-owner]
+tiers:
+  ship:
+    base_url: @UPSTREAM@
+    model: @MODEL@
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+  deep:
+    base_url: @UPSTREAM@
+    model: @MODEL@
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+route:
+  policy: v0
+  classifier: rules
+  code_to_deep: false
+judge_enabled: false
+# every model call kept by the kernel itself (`trace_calls`: exact prompt, tools offered): the
+# bench reads them per run (run.py `kernel_trace_calls`) — the catalogue is proven, not inferred
+traces_record: true
+traces_target: lokkal
+judge_review: false
+web_search_enabled: false
+context_enabled: @CONTEXT@
+context_corthexis:
+  enabled: false
+  root_dir: /opt/data/session-memory
+previews_cache_dir: /opt/data/previews
+guide: false
+approvals_enabled: true
+bubbles_enabled: true
+host_clarify_options: true
+host_session_budget: true
+host_reasoning_stream: true
+host: @HOST@
+port: @PORT@
+local:
+  reasoning: false
+  state_dir: /opt/data
+  token_path: /run/kernel/local-token
+  settings_path: /opt/data/settings.json
+  allowed_hosts_env: NOKKER_ALLOWED_HOSTS
+  max_calls: @MAX_CALLS@
+  # the label of this kernel's sandboxes (`nokker.instance`). Unset, the kernel takes a hash of its
+  # state folder AS IT SEES IT (/opt/data): every containerised kernel on one docker daemon gets the
+  # same label, and each one's start-up reaping removes the others' sandboxes (bench n°4)
+  instance: @INSTANCE@
+  # host-embed flags of the kernel (its docs/HOST-EMBED.md; all off by default there), set as
+  # SOKKAN will ship them: PARITY_HOST_EMBED=1 (default). memory_direct stays OFF: a note of a
+  # conversation goes through SOKKAN's own MCP `memory_write` (quarantine), the kernel's
+  # `memory_note` is removed from the cockpit's sessions by `deny_tools` (the adapter).
+  surfaces_gate: @HOST_EMBED@
+  strict_resume: @HOST_EMBED@
+  mcp_session_headers: @HOST_EMBED@
+  conclude_on_green: @HOST_EMBED@
+  chain_max_calls: @CHAIN_MAX@
+  # a card decided within this delay is applied inside its turn (kernel host-3e; SOKKAN ships
+  # 8, PARITY_APPROVAL_WAIT_S; 0 = the usual path, a continuation turn per card)
+  approval_wait_s: @APPROVAL_WAIT@
+  memory_direct: false
+  code:
+    roots: [@ROOT@]
+    backend: @SANDBOX@
+    # docker: the model's commands run in a sandbox container, never in the kernel's; the
+    # work folder is mounted at the same path in the kernel, so the daemon sees it there too
+    require_sandbox: @REQUIRE_SANDBOX@
+    image: @SANDBOX_IMAGE@
+    # the sandbox's memory/CPU caps (kernel host-2; PARITY_SANDBOX_MEMORY / PARITY_SANDBOX_CPUS,
+    # docker sandbox only): set, the sandbox is created when the session opens and a cap docker
+    # does not apply refuses the session (503 sandbox_unavailable) — never an uncapped sandbox
+    # @SANDBOX_CAPS@
+    host_roots: {"@ROOT@": "@ROOT@"}

@@ -8,3 +8,4 @@ workspace/
 .venv/
 build/
 *.egg-info/
+deploy/kernel/config.yaml

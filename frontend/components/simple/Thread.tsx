@@ -2,7 +2,7 @@
 // Simple profile — one work: the thread in plain language (backend/plain.py), the approval
 // card, the deliverable, and ONE composer. No tool name, path or internal brief is shown; the
 // raw material stays behind « Technical detail », folded.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, PlainSocket, fetchWork, keepAsDeliverable, newRequestId, sendMessage,
   type Doc, type Limits, type Source, type TechDetail, type Work,
@@ -12,12 +12,13 @@ import { age, fullDate, useT, useUI } from "@/lib/simple/i18n";
 import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import { DemoCta } from "./DemoBand";
-import { reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
+import { APPROVAL_KINDS, reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
+import QualityCheck from "./QualityCheck";
 import EngineBadge, { engineText } from "./EngineBadge";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
@@ -157,6 +158,12 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                     )}
                   </div>
                 );
+                if (it.k === "text" && it.pending) return (
+                  <div key={i} className="sk-msg-agent sk-msg-note">
+                    <span className="sk-visually-hidden">{t("th.agent")} : </span>
+                    <Markdown text={it.text} />
+                  </div>
+                );
                 if (it.k === "text") return (
                   <div key={i} className="sk-msg-agent">
                     <span className="sk-visually-hidden">{t("th.agent")} : </span>
@@ -206,7 +213,7 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                   <div key={i} className="sk-notice" role="status">
                     <Icon name="alert" />
                     <div className="sk-grow">
-                      <div>{t((`no.${["busy", "budget", "engine", "read_only", "mode_locked", "sandbox", "study_expired", "study_mode_required", "user_daily_cap", "user_daily_cap_local", "user_limit_reached"].includes(it.code) ? it.code : "engine"}`) as Key)}</div>
+                      <div>{t((`no.${["busy", "budget", "engine", "read_only", "mode_locked", "four_eyes", "no_history", "sandbox", "study_expired", "study_mode_required", "tools_off", "user_daily_cap", "user_daily_cap_local", "user_limit_reached", "model_quota", "model_rate", "model_unreachable", "model_auth", "sandbox_unavailable", "engine_unavailable", "loop_guard"].includes(it.code) ? it.code : "engine"}`) as Key)}</div>
                       <Tech detail={{ result: it.detail }} />
                     </div>
                   </div>
@@ -303,7 +310,7 @@ function DraftPanel({ ev, pending, onClose, onDecide }: {
             <label className="sk-visually-hidden" htmlFor={`sk-draft-${ev.id}`}>{t("ap.edit.label")}</label>
             <textarea id={`sk-draft-${ev.id}`} className="sk-draft-edit" value={text} onChange={(e) => setText(e.target.value)} />
           </>
-        ) : <Markdown text={text} />}
+        ) : <Markdown text={text === original && ev.draft?.preview ? ev.draft.preview : text} />}
       </div>
       {pending && (
         <div className="sk-panel-foot">
@@ -345,9 +352,43 @@ function versioned(t: ReturnType<typeof useT>, ev: Approval): string {
 }
 
 function headline(t: ReturnType<typeof useT>, ev: Approval): string {
-  const known = ["write_draft", "write_file", "save_memory", "run_command", "web_search", "web_read", "delegate"];
-  const key = (`ap.${known.includes(ev.kind) ? ev.kind : "other"}`) as Key;
+  const key = (`ap.${KNOWN_KINDS.includes(ev.kind) ? ev.kind : "other"}`) as Key;
   return t(key, { title: versioned(t, ev) });
+}
+
+const KNOWN_KINDS = APPROVAL_KINDS;
+
+/** Where it lands, the facts to decide on, a change as before/after, what each answer does. */
+function CardFacts({ ev }: { ev: Approval }) {
+  const t = useT();
+  const facts = ev.facts || [];
+  const kind = KNOWN_KINDS.includes(ev.kind) ? ev.kind : "other";
+  const yes = t((`ap.yes.${kind}`) as Key, { title: versioned(t, ev) });
+  const no = t((kind === "write_draft" ? "ap.no.write_draft" : "ap.no.default") as Key);
+  return (
+    <>
+      {(ev.where || facts.length > 0) && (
+        <dl className="sk-ap-facts">
+          {ev.where && <><dt>{t("ap.f.where")}</dt><dd>{ev.where}</dd></>}
+          {facts.map((f, i) => <Fragment key={i}><dt>{f.label}</dt><dd>{f.value}</dd></Fragment>)}
+        </dl>
+      )}
+      {(ev.diff || []).length > 0 && (
+        <div className="sk-ap-diff" tabIndex={0}>
+          {(ev.diff || []).map((d, i) => (
+            <Fragment key={i}>
+              {d.before && <p className="is-del"><span className="sk-ap-tag">{t("ap.diff.del")}</span><span className="sk-ap-body">{d.before}</span></p>}
+              {d.after && <p className="is-add"><span className="sk-ap-tag">{t(d.before ? "ap.diff.add" : "ap.diff.new")}</span><span className="sk-ap-body">{d.after}</span></p>}
+            </Fragment>
+          ))}
+        </div>
+      )}
+      <ul className="sk-ap-then">
+        <li><b>{t("ap.if.yes")}</b> {yes}</li>
+        <li><b>{t("ap.if.no")}</b> {no}</li>
+      </ul>
+    </>
+  );
 }
 
 function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
@@ -365,7 +406,8 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
       <p className="sk-approval-note">
         {isDoc && (n > 1 ? t("ap.sources.n", { n }) : n === 1 ? t("ap.sources.1") : ev.attached > 0 ? t("ap.sources.0", { n: ev.attached }) : "")}
         {isDoc && " "}
-        {ev.stays_inside ? t("ap.inside") : ev.kind.startsWith("web_") ? t("ap.outside") : t("ap.unknown")}
+        {ev.stays_inside ? t("ap.inside") : ev.kind.startsWith("web_") ? t("ap.outside")
+          : ["tool", "other", "run_command"].includes(ev.kind) ? t("ap.unknown") : ""}
       </p>
       {n > 0 && (
         <ul className="sk-sources" style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -382,6 +424,8 @@ function ApprovalCard({ ev, canDrive, onDecide, onDraft }: {
           })}
         </ul>
       )}
+      <CardFacts ev={ev} />
+      {isDoc && <QualityCheck check={ev.check} />}
       {canDrive ? (
         <div className="sk-actions">
           <button className="sk-btn sk-btn-primary" onClick={() => onDecide("allow")}><Icon name="check" />{t("ap.allow")}</button>

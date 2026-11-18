@@ -8,6 +8,7 @@ import asyncio
 import inspect
 
 import pytest
+from harness_helpers import ask
 
 
 @pytest.fixture()
@@ -265,7 +266,7 @@ def test_agent_run_follows_its_policy():
         "agent": "b", "run": 2, "tools": ["Read"], "mcp": ["sokkan-memory"]})
     assert "mcp__sokkan-board__get_card" not in denied._allowed_tools()
     res = asyncio.new_event_loop().run_until_complete(
-        denied._can_use_tool("mcp__sokkan-board__close_card", {"card_id": 1}, None))
+        ask(denied, "mcp__sokkan-board__close_card", {"card_id": 1}))
     assert "not in this agent's allowed tools" in res.message
     servers = agentchat.mcp_servers_for("y" * 32, "dev@x.ch", only=["sokkan-memory"],
                                         agent_run={"agent": "b", "run": 2})

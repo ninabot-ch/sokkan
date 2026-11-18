@@ -1,0 +1,18 @@
+{
+  "template": "hr.work-certificate",
+  "lang": "fr",
+  "ask": "Prépare le certificat de travail complet de Claire Monnier, qui nous quitte au 31 décembre, d'après son contrat et les notes de son chef. Ses prestations sont très bonnes.",
+  "documents": [
+    {"name": "Contrat et avenants - C. Monnier.docx", "source": "contrat-monnier.md", "as_docx": true},
+    {"name": "Évaluation 2026 et notes M. Pittet.docx", "source": "notes-evaluation-monnier.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Claire Monnier", "Mme Monnier"],
+    ["01.03.2021", "1er mars 2021", "1.3.2021"],
+    ["31.12.2026", "31 décembre 2026"],
+    ["80 %", "80%", "80 pour cent"],
+    ["comptabilité fournisseurs"],
+    ["efforcé"],
+    ["études"]
+  ]
+}

@@ -212,8 +212,10 @@ def _remember(kind: str, ref: str, project: str) -> None:
 
 
 def _transcript_file(csid: str) -> Path:
-    import agentchat
-    return agentchat._transcript_path(csid)
+    # 4.0: where the legacy engine keeps a session (harness/cli_transcript.py); a demo work
+    # has no run journal, so its thread is read back by the first declared engine, `legacy`
+    from harness import cli_transcript
+    return cli_transcript.path(csid)
 
 
 def _forget() -> dict:

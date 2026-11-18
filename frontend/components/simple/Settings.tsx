@@ -3,7 +3,8 @@
 // (simple / technical). The approval mode is deliberately NOT here.
 import { useEffect, useRef, useState } from "react";
 import { ApiError, createProject, fetchClaudeGate, fetchClaudeSettings, fetchPeople, grantProject, saveClaudeDefault, saveClaudeKey, savePrefs, saveProjectLevel,
-  type ClaudeGate, type ClaudeSettings, type Prefs } from "@/lib/simple/api";
+  fetchWordTemplates, removeWordTemplate, uploadWordTemplate,
+  type ClaudeGate, type ClaudeSettings, type Job, type Prefs, type WordTemplate } from "@/lib/simple/api";
 import { useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import type { Key } from "@/lib/simple/dict";
 import { useMe } from "@/lib/me";
@@ -13,9 +14,14 @@ import { switchProject } from "@/lib/project";
 import { useFeatureOn } from "@/lib/uifeatures";
 import { downloadWorkExport, type WorkExportResult } from "@/lib/workExport";
 import Icon from "./icons";
+import Connectors from "./Connectors";
+import { MyRoles, RolesAdmin } from "./Roles";
+import OrgProfile from "./OrgProfile";
 
-export default function Settings({ prefs, onPrefs, onClose, project, projectName }: {
+export default function Settings({ prefs, onPrefs, onClose, project, projectName, jobs = null, onRoles }: {
   prefs: Prefs; onPrefs: (p: Prefs) => void; onClose: () => void; project: string; projectName?: string;
+  /** 4.0 job kits: the person's jobs (null = not offered, the public demo) and the picker */
+  jobs?: Job[] | null; onRoles?: () => void;
 }) {
   const t = useT();
   const { lang, langPref, themePref, setLangPref, setThemePref } = useUI();
@@ -47,6 +53,7 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
   const canSwitch = !prefs.locked || instAdmin;
   const exportOn = useFeatureOn("work_export");
   const claudeOn = useFeatureOn("claude_tier");
+  const connectorsOn = useFeatureOn("connectors");
   // 3.6.3: the export says what happens — preparing, downloaded (and what is not in it), failed
   const [exp, setExp] = useState<"idle" | "busy" | "failed" | WorkExportResult>("idle");
   const runExport = async () => {
@@ -81,6 +88,8 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
           </div>
           <p className="sk-small sk-muted">{canSwitch || demo ? t("set.profile.hint") : t("set.profile.locked")}</p>
         </fieldset>
+        {jobs && onRoles && <MyRoles jobs={jobs} onChange={onRoles} />}
+        {jobs && instAdmin && <RolesAdmin />}
         {exportOn && instAdmin && (
           <fieldset>
             <legend className="sk-legend">{t("set.export")}</legend>
@@ -106,6 +115,9 @@ export default function Settings({ prefs, onPrefs, onClose, project, projectName
             </div>
           </fieldset>
         )}
+        {connectorsOn && !demo && <Connectors />}
+        {!demo && <OrgProfile />}
+        {instAdmin && <WordTemplates />}
         {claudeOn && instAdmin && <ClaudeAdmin />}
         {claudeOn && instAdmin && <ProjectLevel project={project} />}
         {claudeOn && instAdmin && <NewProject />}
@@ -262,6 +274,52 @@ function NewProject() {
           <button className="sk-btn sk-btn-quiet" onClick={() => switchProject(done.slug)}>{t("set.newproj.open")}</button></div>
       )}
       {err && <div className="sk-error"><Icon name="alert" small /><span>{err}</span></div>}
+    </fieldset>
+  );
+}
+
+/** 4.0 — the organisation's Word template(s): every .docx the Atelier produces is written on it */
+function WordTemplates() {
+  const t = useT();
+  const [list, setList] = useState<WordTemplate[] | null>(null);
+  const [kind, setKind] = useState("default");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const picker = useRef<HTMLInputElement>(null);
+  useEffect(() => { fetchWordTemplates().then((r) => setList(r.templates)).catch(() => setList(null)); }, []);
+  if (!list) return null;
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true); setMsg("");
+    try { setList((await uploadWordTemplate(kind.trim().toLowerCase() || "default", f)).templates); setMsg(t("set.tpl.saved")); }
+    catch (e) { setMsg(t("set.tpl.failed", { why: e instanceof ApiError ? e.message : "" })); }
+    finally { setBusy(false); if (picker.current) picker.current.value = ""; }
+  };
+  return (
+    <fieldset>
+      <legend className="sk-legend">{t("set.tpl")}</legend>
+      <p className="sk-small sk-muted">{t("set.tpl.hint")}</p>
+      <div className="sk-list">
+        {list.length === 0 && <p className="sk-small sk-muted">{t("set.tpl.none")}</p>}
+        {list.map((x) => (
+          <div key={x.kind} className="sk-row">
+            <span className="sk-grow sk-small"><strong>{x.kind === "default" ? t("set.tpl.kind.default") : x.kind}</strong> · {x.name}</span>
+            <button className="sk-btn sk-btn-quiet" disabled={busy} onClick={async () => {
+              setBusy(true);
+              try { setList((await removeWordTemplate(x.kind)).templates); } catch { /* the list stays */ } finally { setBusy(false); }
+            }}>{t("set.tpl.remove")}</button>
+          </div>
+        ))}
+      </div>
+      <div className="sk-row">
+        <label className="sk-small" htmlFor="sk-tpl-kind">{t("set.tpl.kind")}</label>
+        <input id="sk-tpl-kind" className="sk-input" value={kind} onChange={(e) => setKind(e.target.value)} list="sk-tpl-kinds" style={{ maxWidth: "12rem" }} />
+        <datalist id="sk-tpl-kinds"><option value="default" /><option value="lettre" /><option value="offre" /><option value="pv" /></datalist>
+        <input ref={picker} type="file" hidden accept=".dotx,.docx" onChange={(e) => upload(e.target.files?.[0])} />
+        <button className="sk-btn" disabled={busy} onClick={() => picker.current?.click()}>
+          {busy ? <span className="sk-spin" aria-hidden /> : <Icon name="upload" />}{t("set.tpl.upload")}</button>
+      </div>
+      {msg && <p className="sk-small" role="status">{msg}</p>}
     </fieldset>
   );
 }

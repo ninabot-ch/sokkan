@@ -72,6 +72,7 @@ def net():
 def test_real_cli_in_a_docker_session_container(net, tmp_path, monkeypatch):
     import runner
     from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, SystemMessage
+    from harness import legacy
     from mock_anthropic import MockAnthropic
     from runner import relay
     from runner.docker_runner import DockerRunner
@@ -114,7 +115,7 @@ def test_real_cli_in_a_docker_session_container(net, tmp_path, monkeypatch):
                     "setting_sources": [], "allowed_tools": ["mcp__echo__whoami"]}
 
         async def go():
-            opts, t = runner.client_args(sid, kwargs(), user="alice@example.com")
+            opts, t = legacy.client_args(sid, kwargs(), user="alice@example.com")
             c = ClaudeSDKClient(options=opts, transport=t)
             t0 = time.monotonic()
             await c.connect()
@@ -133,7 +134,7 @@ def test_real_cli_in_a_docker_session_container(net, tmp_path, monkeypatch):
             await t.chan.close()
             await asyncio.sleep(1)
             assert await r.status(t.handle) == "running"
-            opts2, t2 = runner.client_args(sid, kwargs(), user="alice@example.com")
+            opts2, t2 = legacy.client_args(sid, kwargs(), user="alice@example.com")
             texts2 = []
             async with ClaudeSDKClient(options=opts2, transport=t2) as c2:
                 assert t2.handle.adopted and t2.handle.name == name

@@ -1,0 +1,7 @@
+## Échus
+N° facture | Client | Date facture | Échéance | Montant CHF | Relances déjà faites | Contact
+F-2026-0811 | Régie du Lac Sàrl | 2026-08-12 | 2026-09-11 | 24350 | 1 | compta@regiedulac.example
+F-2026-0834 | Copropriété Les Cèdres | 2026-08-29 | 2026-09-28 | 8120.5 | 0 | admin@lescedres.example
+F-2026-0902 | Hôtel Bellerive | 2026-09-05 | 2026-10-05 | 61200 | 2 | direction@bellerive.example
+F-2026-0915 | M. et Mme Chappuis | 2026-09-16 | 2026-10-16 | 3480 | 0 | chappuis.f@example.com
+F-2026-0950 | Promotion Riviera SA | 2026-09-30 | 2026-10-30 | 84900 | 1 | finance@promoriviera.example

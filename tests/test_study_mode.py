@@ -20,6 +20,7 @@ import time
 import zipfile
 
 import pytest
+from harness_helpers import scripted
 
 CAMILLE, NOAH, LEA, ADMIN = ("camille@x.example", "noah@x.example", "lea@x.example",
                              "admin@x.example")
@@ -403,7 +404,7 @@ def test_a_refusal_of_the_gateway_is_said_in_words_in_both_languages(world):
                                 duration_api_ms=1, is_error=True, num_turns=1, session_id="cs",
                                 total_cost_usd=0.0, usage={}, result=REFUSALS["study_expired"])
     sess = agentchat.AgentSession(S_B, cwd="/tmp", user=CAMILLE)
-    sess.client = Client()
+    scripted(sess, Client())
     _run(sess.handle_user("bonjour"))
     errors = [e["message"] for e in sess.events if e["type"] == "error"]
     assert errors == [said["study_expired"]]
@@ -502,7 +503,7 @@ def test_consent_is_explicit_per_person_before_the_first_session_and_can_be_with
     # before consenting: no turn — through the session and through the cockpit's WebSocket
     sess = agentchat.AgentSession(S_B, cwd="/tmp", user=CAMILLE)
     _run(sess.handle_user("hello"))
-    assert sess.client is None and "consent" in sess.events[-1]["message"]
+    assert sess.harness is None and "consent" in sess.events[-1]["message"]
     with c.websocket_connect(f"/api/agent/ws/{S_B}") as ws:
         ws.send_json({"type": "user", "text": "hello"})
         for _ in range(50):
@@ -608,7 +609,7 @@ def test_a_turn_records_duration_and_tier_through_the_session(world):
                                                            "output_tokens": 340}, result="done")
 
     sess = agentchat.AgentSession(S_B, cwd="/tmp", user=CAMILLE)
-    sess.client = Client()
+    scripted(sess, Client())
     sess._model_seen = "sokkan-ship"
     _run(sess.handle_user(LEAK["turn_prompt"]))
     _run(sess.handle_user(LEAK["turn_prompt"]))

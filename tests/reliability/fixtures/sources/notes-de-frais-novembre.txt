@@ -1,0 +1,7 @@
+## Feuil1
+Collaborateur | Date | Nature | Montant CHF | Justificatif | Commentaire
+T. Bovet | 2026-11-03 | Repas client (3 pers.) | 286 | oui | Hôtel Bellerive
+T. Bovet | 2026-11-04 | Train Lausanne-Zurich 1re | 168 | oui
+D. Jaquet | 2026-11-06 | Parking chantier | 42 | non | ticket perdu
+K. Dupuis | 2026-11-10 | Outillage | 389.9 | oui | pince à sertir
+T. Bovet | 2026-11-12 | Repas seul | 64.5 | oui

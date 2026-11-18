@@ -1,0 +1,21 @@
+ATELIER LUMEN SARL - Eclairage et agencement (exemple fictif)
+Rue des Artisans 12, 1200 Ville
+
+DEVIS N° 2026-117
+Date : 28 octobre 2026
+Validite : 30 jours
+
+Client : Boulangerie des Tilleuls (exemple fictif)
+Objet : remplacement de l'eclairage de la salle de vente
+
+1. Depose de l'eclairage existant (12 points)          480.00 CHF
+2. Fourniture de 14 spots LED encastres, 3000 K      2 310.00 CHF
+3. Pose et raccordement, 1,5 jour                    1 620.00 CHF
+4. Variateur et reglage des scenes                     390.00 CHF
+
+Total HT                                             4 800.00 CHF
+TVA 8.1 %                                              388.80 CHF
+Total TTC                                            5 188.80 CHF
+
+Delai d'execution : 2 semaines apres acceptation.
+Acompte de 30 % a la commande.

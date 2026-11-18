@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from harness_helpers import feed
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = json.loads((ROOT / "tests" / "fixtures" / "gateway_contract" / "contract.json").read_text(encoding="utf-8"))
@@ -197,8 +198,8 @@ def test_the_session_says_one_sentence_with_the_gateways_code(code):
     import study
     sess = _session()
     shown = shown_by_the_cli(REFUSALS[code])
-    sess._translate(_assistant(shown))         # the CLI's own line, as an assistant sentence …
-    sess._translate(_result(shown))            # … then the result of the turn, in error
+    feed(sess, _assistant(shown))         # the CLI's own line, as an assistant sentence …
+    feed(sess, _result(shown))            # … then the result of the turn, in error
     errors = [e for e in sess.events if e["type"] == "error"]
     assert [(e.get("code"), e["message"]) for e in errors] == [(code, study.explain_refusal(shown))]
     # the generic sentence of a 429 (« wait a minute and send your message again ») is not added
@@ -207,7 +208,7 @@ def test_the_session_says_one_sentence_with_the_gateways_code(code):
 
 def test_a_429_that_is_not_about_the_study_keeps_the_generic_message():
     sess = _session()
-    sess._translate(_result(f'API Error: 429 {CONTRACT["tenant_cap"]["body"]["error"]["message"]}'))
+    feed(sess, _result(f'API Error: 429 {CONTRACT["tenant_cap"]["body"]["error"]["message"]}'))
     errors = [e for e in sess.events if e["type"] == "error"]
     assert [e.get("code") for e in errors] == ["rate_limited"]
 
@@ -218,8 +219,8 @@ def test_the_simple_thread_shows_one_notice_of_that_code_per_turn(code):
     import plain
     sess = _session()
     shown = shown_by_the_cli(REFUSALS[code])
-    sess._translate(_assistant(shown))
-    sess._translate(_result(shown))
+    feed(sess, _assistant(shown))
+    feed(sess, _result(shown))
     v = plain.View()
     out = [x for ev in sess.events for x in v.feed(ev)]
     notices = [x for x in out if x["type"] == "notice"]
@@ -279,8 +280,8 @@ def test_on_an_appliance_the_daily_cap_notice_says_the_local_model_remains(appli
         assert not TECHNICAL.search(part), part
     assert study.refusal_code(shown) == "user_daily_cap"             # the gateway's code is unchanged
     sess = _session()
-    sess._translate(_assistant(shown))
-    sess._translate(_result(shown))
+    feed(sess, _assistant(shown))
+    feed(sess, _result(shown))
     assert [(e.get("code"), e["message"]) for e in sess.events if e["type"] == "error"] == [("user_daily_cap", said)]
     v = plain.View()
     notices = [x for ev in sess.events for x in v.feed(ev) if x["type"] == "notice"]

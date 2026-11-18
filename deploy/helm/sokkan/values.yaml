@@ -143,6 +143,11 @@ embeddings:
     limits: {cpu: "2", memory: 2Gi}
 
 # -- Session runner: one Pod per agent session / run -------------------------------------------
+engine:
+  # the engine of sessions and runs (SOKKAN_ENGINE_RUNTIME). Empty = the first declared:
+  # `legacy`, the Claude Code CLI driven through its SDK — the only engine of this release
+  runtime: ""
+
 runner:
   # kubernetes (this chart's purpose) | local (CLI inside the api pod, like compose)
   mode: kubernetes

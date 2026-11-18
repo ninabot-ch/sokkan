@@ -1,0 +1,72 @@
+# Kernel engine configuration for a SOKKAN instance (docker-compose.kernel.yml, docs/KERNEL.md).
+# Copy to deploy/kernel/config.yaml and set the model endpoints (`tiers`). No secret in this
+# file: the model key is read from SOKKAN_KERNEL_MODEL_KEY.
+#
+# The kernel does NOT read this file directly: at every start the api renders the kernel's
+# configuration from it (backend/harness/kernel_config.py) and writes SOKKAN's own block on top
+# — everything under `local` marked « SOKKAN » below is rewritten there, whatever this file says:
+# the instance label, the docker sandbox and its caps (.env: SOKKAN_KERNEL_SANDBOX_*), the host
+# flags. Yours: the tiers, the route, the web features, the other settings.
+#
+# What SOKKAN relies on (backend/harness/kernel.py):
+# * the local API on, with its token where the api reads it (local.token_path);
+# * the question with choices and the session cap on (host_clarify_options, host_session_budget);
+# * the kernel's OWN long memory OFF: the recall comes from SOKKAN (scope and clearance of the
+#   person applied by the cockpit), put in front of the prompt;
+# * every web feature off unless the instance wants it (web search reaches the internet).
+pg_dsn_env: NOKKER_PG_DSN                     # SOKKAN's Postgres, schema `kernel` (compose)
+memory_mcp_url: ""
+api_keys: []
+telegram_ids: {}
+extra_go_senders: [local-owner]
+tiers:
+  ship:
+    base_url: http://router:8096/v1          # the appliance's router, or a local OpenAI-compatible model
+    model: ship
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+  deep:
+    base_url: http://router:8096/v1
+    model: deep
+    api_key_env: SOKKAN_KERNEL_MODEL_KEY
+    cache: prefix
+route:
+  policy: v0
+  classifier: rules
+  code_to_deep: false
+judge_enabled: false
+judge_review: false
+web_search_enabled: false
+context_enabled: true                         # « never clear » window of the kernel
+context_corthexis:                            # its episodes stay lexical (no second memory store)
+  enabled: false
+  root_dir: /opt/data/session-memory          # every path of the kernel under its state volume
+previews_cache_dir: /opt/data/previews        # (the container's file system is read-only)
+guide: false
+approvals_enabled: true
+bubbles_enabled: true
+host_clarify_options: true
+host_session_budget: true
+host_reasoning_stream: true
+host: 0.0.0.0
+port: 8742
+local:
+  reasoning: false
+  state_dir: /opt/data                        # SOKKAN
+  token_path: /run/kernel/local-token         # SOKKAN
+  settings_path: /opt/data/settings.json
+  allowed_hosts_env: NOKKER_ALLOWED_HOSTS
+  max_calls: 60
+  # SOKKAN — written by the api at every start (kernel_config.py), shown here for reference:
+  #   instance: sokkan-<16 hex>        label of this kernel's sandboxes, from SOKKAN's instance key
+  #   surfaces_gate / strict_resume / mcp_session_headers / conclude_on_green: true
+  #   chain_max_calls: 60              SOKKAN_KERNEL_CHAIN_MAX_CALLS
+  #   approval_wait_s: 8               SOKKAN_KERNEL_APPROVAL_WAIT_S (a card decided within it: same turn)
+  #   memory_direct: (absent)          a note goes through SOKKAN's memory_write, in quarantine
+  code:
+    # SOKKAN — the model's commands run in a sandbox container, never in the kernel's (in the
+    # `local` backend the model could read the kernel's token and approve its own cards)
+    backend: docker
+    require_sandbox: true
+    roots: [/workspace, /data/projects, /data/engine-roots]
+    #   image, memory, cpus, idle_ttl_s, network, network_name_env, host_roots: from .env

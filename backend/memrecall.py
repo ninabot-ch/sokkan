@@ -9,8 +9,11 @@ Two hooks, in every session spawned by SOKKAN (P0-3):
 * ``PreToolUse`` on ``Task|Agent`` → the recall of the sub-agent's subject is appended to
   its prompt (``updatedInput``): a sub-agent otherwise starts with nothing.
 
-Chat sessions (Claude Agent SDK) get them as in-process callbacks (``sdk_hooks``): no
-process start per message, the store pool and the embedding client stay warm. Terminal
+Chat sessions get them through the session contract: ``provider()`` is the context provider
+handed to the engine (``harness.contract.RunSpec.context``), and the engine's adapter
+delivers its answer — in-process callbacks for the CLI driven by the SDK
+(``harness.legacy.recall_hooks``): no process start per message, the store pool and the
+embedding client stay warm. Terminal
 sessions (tmux, plain ``claude``) get the same logic as command hooks through
 ``claude --settings <file>`` (``cli_settings_path``), running ``memory/recall_hook.py``.
 Both are keyed on the SOKKAN session id, the one the spawn pre-recall is logged under.
@@ -38,7 +41,7 @@ if str(_MEMORY) not in sys.path:
 import store_backend  # noqa: E402
 
 HOOK_TIMEOUT_S = 5          # hard limit given to Claude Code; the recall budget is ~1.5 s
-SUBAGENT_MATCHER = "Task|Agent"
+SUBAGENT_MATCHER = "Task|Agent"   # terminal sessions (command hooks, below)
 
 _lock = threading.Lock()
 _recaller = None
@@ -101,36 +104,37 @@ def hook_output(payload: dict, session_id: str, projects=None) -> dict:
     return recall.hook_output(payload, recaller(), session_id=session_id, projects=projects)
 
 
-# --------------------------------------------------------------------------- SDK sessions
+# --------------------------------------------------------------------------- chat sessions
 
-def sdk_hooks(session_id: str, projects=None) -> dict:
-    """``ClaudeAgentOptions.hooks`` for one chat session ({} when recall is off).
-    ``projects``: the session's memory scope (3.2), fixed for the session's life."""
+def provider(session_id: str, projects=None):
+    """The context provider of one chat session (`harness.contract.ContextProvider`), or
+    None when recall is off. The engine's adapter calls it before each turn and before each
+    sub-agent, and delivers what it returns by the best path its engine has; this side
+    decides WHAT is recalled. ``projects``: the session's memory scope (3.2), fixed for the
+    session's life — an adapter cannot widen it."""
     if not active():
-        return {}
+        return None
     scope = tuple(projects) if projects is not None else None
-    from claude_agent_sdk import HookMatcher  # type: ignore
+    from harness.contract import ContextBlock
 
-    async def _run(payload: dict) -> dict:
-        try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(hook_output, dict(payload), session_id, scope),
-                timeout=HOOK_TIMEOUT_S - 1)
-        except Exception as e:  # noqa: BLE001 — a recall never breaks a turn
-            print(f"[sokkan] recall hook failed: {e!r}", file=sys.stderr)
-            return {}
+    def _recall(req):
+        from core import recall
 
-    async def on_prompt(payload, _tool_use_id, _context):
-        return await _run(payload)
+        text = req.text or ""
+        if req.channel == "subagent":
+            if not text or recall.SUBAGENT_MARKER in text:
+                return None                     # nothing asked, or already recalled
+            text = recall.subagent_text({"description": req.title, "prompt": text})
+        res = recaller().recall(text, session_id=session_id, channel=req.channel,
+                                agent_id=req.agent_id, projects=scope)
+        if not res.context:
+            return None
+        return ContextBlock(text=res.context, note_names=tuple(res.notes))
 
-    async def on_subagent(payload, _tool_use_id, _context):
-        return await _run(payload)
+    async def ask(req):
+        return await asyncio.to_thread(_recall, req)
 
-    return {
-        "UserPromptSubmit": [HookMatcher(hooks=[on_prompt], timeout=HOOK_TIMEOUT_S)],
-        "PreToolUse": [HookMatcher(matcher=SUBAGENT_MATCHER, hooks=[on_subagent],
-                                   timeout=HOOK_TIMEOUT_S)],
-    }
+    return ask
 
 
 # --------------------------------------------------------------------------- CLI sessions

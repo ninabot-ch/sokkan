@@ -1,0 +1,10 @@
+id: P01
+title: 'Slug : accents, tirets en double et longueur maximale'
+category: bug
+lang: py
+size: S
+prompt: Les adresses des articles sont fausses quand le titre a des accents ou plusieurs espaces, et la coupe à la longueur
+  maximale casse les mots. Corrige `src/slug.py` ; les tests de `tests/` décrivent le comportement attendu, lance-les.
+test_cmd: python3 -m unittest discover -s tests -t . -q
+protected:
+- tests

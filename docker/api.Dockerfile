@@ -5,10 +5,16 @@ FROM python:3.12-slim
 # builds of one tag differ (and a CLI release can change the stream-json the SDK drives).
 # Bump BOTH together with backend/requirements.txt (claude-agent-sdk) and
 # docker/session.Dockerfile — tests/test_packaging_pins.py checks they agree.
-ARG CLAUDE_CODE_VERSION=2.1.322
+# This CLI is the one a Claude work runs here (claudetier.pinned_cli → cli_path); any other
+# local run starts the CLI bundled with the SDK. Same version as that bundled CLI
+# (session.Dockerfile CLAUDE_CLI_VERSION), never below MIN_CLAUDE_CLI
+# (tests/test_claude_cli_min_version.py).
+ARG CLAUDE_CODE_VERSION=2.1.326
 
+# tesseract (Apache-2.0): the text of a dropped photo (a receipt), read on this machine (doctext.py)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates git ripgrep procps openssh-client bubblewrap \
+      tesseract-ocr tesseract-ocr-fra tesseract-ocr-deu tesseract-ocr-ita \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \

@@ -1,0 +1,18 @@
+{
+  "template": "marketing.campaign-report",
+  "lang": "fr",
+  "ask": "Rédige le bilan de la campagne d'automne « Chauffez malin » pour la séance de direction, objectifs contre résultats, avec ce qu'on garde pour la prochaine fois.",
+  "documents": [
+    {"name": "Brief campagne automne 2026.docx", "source": "objectifs-campagne.md", "as_docx": true},
+    {"name": "Résultats campagne au 10.11.2026.docx", "source": "resultats-campagne.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["120"],
+    ["2'380", "2 380", "2380"],
+    ["4'615", "4 615", "4615"],
+    ["46"],
+    ["41"],
+    ["7'500", "7 500", "7500"],
+    ["Bâti-Broye", "Bati-Broye"]
+  ]
+}

@@ -5,9 +5,22 @@ import type { AgentQuestion } from "@/lib/agent";
 export interface Prefs { profile: "simple" | "technical"; chosen: boolean; lang: "auto" | "fr" | "en";
   theme: "light" | "dark" | "auto"; available: boolean; locked: boolean;
   /** 3.6.7 — the project this person last worked in ('' = none yet) */
-  project?: string }
+  project?: string;
+  /** 4.0 — the person's jobs (« Postes »); null = not chosen yet, [] = « later » */
+  roles?: string[] | null }
 export interface Limits { max_bytes: number; extensions: string[]; max_per_project: number }
-export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string }
+export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string;
+  /** 4.0 job kits (backend/roles.py): what to attach, what the agent produces, what a person checks */
+  attach?: string; produces?: string; checks?: string[]; format?: "docx" | "xlsx" | "md"; kind?: string;
+  role?: string; role_label?: string; claude?: boolean;
+  /** 4.0 connectors: what the work can really do with the mailbox / calendar it touches */
+  uses?: ("mail" | "calendar" | "files")[]; connectors?: Partial<Record<"mail" | "calendar" | "files", "off" | "read" | "act">> }
+/** 4.0 — a job of SOKKAN Atelier (« Poste ») */
+export interface Job { id: string; label: string; description: string; project: string; level: string; claude: boolean;
+  guardrails: string[]; notes: { name: string; title: string; description: string }[]; templates_count: number;
+  templates?: TaskTemplate[] }
+export interface RolesCatalog { roles: Job[]; mine: string[] | null; project: string; project_role: string;
+  can_create_project: boolean; can_setup_here: boolean }
 export type WorkState = "waiting" | "working" | "idle";
 /** 3.6.5 — the model that answered (the model of the API's response, never the one asked for) */
 export interface Engine { model: string; label: string; where: "local" | "anthropic" | "other"; place: string }
@@ -21,12 +34,21 @@ export interface Recent { sid: string; title: string; state: WorkState; last_lin
   updated_at: number; deliverables: number; validated: boolean; to_validate: number; items?: Deliverable[] }
 export interface HomeData { first_name: string; project: string; project_name?: string; can_start: boolean; playbooks: TaskTemplate[];
   recents: Recent[]; works_total: number; usage: { pct: number | null; basis: string }; nina: boolean;
-  limits: Limits | null; prefs: Prefs; claude?: ClaudeGate | null }
+  limits: Limits | null; prefs: Prefs; claude?: ClaudeGate | null;
+  /** 4.0 job kits: the person's jobs (the project's own first), the project's job, offer the choice */
+  roles?: Job[]; project_role?: string; ask_roles?: boolean }
 export interface Doc { id: string; name: string; ext: string; size: number; owner: string; level: number;
   created_at: number; modified_at: number; text_state: string; text_chars: number; uses: number }
 export interface Deliverable { name: string; title: string; ext: string; size: number; updated_at: number; version: number;
   previewable: boolean; validated: boolean; validated_by: string; validated_at: number | null;
-  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null }
+  changed_since_validation: boolean; text?: string; model?: string; models?: string[]; engine?: Engine | null;
+  /** 4.0 — the quality gate's report on this very text (null: not checked, or changed since) */
+  check?: QualityCheck | null;
+  /** 4.0 native formats: the downloads offered (the asked one first) and what the document is */
+  formats?: string[]; kind?: "document" | "spreadsheet" | "letters" }
+/** 4.0 — what the session checked before the card (backend/qualitygate.py · card) */
+export interface QualityCheck { reviewed_by: "strong" | "local" | "rules"; review_failed: boolean; corrected: boolean;
+  ok: boolean; remaining: string[]; verified: string[]; to_check: string[] }
 export interface Work { sid: string; title: string; project: string; state: WorkState; can_drive: boolean;
   documents: Doc[]; deliverables: Deliverable[];
   engine?: { tier: "claude" | "local"; model: string; label: string; destination: string } }
@@ -36,14 +58,18 @@ export interface TechDetail { tool?: string; title?: string; input?: unknown; re
 export type PlainEvent =
   | { type: "status"; state: "idle" | "working" }
   | { type: "user"; text: string; documents: { id: string; name: string }[] }
-  | { type: "text"; text: string; engine?: Engine }
+  | { type: "text"; text: string; engine?: Engine; pending?: boolean; supersedes?: boolean }
   | { type: "activity"; id: string; kind: string; subject: string; detail: TechDetail }
   /** 3.6.7 — `reason` tells a refusal from a failure: « denied » = the person said no,
    *  « policy » = a rule of the space turned the call away (the agent goes on otherwise) */
   | { type: "activity_done"; id: string; ok: boolean; detail: TechDetail; reason?: "denied" | "policy" }
   | { type: "approval"; id: string; kind: string; title: string; version: number; sources: Source[]; attached: number;
-      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean } | null; detail: TechDetail;
-      tool_id?: string }
+      stays_inside: boolean; draft: { text: string; partial: boolean; truncated: boolean; preview?: string; kind?: string } | null; detail: TechDetail;
+      tool_id?: string;
+      /** 4.0 (backend/approvalcard.py): where it lands, what the person needs to decide (already
+       *  in their language), a change to an existing document as before/after */
+      where?: string; facts?: { label: string; value: string }[]; diff?: { before: string; after: string }[];
+      check?: QualityCheck | null }
   | { type: "approval_resolved"; id: string; decision?: "allow" | "deny" }
   | { type: "deliverable"; name: string; title: string; version: number; engine?: Engine }
   | { type: "notice"; code: string; detail: string; title?: string }
@@ -76,7 +102,15 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 }
 
 export const fetchPrefs = () => get<Prefs>("/api/me/prefs");
-export const savePrefs = (p: Partial<Pick<Prefs, "profile" | "lang" | "theme" | "project">>) => send<Prefs>("/api/me/prefs", "PUT", p);
+export const savePrefs = (p: Partial<Pick<Prefs, "profile" | "lang" | "theme" | "project" | "roles">>) => send<Prefs>("/api/me/prefs", "PUT", p);
+export const fetchRoles = (lang: string) => get<RolesCatalog>(`/api/simple/roles?lang=${lang}`);
+/** a project for a job: "" = a new one (instance admin), else the job in that project (its admin) */
+export const setupRole = (rid: string, project: string, lang: string) =>
+  send<{ project: string; name: string; created: boolean; notes: string[]; level: string }>(
+    `/api/simple/roles/${encodeURIComponent(rid)}/setup`, "POST", { project, lang });
+export const fetchRolePeople = () => get<{ people: { email: string; name: string; roles: string[] | null }[] }>("/api/simple/roles/people");
+export const saveRolesOf = (email: string, roles: string[]) =>
+  send<Prefs>(`/api/admin/prefs/${encodeURIComponent(email)}`, "PUT", { roles });
 export const fetchHome = (lang: string) => get<HomeData>(`/api/simple/home?lang=${lang}`);
 export const fetchWorks = () => get<{ works: Recent[] }>("/api/simple/works");
 /** One id per click on « Start »: the server opens ONE work per id, so the same id can be
@@ -132,7 +166,7 @@ export const sendMessage = (sid: string, text: string, documents: string[], requ
     { text, documents, request_id: requestId }));
 const dl = (sid: string, name: string) => `/api/simple/sessions/${sid}/deliverables/${encodeURIComponent(name)}`;
 export const fetchDeliverable = (sid: string, name: string) => get<Deliverable>(dl(sid, name));
-export const downloadUrl = (sid: string, name: string, format: "md" | "docx") => `${dl(sid, name)}/download?format=${format}`;
+export const downloadUrl = (sid: string, name: string, format: string) => `${dl(sid, name)}/download?format=${format}`;
 export const validateDeliverable = (sid: string, name: string) =>
   send<{ ok: boolean; deliverables: Deliverable[] }>(`${dl(sid, name)}/validate`, "POST");
 export const keepAsDeliverable = (sid: string, title: string, text: string) =>
@@ -182,3 +216,14 @@ export class PlainSocket {
   interrupt() { this.send({ type: "interrupt" }); }
   close() { this.closed = true; this.ws?.close(); }
 }
+
+/** 4.0 — the organisation's Word templates (admin) */
+export interface WordTemplate { kind: string; name: string; by: string; at: number; sha256: string; size: number }
+export const fetchWordTemplates = () => get<{ templates: WordTemplate[]; max_bytes: number }>("/api/admin/word-templates");
+export async function uploadWordTemplate(kind: string, file: File): Promise<{ templates: WordTemplate[] }> {
+  const r = await fetch(`/api/admin/word-templates/${encodeURIComponent(kind)}?name=${encodeURIComponent(file.name)}`,
+    { method: "PUT", body: file, headers: { "content-type": "application/octet-stream" } });
+  return r.ok ? r.json() : fail(r);
+}
+export const removeWordTemplate = (kind: string) =>
+  send<{ templates: WordTemplate[] }>(`/api/admin/word-templates/${encodeURIComponent(kind)}`, "DELETE");

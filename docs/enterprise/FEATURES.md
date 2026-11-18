@@ -56,6 +56,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`classification`](#classification) Classification and clearances | stable | toggle | off | on | `multi_project`, `sso_teams` | — | `SOKKAN_FEATURE_CLASSIFICATION` |
 | [`teams`](#teams) Microsoft Teams | experimental | toggle | off | off | `assistant`, `classification`, `sso` | — | `SOKKAN_FEATURE_TEAMS` |
 | [`doc_ingest`](#doc_ingest) Document ingestion (memory agent) | experimental | toggle | off | off | `agents`, `memory_quarantine` | — | `SOKKAN_FEATURE_DOC_INGEST` |
+| [`connectors`](#connectors) Connectors (mail, calendar, shared documents) | experimental | toggle | off | off | — | — | `SOKKAN_FEATURE_CONNECTORS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
 | [`study_mode`](#study_mode) Study mode (audited use) | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_STUDY_MODE` |
 | [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
@@ -109,6 +110,7 @@ graph LR
   classification["Classification and clearances"]
   teams["Microsoft Teams"]
   doc_ingest["Document ingestion (memory agent)"]
+  connectors["Connectors (mail, calendar, shared documents)"]
   connect_ai["Connect your AI"]
   study_mode["Study mode (audited use)"]
   documents["Document drop"]
@@ -275,7 +277,7 @@ Unattended agent runs may use the Claude CLI login found on the host (otherwise 
 
 **Four-eyes approval** — stable, toggle.
 
-Activating an agent (or a change to an approved one) needs ANOTHER person than its proposer and its owner.
+Activating an agent (or a change to an approved one) needs ANOTHER person than its proposer and its owner. A session whose approval was delegated to a reviewer (shared_review) has its requests approved by another person than its owner.
 
 - Defaults: community **off**, enterprise **on**
 - Requires: `agents`
@@ -582,6 +584,16 @@ A memory agent reads the organisation's documents — shared folders mounted rea
 - Requires: `agents`, `memory_quarantine`
 - Switch: `SOKKAN_FEATURE_DOC_INGEST`
 - Doc: [docs/enterprise/DOC-INGEST.md](../../docs/enterprise/DOC-INGEST.md)
+
+### connectors
+
+**Connectors (mail, calendar, shared documents)** — experimental, toggle.
+
+The coworker works where things are: the person's mailbox (Microsoft 365 or IMAP/SMTP), calendar (Microsoft 365, CalDAV, ICS) and shared documents (SharePoint / OneDrive, WebDAV, a network folder mounted on the host), read on demand by a session AS the person (delegated OAuth per person or their own login, credentials encrypted). A reply is written as a DRAFT in the person's own mailbox; sending a mail, creating an event or depositing a deliverable in a shared folder only happens on an approval card the person decides in SOKKAN, journaled. The project's classification decides whether content may reach the session's model (confidential and above: Swiss or local model only). A demo provider (invented data) for trainings and tests.
+
+- Defaults: community **off**, enterprise **off**
+- Switch: `SOKKAN_FEATURE_CONNECTORS`
+- Doc: [docs/enterprise/CONNECTORS.md](../../docs/enterprise/CONNECTORS.md)
 
 ### connect_ai
 

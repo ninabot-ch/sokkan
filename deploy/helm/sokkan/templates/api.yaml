@@ -98,6 +98,8 @@ spec:
             {{- end }}
             - {name: CORTHEXIS_EMBED_URLS, value: {{ $embed | quote }}}
             - {name: CORTHEXIS_RERANK_URL, value: {{ .Values.memory.rerankUrl | quote }}}
+            # session engine (backend/harness/registry.py); empty = the first declared
+            - {name: SOKKAN_ENGINE_RUNTIME, value: {{ .Values.engine.runtime | default "" | quote }}}
             # runner (feature kubernetes_runner)
             - {name: SOKKAN_RUNNER, value: {{ .Values.runner.mode | quote }}}
             {{- if eq .Values.runner.mode "kubernetes" }}

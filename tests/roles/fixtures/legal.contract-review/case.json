@@ -1,0 +1,17 @@
+{
+  "template": "legal.contract-review",
+  "lang": "fr",
+  "ask": "Fais la revue du contrat de maintenance informatique que nous propose InfoServ Exemple, de notre point de vue de client, pour que je puisse en discuter avec notre avocate.",
+  "documents": [
+    {"name": "Contrat maintenance InfoServ v04.11.2026.docx", "source": "contrat-maintenance.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["1'850", "1 850", "1850"],
+    ["6 mois", "six mois"],
+    ["8 %", "8%", "8 pour cent"],
+    ["48 heures", "48 h"],
+    ["Annexe A", "annexe A"],
+    ["Zoug"],
+    ["24 mois"]
+  ]
+}

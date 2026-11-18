@@ -27,6 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from simple_fixtures import docx
+from harness_helpers import ask, scripted
 
 ROOT = Path(__file__).resolve().parent.parent
 OWNER = "admin@atelier.example"
@@ -120,9 +121,9 @@ def box(tmp_path, monkeypatch):
     clients: list[_SilentClient] = []
 
     async def started(self):
-        if self.client is None:
-            self.client = _SilentClient()
-            clients.append(self.client)
+        if self.harness is None:
+            clients.append(_SilentClient())
+            scripted(self, clients[-1])
     monkeypatch.setattr(agentchat.AgentSession, "ensure_started", started)
 
     import app as a
@@ -167,7 +168,7 @@ def _wait(cond, what, seconds=5.0):
 
 
 class _Tool:
-    """A tool call of the session's agent, played for real (`AgentSession._can_use_tool`) until
+    """A tool call of the session's agent, played for real (`AgentSession.gate`) until
     the person decides. With `ws` (an open cockpit WebSocket) it runs in the API's own event
     loop, where the SDK's callback runs in production: the card reaches the browser live.
     Without, in a loop of its own (nobody is connected: refusals nobody clicks, replays)."""
@@ -176,14 +177,14 @@ class _Tool:
         self.sess, self.result, self.error, self.future, self.thread = sess, None, None, None, None
         self.known = set(sess._perms)
         if ws is not None:
-            self.future = ws.portal.start_task_soon(sess._can_use_tool, tool, inp, None)
+            self.future = ws.portal.start_task_soon(ask, sess, tool, inp)
             return
 
         def run():
             loop = asyncio.new_event_loop()
 
             async def main():
-                task = asyncio.ensure_future(sess._can_use_tool(tool, inp, None))
+                task = asyncio.ensure_future(ask(sess, tool, inp))
                 while not task.done():          # keeps the loop turning: the decision comes
                     await asyncio.sleep(0.005)  # from the API's own thread
                 return task.result()
@@ -253,9 +254,9 @@ def test_each_click_of_the_simple_approval_card_is_a_line_of_the_journal(box):
                 ("edit", {"decision": "allow", "draft_text": draft + "Jour 2 : graphiques.\n",
                           # the browser never chooses the path nor the raw input: ignored
                           "updated_input": {"file_path": "/etc/passwd", "content": "x"}})):
-            # each decision in its own turn (3.6.7: within ONE turn, a document the person already
-            # approved is not saved again — tests/test_simple_367.py)
-            sess._approved_saves = set()
+            # each decision in its own turn (4.0: within ONE turn, the later saves of a document
+            # follow the person's first decision on it — tests/test_simple_367.py)
+            sess._approved_saves, sess._declined_saves = {}, {}
             tool = _Tool(sess, "Write", {"file_path": target, "content": draft}, ws)
             pid = tool.pid()
             card = _until(ws, "approval", id=pid)
@@ -264,9 +265,9 @@ def test_each_click_of_the_simple_approval_card_is_a_line_of_the_journal(box):
             ws.send_json({"type": "permission", "id": pid, **send})
             _until(ws, "approval_resolved", id=pid)
             decided[label] = (pid, tool.done())
-    assert type(decided["allow"][1]).__name__ == "PermissionResultAllow"
-    assert type(decided["deny"][1]).__name__ == "PermissionResultDeny"
-    assert decided["edit"][1].updated_input == {"file_path": target,
+    assert decided["allow"][1].allowed
+    assert decided["deny"][1].denied
+    assert decided["edit"][1].input == {"file_path": target,
                                                 "content": draft + "Jour 2 : graphiques.\n"}
 
     rows = {r["request_id"]: r for r in _hitl(session_id=sid) if r["kind"] == "permission"
@@ -300,7 +301,7 @@ def test_what_nobody_clicked_in_a_simple_work_is_not_a_validation(box):
     sid = _start(ana)
     sess = agentchat.peek(sid)
     res = _Tool(sess, "Bash", {"command": "mkdir -p out"}).done()
-    assert type(res).__name__ == "PermissionResultDeny"
+    assert res.denied
     (row,) = _hitl(session_id=sid)
     assert (row["decision"], row["auto"], row["actor"], row["origin"]) == ("auto_deny", 1, "", "system")
     assert row["auto_reason"] == "policy:simple_profile_no_shell" and row["delay_ms"] == 0
@@ -629,7 +630,7 @@ def test_what_a_session_learnt_from_a_dropped_document_waits_in_quarantine(box, 
     # the file tools: refused for the session with a document, asked as usual for the other
     target = {"file_path": str(mdir / "glisse.md"), "content": "---\nname: glisse\n---\nx\n"}
     res = _Tool(agentchat.peek(with_doc), "Write", target).done()
-    assert type(res).__name__ == "PermissionResultDeny" and "memory_write" in res.message
+    assert res.denied and "memory_write" in res.message
     auto = [r for r in _hitl(session_id=with_doc) if r["auto"]]
     assert [r["auto_reason"] for r in auto] == ["policy:documents_memory_write"]
     assert not (mdir / "glisse.md").exists()
@@ -690,6 +691,11 @@ def test_a_work_with_documents_still_saves_its_deliverable_in_any_project(box):
     assert sess._has_documents() and project != "default"
     target = _deliverable(box, project, sid)
     assert str(box["data"] / "projects" / project / "work") in target
+    # 4.0: the agent read the attached document first (the quality gate's rule)
+    from harness import contract
+    sess._note_read(contract.ToolCalled(turn_id="t", call_id="r", name="Read",
+                                        input={"file_path": f"…/{doc['id']}/{doc['name']}"},
+                                        classification="file_read"))
     with ana.websocket_connect(f"/api/agent/ws/{sid}?view=simple") as ws:
         tool = _Tool(sess, "Write", {"file_path": target, "content": "# Plan de formation\n"}, ws)
         pid = tool.pid()                                     # a person is asked: not refused
@@ -697,13 +703,13 @@ def test_a_work_with_documents_still_saves_its_deliverable_in_any_project(box):
         assert card["kind"] == "write_draft" and card["draft"]["text"].startswith("# Plan")
         ws.send_json({"type": "permission", "id": pid, "decision": "allow"})
         _until(ws, "approval_resolved", id=pid)
-        assert type(tool.done()).__name__ == "PermissionResultAllow"
+        assert tool.done().allowed
     assert [r["decision"] for r in _hitl(session_id=sid)] == ["allow"]
     # the memory of THAT project, and the quarantine, stay closed to the file tools
     for path in (quarantine.memory_dir(project) / "glisse.md", quarantine.qdir(project) / "glisse.md",
                  box["data"] / "projects" / "qualite" / "memory" / "glisse.md"):
         res = _Tool(sess, "Write", {"file_path": str(path), "content": "x"}).done()
-        assert type(res).__name__ == "PermissionResultDeny" and "memory_write" in res.message, path
+        assert res.denied and "memory_write" in res.message, path
     assert [r["auto_reason"] for r in _hitl(session_id=sid) if r["auto"]] == ["policy:documents_memory_write"] * 3
     for other in ("documents/x.md", "notes.md", "deliverables/autre/Plan.md"):
         assert agentchat._is_memory_path(str(box["data"] / "projects" / project / "work" / other)) is False

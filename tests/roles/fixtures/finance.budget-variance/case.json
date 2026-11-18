@@ -1,0 +1,18 @@
+{
+  "template": "finance.budget-variance",
+  "lang": "fr",
+  "ask": "Prépare le commentaire des écarts entre le budget et le réel à fin octobre 2026 pour la séance du conseil d'administration du 24 novembre.",
+  "documents": [
+    {"name": "Budget 2026.docx", "source": "budget-2026.md", "as_docx": true},
+    {"name": "Compte de résultat janvier-octobre 2026.docx", "source": "resultat-octobre.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["1'862'300", "1 862 300", "1862300"],
+    ["2'000'000", "2 000 000", "2000000"],
+    ["Résidence des Prés"],
+    ["140'000", "140 000", "140000"],
+    ["55'600", "55 600", "55600"],
+    ["12'400", "12 400", "12400"],
+    ["9 %", "9%", "9 pour cent"]
+  ]
+}

@@ -4,7 +4,7 @@ model would have received: the recall block at turn 1 and turn 5, and the recall
 to a sub-agent's prompt by the PreToolUse hook (updatedInput).
 
 Two installs are checked, the two SOKKAN uses:
-* chat sessions: in-process SDK hooks (backend/memrecall.sdk_hooks);
+* chat sessions: in-process SDK hooks (backend/harness/legacy.recall_hooks);
 * terminal sessions: command hooks from a settings file (``claude --settings``), run by
   memory/recall_hook.py in a separate process (lexical-only here: no embedding server).
 
@@ -132,6 +132,7 @@ def test_sdk_session_in_process_hooks(db, monkeypatch):
     import memrecall
     import store_backend as sb
     from claude_agent_sdk import ClaudeAgentOptions
+    from harness import legacy
 
     dsn, store = db
     with MockAnthropic() as mock:
@@ -145,7 +146,7 @@ def test_sdk_session_in_process_hooks(db, monkeypatch):
         sid = "sokkan-" + uuid.uuid4().hex[:6]
         opts = ClaudeAgentOptions(cwd=tempfile.mkdtemp(), env=env, setting_sources=[],
                                   model="claude-sonnet-4-5", can_use_tool=_allow,
-                                  hooks=memrecall.sdk_hooks(sid))
+                                  hooks=legacy.recall_hooks(memrecall.provider(sid)))
         asyncio.run(_converse(opts))
         res = _check(mock, store, sid)
     memrecall.reset()

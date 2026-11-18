@@ -39,6 +39,7 @@ def env(tmp_path, monkeypatch):
     proj = tmp_path / "proj"
     proj.mkdir()
     monkeypatch.setattr(appmod, "PROJECT_DIR", proj)
+    monkeypatch.setenv("SOKKAN_PROJECT_DIR", str(proj))   # 4.0: read back by the CLI's adapter
     who = {"u": {"email": "dev@x.ch", "role": "dev", "name": "dev"}}
     iam.upsert_user("dev@x.ch", "dev")
     iam.upsert_user("viewer@x.ch", "viewer")

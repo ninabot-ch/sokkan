@@ -8,6 +8,7 @@ import pytest
 
 import simple_fixtures as _fx
 from simple_fixtures import DEFAULT_SID, RADIO_SID, docx, put
+from harness_helpers import ask
 
 world = _fx.world      # the shared fixture (people, projects, no model)
 
@@ -23,7 +24,7 @@ def test_nobody_changes_profile_until_they_choose(world):
     c = world["as"]("bob@x")
     p = c.get("/api/me/prefs").json()
     assert p == {"profile": "technical", "chosen": False, "lang": "auto", "theme": "light",
-                 "project": "", "available": True, "locked": False}
+                 "project": "", "roles": None, "available": True, "locked": False}
     assert _simple(c)["profile"] == "simple"
     assert c.get("/api/me/prefs").json()["chosen"] is True
     assert world["as"]("dave@x").get("/api/me/prefs").json()["profile"] == "technical"   # per person
@@ -79,7 +80,8 @@ def test_home_greets_by_first_name_with_four_business_templates(world):
     assert all(p["hint"] and p["description"] and "prompt" not in p for p in h["playbooks"])
     en = c.get("/api/simple/home", params={"lang": "en"}).json()
     assert en["playbooks"][0]["label"] == "Training plan"
-    assert h["limits"]["extensions"] == ["pdf", "docx", "pptx", "xlsx", "txt", "md"]
+    assert h["limits"]["extensions"] == ["pdf", "docx", "pptx", "xlsx", "txt", "md",
+                                         "csv", "eml", "msg", "jpg", "jpeg", "png"]
     assert h["usage"] == {"pct": None, "basis": "none"}
     assert [r["sid"] for r in h["recents"]] == [DEFAULT_SID]          # bob's own work only
     # someone without a name is not greeted by their address
@@ -138,7 +140,7 @@ def test_start_a_work_with_documents_and_a_template(world):
     # what the agent got: the brief, the mission, the files to read, the save folder — then the ask
     (turn_sid, seed), = world["turns"]
     assert turn_sid == sid and seed.startswith("<sokkan-brief>")
-    assert seed.rstrip().endswith("is in French.</sokkan-brief>")
+    assert seed.rstrip().endswith("is in French, with « vous ».</sokkan-brief>")
     assert "Write to them in French" in seed and "Write a training plan" in seed
     assert f"documents/{d1['id']}/Brief client.docx.txt" in seed and f"documents/{d2['id']}/Notes.txt" in seed
     assert f"deliverables/{sid}" in seed
@@ -380,8 +382,8 @@ def test_a_corrected_draft_is_what_gets_saved_and_only_its_text(world):
         ws.send_json({"type": "permission", "id": "p2", "decision": "allow", "draft_text": "rm -rf /",
                       "updated_input": {"command": "rm -rf /"}})
         assert ws.receive_json() == {"type": "approval_resolved", "id": "p2", "decision": "allow"}
-    assert futs["p1"].result()["updated_input"] == {"file_path": target, "content": "# Plan\n3 jours\n"}
-    assert futs["p2"].result()["updated_input"] is None
+    assert futs["p1"].result().input == {"file_path": target, "content": "# Plan\n3 jours\n"}
+    assert futs["p2"].result().input is None
     s._perms.clear()
     loop.close()
 
@@ -394,9 +396,34 @@ def test_a_simple_work_never_asks_to_approve_a_shell_command(world):
     sid = c.post("/api/simple/start", json={"ask": "Un plan de formation", "lang": "fr"}).json()["session_id"]
     s = agentchat.peek(sid)
     before = len(s.events)
-    r = asyncio.run(s._can_use_tool("Bash", {"command": "mkdir -p x"}, None))
-    assert type(r).__name__ == "PermissionResultDeny" and "Write tool" in r.message
+    r = asyncio.run(ask(s, "Bash", {"command": "mkdir -p x"}))
+    assert r.denied and "Write tool" in r.message
     assert len(s.events) == before and not s._perms            # no card, nobody was asked
     # a technical session of the same person still gets the ordinary request
     t = agentchat.get_or_create(DEFAULT_SID, user="bob@x")
     assert simple.get_work(DEFAULT_SID) is None and t._is_simple_work() is False
+
+
+def test_a_change_is_asked_as_one_save_of_the_whole_document(tmp_path, monkeypatch):
+    """Parity bench n°4 (17.11.2026), A1 quiz from a .docx: asked to add one question, both
+    engines made the change in two or three edits (the question, then its line in the answer
+    key, then the count). The Atelier keeps ONE approved save per document per step (3.6.7), so
+    every edit after the first was turned away and the quiz was left announcing 9 questions with
+    8, or a 9th question without its answer. The first message and every later one say that a
+    change is one save of the complete file."""
+    import simple
+    monkeypatch.setenv("SOKKAN_DATA_DIR", str(tmp_path))
+    first = simple.brief(ask="8 questions", lang="fr", project="p", sid="a" * 32)
+    later = simple.follow_up("Ajoute une question sur l'actualisation.", [], "fr")
+    for text in (first, later):
+        assert "ONE save" in text and "answer in the" in text and "one edit per part" in text
+    assert later.startswith("Ajoute une question") and plain_ok(later)
+    assert "to add is to add" in later      # « Ajoute » reworded an existing question (mini-run n°5)
+    import playbooks
+    quiz = playbooks.render("assessment-quiz", "8 questions", project="p")[0]
+    assert "without its key is not finished" in quiz and "key entry follows in the same save" in quiz
+
+
+def plain_ok(sent: str) -> bool:
+    import plain
+    return plain.strip_brief(sent) == "Ajoute une question sur l'actualisation."

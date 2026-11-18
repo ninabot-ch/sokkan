@@ -1,0 +1,320 @@
+{
+  "id": "marketing",
+  "order": 60,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Marketing et communication",
+      "description": "Communiqués, publications, newsletters, plans éditoriaux, briefs créatifs et bilans de campagne.",
+      "project": "Communication"
+    },
+    "en": {
+      "label": "Marketing and communication",
+      "description": "Press releases, posts, newsletters, editorial plans, creative briefs and campaign reports.",
+      "project": "Communication"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Aucune affirmation qu'on ne peut pas prouver : pas de « leader », « n°1 », « le meilleur » ni de chiffre sans source."},
+        "en": {"text": "No claim that cannot be proven: no « leader », « number one », « the best », and no figure without a source."}
+      },
+      "agent": "Never write a superlative, ranking, comparative or performance claim (« leader », « n°1 », « le plus rapide », « 30 % d'économies ») unless the documents provide its proof; list every factual claim and figure the text makes under « Points to confirm » with its source."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Un client, un partenaire ou une personne n'est nommé ou cité que si son accord figure dans vos documents."},
+        "en": {"text": "A client, partner or person is named or quoted only if their consent appears in your documents."}
+      },
+      "agent": "Name or quote a client, partner or person only when the documents show they agreed to it; otherwise use a neutral description (« une PME vaudoise du bâtiment ») and say so under « Points to confirm ». Never invent a quotation or testimonial."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Prix, dates, offres et conditions sont repris exactement de vos documents ; une promotion a toujours ses conditions."},
+        "en": {"text": "Prices, dates, offers and conditions are taken exactly from your documents; a promotion always comes with its conditions."}
+      },
+      "agent": "Copy prices, dates, promotional offers and their conditions exactly from the documents; when an offer has a limit (dates, stock, eligibility) state it, and never present an expired or unconfirmed offer as current."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les chiffres d'une campagne sont ceux des exports : l'agent montre ses calculs et ne compare pas à des moyennes du marché inventées."},
+        "en": {"text": "A campaign's figures are those of the exports: the agent shows its calculations and does not compare with invented market averages."}
+      },
+      "agent": "In campaign figures, quote each value from the named export, show the calculation of every rate or ratio, and never compare with an industry benchmark that is not in the documents."
+    }
+  ],
+  "templates": [
+    {
+      "id": "press-release",
+      "brief": "short",
+      "format": "md",
+      "i18n": {
+        "fr": {
+          "label": "Communiqué de presse",
+          "description": "Une annonce pour les médias",
+          "hint": "Qu'annoncez-vous, quand ? Ex. « Communiqué pour l'ouverture de notre atelier à Yverdon le 15 janvier »",
+          "attach": "Les faits de l'annonce (note interne, chiffres, dates), les citations validées, la présentation de l'entreprise",
+          "produces": "Un communiqué : titre, chapeau, faits (qui, quoi, où, quand, pourquoi), citation, à propos, contact presse",
+          "deliverable": "Communiqué de presse",
+          "checks": ["Chaque chiffre et date", "Les citations et l'accord des personnes citées", "Le contact presse et la date d'embargo"]
+        },
+        "en": {
+          "label": "Press release",
+          "description": "An announcement for the media",
+          "hint": "What are you announcing, when? E.g. “Press release for the opening of our workshop in Yverdon on 15 January”",
+          "attach": "The facts of the announcement (internal note, figures, dates), the approved quotes, the company profile",
+          "produces": "A press release: headline, lead, facts (who, what, where, when, why), quote, about us, press contact",
+          "deliverable": "Press release",
+          "checks": ["Every figure and date", "The quotes and consent of the people quoted", "The press contact and embargo date"]
+        }
+      },
+      "mission": "Write a press release. What the person asked for: {subject}\n\nUse the press-release form instead of a social post: place and date line, a factual headline, a lead paragraph that answers who, what, where, when and why, then two or three short paragraphs of facts, one quotation taken word for word from the documents (or « [citation à fournir] »), the « À propos » paragraph and the press contact. Aim for 300 to 450 words, neutral journalistic tone, no advertising adjectives. Give two alternative headlines at the end."
+    },
+    {
+      "id": "linkedin-post",
+      "brief": "short",
+      "format": "md",
+      "i18n": {
+        "fr": {
+          "label": "Publication LinkedIn",
+          "description": "Un post court et sobre",
+          "hint": "Quel sujet, quel message ? Ex. « Post sur notre nouvelle apprentie et la formation duale »",
+          "attach": "Les faits ou l'article source, votre charte éditoriale, une photo prévue (description)",
+          "produces": "Une publication de 120 à 250 mots avec accroche, message, appel à l'action et deux accroches alternatives",
+          "deliverable": "Publication",
+          "checks": ["Les faits et chiffres cités", "Les personnes nommées et leur accord", "Le lien ou l'appel à l'action"]
+        },
+        "en": {
+          "label": "LinkedIn post",
+          "description": "A short, sober post",
+          "hint": "Which topic, which message? E.g. “Post about our new apprentice and dual training”",
+          "attach": "The facts or source article, your editorial charter, the planned photo (description)",
+          "produces": "A 120-250 word post with hook, message, call to action and two alternative hooks",
+          "deliverable": "Post",
+          "checks": ["Facts and figures stated", "People named and their consent", "The link or call to action"]
+        }
+      },
+      "mission": "Write a LinkedIn post for the organisation's page. What the person asked for: {subject}\n\nOpen with a concrete fact rather than a slogan, keep short paragraphs readable on a phone, and end with one clear call to action. Follow the team's editorial charter for tone, hashtags and emojis when the memory has one; otherwise use none. Mention any person or partner only as the documents allow."
+    },
+    {
+      "id": "newsletter",
+      "brief": "letter",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Newsletter",
+          "description": "L'édition du mois, prête",
+          "hint": "Quelle édition, quels sujets ? Ex. « Newsletter de décembre : horaires des fêtes, nouveau service, témoignage client »",
+          "attach": "Les sujets et leurs faits (notes, articles, offres), l'édition précédente pour le ton",
+          "produces": "Une newsletter : objet et pré-en-tête, introduction, 3 à 5 rubriques courtes avec leur lien, appel à l'action",
+          "deliverable": "Newsletter",
+          "checks": ["Les dates, prix et conditions des offres", "Les liens de chaque rubrique", "L'objet de l'e-mail"]
+        },
+        "en": {
+          "label": "Newsletter",
+          "description": "This month's issue, ready",
+          "hint": "Which issue, which topics? E.g. “December newsletter: holiday hours, new service, client story”",
+          "attach": "The topics and their facts (notes, articles, offers), the previous issue for tone",
+          "produces": "A newsletter: subject line and preheader, intro, 3 to 5 short sections with their link, call to action",
+          "deliverable": "Newsletter",
+          "checks": ["Dates, prices and conditions of the offers", "The link of each section", "The e-mail subject line"]
+        }
+      },
+      "mission": "Write a newsletter issue. What the person asked for: {subject}\n\nGive a subject line under 50 characters with two alternatives, and a preheader. Write a two-sentence introduction, then one short section per topic (title, 40 to 90 words, link or « [lien à fournir] »), most useful topic first. Match the tone of the previous issue when it is attached. End with a single call to action and the unsubscribe mention as a placeholder."
+    },
+    {
+      "id": "editorial-plan",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Plan éditorial",
+          "description": "Calendrier des publications en Excel",
+          "hint": "Sur quelle période, quels canaux ? Ex. « Plan éditorial janvier-mars : LinkedIn, newsletter, site »",
+          "attach": "Les temps forts de l'entreprise (événements, lancements, salons), les objectifs, votre charte éditoriale",
+          "produces": "Un tableau Excel : date, canal, thème, format, message clé, responsable, statut, source",
+          "deliverable": "Plan éditorial",
+          "checks": ["Les dates des temps forts", "La charge par responsable", "Le rythme par canal"]
+        },
+        "en": {
+          "label": "Editorial plan",
+          "description": "Publishing calendar in Excel",
+          "hint": "Over which period, which channels? E.g. “Editorial plan January-March: LinkedIn, newsletter, website”",
+          "attach": "The company's key dates (events, launches, trade fairs), the objectives, your editorial charter",
+          "produces": "An Excel table: date, channel, theme, format, key message, owner, status, source",
+          "deliverable": "Editorial plan",
+          "checks": ["Dates of the key moments", "Workload per owner", "Rhythm per channel"]
+        }
+      },
+      "mission": "Build an editorial calendar. What the person asked for: {subject}\n\nColumns: Date de publication, Canal, Thème, Format, Message clé, Objectif, Responsable, Statut, Source, À vérifier. Anchor each publication on a key date from the documents (announce before, cover during, follow up after) and keep each channel's rhythm as given in the request or the charter. Leave Responsable empty when no owner is named. Sort by date; one row per publication."
+    },
+    {
+      "id": "creative-brief",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Brief créatif",
+          "description": "Briefer une agence ou un graphiste",
+          "hint": "Pour quel projet ? Ex. « Brief pour l'affiche et les visuels du salon Habitat-Jardin de mars »",
+          "attach": "Le contexte du projet, le budget, la charte graphique, des exemples appréciés",
+          "produces": "Un brief : contexte, objectif, cible, message unique, livrables et formats, contraintes, budget, calendrier",
+          "deliverable": "Brief créatif",
+          "checks": ["Le budget et les dates de livraison", "La liste des livrables et formats", "Le message unique"]
+        },
+        "en": {
+          "label": "Creative brief",
+          "description": "Brief an agency or designer",
+          "hint": "For which project? E.g. “Brief for the poster and visuals of the Habitat-Jardin fair in March”",
+          "attach": "The project context, the budget, the brand guidelines, examples you like",
+          "produces": "A brief: context, objective, audience, single message, deliverables and formats, constraints, budget, schedule",
+          "deliverable": "Creative brief",
+          "checks": ["Budget and delivery dates", "The list of deliverables and formats", "The single message"]
+        }
+      },
+      "mission": "Write a creative brief for an agency or designer. What the person asked for: {subject}\n\nState the context, the measurable objective, the target audience and the single message in one sentence. List every deliverable with its format, size and language, the mandatory elements (logo, legal mentions, brand rules) and what to avoid. Give budget, milestones (briefing, first proposal, corrections, final delivery) and approvers as written, with « [à définir] » for any that is missing."
+    },
+    {
+      "id": "product-page",
+      "brief": "short",
+      "format": "md",
+      "i18n": {
+        "fr": {
+          "label": "Page web ou fiche produit",
+          "description": "Un texte clair qui fait agir",
+          "hint": "Quel produit ou service ? Ex. « Fiche produit de la nouvelle offre d'entretien annuel des chaudières »",
+          "attach": "La fiche technique, les prix et conditions, les questions fréquentes des clients",
+          "produces": "Un texte de page : titre, accroche, bénéfices, caractéristiques, prix et conditions, questions fréquentes, appel à l'action",
+          "deliverable": "Texte de page",
+          "checks": ["Les caractéristiques et le prix", "Chaque bénéfice annoncé et sa preuve", "Le titre et la description pour les moteurs de recherche"]
+        },
+        "en": {
+          "label": "Web page or product sheet",
+          "description": "Clear copy that drives action",
+          "hint": "Which product or service? E.g. “Product sheet for the new annual boiler maintenance offer”",
+          "attach": "The technical sheet, prices and conditions, customers' frequent questions",
+          "produces": "Page copy: title, hook, benefits, features, price and conditions, FAQs, call to action",
+          "deliverable": "Page copy",
+          "checks": ["Features and price", "Every benefit claimed and its proof", "The search-engine title and description"]
+        }
+      },
+      "mission": "Write the copy of a web page or product sheet. What the person asked for: {subject}\n\nStructure it as: page title, a one-sentence hook, three to five benefits each tied to a feature from the technical sheet, a features list, price and conditions exactly as given, three to five questions and answers from the customer questions attached, and one call to action. Add a search-engine title (under 60 characters) and description (under 155 characters). Length may go up to 450 words."
+    },
+    {
+      "id": "campaign-report",
+      "brief": "report",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Compte rendu de campagne",
+          "description": "Résultats, enseignements, suite",
+          "hint": "Quelle campagne ? Ex. « Bilan de la campagne d'automne : annonces, newsletter et salon »",
+          "attach": "Les exports de résultats (annonces, e-mailing, site), le budget et les factures, les objectifs de départ",
+          "produces": "Un bilan : objectifs vs résultats, chiffres par canal, coûts, ce qui a marché ou non, recommandations",
+          "deliverable": "Bilan de campagne",
+          "checks": ["Chaque taux et coût calculé", "La comparaison aux objectifs", "Les écarts entre exports"]
+        },
+        "en": {
+          "label": "Campaign report",
+          "description": "Results, lessons, next steps",
+          "hint": "Which campaign? E.g. “Review of the autumn campaign: ads, newsletter and trade fair”",
+          "attach": "The results exports (ads, e-mailing, website), the budget and invoices, the initial objectives",
+          "produces": "A review: objectives vs results, figures per channel, costs, what worked or not, recommendations",
+          "deliverable": "Campaign report",
+          "checks": ["Every rate and cost computed", "The comparison with objectives", "Discrepancies between exports"]
+        }
+      },
+      "mission": "Write the report of a marketing campaign. What the person asked for: {subject}\n\nCompare each objective with its result in a table. Give figures per channel (reach, clicks, leads, sales, cost) from the exports, compute rates and cost per lead or per sale with the calculation shown, and compare actual spend with the budget. When two exports disagree on a figure, show both. End with what to keep, stop or test next time, each tied to a figure."
+    },
+    {
+      "id": "claims-review",
+      "brief": "review",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Relecture avant publication",
+          "description": "Vérifier un support avant diffusion",
+          "hint": "Quel support ? Ex. « Relire la brochure 2027 avant impression, surtout les chiffres et promesses »",
+          "attach": "Le support à relire (texte, brochure, page), les documents qui prouvent les chiffres, votre charte",
+          "produces": "Une relecture : passages problématiques cités, problème (preuve, cohérence, ton, mention manquante) et formulation proposée",
+          "deliverable": "Relecture",
+          "checks": ["Chaque affirmation sans preuve", "Les écarts avec la charte", "Les mentions légales à faire valider"]
+        },
+        "en": {
+          "label": "Pre-publication review",
+          "description": "Check material before release",
+          "hint": "Which material? E.g. “Review the 2027 brochure before printing, especially figures and promises”",
+          "attach": "The material to review (text, brochure, page), the documents that prove the figures, your charter",
+          "produces": "A review: problematic passages quoted, issue (proof, consistency, tone, missing mention) and suggested wording",
+          "deliverable": "Review",
+          "checks": ["Every claim without proof", "Departures from the charter", "Legal mentions to have validated"]
+        }
+      },
+      "mission": "Review a piece of marketing material before publication. What the person asked for: {subject}\n\nQuote each passage that raises an issue and classify it: claim without proof in the documents, figure inconsistent with its source, superlative or comparison, person or client named without consent, departure from the charter, typo or inconsistency. Propose a sober replacement wording for each. List mentions that seem missing (price conditions, offer dates) as questions for a specialist, not as legal advice."
+    }
+  ],
+  "notes": [
+    {
+      "name": "marketing-charte-editoriale",
+      "i18n": {
+        "fr": {
+          "title": "Charte éditoriale",
+          "description": "Ton, vocabulaire, règles par canal (hashtags, émojis, longueur) et mots interdits — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment l'entreprise s'exprime.\n\n- Ton en trois mots : [À compléter : ex. sobre, concret, chaleureux]\n- Vouvoiement ou tutoiement selon le canal : [À compléter]\n- Nom de l'entreprise et des produits (orthographe exacte) : [À compléter]\n- Mots à utiliser / à éviter : [À compléter]\n\n| Canal | Longueur | Hashtags | Émojis | Rythme |\n|---|---|---|---|---|\n| [À compléter : ex. LinkedIn] | [À compléter] | [À compléter] | [À compléter] | [À compléter : ex. 2 par semaine] |"
+        },
+        "en": {
+          "title": "Editorial charter",
+          "description": "Tone, vocabulary, rules per channel (hashtags, emojis, length) and banned words — for the team to fill in.",
+          "body": "This note tells the agent how the company speaks.\n\n- Tone in three words: [To fill: e.g. sober, concrete, warm]\n- Formal or informal address per channel: [To fill]\n- Company and product names (exact spelling): [To fill]\n- Words to use / to avoid: [To fill]\n\n| Channel | Length | Hashtags | Emojis | Rhythm |\n|---|---|---|---|---|\n| [To fill: e.g. LinkedIn] | [To fill] | [To fill] | [To fill] | [To fill: e.g. 2 per week] |"
+        }
+      }
+    },
+    {
+      "name": "marketing-preuves-et-chiffres",
+      "i18n": {
+        "fr": {
+          "title": "Preuves, chiffres clés et références autorisées",
+          "description": "Les chiffres que l'on peut publier avec leur source, et les clients ou partenaires qui ont accepté d'être cités — à compléter par l'équipe.",
+          "body": "L'agent ne publie que les chiffres et références listés ici ou prouvés par les documents joints.\n\n| Chiffre ou affirmation | Source | Valable jusqu'au |\n|---|---|---|\n| [À compléter : ex. 1'200 interventions en 2026] | [À compléter : rapport annuel] | [À compléter] |\n\n| Client ou partenaire citable | Accord (date, forme) | Citation validée |\n|---|---|---|\n| [À compléter] | [À compléter] | [À compléter] |"
+        },
+        "en": {
+          "title": "Proofs, key figures and approved references",
+          "description": "The figures we may publish with their source, and the clients or partners who agreed to be named — for the team to fill in.",
+          "body": "The agent publishes only the figures and references listed here or proven by the documents attached.\n\n| Figure or claim | Source | Valid until |\n|---|---|---|\n| [To fill: e.g. 1,200 call-outs in 2026] | [To fill: annual report] | [To fill] |\n\n| Client or partner we may name | Consent (date, form) | Approved quote |\n|---|---|---|\n| [To fill] | [To fill] | [To fill] |"
+        }
+      }
+    },
+    {
+      "name": "marketing-cibles-et-messages",
+      "i18n": {
+        "fr": {
+          "title": "Cibles et messages clés",
+          "description": "À qui nous parlons, ce qu'ils attendent et le message principal pour chacun — à compléter par l'équipe.",
+          "body": "L'agent adapte chaque texte à la cible indiquée ici.\n\n| Cible | Ce qu'elle attend | Message clé | Canaux |\n|---|---|---|---|\n| [À compléter : ex. gérances immobilières] | [À compléter] | [À compléter] | [À compléter] |\n\n- Positionnement en une phrase : [À compléter]\n- Région et langues de diffusion : [À compléter]"
+        },
+        "en": {
+          "title": "Audiences and key messages",
+          "description": "Who we speak to, what they expect and the main message for each — for the team to fill in.",
+          "body": "The agent adapts each text to the audience given here.\n\n| Audience | What they expect | Key message | Channels |\n|---|---|---|---|\n| [To fill: e.g. property management agencies] | [To fill] | [To fill] | [To fill] |\n\n- Positioning in one sentence: [To fill]\n- Region and languages of publication: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "marketing-contacts-presse",
+      "i18n": {
+        "fr": {
+          "title": "Contact presse et validation",
+          "description": "Qui parle à la presse, qui valide quoi avant publication et les mentions de l'« À propos » — à compléter par l'équipe.",
+          "body": "- Contact presse (fonction, e-mail générique) : [À compléter]\n- Paragraphe « À propos » validé : [À compléter]\n- Qui valide un communiqué / une publication / une campagne : [À compléter]\n- Délai de validation habituel : [À compléter]\n- Médias et rubriques visés (types, pas de données personnelles) : [À compléter]"
+        },
+        "en": {
+          "title": "Press contact and approval",
+          "description": "Who speaks to the press, who approves what before publication, and the « About us » paragraph — for the team to fill in.",
+          "body": "- Press contact (function, generic e-mail): [To fill]\n- Approved « About us » paragraph: [To fill]\n- Who approves a press release / a post / a campaign: [To fill]\n- Usual approval delay: [To fill]\n- Target media and sections (types, no personal data): [To fill]"
+        }
+      }
+    }
+  ]
+}

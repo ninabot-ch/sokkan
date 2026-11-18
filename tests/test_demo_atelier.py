@@ -175,6 +175,10 @@ def test_the_thread_of_a_finished_work_is_replayed_in_plain_words(demo):
     assert kinds.count("text") == 3 and not any("/" in e.get("subject", "") for e in got if e["type"] == "activity")
     assert refused["type"] == "error" and "Lecture seule" in refused["message"]
     assert demo["turns"] == []
+    # 4.0: the thread comes back through the session contract, read by the engine that keeps it
+    import agentchat
+    engine, items = agentchat.thread_history(sid)
+    assert engine == "legacy" and items and items[0].kind == "prompt"
 
 
 # ---- the visitor writes nothing -------------------------------------------------------------

@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "backend" / "runner" / "pod"))
 FAKE_CLI = [sys.executable, str(ROOT / "tests" / "fixtures" / "fake_claude_cli.py")]
 
 import runner  # noqa: E402
+from harness import legacy  # noqa: E402
 from runner import base, common, mounts  # noqa: E402
 from runner.base import Handle, SessionRunner, SessionSpec  # noqa: E402
 
@@ -63,7 +64,7 @@ def test_feature_follows_sokkan_runner(monkeypatch):
 
 
 def test_local_runner_leaves_the_sdk_path_unchanged():
-    opts, transport = runner.client_args("abc", {"cwd": "/tmp", "allowed_tools": ["Read"]})
+    opts, transport = legacy.client_args("abc", {"cwd": "/tmp", "allowed_tools": ["Read"]})
     assert transport is None
     assert opts.allowed_tools == ["Read"] and str(opts.cwd) == "/tmp"
 
@@ -256,7 +257,7 @@ def test_sdk_session_over_a_runner_with_approval(monkeypatch):
                                  "env": {"SOKKAN_SESSION_USER": "a@b"}}}
 
     async def go():
-        opts, transport = runner.client_args(
+        opts, transport = legacy.client_args(
             "sid-1", {"cwd": "/tmp", "can_use_tool": can_use_tool, "mcp_servers": servers,
                       "env": {**os.environ, "STRIPE_KEY": "v"}}, user="a@b", project="alpha")
         spec = transport.spec

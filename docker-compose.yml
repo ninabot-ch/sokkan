@@ -42,6 +42,28 @@ services:
       SOKKAN_TZ: ${SOKKAN_TZ:-Europe/Zurich}
       SOKKAN_PUBLIC_URL: ${SOKKAN_PUBLIC_URL:-http://localhost:3009}
       SOKKAN_TIER: ${SOKKAN_TIER:-}
+      # 4.0 kernel engine (experimental; docker-compose.kernel.yml, profile `kernel`): where the
+      # api reaches the kernel service and its local token; empty = the defaults of
+      # backend/harness/kernel.py (http://kernel:8742, /run/kernel/local-token)
+      SOKKAN_KERNEL_URL: ${SOKKAN_KERNEL_URL:-}
+      SOKKAN_KERNEL_TOKEN: ${SOKKAN_KERNEL_TOKEN:-}
+      SOKKAN_KERNEL_TOKEN_FILE: ${SOKKAN_KERNEL_TOKEN_FILE:-}
+      SOKKAN_KERNEL_CWD_MAP: ${SOKKAN_KERNEL_CWD_MAP:-}
+      SOKKAN_KERNEL_MCP_STDIO: ${SOKKAN_KERNEL_MCP_STDIO:-}
+      # kernel tools no cockpit session gets, comma list; unset = memory_note, set empty = none
+      # (the Atelier's shell + memory_note stay removed by the code whatever this says)
+      SOKKAN_KERNEL_DENY_TOOLS: ${SOKKAN_KERNEL_DENY_TOOLS-memory_note}
+      # 1 = the kernel's local.mcp_session_headers is on: per-session headers for the MCP servers
+      SOKKAN_KERNEL_MCP_HEADERS: ${SOKKAN_KERNEL_MCP_HEADERS:-}
+      # docker = the kernel runs a run's tools in a sandbox (paths handed as /workspace)
+      SOKKAN_KERNEL_SANDBOX: ${SOKKAN_KERNEL_SANDBOX:-}
+      # 0 = an Atelier work's brief rides in its first message instead of the kernel session's
+      # system prompt (kernel host-prompt); kept by thread under SOKKAN_KERNEL_PROMPT_DIR
+      # (default <data>/kernel-prompts)
+      SOKKAN_KERNEL_HOST_PROMPT: ${SOKKAN_KERNEL_HOST_PROMPT:-1}
+      SOKKAN_KERNEL_PROMPT_DIR: ${SOKKAN_KERNEL_PROMPT_DIR:-}
+      # 1 = the kernel adds its own language line to every turn too (default: SOKKAN's line only)
+      SOKKAN_KERNEL_LANG_HINT: ${SOKKAN_KERNEL_LANG_HINT:-}
       # daily update check (see .env.example); version written by install.sh
       SOKKAN_VERSION: ${SOKKAN_VERSION:-dev}
       SOKKAN_UPDATE_CHECK: ${SOKKAN_UPDATE_CHECK:-1}
@@ -104,6 +126,8 @@ services:
       SOKKAN_ASSISTANT_LLM_FALLBACK_API: ${SOKKAN_ASSISTANT_LLM_FALLBACK_API:-}
       SOKKAN_ASSISTANT_DAILY_LIMIT: ${SOKKAN_ASSISTANT_DAILY_LIMIT:-}
       SOKKAN_ASSISTANT_MAX_TOKENS: ${SOKKAN_ASSISTANT_MAX_TOKENS:-}
+      # 4.0: 1 = Nina keeps the model's reasoning pass (OpenAI door; off = an answer in seconds)
+      SOKKAN_ASSISTANT_THINKING: ${SOKKAN_ASSISTANT_THINKING:-}
       # API flotte : le client gère/étend son infra depuis le cockpit
       SOKKAN_FLEET_URL: ${SOKKAN_FLEET_URL:-}
       SOKKAN_FLEET_TOKEN: ${SOKKAN_FLEET_TOKEN:-}
@@ -155,6 +179,15 @@ services:
       SOKKAN_DOC_INGEST_MAX_MINUTES_PER_PASS: ${SOKKAN_DOC_INGEST_MAX_MINUTES_PER_PASS:-}
       SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE: ${SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE:-}
       SOKKAN_DOC_INGEST_AUTO_RESUME: ${SOKKAN_DOC_INGEST_AUTO_RESUME:-}
+      # 4.0 connectors (experimental, docs/enterprise/CONNECTORS.md) — off by default: mail,
+      # calendar and shared documents AS the person; every send / event / deposit on a card.
+      SOKKAN_FEATURE_CONNECTORS: ${SOKKAN_FEATURE_CONNECTORS:-}
+      SOKKAN_CONNECTORS_DEMO: ${SOKKAN_CONNECTORS_DEMO:-}
+      SOKKAN_CONNECTORS_MODEL_ZONE: ${SOKKAN_CONNECTORS_MODEL_ZONE:-}
+      SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE: ${SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE:-}
+      SOKKAN_CONNECTORS_GRAPH_URL: ${SOKKAN_CONNECTORS_GRAPH_URL:-}
+      SOKKAN_CONNECTORS_LOGIN_URL: ${SOKKAN_CONNECTORS_LOGIN_URL:-}
+      SOKKAN_CONNECTORS_ALLOW_PLAIN: ${SOKKAN_CONNECTORS_ALLOW_PLAIN:-}
       SOKKAN_SMTP_HOST: ${SOKKAN_SMTP_HOST:-}
       SOKKAN_SMTP_PORT: ${SOKKAN_SMTP_PORT:-587}
       SOKKAN_SMTP_USER: ${SOKKAN_SMTP_USER:-}
@@ -312,6 +345,34 @@ services:
       SOKKAN_FEATURE_SIMPLE_PROFILE: ${SOKKAN_FEATURE_SIMPLE_PROFILE:-}
       SOKKAN_PROFILE_DEFAULT: ${SOKKAN_PROFILE_DEFAULT:-technical}
       SOKKAN_PROFILE_LOCKED: ${SOKKAN_PROFILE_LOCKED:-0}
+      # 4.0 job kits of the Atelier: a folder of extra job files (*.json) read after the built-in ones
+      SOKKAN_ROLES_DIR: ${SOKKAN_ROLES_DIR:-}
+      # 4.0 quality gate before the card of a deliverable (backend/qualitygate.py): off = no check
+      SOKKAN_REVIEW: ${SOKKAN_REVIEW:-on}
+      # the strong reviewer (OpenAI-compatible /v1, e.g. the Router's Deep); empty = no strong review
+      SOKKAN_REVIEW_URL: ${SOKKAN_REVIEW_URL:-}
+      SOKKAN_REVIEW_MODEL: ${SOKKAN_REVIEW_MODEL:-}
+      SOKKAN_REVIEW_KEY: ${SOKKAN_REVIEW_KEY:-}
+      SOKKAN_REVIEW_KEY_FILE: ${SOKKAN_REVIEW_KEY_FILE:-}
+      # JSON merged into each review request (e.g. {"reasoning_effort":"none"})
+      SOKKAN_REVIEW_EXTRA: ${SOKKAN_REVIEW_EXTRA:-}
+      # the machine's own model: reviews the projects whose data stays on the machine
+      SOKKAN_REVIEW_LOCAL_URL: ${SOKKAN_REVIEW_LOCAL_URL:-}
+      SOKKAN_REVIEW_LOCAL_MODEL: ${SOKKAN_REVIEW_LOCAL_MODEL:-}
+      SOKKAN_REVIEW_LOCAL_KEY: ${SOKKAN_REVIEW_LOCAL_KEY:-}
+      SOKKAN_REVIEW_LOCAL_KEY_FILE: ${SOKKAN_REVIEW_LOCAL_KEY_FILE:-}
+      SOKKAN_REVIEW_LOCAL_EXTRA: ${SOKKAN_REVIEW_LOCAL_EXTRA:-}
+      # highest project level sent to the strong reviewer (0 public … 2 project; 3 confidential = never)
+      SOKKAN_REVIEW_REMOTE_MAX_LEVEL: ${SOKKAN_REVIEW_REMOTE_MAX_LEVEL:-2}
+      # 0 = the corrected version is not reviewed again by the model (the deterministic pass still is)
+      SOKKAN_REVIEW_RECHECK: ${SOKKAN_REVIEW_RECHECK:-1}
+      # on = the agent also corrects what the model's review found, before the card (off: the
+      # review feeds the card « à vérifier par vous »; figures/names/law and unread documents
+      # always send the agent back)
+      SOKKAN_QUALITY_REWRITE: ${SOKKAN_QUALITY_REWRITE:-off}
+      # the organisation's country (Swiss law and formats by default) and address form (vous | tu)
+      SOKKAN_ORG_COUNTRY: ${SOKKAN_ORG_COUNTRY:-CH}
+      SOKKAN_ORG_ADDRESS_FORM: ${SOKKAN_ORG_ADDRESS_FORM:-vous}
       # « Export our work »: an admin's zip of notes, tools and deliverables (docs/enterprise/OPERATIONS.md)
       SOKKAN_FEATURE_WORK_EXPORT: ${SOKKAN_FEATURE_WORK_EXPORT:-}
       # helm — 3.3 (docs/HELM.md) : hiérarchie de cartes, avancement calculé, suggestions de
@@ -329,6 +390,11 @@ services:
       # to COMPOSE_FILE (it sets the variables below); kubernetes = the Helm chart.
       SOKKAN_FEATURE_KUBERNETES_RUNNER: ${SOKKAN_FEATURE_KUBERNETES_RUNNER:-}
       SOKKAN_RUNNER: ${SOKKAN_RUNNER:-local}
+      # 4.0 session layer (backend/harness): the engine of new sessions and runs. Empty = the
+      # first declared one, `legacy` (the Claude Code CLI) — the only engine of this release
+      SOKKAN_ENGINE_RUNTIME: ${SOKKAN_ENGINE_RUNTIME:-}
+      # days the cockpit keeps the journal of each run's events (run_events.db); 0 = forever
+      SOKKAN_RUN_EVENTS_DAYS: ${SOKKAN_RUN_EVENTS_DAYS:-}
       # docker runner : valeurs posées par docker/runner/compose.docker-runner.yml (vide = défauts)
       SOKKAN_SESSION_IMAGE: ${SOKKAN_SESSION_IMAGE:-}
       SOKKAN_RUNNER_MOUNTS: ${SOKKAN_RUNNER_MOUNTS:-}

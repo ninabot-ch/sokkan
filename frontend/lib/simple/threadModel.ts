@@ -4,13 +4,20 @@
 import type { AgentQuestion } from "@/lib/agent";
 import type { Engine, PlainEvent, TechDetail } from "@/lib/simple/api";
 
+/** 4.0 — every kind of approval card the backend sends (backend/approvalcard.py): each has its
+ *  headline (`ap.<kind>`) and what « Allow » does (`ap.yes.<kind>`) in both dictionaries; an
+ *  unknown kind falls back on `ap.other` and still shows its facts, never a blind « an action ». */
+export const APPROVAL_KINDS = ["write_draft", "write_file", "save_memory", "run_command", "web_search", "web_read",
+  "delegate", "board_card", "board_change", "create_agent", "agent_change", "mail_draft", "calendar_event",
+  "shared_file", "tool"];
+
 /** `denied` = the person said no (neutral, never orange); `skipped` = a rule of the space
  *  turned the call away and the agent went on otherwise (not shown in the thread) — 3.6.7 */
 export interface Act { id: string; kind: string; subject: string; state: "live" | "done" | "fail" | "denied" | "skipped"; detail: TechDetail }
 export type Approval = Extract<PlainEvent, { type: "approval" }>;
 export type Item =
   | { k: "user"; text: string; docs: { id: string; name: string }[] }
-  | { k: "text"; text: string; engine?: Engine }
+  | { k: "text"; text: string; engine?: Engine; pending?: boolean }
   | { k: "acts"; acts: Act[] }
   | { k: "approval"; ev: Approval; decided?: "allow" | "deny" }
   | { k: "deliverable"; name: string; title: string; version: number; engine?: Engine }
@@ -20,7 +27,19 @@ export type Item =
 export function reduce(items: Item[], e: PlainEvent): Item[] {
   switch (e.type) {
     case "user": return [...items, { k: "user", text: e.text, docs: e.documents || [] }];
-    case "text": return [...items, { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}) }];
+    // `pending`: written while a decision is awaited (an engine whose approval ends its turn):
+    // a discreet note, the answer comes after the decision
+    case "text": {
+      const item: Item = { k: "text", text: e.text, ...(e.engine ? { engine: e.engine } : {}), ...(e.pending ? { pending: true } : {}) };
+      if (e.supersedes) {
+        // 4.0: SOKKAN rewrote the delivery message from the saved file (the agent's was false):
+        // it takes the place of the agent's last answer
+        for (let i = items.length - 1; i >= 0 && items[i].k !== "user"; i--) {
+          if (items[i].k === "text") return [...items.slice(0, i), item, ...items.slice(i + 1)];
+        }
+      }
+      return [...items, item];
+    }
     case "activity": {
       const act: Act = { id: e.id, kind: e.kind, subject: e.subject, state: "live", detail: e.detail };
       const last = items[items.length - 1];

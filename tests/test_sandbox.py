@@ -17,6 +17,7 @@ import shutil
 import subprocess
 
 import pytest
+from harness_helpers import ask, drain
 
 BW = os.environ.get("SOKKAN_TEST_BWRAP") or shutil.which("bwrap") or ""
 
@@ -231,8 +232,9 @@ class _FakeClient:
 
 def _start(sid, monkeypatch, mode="default"):
     import agentchat
-    monkeypatch.setattr(agentchat, "ClaudeSDKClient", _FakeClient)
-    monkeypatch.setattr(agentchat.memrecall, "sdk_hooks", lambda *a, **k: {})
+    from harness import legacy
+    monkeypatch.setattr(legacy, "ClaudeSDKClient", _FakeClient)
+    monkeypatch.setattr(agentchat.memrecall, "provider", lambda *a, **k: None)
     s = agentchat.AgentSession(sid, cwd=agentchat.project_cwd(sid), user="alice@x")
     s.mode = mode
     asyncio.new_event_loop().run_until_complete(s.ensure_started())
@@ -254,11 +256,11 @@ def test_session_of_a_project_is_confined(world, monkeypatch):
     # defence in depth in the permission callback (bypass mode would allow anything)
     s.mode = "bypassPermissions"
     res = asyncio.new_event_loop().run_until_complete(
-        s._can_use_tool("Read", {"file_path": world["tv_secret"]}, None))
-    assert type(res).__name__ == "PermissionResultDeny"
+        ask(s, "Read", {"file_path": world["tv_secret"]}))
+    assert res.denied
     res = asyncio.new_event_loop().run_until_complete(
-        s._can_use_tool("Bash", {"command": "id"}, None))
-    assert type(res).__name__ == "PermissionResultDeny"       # hooks-only: no Bash
+        ask(s, "Bash", {"command": "id"}))
+    assert res.denied       # hooks-only: no Bash
 
 
 def test_hooks_only_bash_refusal_is_explicit_in_the_session(world, monkeypatch):
@@ -278,8 +280,9 @@ def test_hooks_only_bash_refusal_is_explicit_in_the_session(world, monkeypatch):
             {"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None))
         assert _denied(out)
         assert out["hookSpecificOutput"]["permissionDecisionReason"].startswith(sandbox.BASH_OFF)
-    res = loop.run_until_complete(s._can_use_tool("Bash", {"command": "id"}, None))
-    assert type(res).__name__ == "PermissionResultDeny" and res.message == sandbox.BASH_OFF
+        drain(s)             # the session consumes what the engine's hook said
+    res = loop.run_until_complete(ask(s, "Bash", {"command": "id"}))
+    assert res.denied and res.message == sandbox.BASH_OFF
     notes = [e for e in s.events if e.get("type") == "sandbox" and e.get("denied") == "Bash"]
     assert notes == [{"type": "sandbox", "mode": "hooks-only", "message": sandbox.BASH_OFF,
                       "denied": "Bash"}]
@@ -295,12 +298,12 @@ def test_default_keeps_its_behaviour(world, monkeypatch):
     assert getattr(opts, "add_dirs", []) == []
     s.mode = "bypassPermissions"
     res = asyncio.new_event_loop().run_until_complete(
-        s._can_use_tool("Read", {"file_path": world["tv_secret"]}, None))
-    assert type(res).__name__ == "PermissionResultAllow"
+        ask(s, "Read", {"file_path": world["tv_secret"]}))
+    assert res.allowed
     res = asyncio.new_event_loop().run_until_complete(
-        s._can_use_tool("Bash", {"command": f"cat {world['tv_secret']}"}, None))
-    assert type(res).__name__ == "PermissionResultAllow"
-    assert res.updated_input == {"command": f"cat {world['tv_secret']}"}
+        ask(s, "Bash", {"command": f"cat {world['tv_secret']}"}))
+    assert res.allowed
+    assert res.input == {"command": f"cat {world['tv_secret']}"}
 
 
 def test_feature_off_keeps_the_lot3_behaviour(world, monkeypatch):

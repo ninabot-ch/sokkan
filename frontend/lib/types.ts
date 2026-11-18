@@ -10,6 +10,8 @@ export interface Message {
   role: Role;
   kind: "text" | "thinking" | "tool" | "chip" | "note" | "tool_result_orphan";
   text?: string;
+  // written by the engine while one of its approvals waited (4.0 kernel engine): a quieter text
+  pending?: boolean;
   // tool
   tool?: string;
   title?: string;

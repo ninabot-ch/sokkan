@@ -348,7 +348,7 @@ What holds state:
 
 | Where | Content | Criticality |
 |---|---|---|
-| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately. With the **openbao** provider (3.3) the volume holds no key (`*.key.wrapped` only) and the project secrets are in OpenBao: [SECRETS.md](SECRETS.md) |
+| volume `sokkan-data` (`/data`) | SQLite: `board.db`, `agents.db`, `projects.db`, `iam.db`, `audit.db`, `usage.db`, `usage_events.db`, `incidents.db`, `assistant.db`; `vault.key` + `vault.json` (secrets, Fernet); `forge.key` (GitLab tokens in `projects.db`, lot 5); `session.key`; `llm.json`, `settings.json`, `notify.json`; per-project memory directories and workspaces; `memory-quarantine/` | **critical** — `vault.key` is the only key to `vault.json`: back it up, store it separately. With the **openbao** provider (3.3) the volume holds no key (`*.key.wrapped` only) and the project secrets are in OpenBao: [SECRETS.md](SECRETS.md) |
 | volume `sokkan-pg` | CortHeXis (Postgres + pgvector: notes, links, versions, recall log) | critical |
 | `SOKKAN_WORKSPACE` | the code sessions work on (also in your forge) | per your forge policy |
 | `.env` | configuration and secrets (0600) | critical, store in your secrets manager |
@@ -373,7 +373,7 @@ as a hidden `.partial` directory and renamed at the end, so a failed run leaves 
 |---|---|
 | `pg.dump` | `pg_dump -Fc` of the CortHeXis store (absent on a SQLite-only install) |
 | `data.tgz` | the whole data directory (`/data`) **except the key files** (`vault.key`, and since 3.3 `forge.key`, `teams.key`) |
-| `vault.key.enc`, `forge.key.enc`, `teams.key.enc` | each key file present, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase (file provider). Since 4.0 the key is preceded by a first line `sokkan-key/1` (MANIFEST `key_tag`): restore checks it, so a wrong passphrase is always refused (CBC padding alone lets about one in 256 through). By hand: `openssl enc -d -aes-256-cbc -pbkdf2 -in vault.key.enc \| tail -n +2` |
+| `vault.key.enc`, `forge.key.enc`, `teams.key.enc`, `engine-identity.key.enc` (4.0) | each key file present, `openssl enc -aes-256-cbc -pbkdf2 -salt` with your passphrase (file provider). Since 4.0 the key is preceded by a first line `sokkan-key/1` (MANIFEST `key_tag`): restore checks it, so a wrong passphrase is always refused (CBC padding alone lets about one in 256 through). By hand: `openssl enc -d -aes-256-cbc -pbkdf2 -in vault.key.enc \| tail -n +2` |
 | `VAULT_KEY_NOT_INCLUDED.txt` | instead of the above when no passphrase is given: back the key files up separately |
 | `secrets.openbao.json`, `OPENBAO_REQUIRED.txt` | openbao provider: the KV secrets, each encrypted by transit — **no key in the set**; restoring needs the same OpenBao ([SECRETS.md § 8](SECRETS.md#8-backups)) |
 | `MANIFEST` | SOKKAN version, UTC date, mode, SQLite databases found, sha256 of every file |

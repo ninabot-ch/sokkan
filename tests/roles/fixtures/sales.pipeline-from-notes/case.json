@@ -1,0 +1,20 @@
+{
+  "template": "sales.pipeline-from-notes",
+  "lang": "fr",
+  "ask": "Fais-moi le pipeline de toutes mes affaires d'octobre et novembre à partir de mes notes, avec l'état le plus récent de chaque affaire.",
+  "documents": [
+    {"name": "Notes commerciales octobre 2026.docx", "source": "notes-octobre.md", "as_docx": true},
+    {"name": "Notes commerciales novembre 2026.docx", "source": "notes-novembre.md", "as_docx": true}
+  ],
+  "must_contain": [
+    ["Morand"],
+    ["17'480", "17 480", "17480"],
+    ["Rochat"],
+    ["13'250", "13 250", "13250"],
+    ["Tilleuls"],
+    ["Vuilleumier"],
+    ["6'900", "6 900", "6900"],
+    ["22'300", "22 300", "22300"]
+  ],
+  "min_rows": 6
+}

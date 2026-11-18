@@ -268,7 +268,7 @@ REGISTRY: tuple[Feature, ...] = (
             "knowledge base; paid in the guaranteed offer, the user's own model in open source.",
             vars=_t("assistant", Var("SOKKAN_FEATURE_ASSISTANT", parse_zero_off, True, "0 = off, anything else = on")),
             config=("SOKKAN_ASSISTANT_LLM_URL", "SOKKAN_ASSISTANT_LLM_MODEL",
-                    "SOKKAN_ASSISTANT_MAX_TOKENS"),
+                    "SOKKAN_ASSISTANT_MAX_TOKENS", "SOKKAN_ASSISTANT_THINKING"),
             check=_assistant_check),
     Feature("missions_link", "SOKKAN Missions link",
             "Header link to the public SOKKAN Missions marketplace, with a counter this instance "
@@ -306,7 +306,8 @@ REGISTRY: tuple[Feature, ...] = (
                                             True, "1 = on")), doc=A),
     Feature("four_eyes", "Four-eyes approval",
             "Activating an agent (or a change to an approved one) needs ANOTHER person than its "
-            "proposer and its owner.",
+            "proposer and its owner. A session whose approval was delegated to a reviewer "
+            "(shared_review) has its requests approved by another person than its owner.",
             defaults=_ed(False, True), requires=("agents",), conflicts=("admin_approval",),
             vars=_t("four_eyes", Var("SOKKAN_AGENTS_APPROVAL", _mode(("four_eyes",), ("owner", "admin")),
                                      True, "four_eyes = on, owner/admin = off")), doc=A),
@@ -536,6 +537,22 @@ REGISTRY: tuple[Feature, ...] = (
                     "SOKKAN_DOC_INGEST_MAX_MINUTES_PER_PASS",
                     "SOKKAN_DOC_INGEST_REVIEW_MIN_SAMPLE", "SOKKAN_DOC_INGEST_AUTO_RESUME"),
             check=_doc_ingest_check, doc="docs/enterprise/DOC-INGEST.md"),
+    Feature("connectors", "Connectors (mail, calendar, shared documents)",
+            "The coworker works where things are: the person's mailbox (Microsoft 365 or "
+            "IMAP/SMTP), calendar (Microsoft 365, CalDAV, ICS) and shared documents (SharePoint / "
+            "OneDrive, WebDAV, a network folder mounted on the host), read on demand by a session "
+            "AS the person (delegated OAuth per person or their own login, credentials encrypted). "
+            "A reply is written as a DRAFT in the person's own mailbox; sending a mail, creating an "
+            "event or depositing a deliverable in a shared folder only happens on an approval card "
+            "the person decides in SOKKAN, journaled. The project's classification decides whether "
+            "content may reach the session's model (confidential and above: Swiss or local model "
+            "only). A demo provider (invented data) for trainings and tests.",
+            status="experimental", defaults=_both(False),
+            vars=_t("connectors"),
+            config=("SOKKAN_CONNECTORS_DEMO", "SOKKAN_CONNECTORS_MODEL_ZONE",
+                    "SOKKAN_CONNECTORS_MAX_LEVEL_OFFSHORE", "SOKKAN_CONNECTORS_GRAPH_URL",
+                    "SOKKAN_CONNECTORS_LOGIN_URL", "SOKKAN_CONNECTORS_ALLOW_PLAIN"),
+            doc="docs/enterprise/CONNECTORS.md"),
     Feature("connect_ai", "Connect your AI",
             "Setup › Engines: one screen to connect the engines (Claude login or key, OpenAI/Codex, Gemini, "
             "OpenRouter, SOKKAN Router, Ollama/local, Magnitude). Personal mode (community: "

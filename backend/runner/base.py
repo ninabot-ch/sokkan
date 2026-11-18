@@ -18,10 +18,11 @@ usage          resources measured by the platform (CPU millicores, memory bytes)
 list_live      the live sessions of this instance (startup reconciliation, GC)
 =============  ===========================================================================
 
-In the cockpit, a session is still driven by the Claude Agent SDK (`agentchat.AgentSession`):
+In the cockpit, a session of this engine is still driven by the Claude Agent SDK
+(`harness.legacy.LegacyHarness`):
 permissions, questions, hooks (memory recall), budgets and event translation do not change.
 For `local` the SDK spawns the CLI itself (behaviour byte-identical to 3.1). For `docker` and
-`kubernetes`, `RunnerTransport` (an SDK `Transport`) carries the same stream-json protocol to
+`kubernetes`, `harness.legacy.RunnerTransport` (an SDK `Transport`) carries the same stream-json protocol to
 the session supervisor running in the container (backend/runner/pod/supervisor.py).
 """
 from __future__ import annotations
@@ -38,7 +39,7 @@ STREAM_LIMIT = 64 * 1024 * 1024
 # variables of the api's environment that a session legitimately needs (model access);
 # everything else of the api (DB URLs, OIDC secrets, vault key…) never reaches a container
 ENV_PASS_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_", "CLAUDE_AGENT_SDK_")
-ENV_PASS_EXACT = ("DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "NO_PROXY")
+ENV_PASS_EXACT = ("DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "NO_PROXY", "ENABLE_TOOL_SEARCH")
 # never forwarded, even when the session env sets them (the container sets its own)
 ENV_DROP = ("HOME", "PATH", "PWD", "CLAUDE_CONFIG_DIR", "HOSTNAME", "SHLVL", "_",
             "SOKKAN_SESSION_TOKEN", "SOKKAN_RELAY_TOKEN", "SOKKAN_RELAY_ADDR")
@@ -87,7 +88,7 @@ class Resources:
 
 @dataclass
 class SessionSpec:
-    """Everything a runner needs to start one session. Built by `runner.client_args`."""
+    """Everything a runner needs to start one session. Built by `harness.legacy.client_args`."""
     sid: str
     argv: list[str]                     # the CLI command line (stream-json, MCP via relay)
     cwd: str                            # the session's working directory, api-side path

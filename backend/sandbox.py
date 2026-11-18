@@ -415,37 +415,6 @@ def decide(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str,
     return {}
 
 
-def sdk_hooks(*, sid: str, user: str, project: str, cwd: str,
-              auto_rules: list[str] | None = None, env_names: list[str] | tuple = (),
-              forge_socket: str | None = None, on_bash_off=None) -> dict:
-    """`ClaudeAgentOptions.hooks` entries confining one session ({} when not applicable).
-    ``on_bash_off()`` is called when Bash is refused because the sandbox is hooks-only
-    (the session shows it to the person, not only to the model)."""
-    if not applies(project):
-        return {}
-    from claude_agent_sdk import HookMatcher  # type: ignore
-    script = (wrapper_script(sid, project, cwd, env_names, forge_socket)
-              if mode() == BWRAP else None)
-
-    async def pre_tool(payload, _tool_use_id, _context):
-        try:
-            tool = str(payload.get("tool_name") or "")
-            out = decide(tool, payload.get("tool_input") or {},
-                         sid=sid, user=user, project=project, cwd=cwd, script=script,
-                         auto_rules=auto_rules, pod=mode() == POD)
-            if (tool == "Bash" and on_bash_off is not None and mode() == HOOKS
-                    and out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"):
-                try:
-                    on_bash_off()
-                except Exception:  # noqa: BLE001 — the refusal stands regardless
-                    pass
-            return out
-        except Exception as e:  # noqa: BLE001 — fail closed
-            return _deny(f"Sandbox check failed: {e!r}")
-
-    return {"PreToolUse": [HookMatcher(matcher=HOOK_MATCHER, hooks=[pre_tool])]}
-
-
 def recheck(tool: str, inp: dict, *, sid: str, user: str, project: str, cwd: str) -> dict | str:
     """After a human approval (the browser may send an edited input): the input that will
     really run, or the reason it may not. Bash is (re)wrapped; file paths re-checked."""

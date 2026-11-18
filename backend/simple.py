@@ -32,8 +32,8 @@ import documents
 import plain
 
 DELIVERABLES = "deliverables"
-PREVIEW_EXT = ("md", "markdown", "txt")
-LISTED_EXT = PREVIEW_EXT + ("csv", "html", "json")
+PREVIEW_EXT = ("md", "markdown", "txt", "csv")   # csv (4.0 job kits): previewed as a table
+LISTED_EXT = PREVIEW_EXT + ("html", "json")
 MAX_DELIVERABLE = 5 * 1024 * 1024
 
 DB = Path(os.environ.get("SOKKAN_SIMPLE_DB") or os.path.join(
@@ -64,6 +64,13 @@ def _con() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS messages_sent (
             sid TEXT NOT NULL, request_id TEXT NOT NULL, at REAL NOT NULL,
             PRIMARY KEY (sid, request_id)
+        );
+        CREATE TABLE IF NOT EXISTS project_roles (
+            project TEXT PRIMARY KEY, role TEXT NOT NULL, by TEXT NOT NULL DEFAULT '', at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS deliverable_checks (
+            sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, report TEXT NOT NULL,
+            at REAL NOT NULL, PRIMARY KEY (sid, name, sha256)
         );
         CREATE TABLE IF NOT EXISTS validations (
             sid TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, by TEXT NOT NULL,
@@ -140,10 +147,26 @@ def claim_message(sid: str, request_id: str) -> bool:
 
 def forget(sid: str) -> None:
     con = _con()
-    for t in ("works", "deliverable_writes", "validations", "messages_sent"):
+    for t in ("works", "deliverable_writes", "validations", "messages_sent", "deliverable_checks"):
         con.execute(f"DELETE FROM {t} WHERE sid=?", (sid,))
     con.commit()
     con.close()
+
+
+# ---- the job a project was set up for (4.0 job kits) -------------------------------------------
+def bind_project_role(project: str, role: str, by: str = "") -> None:
+    con = _con()
+    con.execute("INSERT OR REPLACE INTO project_roles(project, role, by, at) VALUES(?,?,?,?)",
+                (project, role, (by or "").lower().strip(), time.time()))
+    con.commit()
+    con.close()
+
+
+def project_role(project: str) -> str:
+    con = _con()
+    r = con.execute("SELECT role FROM project_roles WHERE project=?", (project,)).fetchone()
+    con.close()
+    return r[0] if r else ""
 
 
 # ---- the brief -----------------------------------------------------------------------------
@@ -156,8 +179,103 @@ def deliverable_dir(project: str, sid: str) -> Path:
     return documents.project_root(project) / DELIVERABLES / sid
 
 
+def house_rules(lang: str) -> list[str]:
+    """4.0 « fiabilité » — the rules of every work, whatever the job: Swiss law and usage by
+    default (the organisation's country), the formal address, Swiss formats, French typography,
+    one value per total, names copied as written. Seen in the persona audit of 17.11.2026: a
+    Swiss register « under article 30 of the GDPR », invented nLPD articles, a reservation and
+    a reason for leaving in a work certificate, « tu » in the middle of a work, « 8 120,50 »."""
+    import factcheck
+    out = []
+    if lang == "fr" and factcheck.org_address_form() == "vous":
+        out.append("- Address the person with the formal « vous » in every message and in the "
+                   "document — never « tu », even when they write « tu ».")
+    if factcheck.org_country() == "CH":
+        out += [
+            "- The organisation is Swiss: Swiss law and usage apply unless the request or the "
+            "documents say otherwise. Personal data = the Swiss nLPD (RS 235.1), not the EU GDPR "
+            "(no « RGPD », « DPO », « hors UE »: « conseiller à la protection des données », "
+            "« communication à l'étranger ») unless the request is about the EU; employment = the "
+            "Code of obligations (CO, RS 220). A work certificate (art. 330a CO) is truthful and "
+            "benevolent: no reservation, no coded wording (« parfois », « s'est efforcé », « à notre "
+            "satisfaction » without « entière »), no praise the documents do not give, no reason "
+            "for leaving unless the documents say the employee asked for it.",
+            "- Cite a law article only when a document gives it; otherwise write « (à vérifier "
+            "par un juriste) » next to it. Never make up an article number.",
+            "- Swiss formats: amounts CHF 8'120.50 (apostrophe for thousands, point for "
+            "decimals), dates 17.11.2026, VAT 8.1 % (normal rate since 2024).",
+        ]
+    if lang == "fr":
+        out.append("- French typography: quotation marks « … », a non-breaking space before "
+                   "« : ; ! ? » and inside « »; proofread spelling and grammar before saving.")
+    out += [
+        "- Compute every total from its lines and give each total ONE value everywhere in the "
+        "document. Copy names exactly as the documents write them: « T. Bovet » stays « T. Bovet » "
+        "(never guess a first name).",
+        "- Before the person sees your document, SOKKAN re-reads it against the documents; if it "
+        "sends you defects, correct that same document once.",
+    ]
+    return out
+
+
+def connected_families(user: str, project: str) -> tuple[set[str], bool]:
+    """The connector families (mail, calendar, files) this person has CONNECTED and that the
+    instance enables, and whether sending is allowed — ({…}, False) when the `connectors`
+    feature is off or absent. Read defensively: the brief never fails on a lookup."""
+    try:
+        import connectors
+        if not connectors.enabled():
+            return set(), False
+        from connectors import service
+        st = service.status(service.Ctx(user or "", project=project or "default"))
+        if not st.get("content_allowed", True):
+            return set(), False
+        fams = {f for f, provs in (st.get("families") or {}).items()
+                if any(p.get("enabled") and p.get("connected") for p in provs or [])}
+        return fams, bool(st.get("allow_send"))
+    except Exception:  # noqa: BLE001 — no connector module, no settings: nothing connected
+        return set(), False
+
+
+def capability_lines(user: str = "", project: str = "default") -> list[str]:
+    """4.0 (audit coworker, 18.11) — what THIS workspace really does, said in the brief: the
+    agent of a work told a project manager « I created an automatic task that e-mails it to you
+    every Friday » with no mail channel at all (it had created a hidden agent). The agent may
+    only promise what is in this list, and says plainly what is not."""
+    fams, send = connected_families(user, project)
+    lines = ["- WHAT YOU CAN DO HERE: read the documents of this project, write and save "
+             "documents in the folder below (each save asks the person's approval), search the "
+             "project's memory, and use the other tools you are given — nothing else."]
+    if "mail" in fams:
+        lines.append("- The person's mailbox is connected: you may read their mail and prepare a "
+                     "DRAFT in their mailbox. " + (
+                         "Sending only happens when they approve the sending card in SOKKAN — "
+                         "say « the draft is ready, approve the sending card », never « sent »."
+                         if send else "Nothing can be sent from here: say the draft is ready in "
+                         "their mailbox and that they send it themselves."))
+    if "calendar" in fams:
+        lines.append("- Their calendar is connected: you may read it; a new event only exists "
+                     "once they approve its card.")
+    if "files" in fams:
+        lines.append("- Their shared folders are connected: you may read them; writing a file "
+                     "there only happens once they approve its card.")
+    missing = [w for f, w in (("mail", "send or receive e-mail"), ("calendar", "read or "
+               "change a calendar"), ("files", "reach their shared folders")) if f not in fams]
+    lines.append("- You CANNOT " + ", ".join(missing + [
+        "schedule or repeat a work automatically (every Friday…)",
+        "create tasks, cards, reminders or agents"]
+        + ([] if "mail" in fams else ["contact anyone"])) + ". "
+        "When they ask for one of these, deliver what you can now (the document), then say in "
+        "one sentence what you cannot do and who can (the person who administers SOKKAN).")
+    lines.append("- Never say you did something you did not do in this conversation (« I sent », "
+                 "« I scheduled », « I created a task »): only what a tool really did, after "
+                 "their approval.")
+    return lines
+
+
 def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
-          docs: list[dict] | None = None, recall: str = "") -> str:
+          docs: list[dict] | None = None, recall: str = "", user: str = "",
+          read_tool: str = "") -> str:
     """The first message the agent receives: the internal brief, then what the person typed."""
     d = deliverable_dir(project, sid)
     d.mkdir(parents=True, exist_ok=True)
@@ -175,10 +293,15 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "not say goes under « Points to confirm ».",
         "- Say which document each important element comes from, by the document's name.",
     ]
+    lines += house_rules(lang)
     doc_lines = documents.agent_lines(docs or [])
     if doc_lines:
-        lines.append("- The person attached these documents. READ each of them (real file "
-                     "reads) before you write anything:")
+        # the ONE reading rule of a work (4.0): it names the engine's real read tool and, with
+        # the kernel, rides in the session's system prompt (kernel.split_first_message)
+        how = f"with the `{read_tool}` tool (a real read of the file) " if read_tool else ""
+        lines.append("- The person attached these documents. Read each attached document "
+                     f"{how}before you write anything; never write from a document's name or "
+                     "from memory; quote no figure, name, date or subject that is not in them:")
         lines += ["  " + ln for ln in doc_lines]
     else:
         lines.append("- No document is attached. If the task needs one, say so in one "
@@ -189,15 +312,24 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
         "person's language as its name (for example « Plan de formation Excel.md ») and start "
         "it with a `# Title` line. The person is asked to approve the save, then previews, "
         "downloads and validates it: do not paste the whole document in the chat. When they "
-        "ask for a change, update that same file.",
+        "ask for a change, update that same file — in ONE save as well: the complete updated "
+        "file at once, with every part the change touches (for a quiz: the new question, its "
+        "answer in the answer key, the numbering and the count), never one edit per part: the "
+        "person approves the document once, as a whole.",
         "- Write the whole document in ONE save (the complete file at once, not a section at a "
         "time). After saving, tell them in two or three sentences what the document contains and "
         "what remains to confirm. Do NOT save another version they did not ask for and do not "
         "offer a « v2 »: each save asks for their approval.",
     ]
+    lines += capability_lines(user, project)
+    lines += _format_lines(lang, d)
     if mission.strip():
         lines += ["", "THE TASK", mission.strip()]
     if recall.strip():
+        try:   # 4.0: the quality gate compares the deliverable with the memory recalled here
+            (d / ".recall.md").write_text(recall, encoding="utf-8")
+        except OSError:
+            pass
         # 3.6.7: « use them when relevant » let the first draft of a quiz ignore the team's
         # quiz charter — a note given in full is a rule of the team for this very task
         lines += ["", recall.strip(),
@@ -208,16 +340,46 @@ def brief(*, ask: str, lang: str, project: str, sid: str, mission: str = "",
     # language rule is only at the top of a long brief (seen on the first timed journey)
     name = LANG_NAME.get(lang, "English")
     tail = (f"<sokkan-brief>Every sentence you write to the person, at every step and in the "
-            f"document itself, is in {name}.</sokkan-brief>")
+            f"document itself, is in {name}"
+            + (", with « vous »" if lang == "fr" and _vous() else "") + ".</sokkan-brief>")
     return "\n".join(lines) + "\n\n" + ask.strip() + "\n\n" + tail
+
+
+def _vous() -> bool:
+    import factcheck
+    return factcheck.org_address_form() == "vous"
+
+
+def _format_lines(lang: str, d: Path) -> list[str]:
+    """4.0 native formats: what the person can get (Excel, Word, PDF, one letter per
+    recipient) and the rule of the figures: SOKKAN computes them (`outputs`)."""
+    try:
+        import outputs
+        import wordtemplates
+        kinds = wordtemplates.kinds()
+    except Exception:  # noqa: BLE001 — the brief never breaks on an optional part
+        return []
+    return outputs.brief_lines(lang, kinds) + [
+        "- Figures: never add up, subtract or multiply in your head. Every total, balance, "
+        "difference or amount derived from others is a FORMULA in a table (`=SUM(ABOVE)`, "
+        "`=[Quantité]*[Prix]`) — in an Excel file AND in a Word document's table. SOKKAN "
+        "computes them: after each save you are given the results (or read the file "
+        f"« {d}/.calc/<file name>.txt »). Quote a computed figure only from there; when you "
+        "cannot, write « see the total in the table ».",
+    ]
 
 
 def follow_up(text: str, new_docs: list[dict], lang: str = "") -> str:
     """A later message; documents attached with it are announced inside a brief block."""
     doc_lines = documents.agent_lines(new_docs)
     if not doc_lines:
-        note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}, in everyday words; update the saved "
-                "document when a change is asked.</sokkan-brief>") if lang in LANG_NAME else ""
+        note = (f"<sokkan-brief>Answer in {LANG_NAME[lang]}"
+                + (" with « vous »" if lang == "fr" and _vous() else "")
+                + ", in everyday words; update the saved "
+                "document when a change is asked — exactly the change asked (to add is to add: "
+                "what is already there stays), rewritten whole in ONE save that carries every "
+                "part the change touches (a new question AND its answer in the key, numbering, "
+                "counts), not one edit per part.</sokkan-brief>") if lang in LANG_NAME else ""
         if text.lstrip().startswith("/"):
             # a message that BEGINS with « / » is a slash command for the CLI: the person read
             # « Unknown command: /deep » (in English, nothing sent to a model) when they put the
@@ -294,6 +456,17 @@ def note_write(sid: str, name: str, tool_id: str, model: str = "") -> int:
     return max(1, n)
 
 
+def note_check(sid: str, name: str, sha256: str, report: dict) -> None:
+    """4.0 — what the quality gate found on exactly this text of a deliverable (qualitygate.card):
+    shown with the deliverable while its text is the one checked."""
+    import json
+    con = _con()
+    con.execute("INSERT OR REPLACE INTO deliverable_checks(sid, name, sha256, report, at) VALUES(?,?,?,?,?)",
+                (sid, name, sha256, json.dumps(report, ensure_ascii=False)[:20000], time.time()))
+    con.commit()
+    con.close()
+
+
 def list_deliverables(project: str, sid: str) -> list[dict]:
     try:
         base = deliverable_dir(project, sid)
@@ -308,6 +481,8 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
     written: dict[str, list[str]] = {}
     for r in con.execute("SELECT name, model FROM deliverable_writes WHERE sid=? ORDER BY rowid", (sid,)):
         written.setdefault(r[0], []).append(r[1] or "")
+    checks = {(r[0], r[1]): r[2] for r in con.execute(
+        "SELECT name, sha256, report FROM deliverable_checks WHERE sid=?", (sid,))}
     vals: dict[str, list[dict]] = {}
     for r in con.execute("SELECT * FROM validations WHERE sid=? ORDER BY at", (sid,)):
         vals.setdefault(r["name"], []).append(dict(r))
@@ -321,15 +496,27 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
         sha = _sha(p) if st.st_size <= MAX_DELIVERABLE else ""
         history = vals.get(p.name, [])
         current = next((v for v in reversed(history) if v["sha256"] == sha), None)
-        title = plain.human_title(p.name)
+        # a table (4.0 job kits) is titled by its name, without « .csv »
+        title = plain.human_title(p.stem + ".md" if ext == "csv" else p.name)
         if ext in ("md", "markdown") and st.st_size <= MAX_DELIVERABLE:
             try:
                 with open(p, encoding="utf-8", errors="replace") as f:
                     title = plain.title_from_markdown(f.read(4000)) or title
             except OSError:
                 pass
+        fmts, kind = ["docx", "pdf"] if ext in PREVIEW_EXT else [], "document"
+        if st.st_size <= MAX_DELIVERABLE and ext in PREVIEW_EXT + ("csv",):
+            try:
+                import outputs
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    head = f.read(4000)
+                fmts, kind = outputs.formats_for(p.name, head), outputs.kind_of(p.name, head)
+            except Exception:  # noqa: BLE001 — a listing never breaks on a format
+                pass
         out.append({
             "name": p.name, "title": title, "ext": ext, "size": st.st_size,
+            # 4.0: the files the person can download (the asked one first) and what it is
+            "formats": fmts, "kind": kind,
             "updated_at": st.st_mtime, "version": max(1, versions.get(p.name, 1)),
             "previewable": ext in PREVIEW_EXT,
             "validated": bool(current),
@@ -341,11 +528,24 @@ def list_deliverables(project: str, sid: str) -> list[dict]:
             # that wrote one of its versions — '' = not recorded (a save before 3.6.5)
             "model": (written.get(p.name) or [""])[-1],
             "models": sorted({m for m in written.get(p.name, []) if m}),
+            # 4.0: the quality gate's report on THIS text (None: not checked, or changed since)
+            "check": _check_of(checks, p.name, sha),
         })
     import claudetier
     for d in out:
         d["engine"] = claudetier.describe_model(d["model"])
     return out
+
+
+def _check_of(checks: dict, name: str, sha: str) -> dict | None:
+    import json
+    raw = checks.get((name, sha))
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
 
 
 def read_deliverable(project: str, sid: str, name: str) -> str:
@@ -390,6 +590,9 @@ def save_text(project: str, sid: str, title: str, text: str, model: str = "") ->
     note_write(sid, name, f"manual-{int(time.time() * 1000)}", model)
     return name
 
+
+# ---- tables: a table deliverable (a « .csv », or Markdown with `format: xlsx`) is read,
+# previewed and rendered by `outputs` (csv_rows / preview / render) — one implementation.
 
 # ---- Word export ---------------------------------------------------------------------------
 _CT = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

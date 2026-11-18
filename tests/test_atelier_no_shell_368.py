@@ -21,6 +21,10 @@ pytest.importorskip("claude_agent_sdk")
 
 sys.path.insert(0, os.path.dirname(__file__))
 from mock_anthropic import MockAnthropic, _text_of  # noqa: E402
+from harness_helpers import ask, drain  # noqa: E402
+
+# 4.0: the CLI's shell tools and the hook live in the legacy adapter (harness/legacy.py)
+from harness import legacy  # noqa: E402
 
 CANARY = "canary-7f3a9c.txt"
 SUB = "SUBTASK-1b2c: look at the work folder"
@@ -80,25 +84,22 @@ class _FakeClient:
 
 
 def _options(world, monkeypatch, simple_work: bool):
-    agentchat = world["agentchat"]
-    monkeypatch.setattr(agentchat, "ClaudeSDKClient", _FakeClient)
+    monkeypatch.setattr(legacy, "ClaudeSDKClient", _FakeClient)
     s = _session(world, simple_work)
     asyncio.new_event_loop().run_until_complete(s.ensure_started())
     return s, _FakeClient.last
 
 
 def _shell_hook(opts):
-    agentchat = sys.modules["agentchat"]
     ms = [m for m in (opts.hooks or {}).get("PreToolUse") or []
-          if m.matcher == "|".join(agentchat.SHELL_TOOLS)]
+          if m.matcher == "|".join(legacy.SHELL_TOOLS)]
     return ms[0].hooks[0] if ms else None
 
 
 # ---- the options of an Atelier work ------------------------------------------------------------
 def test_an_atelier_work_starts_without_any_shell_tool(world, monkeypatch):
-    agentchat = world["agentchat"]
     _s, opts = _options(world, monkeypatch, simple_work=True)
-    assert set(agentchat.SHELL_TOOLS) <= set(opts.disallowed_tools)
+    assert set(legacy.SHELL_TOOLS) <= set(opts.disallowed_tools)
     assert {"Bash", "Monitor"} <= set(opts.disallowed_tools)
     # nothing that writes the document is taken away
     assert not {"Read", "Write", "Edit"} & set(opts.disallowed_tools)
@@ -107,7 +108,7 @@ def test_an_atelier_work_starts_without_any_shell_tool(world, monkeypatch):
 
 def test_the_hook_refuses_every_shell_call_before_any_allow_rule(world, monkeypatch):
     agentchat = world["agentchat"]
-    _s, opts = _options(world, monkeypatch, simple_work=True)
+    s, opts = _options(world, monkeypatch, simple_work=True)
     hook = _shell_hook(opts)
     assert hook is not None
     loop = asyncio.new_event_loop()
@@ -119,6 +120,7 @@ def test_the_hook_refuses_every_shell_call_before_any_allow_rule(world, monkeypa
         out = loop.run_until_complete(hook({"tool_name": tool, "tool_input": inp}, None, None))
         assert _denied(out), tool
         assert out["hookSpecificOutput"]["permissionDecisionReason"] == agentchat.NO_SHELL
+    drain(s)                                  # the adapter told the cockpit (4.0: an event)
     # journaled as a rule of the space (nobody clicked), one line per call
     assert [r["reason"] for r in world["journal"]] == ["policy:simple_profile_no_shell"] * 3
     assert not any(r["allowed"] for r in world["journal"])
@@ -136,8 +138,8 @@ def test_the_callback_refuses_every_shell_tool_too(world):
     s.mode = "bypassPermissions"            # even a widened mode does not open the shell
     loop = asyncio.new_event_loop()
     for tool in ("Bash", "Monitor"):
-        res = loop.run_until_complete(s._can_use_tool(tool, {"command": "ls"}, None))
-        assert type(res).__name__ == "PermissionResultDeny" and res.message == agentchat.NO_SHELL
+        res = loop.run_until_complete(ask(s, tool, {"command": "ls"}))
+        assert res.denied and res.message == agentchat.NO_SHELL
     assert not [e for e in s.events if e.get("type") == "permission"]
 
 
@@ -145,7 +147,7 @@ def test_the_refusal_names_only_tools_the_work_has(world):
     agentchat = world["agentchat"]
     for word in ("Write", "Edit", "Read"):
         assert f"{word}" in agentchat.NO_SHELL
-    for absent in (*agentchat.SHELL_TOOLS, "mcp__"):
+    for absent in (*legacy.SHELL_TOOLS, "mcp__"):
         assert absent not in agentchat.NO_SHELL
 
 
@@ -160,14 +162,13 @@ def test_a_memory_refusal_names_the_mcp_tool_only_when_the_session_has_it(world)
         orig = agentchat._closed_to_agent_run
         agentchat._closed_to_agent_run = lambda path, project: True
         try:
-            return loop.run_until_complete(
-                s._can_use_tool("Write", {"file_path": mem, "content": "x"}, None))
+            return loop.run_until_complete(ask(s, "Write", {"file_path": mem, "content": "x"}))
         finally:
             agentchat._closed_to_agent_run = orig
 
     base = {"agent": "a", "run": "r", "tools": ["Write"], "auto_approve": []}
     without = refuse({**base, "mcp": []})
-    assert type(without).__name__ == "PermissionResultDeny"
+    assert without.denied
     assert "mcp__" not in without.message and "does not write memory files directly" in without.message
     with_mem = refuse({**base, "mcp": ["sokkan-memory"]})
     assert "mcp__sokkan-memory__memory_write" in with_mem.message
@@ -246,7 +247,7 @@ class Bench(MockAnthropic):
 @pytest.fixture()
 def cli_env(world, monkeypatch):
     agentchat = world["agentchat"]
-    monkeypatch.setattr(agentchat.memrecall, "sdk_hooks", lambda *a, **k: {})
+    monkeypatch.setattr(agentchat.memrecall, "provider", lambda *a, **k: None)
     for k, v in {"ANTHROPIC_API_KEY": "sk-test", "CLAUDE_CONFIG_DIR": str(world["tmp"] / "claude"),
                  "DISABLE_TELEMETRY": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
                  "DISABLE_AUTOUPDATER": "1"}.items():

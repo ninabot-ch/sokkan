@@ -25,8 +25,10 @@ with the vault's masking applied first (``agents.redact_obj`` over the values th
 environment holds) and then a pattern pass for credentials pasted in clear. Never the
 tool's output.
 
-Who decided is not carried by ``AgentSession.resolve_permission(pid, decision)`` (its
-callers and their tests pin that dict): the caller declares it just before with
+Who decided travels with the decision (4.0): ``AgentSession.decide(gate_id, Decision)``
+carries ``by`` (the person) and ``via`` (rail, share, teams) — the rail, a delegated share and
+Microsoft Teams all decide through it. The older ``resolve_permission(pid, dict)`` stays for
+the callers that pin that dict: they declare the decider just before with
 ``attribute(request_id, actor, origin)``.
 """
 from __future__ import annotations
@@ -168,6 +170,16 @@ def attribute(request_id: str, actor: str, origin: str) -> None:
                            origin if origin in ORIGINS else "unknown", now)
 
 
+def peek_attribution(request_id: str) -> tuple[str, str]:
+    """(actor, origin) declared for `request_id` and not consumed yet; ('', '') if none."""
+    a = _attrib.get(request_id or "")
+    return (a[0], a[1]) if a else ("", "")
+
+
+def forget_attribution(request_id: str) -> None:
+    _attrib.pop(request_id or "", None)
+
+
 def _session_facts(session_id: str) -> tuple[str, str]:
     """(project, owner) of a session, '' when SOKKAN does not know it."""
     try:
@@ -259,9 +271,11 @@ def decided(request_id: str, decision: str, *, actor: str = "", origin: str = ""
 def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_data=None,
               allowed: bool, reason: str, mode: str = "",
               secrets: dict[str, str] | None = None, owner: str = "",
-              agent_run: str = "", model: str = "") -> None:
+              agent_run: str = "", model: str = "", actor: str = "") -> None:
     """An approval nobody clicked: auto-approved by the session's mode, or refused by an
-    agent's policy / the sandbox. One row, asked and decided at the same instant."""
+    agent's policy / the sandbox. One row, asked and decided at the same instant. ``actor``:
+    the person whose earlier decision the rule carries (4.0, the later saves of a document
+    they approved in the turn); '' otherwise."""
     try:
         import uuid
         project, board_owner = _session_facts(session_id)
@@ -272,9 +286,9 @@ def automatic(kind: str, *, session_id: str, tool: str, title: str = "", input_d
             "INSERT INTO hitl(request_id, kind, session_id, project, owner, actor, origin, tool,"
             " title, input_summary, input_sha256, mode, requested_at, decided_at, delay_ms,"
             " decision, auto, auto_reason, agent_run, model)"
-            " VALUES(?,?,?,?,?,'','system',?,?,?,?,?,?,?,0,?,1,?,?,?)",
+            " VALUES(?,?,?,?,?,?,'system',?,?,?,?,?,?,?,0,?,1,?,?,?)",
             (uuid.uuid4().hex, kind, session_id, project,
-             board_owner or (owner or "").lower().strip(), tool,
+             board_owner or (owner or "").lower().strip(), (actor or "").lower().strip(), tool,
              str(mask(title or "", secrets))[:300], summary, digest, mode, now, now,
              "auto_allow" if allowed else "auto_deny", reason, agent_run or "", (model or "")[:120]))
         con.commit()

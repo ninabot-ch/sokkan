@@ -1,0 +1,275 @@
+{
+  "id": "executive-assistant",
+  "order": 10,
+  "level": "team",
+  "claude": true,
+  "i18n": {
+    "fr": {
+      "label": "Assistant·e de direction",
+      "description": "Courrier, procès-verbaux, agendas, préparation des séances et suivi des décisions.",
+      "project": "Direction"
+    },
+    "en": {
+      "label": "Executive assistant",
+      "description": "Correspondence, minutes, agendas, meeting preparation and follow-up of decisions.",
+      "project": "Management office"
+    }
+  },
+  "guardrails": [
+    {
+      "i18n": {
+        "fr": {"text": "Rien ne part au nom de la direction sans votre relecture : l'agent prépare, vous signez."},
+        "en": {"text": "Nothing goes out in management's name without your review: the agent prepares, you sign."}
+      },
+      "agent": "Never word a commitment, an acceptance or a refusal as final on behalf of management: draft it for signature and list it under « Points to confirm »."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les noms, fonctions, dates et lieux sont repris tels quels des documents ; ce qui manque reste « à définir »."},
+        "en": {"text": "Names, functions, dates and places are taken as they are from the documents; what is missing stays « to be defined »."}
+      },
+      "agent": "Copy every name, function, date, time and place exactly from the documents or the request; when one is missing write « [à définir] » — never a plausible value."
+    },
+    {
+      "i18n": {
+        "fr": {"text": "Les informations confidentielles d'une séance (personnel, salaires, litiges) se traitent dans un projet classé « Confidentiel »."},
+        "en": {"text": "A meeting's confidential matters (staff, salaries, disputes) are handled in a project classified « Confidential »."}
+      },
+      "agent": "When the documents contain personal or confidential matters (staff, salaries, health, disputes), mention them only as far as the deliverable needs, and tell the person in one sentence that this work belongs in a confidential project."
+    }
+  ],
+  "templates": [
+    {
+      "id": "meeting-minutes",
+      "brief": "minutes",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Procès-verbal de séance",
+          "description": "Depuis vos notes ou la transcription",
+          "hint": "Quelle séance, quelle date ? Ex. « PV du comité de direction du 12 novembre, à partir de mes notes »",
+          "attach": "Vos notes de séance ou la transcription, l'ordre du jour",
+          "produces": "Un procès-verbal structuré : présences, points traités, décisions numérotées, tableau des actions",
+          "deliverable": "Procès-verbal",
+          "checks": ["La formulation exacte de chaque décision", "Les responsables et les échéances des actions", "La liste des présents et des excusés"]
+        },
+        "en": {
+          "label": "Meeting minutes",
+          "description": "From your notes or the transcript",
+          "hint": "Which meeting, which date? E.g. “Minutes of the management committee of 12 November, from my notes”",
+          "attach": "Your meeting notes or the transcript, the agenda",
+          "produces": "Structured minutes: attendance, items discussed, numbered decisions, action table",
+          "deliverable": "Minutes",
+          "checks": ["The exact wording of each decision", "Owners and deadlines of the actions", "The list of attendees and apologies"]
+        }
+      },
+      "mission": "Write the minutes of a meeting. What the person asked for: {subject}\n\nFollow the agenda when one is attached; otherwise follow the order of the notes. Turn shorthand into full neutral sentences without adding content. Number the decisions (D1, D2…) and gather every action in a final table (action, owner, deadline). When the notes are ambiguous about who decided or who does something, keep the ambiguity visible rather than resolving it."
+    },
+    {
+      "id": "meeting-agenda",
+      "brief": "plan",
+      "format": "docx",
+      "uses": ["mail", "calendar"],
+      "i18n": {
+        "fr": {
+          "label": "Ordre du jour et dossier de séance",
+          "description": "Préparer la prochaine séance",
+          "hint": "Quelle séance, quels sujets ? Ex. « Ordre du jour du conseil du 3 décembre, avec les points reportés »",
+          "attach": "Le dernier procès-verbal, les demandes de points, les documents à présenter",
+          "produces": "Un ordre du jour minuté avec, pour chaque point, l'objectif (information, discussion, décision), l'intervenant et les pièces",
+          "deliverable": "Ordre du jour",
+          "checks": ["Les durées et l'ordre des points", "Les intervenants", "Les points reportés du dernier procès-verbal"]
+        },
+        "en": {
+          "label": "Agenda and meeting pack",
+          "description": "Prepare the next meeting",
+          "hint": "Which meeting, which topics? E.g. “Agenda of the board on 3 December, with the items carried over”",
+          "attach": "The last minutes, the requests for items, the documents to be presented",
+          "produces": "A timed agenda with, for each item, its purpose (information, discussion, decision), the presenter and the papers",
+          "deliverable": "Agenda",
+          "checks": ["Durations and order of the items", "The presenters", "Items carried over from the last minutes"]
+        }
+      },
+      "mission": "Prepare the agenda of a meeting. What the person asked for: {subject}\n\nList each item with its purpose (information / discussion / decision), presenter, time slot and the papers attached. Carry over the open actions and postponed items of the last minutes when they are attached, saying which ones. Put decisions early, information late. End with the list of papers to send to participants beforehand."
+    },
+    {
+      "id": "reply-letter",
+      "brief": "letter",
+      "format": "docx",
+      "uses": ["mail"],
+      "i18n": {
+        "fr": {
+          "label": "Réponse à un courrier",
+          "description": "Une réponse prête à signer",
+          "hint": "Que voulez-vous répondre ? Ex. « Répondre à la commune : nous acceptons la date, pas le lieu »",
+          "attach": "Le courrier reçu, les pièces utiles (contrat, échange précédent)",
+          "produces": "Une lettre ou un e-mail de réponse, au ton de la maison, avec l'objet et les références",
+          "deliverable": "Courrier",
+          "checks": ["Le nom et la fonction du destinataire", "Les engagements pris", "Les dates et références citées"]
+        },
+        "en": {
+          "label": "Reply to a letter",
+          "description": "A reply ready to sign",
+          "hint": "What do you want to answer? E.g. “Reply to the town council: we accept the date, not the venue”",
+          "attach": "The letter received, the useful papers (contract, earlier exchange)",
+          "produces": "A reply letter or e-mail in the house tone, with subject and references",
+          "deliverable": "Letter",
+          "checks": ["The addressee's name and title", "The commitments made", "The dates and references quoted"]
+        }
+      },
+      "mission": "Draft the reply to a letter or e-mail received. What the person asked for: {subject}\n\nAnswer every question the incoming letter asks, in its order, and refer to it by its date and reference. Follow the team's correspondence charter when the memory has one. If the person's instruction leaves a question of the letter unanswered, say so rather than inventing an answer."
+    },
+    {
+      "id": "inbox-digest",
+      "brief": "memo",
+      "format": "docx",
+      "uses": ["mail"],
+      "i18n": {
+        "fr": {
+          "label": "Tri du courrier entrant",
+          "description": "Ce qui demande une réponse, et qui",
+          "hint": "Pour qui ? Ex. « Les courriers de la semaine pour la directrice, urgent d'abord »",
+          "attach": "Les courriers ou e-mails reçus (PDF, Word, texte)",
+          "produces": "Une note triée : à traiter par la direction, à déléguer, pour information, avec l'échéance de chacun",
+          "deliverable": "Tri du courrier",
+          "checks": ["Les échéances relevées", "Le service proposé pour chaque délégation"]
+        },
+        "en": {
+          "label": "Incoming mail digest",
+          "description": "What needs an answer, and from whom",
+          "hint": "For whom? E.g. “This week's letters for the director, urgent first”",
+          "attach": "The letters or e-mails received (PDF, Word, text)",
+          "produces": "A sorted note: for management, to delegate, for information, with each one's deadline",
+          "deliverable": "Mail digest",
+          "checks": ["The deadlines found", "The department proposed for each delegation"]
+        }
+      },
+      "mission": "Sort the incoming correspondence attached. What the person asked for: {subject}\n\nFor each item: sender, date, subject in one line, what is asked, deadline (as written, or « none stated »), and a proposed handling: « for management », « delegate to … » (only a function or department named in the documents or the memory), or « for information ». Order: deadlines first, then management, delegate, information."
+    },
+    {
+      "id": "event-checklist",
+      "brief": "checklist",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Organisation d'un événement",
+          "description": "Séminaire, assemblée, visite",
+          "hint": "Quel événement, quand, combien de personnes ? Ex. « Séminaire de direction, 2 jours, 14 personnes, en mars »",
+          "attach": "Le programme envisagé, les offres reçues (hôtel, salle, traiteur), le budget",
+          "produces": "Une liste de contrôle par échéance (J-60 à J+7) avec responsables et preuves",
+          "deliverable": "Liste de contrôle",
+          "checks": ["Les échéances de réservation et d'annulation des offres", "Le budget par poste", "Les responsables"]
+        },
+        "en": {
+          "label": "Event organisation",
+          "description": "Seminar, general meeting, visit",
+          "hint": "Which event, when, how many people? E.g. “Management seminar, 2 days, 14 people, in March”",
+          "attach": "The draft programme, the quotes received (hotel, room, catering), the budget",
+          "produces": "A checklist by deadline (D-60 to D+7) with owners and proofs",
+          "deliverable": "Checklist",
+          "checks": ["Booking and cancellation deadlines of the quotes", "The budget per item", "The owners"]
+        }
+      },
+      "mission": "Prepare the organisation checklist of an event. What the person asked for: {subject}\n\nGroup the items by deadline (D-60, D-30, D-14, D-7, D-1, the day, after). Take booking, payment and cancellation deadlines from the quotes attached, with the quote's name. Compare the quotes with the budget when both are given, item by item, and say which items exceed it."
+    },
+    {
+      "id": "travel-brief",
+      "brief": "plan",
+      "format": "docx",
+      "i18n": {
+        "fr": {
+          "label": "Feuille de route d'un déplacement",
+          "description": "Horaires, rendez-vous, contacts",
+          "hint": "Qui part, où, quand ? Ex. « Déplacement du directeur à Zurich le 4 décembre »",
+          "attach": "Les confirmations (train, avion, hôtel), les invitations, les contacts sur place",
+          "produces": "Une feuille de route heure par heure, avec adresses, contacts et documents à emporter",
+          "deliverable": "Feuille de route",
+          "checks": ["Les horaires et numéros de réservation", "Les adresses des rendez-vous", "Les temps de trajet entre deux rendez-vous"]
+        },
+        "en": {
+          "label": "Travel brief",
+          "description": "Times, meetings, contacts",
+          "hint": "Who travels, where, when? E.g. “The director's trip to Zurich on 4 December”",
+          "attach": "The confirmations (train, flight, hotel), the invitations, the contacts on site",
+          "produces": "An hour-by-hour itinerary with addresses, contacts and documents to bring",
+          "deliverable": "Travel brief",
+          "checks": ["Times and booking numbers", "Meeting addresses", "Travel time between two meetings"]
+        }
+      },
+      "mission": "Prepare the travel brief of a trip. What the person asked for: {subject}\n\nBuild a timetable from the confirmations attached (departure, arrival, check-in, each meeting), with booking references, addresses and contacts exactly as written. Flag any gap shorter than the travel time it requires, and any confirmation that is missing for a leg of the trip."
+    },
+    {
+      "id": "decision-tracker",
+      "brief": "table",
+      "format": "xlsx",
+      "i18n": {
+        "fr": {
+          "label": "Suivi des décisions et des actions",
+          "description": "Un tableau depuis vos procès-verbaux",
+          "hint": "Sur quelle période ? Ex. « Toutes les actions ouvertes des PV de septembre à novembre »",
+          "attach": "Les procès-verbaux de la période",
+          "produces": "Un tableau Excel : décision ou action, séance, responsable, échéance, statut, source",
+          "deliverable": "Suivi des actions",
+          "checks": ["Le statut de chaque action (ouverte ou close)", "Les doublons entre séances"]
+        },
+        "en": {
+          "label": "Decision and action tracker",
+          "description": "A table from your minutes",
+          "hint": "Over which period? E.g. “Every open action of the minutes from September to November”",
+          "attach": "The minutes of the period",
+          "produces": "An Excel table: decision or action, meeting, owner, deadline, status, source",
+          "deliverable": "Action tracker",
+          "checks": ["The status of each action (open or closed)", "Duplicates between meetings"]
+        }
+      },
+      "mission": "Build the tracker of decisions and actions from the minutes attached. What the person asked for: {subject}\n\nColumns: Type (décision/action), Libellé, Séance (date), Responsable, Échéance, Statut, Source, À vérifier. An action is « close » only when a later minute says it is done; otherwise « ouverte ». When the same action appears in several minutes, keep one row and name every minute in Source."
+    }
+  ],
+  "notes": [
+    {
+      "name": "direction-charte-courrier",
+      "i18n": {
+        "fr": {
+          "title": "Charte du courrier de la direction",
+          "description": "Comment la direction écrit : formules d'appel et de politesse, signature, ton, ce qu'on ne promet jamais par écrit — à compléter par l'équipe.",
+          "body": "Cette note dit à l'agent comment la direction écrit. Remplacez chaque blanc par votre pratique.\n\n- Formule d'appel quand le destinataire est connu : [À compléter : ex. « Chère Madame, » ou « Madame la Syndique, »]\n- Formule de politesse : [À compléter : ex. « Nous vous prions d'agréer, Madame, nos salutations distinguées. »]\n- Bloc de signature (nom, fonction, organisation) : [À compléter]\n- Qui signe quoi (montant ou sujet au-delà duquel la direction signe) : [À compléter]\n- Ce qu'on ne promet jamais par écrit : [À compléter : ex. un délai sans accord du service concerné]\n- Mentions obligatoires (référence, copie à) : [À compléter]"
+        },
+        "en": {
+          "title": "Management correspondence charter",
+          "description": "How management writes: salutations and closings, signature, tone, what is never promised in writing — for the team to fill in.",
+          "body": "This note tells the agent how management writes. Replace each blank with your practice.\n\n- Salutation when the addressee is known: [To fill: e.g. “Dear Ms Rossier,”]\n- Closing: [To fill: e.g. “Yours sincerely,”]\n- Signature block (name, function, organisation): [To fill]\n- Who signs what (amount or subject above which management signs): [To fill]\n- What is never promised in writing: [To fill: e.g. a deadline without the department's agreement]\n- Mandatory mentions (reference, copy to): [To fill]"
+        }
+      }
+    },
+    {
+      "name": "direction-instances-et-participants",
+      "i18n": {
+        "fr": {
+          "title": "Instances, séances et participants",
+          "description": "Les comités et conseils de l'organisation, leur rythme, leurs membres et la forme de leurs procès-verbaux — à compléter par l'équipe.",
+          "body": "Listez vos instances pour que les procès-verbaux et les ordres du jour soient justes.\n\n| Instance | Rythme | Président·e | Membres (fonction) | Forme du PV |\n|---|---|---|---|---|\n| [À compléter : ex. Comité de direction] | [À compléter : ex. chaque lundi] | [À compléter] | [À compléter] | [À compléter : décisions seules ou débats résumés] |\n\n- Délai d'envoi de l'ordre du jour : [À compléter]\n- Délai d'envoi du procès-verbal et qui l'approuve : [À compléter]"
+        },
+        "en": {
+          "title": "Bodies, meetings and members",
+          "description": "The organisation's committees and boards, their rhythm, their members and the form of their minutes — for the team to fill in.",
+          "body": "List your bodies so that minutes and agendas are right.\n\n| Body | Rhythm | Chair | Members (function) | Form of the minutes |\n|---|---|---|---|---|\n| [To fill: e.g. Management committee] | [To fill: e.g. every Monday] | [To fill] | [To fill] | [To fill: decisions only or summarised debate] |\n\n- When the agenda is sent: [To fill]\n- When the minutes are sent and who approves them: [To fill]"
+        }
+      }
+    },
+    {
+      "name": "direction-contacts-et-services",
+      "i18n": {
+        "fr": {
+          "title": "Services et interlocuteurs internes",
+          "description": "À quel service déléguer quel type de demande, et les interlocuteurs externes fréquents — à compléter par l'équipe.",
+          "body": "L'agent ne délègue qu'aux services listés ici.\n\n- Demandes RH (personnel, absences) : [À compléter : service ou fonction]\n- Factures, paiements, budget : [À compléter]\n- Contrats, litiges : [À compléter]\n- Presse, communication : [À compléter]\n- Interlocuteurs externes fréquents (organisation, fonction — pas de données privées) : [À compléter]"
+        },
+        "en": {
+          "title": "Departments and internal contacts",
+          "description": "Which department handles which kind of request, and frequent external contacts — for the team to fill in.",
+          "body": "The agent delegates only to the departments listed here.\n\n- HR requests (staff, absences): [To fill: department or function]\n- Invoices, payments, budget: [To fill]\n- Contracts, disputes: [To fill]\n- Press, communication: [To fill]\n- Frequent external contacts (organisation, function — no private data): [To fill]"
+        }
+      }
+    }
+  ]
+}

@@ -7,7 +7,7 @@
 # $SOKKAN_BACKUP_DIR, else ./backups), directory 0700, files 0600:
 #   pg.dump        pg_dump -Fc of the CortHeXis memory store (skipped when no Postgres)
 #   data.tgz       the whole data directory (/data = SOKKAN_DATA_DIR) WITHOUT any key file
-#                  (vault.key, forge.key, teams.key); SQLite databases are copied with the
+#                  (vault.key, forge.key, teams.key, engine-identity.key); SQLite databases are copied with the
 #                  online backup API (consistent while the API runs)
 #   MANIFEST       SOKKAN version, date, mode, secrets provider, sha256 of every file
 # Keys, by secrets provider (docs/enterprise/SECRETS.md):
@@ -93,6 +93,10 @@ fi
 SECRETS=file
 if printf '%s\n' "$PROBE" | grep -q '\.key\.wrapped$'; then SECRETS=openbao
 elif printf '%s\n' "$PROBE" | grep -qx 'env=kubernetes'; then SECRETS=kubernetes; fi
+# 4.0: the key of the engine identity handles (backend/harness/identity.py) travels like the
+# data keys with the file provider — encrypted with the passphrase, never in data.tgz. With
+# openbao / kubernetes it is no data key of the provider: it stays in data.tgz, as data.
+[ "$SECRETS" = file ] && KEYFILES="$KEYFILES engine-identity.key"
 if [ "$SECRETS" != file ] && [ "$PLAIN_KEY" = 1 ]; then
   die "--include-plain-key: the $SECRETS provider keeps no key in the data directory"
 fi
@@ -130,8 +134,9 @@ cat > "$TMP/stage.py" <<'PY'
 import os, shutil, sqlite3, subprocess, sys, tarfile, tempfile
 root = sys.argv[1]
 # key files are never in data.tgz (file provider: backed up apart, encrypted; openbao: only
-# their transit-wrapped form, *.key.wrapped, which is no key)
-KEYS = {k + s for k in ("vault.key", "forge.key", "teams.key") for s in ("", ".next", ".tmp")}
+# their transit-wrapped form, *.key.wrapped, which is no key); further names after the root
+KEYS = {k + s for k in ("vault.key", "forge.key", "teams.key", *sys.argv[2:])
+        for s in ("", ".next", ".tmp")}
 tmp = tempfile.mkdtemp(prefix="sokkan-stage-")
 try:
     def is_sqlite(p):
@@ -186,18 +191,23 @@ finally:
 PY
 
 # --- data ------------------------------------------------------------------------
+STAGE_KEYS=""
+[ "$SECRETS" = file ] && STAGE_KEYS="engine-identity.key"
 if [ "$MODE" = compose ]; then
   if echo "$RUNNING" | grep -qx api; then
-    dc exec -T api python3 - /data < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
+    # shellcheck disable=SC2086  # the extra key names are words
+    dc exec -T api python3 - /data $STAGE_KEYS < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
       { cat "$TMP/stage.err" >&2; die "data copy failed"; }
     for k in $KEYFILES; do dc exec -T api sh -c "cat /data/$k 2>/dev/null || true" > "$TMP/$k"; done
   else
-    dc run --rm -T --no-deps --entrypoint python3 api - /data < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
+    # shellcheck disable=SC2086
+    dc run --rm -T --no-deps --entrypoint python3 api - /data $STAGE_KEYS < "$TMP/stage.py" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
       { cat "$TMP/stage.err" >&2; die "data copy failed"; }
     for k in $KEYFILES; do dc run --rm -T --no-deps --entrypoint sh api -c "cat /data/$k 2>/dev/null || true" > "$TMP/$k"; done
   fi
 else
-  python3 "$TMP/stage.py" "$SOKKAN_DATA_DIR" > "$SET/data.tgz" 2> "$TMP/stage.err" ||
+  # shellcheck disable=SC2086
+  python3 "$TMP/stage.py" "$SOKKAN_DATA_DIR" $STAGE_KEYS > "$SET/data.tgz" 2> "$TMP/stage.err" ||
     { cat "$TMP/stage.err" >&2; die "data copy failed"; }
   for k in $KEYFILES; do
     if [ -f "$SOKKAN_DATA_DIR/$k" ]; then cp "$SOKKAN_DATA_DIR/$k" "$TMP/$k"; else : > "$TMP/$k"; fi
@@ -294,7 +304,8 @@ else
     [ "$KEY" = absent ] && KEY=not-included
     cat > "$SET/VAULT_KEY_NOT_INCLUDED.txt" <<EOF
 The key files ($KEYS_IN) are NOT in this backup set: vault.key is the only key to vault.json
-(the secrets) and modelkeys.json, forge.key to the forge tokens, teams.key to the Teams tokens.
+(the secrets) and modelkeys.json, forge.key to the forge tokens, teams.key to the Teams tokens,
+engine-identity.key to the identity handles of the session engines.
 Back them up separately (secrets manager, offline copy), or re-run the backup with
 SOKKAN_BACKUP_KEY_PASSPHRASE / SOKKAN_BACKUP_KEY_PASSFILE to store them encrypted.
 At restore: ./scripts/restore.sh <set> --vault-key <file> [--keys-dir <dir>] --yes

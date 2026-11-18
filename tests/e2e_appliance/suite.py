@@ -680,6 +680,14 @@ def t11():
     assert owner.call("/api/board/card", {"title": "Carte témoin de la sauvegarde", "description": "x"})[0] == 200
     before = {"sessions": len(owner.call("/api/sessions")[1]),
               "audit": len(owner.call("/api/audit?limit=1000")[1])}
+    # 4.0: the key of the engine identity handles is a key like the vault's: it must come back
+    # (encrypted in the set, never in data.tgz). Minted here, as the first opaque run would.
+    idkey = "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path('/data/engine-identity.key').read_bytes()).hexdigest())"
+    mint = sh("docker compose exec -T -u 1000 -w /app/backend api python3 -c \"from harness import identity; "
+              "print(identity.handle('project', 'atelier'))\"", cwd=BOX).stdout.strip().splitlines()
+    handle_before = mint[-1] if mint else ""
+    idkey_before = sh(f"docker compose exec -T api python3 -c \"{idkey}\"", cwd=BOX).stdout.strip()
+    assert handle_before.startswith("prj-") and len(idkey_before) == 64, (mint, idkey_before)
     Path("/etc/sokkan/backup.env").write_text(
         "RESTIC_REPOSITORY=s3:http://127.0.0.1:9000/sokkan-backups/pilot-e2e\n"
         "AWS_ACCESS_KEY_ID=e2e-access\nAWS_SECRET_ACCESS_KEY=e2e-secret-key\n")
@@ -734,6 +742,11 @@ def t11():
     assert after["audit"] >= before["audit"], after
     cards = owner2.call("/api/board")[1]
     assert "Carte témoin de la sauvegarde" in json.dumps(cards, ensure_ascii=False)
+    idkey_after = sh(f"docker compose exec -T api python3 -c \"{idkey}\"", cwd=BOX).stdout.strip()
+    mint = sh("docker compose exec -T -u 1000 -w /app/backend api python3 -c \"from harness import identity; "
+              "print(identity.handle('project', 'atelier'))\"", cwd=BOX).stdout.strip().splitlines()
+    assert idkey_after == idkey_before and mint and mint[-1] == handle_before, \
+        "the identity key did not come back: a resumed run would get other handles"
     t0 = time.time()
     hit = False
     while time.time() - t0 < 300 and not hit:

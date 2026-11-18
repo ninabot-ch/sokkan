@@ -338,6 +338,8 @@ html[data-sk-theme] body {
   padding: var(--sk-s3) var(--sk-s4); border-radius: var(--sk-r-md); white-space: pre-wrap; overflow-wrap: anywhere; }
 .sk-msg-docs { display: flex; flex-wrap: wrap; gap: var(--sk-s1); margin-top: var(--sk-s2); }
 .sk-msg-agent { display: flex; flex-direction: column; gap: var(--sk-s2); align-items: flex-start; max-width: 100%; }
+/* written while a decision is awaited (4.0 kernel engine): shown, but quieter than an answer */
+.sk-msg-note { color: var(--sk-text-muted); font-size: var(--sk-fs-sm); border-left: 2px solid var(--sk-line); padding-left: var(--sk-s3); }
 .sk-compose-dock { border-top: 1px solid var(--sk-line); background: var(--sk-bg); padding: var(--sk-s3) var(--sk-s5) var(--sk-s4); }
 .sk-compose-dock > div { max-width: var(--sk-measure); margin: 0 auto; }
 
@@ -372,6 +374,22 @@ html[data-sk-theme] body {
 .sk-sources { display: flex; flex-wrap: wrap; gap: var(--sk-s2); }
 .sk-source-age.is-old { color: var(--sk-warn); font-weight: 600; }
 .sk-actions { display: flex; flex-wrap: wrap; gap: var(--sk-s2); }
+/* 4.0: what the card is about — where, the facts, a change, what each answer does */
+.sk-ap-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--sk-s1) var(--sk-s3); margin: 0;
+  font-size: var(--sk-fs-sm); }
+.sk-ap-facts dt { color: var(--sk-text-soft); font-weight: 600; }
+.sk-ap-facts dd { margin: 0; color: var(--sk-text-strong); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 480px) { .sk-ap-facts { grid-template-columns: 1fr; } .sk-ap-facts dd { margin-bottom: var(--sk-s2); } }
+.sk-ap-diff { display: flex; flex-direction: column; gap: var(--sk-s2); max-height: 280px; overflow: auto; }
+.sk-ap-diff p { margin: 0; padding: var(--sk-s2) var(--sk-s3); border-radius: var(--sk-r-sm); font-size: var(--sk-fs-sm);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.sk-ap-diff .is-del { background: var(--sk-danger-soft); color: var(--sk-text-strong); }
+.sk-ap-diff .is-del .sk-ap-body { text-decoration: line-through; text-decoration-color: var(--sk-danger); }
+.sk-ap-diff .is-add { background: var(--sk-ok-soft); color: var(--sk-text-strong); }
+.sk-ap-diff .sk-ap-tag { font-weight: 600; display: block; font-size: var(--sk-fs-xs); }
+.sk-ap-then { display: flex; flex-direction: column; gap: var(--sk-s1); margin: 0; padding: 0; list-style: none;
+  font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
+.sk-ap-then b { color: var(--sk-text-strong); }
 
 .sk-deliv-card { width: 100%; display: flex; align-items: center; gap: var(--sk-s3); flex-wrap: wrap;
   background: var(--sk-surface); border: 1px solid var(--sk-line); border-radius: var(--sk-r-md); padding: var(--sk-s3) var(--sk-s4);
@@ -684,3 +702,45 @@ html[data-sk-theme] body {
   border: 1px solid var(--sk-line-strong); background: var(--sk-surface); color: inherit; min-height: 36px; }
 .sk-newproj-people { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
 .sk-newproj-people label { display: flex; gap: var(--sk-s2); align-items: center; }
+
+/* ---- 4.0 job kits (« Postes »): picker, template detail, format badge ------------------------ */
+.sk-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sk-s3); }
+.sk .sk-role-card { display: flex; flex-direction: column; gap: var(--sk-s1); align-items: stretch; text-align: left;
+  padding: var(--sk-s3) var(--sk-s4); border-radius: var(--sk-r-md); background: var(--sk-surface); border: 1px solid var(--sk-line);
+  min-height: 44px; transition: border-color var(--sk-dur) var(--sk-ease); }
+.sk .sk-role-card:hover { border-color: var(--sk-brass-fill); }
+.sk .sk-role-card[aria-pressed="true"] { border-color: var(--sk-brass-fill); background: var(--sk-brass-soft); box-shadow: inset 0 0 0 1px var(--sk-brass-fill); }
+.sk-role-card b { color: var(--sk-text-strong); font-weight: 600; }
+.sk-role-card small { font-size: var(--sk-fs-sm); color: var(--sk-text-muted); }
+.sk-check { display: flex; gap: var(--sk-s2); align-items: flex-start; }
+.sk-tpl-detail { display: grid; grid-template-columns: max-content 1fr; gap: var(--sk-s1) var(--sk-s3); margin: 0; padding: var(--sk-s1) var(--sk-s2) var(--sk-s2); color: var(--sk-text); }
+.sk-tpl-detail dt { color: var(--sk-text-muted); font-weight: 600; }
+.sk-tpl-detail dd { margin: 0; }
+.sk-task-fmt { margin-top: auto; font-size: var(--sk-fs-xs); color: var(--sk-text-muted); border: 1px solid var(--sk-line); border-radius: var(--sk-r-pill); padding: 0 var(--sk-s2); }
+.sk-role-guard { display: flex; gap: var(--sk-s2); align-items: flex-start; color: var(--sk-text-muted); }
+.sk-role-person { display: flex; gap: var(--sk-s2); align-items: center; flex-wrap: wrap; }
+@media (max-width: 520px) { .sk-tpl-detail { grid-template-columns: 1fr; } }
+.sk-role-local { display: inline-flex; align-items: center; gap: var(--sk-s1); color: var(--sk-text-muted); }
+/* 4.0 — Settings › Organisation (OrgProfile.tsx) and « remember for next time » (LearnOffer.tsx) */
+.sk-org-field { display: flex; flex-direction: column; gap: 2px; }
+.sk-org-person { gap: var(--sk-s2); flex-wrap: wrap; }
+.sk-org-person input { flex: 1 1 120px; min-width: 0; }
+.sk-org-person input[size] { flex: 0 0 64px; }
+.sk-org-logo { max-height: 48px; max-width: 200px; object-fit: contain; align-self: flex-start; }
+.sk-org-preview pre { white-space: pre-wrap; margin: 0; max-height: 240px; overflow-y: auto; }
+.sk-learn { display: flex; flex-direction: column; gap: var(--sk-s2); padding-top: var(--sk-s2);
+  border-top: 1px solid var(--sk-line-strong); }
+.sk-learn-fact { display: flex; flex-direction: column; gap: 4px; }
+.sk-learn-fact textarea { font: inherit; padding: 6px 8px; border-radius: var(--sk-r-sm); resize: vertical;
+  border: 1px solid var(--sk-line-strong); background: var(--sk-surface); color: inherit; min-height: 40px; }
+.sk-learn-fact .sk-row { gap: var(--sk-s2); align-items: center; }
+
+/* 4.0 — the quality gate's report (QualityCheck.tsx): on the approval card and the deliverable */
+.sk-qc { border: 1px solid var(--sk-line); border-left: 3px solid var(--sk-ok); background: var(--sk-ok-soft);
+  border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.sk-qc.is-warn { border-left-color: var(--sk-warn); background: var(--sk-warn-soft); }
+.sk-qc-title { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+.sk-qc-sub { font-weight: 600; font-size: var(--sk-fs-sm, 0.875rem); margin-top: 2px; }
+.sk-qc-list { margin: 0; padding-left: 1.2em; font-size: var(--sk-fs-sm, 0.875rem); overflow-wrap: anywhere; }
+.sk-qc-more summary { cursor: pointer; font-size: var(--sk-fs-sm, 0.875rem); }
+.sk-panel-check { padding: 8px 16px 0; }

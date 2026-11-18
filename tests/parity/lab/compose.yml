@@ -1,0 +1,172 @@
+# The parity bench's lab (tests/parity/lab/lab.sh drives this file; nothing is published beyond
+# 127.0.0.1). On the lab's network, with an EXPLICIT subnet:
+#   meter        the bench's meter (tests/parity/wire.py): BOTH engines reach the model through it
+#                — the kernel by its service name, the legacy CLI (a host process) on 127.0.0.1
+#   kernel       the engine under test, uid 1000, no capability, tools in its own container
+#   pg           Postgres: threads, cards and ledger of both kernels, schema `kernel`
+#                (deploy/kernel/db-init.sql) — a resumed run survives a restart of the kernel
+# On the HOST network (no docker network at all):
+#   kernel-conf  the conformance kernel (tests/test_harness_kernel.py): its model is the scripted
+#                endpoint that pytest itself serves (tests/kernel_upstream.py), a host process the
+#                containers of a bridge network cannot reach through the host's firewall
+# Everything comes from the environment (lab.sh writes .env in PARITY_HOME, 0600).
+name: ${PARITY_PROJECT:-sokkan-parity}
+
+networks:
+  parity:
+    ipam:
+      config:
+        - subnet: ${PARITY_NET_SUBNET:?explicit subnet, e.g. 10.99.0.0/24}
+          gateway: ${PARITY_NET_GW:?gateway of that subnet}
+
+services:
+  pg:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: parity
+      POSTGRES_PASSWORD_FILE: /run/parity/pg_admin
+      POSTGRES_DB: sokkan
+    volumes:
+      - ${PARITY_HOME:?}/secrets/pg_admin:/run/parity/pg_admin:ro
+      - pg-data:/var/lib/postgresql/data
+    ports: ["127.0.0.1:${PARITY_PG_PORT:-15433}:5432"]
+    mem_limit: 1g
+    networks: [parity]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "parity", "-d", "sokkan"]
+      interval: 3s
+      retries: 30
+
+  # one-shot: schema `kernel` + roles in both databases (the conformance kernel has its own)
+  db-init:
+    image: pgvector/pgvector:pg16
+    depends_on:
+      pg:
+        condition: service_healthy
+    entrypoint: ["sh", "/lab/db-init.sh"]
+    volumes:
+      - ${PARITY_HOME}/secrets:/run/parity:ro
+      - ./db-init.sh:/lab/db-init.sh:ro
+      - ../../../deploy/kernel/db-init.sql:/sql/db-init.sql:ro
+    mem_limit: 256m
+    networks: [parity]
+
+  migrate:
+    image: ${PARITY_KERNEL_IMAGE:?pinned kernel image}
+    user: "1000:1000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    entrypoint: ["sh", "/lab/kernel.sh", "migrate"]
+    volumes:
+      - ${PARITY_HOME}/secrets:/run/parity:ro
+      - ./kernel.sh:/lab/kernel.sh:ro
+      - ${PARITY_HOME}/kernel/config.yaml:/etc/kernel/config.yaml:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    mem_limit: 1g
+    networks: [parity]
+
+  meter:
+    image: ${PARITY_KERNEL_IMAGE}          # any python3: the meter is the standard library only
+    user: "1000:1000"
+    entrypoint: ["python3", "/bench/wire.py"]
+    environment:
+      PARITY_UPSTREAM: ${PARITY_UPSTREAM:?the model, as the containers reach it}
+      PARITY_MODEL: ${PARITY_MODEL:?}
+      PARITY_THINKING: ${PARITY_THINKING:-0}
+      PARITY_MAX_CONCURRENT: ${PARITY_MAX_CONCURRENT:-2}
+      PARITY_WIRE_PORT: "18790"
+      PARITY_WIRE_LOG: /meter/wire.jsonl
+    volumes:
+      - ./..:/bench:ro
+      - ${PARITY_HOME}/meter:/meter
+    ports: ["127.0.0.1:${PARITY_WIRE_PORT:-18790}:18790"]
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    networks: [parity]
+
+  kernel:
+    image: ${PARITY_KERNEL_IMAGE}
+    user: "1000:1000"
+    init: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      meter:
+        condition: service_started
+    entrypoint: ["sh", "/lab/kernel.sh", "serve", "pg:5432/sokkan"]
+    environment:
+      NOKKER_CONFIG: /etc/kernel/config.yaml
+      NOKKER_HOME: /opt/data
+      NOKKER_ALLOWED_HOSTS: 127.0.0.1:${PARITY_KERNEL_PORT:-18742},localhost:${PARITY_KERNEL_PORT:-18742},127.0.0.1:8742
+      SOKKAN_KERNEL_MODEL_KEY: parity-meter
+      # the instance of its sandboxes, the same value as `local.instance` (lab.sh): explicit,
+      # one per kernel on the daemon
+      NOKKER_INSTANCE: ${PARITY_PROJECT:-sokkan-parity}-kernel
+      DOCKER_CONFIG: /tmp/docker
+    ports: ["127.0.0.1:${PARITY_KERNEL_PORT:-18742}:8742"]
+    volumes:
+      - ${PARITY_HOME}/secrets/kernel_app:/run/parity/kernel_app:ro
+      - ./kernel.sh:/lab/kernel.sh:ro
+      - ${PARITY_HOME}/kernel/config.yaml:/etc/kernel/config.yaml:ro
+      - ${PARITY_HOME}/kernel/state:/opt/data
+      - ${PARITY_HOME}/kernel/token:/run/kernel
+      - ${PARITY_HOME}/ws:${PARITY_HOME}/ws
+      # PARITY_KERNEL_SANDBOX=docker: the host's docker socket (the kernel starts the sandbox
+      # containers of its code sessions); /dev/null otherwise
+      - ${PARITY_DOCKER_SOCK:-/dev/null}:/var/run/docker.sock
+    group_add: ["${PARITY_DOCKER_GID:-65534}"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${PARITY_KERNEL_MEM:-2g}
+    networks: [parity]
+    healthcheck: &health
+      test: ["CMD", "python3", "-c",
+             "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('KPORT', '8742') + '/healthz', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kernel-conf:
+    image: ${PARITY_KERNEL_IMAGE}
+    # the conformance tests create their folders as the user who runs pytest (root on the lab
+    # host, no ACL tool there): this kernel runs as that same owner, still without any capability
+    user: "0:0"
+    init: true
+    network_mode: host
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    entrypoint: ["sh", "/lab/kernel.sh", "serve", "127.0.0.1:${PARITY_PG_PORT:-15433}/sokkan_conf"]
+    environment:
+      KPORT: ${PARITY_CONF_PORT:-18743}
+      NOKKER_CONFIG: /etc/kernel/config.yaml
+      NOKKER_HOME: /opt/data
+      NOKKER_ALLOWED_HOSTS: 127.0.0.1:${PARITY_CONF_PORT:-18743},localhost:${PARITY_CONF_PORT:-18743}
+      SOKKAN_KERNEL_MODEL_KEY: scripted
+      NOKKER_INSTANCE: ${PARITY_PROJECT:-sokkan-parity}-conf
+    volumes:
+      - ${PARITY_HOME}/secrets/kernel_app.root:/run/parity/kernel_app:ro
+      - ./kernel.sh:/lab/kernel.sh:ro
+      - ${PARITY_HOME}/kconf/config.yaml:/etc/kernel/config.yaml:ro
+      - ${PARITY_HOME}/kconf/state:/opt/data
+      - ${PARITY_HOME}/kconf/token:/run/kernel
+      - ${PARITY_HOME}/conf-ws:${PARITY_HOME}/conf-ws
+      # PARITY_CONF_SANDBOX=docker: the host's docker socket; /dev/null otherwise
+      - ${PARITY_CONF_DOCKER_SOCK:-/dev/null}:/var/run/docker.sock
+    group_add: ["${PARITY_DOCKER_GID:-65534}"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${PARITY_KERNEL_MEM:-2g}
+    healthcheck: *health
+
+volumes:
+  pg-data:

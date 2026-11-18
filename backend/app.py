@@ -93,6 +93,7 @@ import helm_api
 import hitl_journal  # journal of human validations (always on)
 import provision
 import transcript as T
+from harness import contract  # the session contract: a person's Decision
 import updatecheck
 import localaccounts  # 3.6: personal access codes of the local auth mode
 import appliance  # on-prem appliance: support tunnel requests, backup status
@@ -1093,7 +1094,7 @@ def agents_list(archived: bool = False, u: dict = Depends(crew_reader),
                                                        "waiting_for_human")}
              for a in agents.list_agents(u, include_archived=archived)]
     return {"agents": items, "pending": agents.pending_approvals(u),
-            "scheduler": _scheduler_state()}
+            "elsewhere": agents.waiting_elsewhere(u), "scheduler": _scheduler_state()}
 
 
 def _scheduler_state() -> dict:
@@ -1327,7 +1328,8 @@ class InstanceSettings(BaseModel):
 @app.post("/api/instance")
 def instance_set(body: InstanceSettings, u: dict = Depends(require("admin"))) -> dict:
     if body.org_name.strip():
-        instance.set_org_name(body.org_name)
+        import orgprofile  # one way to name the organisation (the common project follows)
+        orgprofile.set_name(body.org_name)
         audit.log(u["email"], "instance.rename", body.org_name)
     if body.budget_session_usd is not None or body.budget_day_usd is not None:
         instance.set_budgets(body.budget_session_usd, body.budget_day_usd)
@@ -1897,22 +1899,31 @@ async def agent_ws(websocket: WebSocket, sid: str):
                     continue
                 _bg(session.handle_user(msg["text"]))
             elif t == "permission":
-                hitl_journal.attribute(msg.get("id", ""), wsu["email"], hitl_journal.origin_of(
-                    wsu["email"], sid, session.user))
+                pid = msg.get("id", "")
                 updated = msg.get("updated_input")
                 if view is not None:
                     # 3.6 : la vue simple ne connaît ni chemin ni entrée brute — elle renvoie au plus
                     # le TEXTE du brouillon corrigé par la personne ; l'entrée est reconstruite ici
-                    updated = simple_api.edited_input(session, msg.get("id", ""), msg.get("draft_text"))
-                session.resolve_permission(msg.get("id", ""), {
-                    "decision": msg.get("decision", "deny"),
-                    "updated_input": updated,
-                    "message": msg.get("message"),
-                })
+                    updated = simple_api.edited_input(session, pid, msg.get("draft_text"))
+                # 4.0 : la décision du contrat (by = la personne, via = rail) — le même chemin
+                # que le partage délégué et Teams, quel que soit le moteur
+                who = (wsu["email"] or "").lower()
+                d = (contract.Decision.allow(updated, by=who, via="rail")
+                     if msg.get("decision") == "allow" else
+                     contract.Decision.deny(msg.get("message") or "Denied by the user",
+                                            by=who, via="rail"))
+                if session.decide_threadsafe(pid, d) == "four_eyes":
+                    # la carte reste ouverte : seul un autre regard l'approuve
+                    await emit({"type": "error", "code": "four_eyes",
+                                "message": session.four_eyes_refusal(pid, d)})
+                    again = next((e for e in reversed(session.events)
+                                  if e.get("type") == "permission" and e.get("id") == pid), None)
+                    if again is not None:
+                        await emit(again)
             elif t == "answer":
-                hitl_journal.attribute(msg.get("id", ""), wsu["email"], hitl_journal.origin_of(
-                    wsu["email"], sid, session.user))
-                session.resolve_question(msg.get("id", ""), msg.get("answers", {}))
+                who = (wsu["email"] or "").lower()
+                session.decide_threadsafe(msg.get("id", ""), contract.Decision.answer(
+                    msg.get("answers", {}), by=who, via="rail"))
             elif t == "interrupt":
                 await session.interrupt()
             elif t == "mode":
@@ -2075,7 +2086,7 @@ def _sdk_transcript(s: dict) -> Path | None:
     """The transcript of a SOKKAN chat session (3.6.4). The CLI files it under the session's
     OWN working directory: for a project other than `default` that is its project's folder, not
     the instance's (PROJECT_DIR) — the « active » flag and the transcript view looked only in the
-    instance's folder. Same rule as the thread's replay (agentchat._transcript_path): the
+    instance's folder. Same rule as the thread's replay (harness.cli_transcript.path): the
     instance's folder, then the session's own folder only, never another project's."""
     csid = s.get("claude_session_id") or ""
     if not csid:
@@ -2083,7 +2094,8 @@ def _sdk_transcript(s: dict) -> Path | None:
     p = PROJECT_DIR / f"{csid}.jsonl"
     if p.exists():
         return p
-    return agentchat._transcript_path(csid, agentchat.project_cwd(s["session_id"]))
+    from harness import cli_transcript   # the CLI's own files: activity of a legacy session
+    return cli_transcript.path(csid, agentchat.project_cwd(s["session_id"]))
 
 
 def _transcripts() -> list[Path]:
@@ -2479,6 +2491,26 @@ async def spawn_session(body: SpawnBody, u: dict = Depends(require("dev"))) -> d
     return s
 
 
+@app.get("/api/sessions/{session_id}/history")
+def session_history(session_id: str) -> dict:
+    """4.0: the thread of a chat session as its ENGINE keeps it (`Harness.history`), in the
+    contract's items — whatever the engine. `available` false = this engine cannot read a
+    thread back (greyed out, never rebuilt from elsewhere). Secrets the session's env held
+    are masked; the project gate of /api/sessions/{id} applies (projectgate)."""
+    if "/" in session_id or ".." in session_id:
+        raise HTTPException(400, "invalid session id")
+    s = next((x for x in board.list_sessions() if x["session_id"] == session_id), None)
+    if s is None or s.get("kind") != "sdk":
+        raise HTTPException(404, "session not found")
+    engine, items = agentchat.thread_history(session_id)
+    out = [i.to_dict() for i in items or []]
+    masked = agents.session_secret_values(session_id)
+    if masked:
+        out = agents.redact_obj(out, masked)
+    return {"session_id": session_id, "engine": engine, "available": items is not None,
+            "items": out}
+
+
 @app.get("/api/sessions/{session_id}")
 def session_detail(session_id: str) -> dict:
     # session_id is a file stem; reject path traversal
@@ -2488,27 +2520,23 @@ def session_detail(session_id: str) -> dict:
     s = next((x for x in board.list_sessions() if x["session_id"] == session_id), None)
     if s and s.get("kind") == "sdk":
         # le live des panes SDK passe par le WebSocket agent — mais au refresh,
-        # l'historique complet se réhydrate depuis le transcript persisté par
-        # Claude Code (le ring buffer WS ne garde que les RING_MAX derniers events)
-        tpath = _sdk_transcript(s)
-        if tpath and tpath.exists():
-            d = T.parse_file(tpath)
-            # 3.1.2 : an agent run's transcript (Crew → History) never shows its secrets
-            # 3.4.4 : nor a person's session (vault values its env held)
-            masked = agents.session_secret_values(session_id)
-            if masked:
-                d = agents.redact_obj(d, masked)
-            d.update({
-                "session_id": session_id, "title": s["title"], "tag": s["tag"],
-                "window": "", "active": False, "alive": True,
-                "exists": True, "starting": False, "kind": "sdk",
-            })
-            return d
+        # l'historique complet se relit depuis le MOTEUR (`Harness.history`, 4.0) : le même
+        # fil quel que soit le moteur, jamais le fichier d'un moteur en particulier
+        engine, items = agentchat.thread_history(session_id)
+        msgs = agentchat.history_messages(items or [])
+        # 3.1.2 : an agent run's thread (Crew → History) never shows its secrets
+        # 3.4.4 : nor a person's session (vault values its env held)
+        masked = agents.session_secret_values(session_id)
+        if masked:
+            msgs = agents.redact_obj(msgs, masked)
+        title = next((m["text"].strip().splitlines()[0][:80] for m in msgs
+                      if m.get("role") == "user" and (m.get("text") or "").strip()), "")
         return {
-            "session_id": session_id, "title": s["title"], "tag": s["tag"],
-            "window": "", "git_branch": "", "messages": [], "n_messages": 0,
+            "session_id": session_id, "title": s["title"] or title, "tag": s["tag"],
+            "window": "", "git_branch": "", "messages": msgs, "n_messages": len(msgs),
             "mtime": s["created_at"], "size": 0, "active": False, "alive": True,
-            "exists": False, "starting": False, "kind": "sdk",
+            "exists": bool(msgs), "starting": False, "kind": "sdk", "engine": engine,
+            "history": items is not None,
         }
     alive = bool(s) and s["window"] in _live_targets()
     if not path.exists():
@@ -3403,6 +3431,8 @@ app.include_router(hitl_api.router)
 app.include_router(study_api.router)
 import work_export_api  # noqa: E402 — feature work_export: « Export our work » (admin)
 app.include_router(work_export_api.router)
+import wordtemplates  # noqa: E402 — 4.0: the organisation's Word templates (admin)
+app.include_router(wordtemplates.router())
 import secrets_provider  # noqa: E402
 from secrets_provider import routes as secrets_routes  # noqa: E402
 
@@ -3417,8 +3447,15 @@ import uiprefs  # noqa: E402
 
 app.include_router(documents_api.router)
 app.include_router(simple_api.router(bg=_bg, preseed=_memory_preseed, shown_name=_shown_name))
+import roles_api  # noqa: E402 — 4.0 job kits of SOKKAN Atelier (backend/roles/*.json)
+app.include_router(roles_api.router(on_project_created=_sync_project_indexers))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
+# 4.0 — first launch (administrator), first sign-in (person), Team / Usage (onboarding.py)
+import onboarding  # noqa: E402
+app.include_router(onboarding.router(require))
+import orgprofile_api  # noqa: E402 — 4.0: the organisation's profile, given to every work
+app.include_router(orgprofile_api.router(require))
 
 # --- 3.5 Operate › Alerts : moteur de règles (backend/alerting/, routes /api/alerting/*) -------
 from alerting import api as alerting_api, scheduler as alerting_scheduler  # noqa: E402
@@ -3429,6 +3466,11 @@ app.include_router(alerting_api.router)
 from docingest import api as docingest_api, scheduler as docingest_scheduler  # noqa: E402
 
 app.include_router(docingest_api.router)
+
+# --- 4.0 connectors : mail, calendar, shared documents (backend/connectors/, /api/connectors/*)
+from connectors import api as connectors_api  # noqa: E402
+
+app.include_router(connectors_api.router)
 
 
 def _alert_diag_session(rule: dict, alert: dict) -> str:

@@ -49,6 +49,8 @@ export default function AgentChatPane({
   const [text, setText] = useState("");
   const [model, setModel] = useState<string>("");
   const [pmode, setPmode] = useState<PermMode>("default");
+  // the engine of this session has no plan mode: the mode is greyed out, not emulated
+  const [noPlan, setNoPlan] = useState(false);
   // hooks-only sandbox: known up front from the features, confirmed by the session
   const bashOffHere = useBashOff();
   const [sandboxMsg, setSandboxMsg] = useState<string | null>(null);
@@ -76,15 +78,24 @@ export default function AgentChatPane({
       case "perm_mode":
         setPmode(e.mode);
         break;
+      case "capabilities":
+        setNoPlan(!e.plan);
+        break;
       case "status":
         setWorking(e.state === "working");
         break;
       case "user":
-        // replay d'historique après restart (ring re-peuplé depuis le transcript)
+        // replay of the thread after a restart: the ring is filled again from the ENGINE
+        // (Harness.history, GET /api/sessions/{sid}/history) — the same events whatever
+        // the engine that kept the thread
         push({ role: "user", kind: "text", text: e.text });
         break;
+      case "history":
+        if (!e.available) push({ role: "system", kind: "note", text: "The earlier conversation cannot be read back with this engine." });
+        break;
       case "text":
-        push({ role: "assistant", kind: "text", text: e.text });
+        // written while a decision is awaited (kernel engine): a discreet note
+        push({ role: "assistant", kind: "text", text: e.text, ...(e.pending ? { pending: true } : {}) });
         break;
       case "thinking":
         push({ role: "assistant", kind: "thinking", text: e.text });
@@ -100,7 +111,8 @@ export default function AgentChatPane({
             : m));
         break;
       case "permission":
-        setPerms((p) => [...p, { id: e.id, tool: e.tool, title: e.title, input: e.input }]);
+        // one card per request: a card refused by the four-eyes rule is sent again
+        setPerms((p) => [...p.filter((x) => x.id !== e.id), { id: e.id, tool: e.tool, title: e.title, input: e.input }]);
         break;
       case "question":
         setQuestions((q) => [...q, { id: e.id, questions: e.questions }]);
@@ -161,8 +173,9 @@ export default function AgentChatPane({
   // cycle de mode (optimiste ; le serveur reconfirme via l'event perm_mode)
   const cycleMode = () => {
     if (!canWrite || !sock.current) return;
-    const i = PERM_MODES.findIndex((m) => m.id === pmode);
-    const next = PERM_MODES[(i + 1) % PERM_MODES.length];
+    const modes = noPlan ? PERM_MODES.filter((m) => m.id !== "plan") : PERM_MODES;
+    const i = modes.findIndex((m) => m.id === pmode);
+    const next = modes[(i + 1) % modes.length];
     setPmode(next.id);
     sock.current.setMode(next.id);
   };
@@ -199,13 +212,13 @@ export default function AgentChatPane({
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
           working ? "animate-pulse bg-emerald-400" : open ? "bg-emerald-500" : "bg-slate-600"
-        }`} title={working ? "Claude is working…" : open ? "connected" : "disconnected"} />
+        }`} title={working ? "working…" : open ? "connected" : "disconnected"} />
         {tag && <span className="shrink-0 rounded bg-brass/15 px-1.5 text-[10px] text-brass">{tag}</span>}
         {model && <span className="shrink-0 rounded bg-sea/15 px-1.5 text-[10px] text-sea" title="session model">{model}</span>}
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-slate-100">{title || "Session"}</div>
           <div className="truncate text-[10.5px] text-mut">
-            {open ? "connected" : "connecting…"}{working && <span className="text-brass"> · Claude is working…</span>}
+            {open ? "connected" : "connecting…"}{working && <span className="text-brass"> · working…</span>}
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
@@ -215,7 +228,8 @@ export default function AgentChatPane({
               ⇪ share</button>
           )}
           <button onClick={cycleMode} disabled={!canWrite}
-            title={`${curMode.title} · click or Shift+Tab to change mode`}
+            title={`${curMode.title} · click or Shift+Tab to change mode${
+              noPlan ? " · plan: not available with this engine" : ""}`}
             className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] hover:bg-panel2 disabled:opacity-40 ${curMode.cls}`}>
             {curMode.label}
           </button>

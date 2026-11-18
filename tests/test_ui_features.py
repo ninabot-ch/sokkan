@@ -177,15 +177,21 @@ def test_revoke_is_logged_and_removes_the_share(world):
 
 
 class _FakeSession:
+    """A live session waiting on one approval: what sharing reads (its pending gates) and
+    the one decision path it calls (4.0: the contract's Decision)."""
+
     def __init__(self):
-        self.events = [{"type": "permission", "id": "p1", "tool": "Bash",
-                        "title": "Run: rm -rf build", "input": {}}]
         self._perms = {"p1": object()}
         self.decisions = []
 
-    def resolve_permission(self, pid, decision):
+    def pending_gates(self):
+        return [{"id": p, "kind": "shell", "tool": "Bash", "title": "Run: rm -rf build",
+                 "options": ["allow_once", "deny"], "question": False} for p in self._perms]
+
+    def decide_threadsafe(self, pid, decision):
         self.decisions.append((pid, decision))
         self._perms.pop(pid, None)
+        return "ok"
 
 
 def test_delegated_hitl_approval(world, monkeypatch):
@@ -206,8 +212,10 @@ def test_delegated_hitl_approval(world, monkeypatch):
         "permission_id": "p1", "decision": "allow"}).status_code == 403
     r = world["as"]("dave@x").post(f"/api/shares/{sid}/decide",
                                    json={"permission_id": "p1", "decision": "deny"})
-    assert r.status_code == 200 and fake.decisions[0][1]["decision"] == "deny"
-    assert "dave@x" in fake.decisions[0][1]["message"]
+    assert r.status_code == 200 and fake.decisions[0][1].kind == "deny"
+    assert "dave@x" in fake.decisions[0][1].message
+    # who really decided travels with the decision, and through what
+    assert (fake.decisions[0][1].by, fake.decisions[0][1].via) == ("dave@x", "share")
     assert _audit("share.hitl.deny") and _audit("share.approver")
     # already decided
     assert world["as"]("dave@x").post(f"/api/shares/{sid}/decide", json={
@@ -504,3 +512,18 @@ def test_custom_endpoint_key_test_sends_the_key(world, monkeypatch):
     assert modelkeys.test_key("instance", "custom")["ok"] is True
     _, url, headers, _ = http.calls[-1]
     assert url == "http://litellm:4000/v1/models" and headers["x-api-key"] == "custom-key-123456"
+
+
+def test_setup_engines_shows_the_session_engine(world):
+    """4.0: Setup › Engines reads which engine runs the sessions and what it can do
+    (backend/harness/registry.describe), read-only; the detection note is the admin's."""
+    r = world["as"]("bob@x").get("/api/engines/session")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["variable"] == "SOKKAN_ENGINE_RUNTIME"
+    (cur,) = [e for e in body["engines"] if e["selected"]]
+    assert cur["name"] == "legacy" and cur["note"] == ""
+    if cur["available"]:
+        assert cur["capabilities"]["plan"] is True and cur["capabilities"]["identity"] == "plain"
+    admin = world["as"]("admin@x").get("/api/engines/session").json()
+    assert [e["name"] for e in admin["engines"]] == [e["name"] for e in body["engines"]]
