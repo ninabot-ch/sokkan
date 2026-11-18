@@ -47,7 +47,7 @@ export default function Connectors() {
   );
 }
 
-function Card({ a, onDone, onError }: { a: ConnectorAction; onDone: (m: string) => void; onError: (e: unknown) => void }) {
+export function Card({ a, onDone, onError }: { a: ConnectorAction; onDone: (m: string) => void; onError: (e: unknown) => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const p = a.preview as Record<string, string | string[]>;
