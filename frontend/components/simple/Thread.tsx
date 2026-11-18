@@ -15,11 +15,11 @@ import { DemoCta } from "./DemoBand";
 import { APPROVAL_KINDS, reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
-import ConnectorCards from "./ConnectorCards";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
 import QualityCheck from "./QualityCheck";
+import ConnectorCards from "./ConnectorCards";
 import EngineBadge, { engineText } from "./EngineBadge";
 import { StudyFeedback, StudyTag, useStudy } from "./StudyHooks";
 
