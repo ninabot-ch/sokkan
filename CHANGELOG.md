@@ -56,6 +56,47 @@ lives in the adapters: the legacy one takes every shell tool of the CLI out of t
 one called anyway by a hook (journaled as a rule of the space); the kernel one removes every
 shell tool of the kernel (`deny_tools`).
 
+### Changed — Claude on demand, personal data anonymised first (decision of 18.11.2026)
+- **« Write with Claude » is offered on demand for the work of every project that is not
+  confidential; no job is refused it any more.** The `409 claude_role` of the job kits (HR, legal,
+  finance refused Claude server side, whatever the project's level) is removed, with the kits'
+  `claude` flag, its validator rule, the « stays on the machine » badges and the home's note. What
+  decides is the project's classification (default: `public` and `team` projects), and, for the
+  data in it, the person — below.
+- **D9 is unchanged and still enforced by the server:** a project classified `confidential` or
+  `restricted` never goes to Claude, whatever `SOKKAN_CLAUDE_MAX_LEVEL` says or the person chooses
+  (`409 claude_level`, checked again by the router at every request). The HR and legal kits set up
+  confidential projects: their work stays on the machine by that rule.
+
+### Added — the « PII sandwich » ([docs/enterprise/CLAUDE-PRIVACY.md](docs/enterprise/CLAUDE-PRIVACY.md))
+- **Personal data is found on the machine before anything goes to Claude** (`backend/pii.py`,
+  deterministic, no model): names known to the organisation (directory and signatories of the
+  organisation profile) and names after a civility or a field label, Swiss/Liechtenstein IBANs
+  (mod-97 checked), AVS numbers (EAN-13 check digit), e-mail addresses, Swiss and French phone
+  numbers, dates of birth after « né le » / « born » / « geboren », simple postal addresses.
+- **The person is told and chooses.** A start with « Write with Claude » whose request or
+  attachments hold personal data answers `409 claude_pii` (categories, counts and a masked hint,
+  never a value) and creates nothing; the Atelier shows a card — « Anonymiser et envoyer à Claude »
+  / « Rester sur le modèle local » (fr/en). A follow-up message of a Claude work is checked the
+  same way until the person agreed once for that work (« Ne pas envoyer » otherwise). Every choice
+  is journaled: journal of validations, kind `pii` (who, when, categories and counts), and
+  `claude.pii.anonymize|local|declined` in the action journal.
+- **Anonymised on every request, restored in the answer and the files.** The router hands each
+  request of a Claude work to the api (`POST /api/internal/claude-pii`, the router's secret, same
+  door as the grant); the api replaces the personal data of the system prompt, the messages and
+  the tools' results and inputs by the work's stable pseudonyms (`[PERSONNE_1]`, `[IBAN_1]` …,
+  table `pii_maps`), so what the agent reads by itself during the work is covered too. The router
+  puts the values back in the answer — streamed or not, text and tool inputs, a pseudonym cut
+  between two pieces of the stream included — so the person reads, and the agent writes into
+  files, the real values. An image or a PDF sent as bytes is not sent (it cannot be checked);
+  Claude's thinking is left as written. No sandwich possible (api unreachable, unknown work) →
+  refused, `claude_unavailable`: a request never leaves without it. New session header
+  `x-sokkan-work` (stripped before Anthropic, like every `x-sokkan-*`).
+- Documentation: what goes to Claude and what never does, what the detection finds and what it
+  does not, and the contract — Anthropic's Commercial Terms of Service govern the use of API keys
+  and incorporate the Data Processing Addendum by reference (section C « Data Privacy »), with the
+  points an administrator confirms in the Anthropic Console.
+
 ### Added — the coworker knows the house (audit coworker 17.11, points 2, 8, 9)
 - **Organisation profile** (Settings › Organisation, `GET|PUT /api/org/profile`, logo
   `/api/org/logo`; doc `docs/enterprise/ORGANISATION.md`): legal name and form, address, UID

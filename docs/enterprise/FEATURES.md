@@ -652,9 +652,9 @@ An instance admin downloads ONE zip of what the organisation built here, readabl
 
 **Write with Claude (appliance)** — beta, toggle.
 
-On an on-prem appliance, a person may choose — explicitly, when sending a piece of work — to have it written by Claude (Anthropic API, the organisation's own key, entered by an administrator in Settings). Allowed only in a project classified at most SOKKAN_CLAUDE_MAX_LEVEL (default team; confidential and above never); the instance decides, the local router checks again at every request and refuses with a readable message — never a silent fall back, never by keyword, size or failure. Every answer and every deliverable names the model that answered; the choice is in the journal of validations and in « Export our work ». Off: no choice, no route.
+On an on-prem appliance, a person may choose — explicitly, when sending a piece of work — to have it written by Claude (Anthropic API, the organisation's own key, entered by an administrator in Settings). Allowed only in a project classified at most SOKKAN_CLAUDE_MAX_LEVEL (default team; confidential and above never); the instance decides, the local router checks again at every request and refuses with a readable message — never a silent fall back, never by keyword, size or failure. Every answer and every deliverable names the model that answered; the choice is in the journal of validations and in « Export our work ». 4.0: no job is refused Claude any more; personal data found in a request or its attachments is shown first and the person chooses — anonymise on the machine (« PII sandwich »: stable pseudonyms out, real values back in the answer and the files) or stay on the local model. Off: no choice, no route.
 
 - Defaults: community **off**, enterprise **off**
 - Requires: `simple_profile`
 - Switch: `SOKKAN_FEATURE_CLAUDE_TIER`
-- Doc: [docs/appliance/README.md](../../docs/appliance/README.md)
+- Doc: [docs/enterprise/CLAUDE-PRIVACY.md](../../docs/enterprise/CLAUDE-PRIVACY.md)
