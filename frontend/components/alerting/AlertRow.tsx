@@ -57,7 +57,7 @@ export function AlertRow({ a, canWrite, onChanged, onOpenRule, onOpenIncident, h
         </ul>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {canWrite && !a.acked_by && a.state !== "resolved" && <button type="button" disabled={busy} className={btn.small} onClick={() => run(() => ackAlert(a.id))} title="tell the others you are on it">✓ I'm on it</button>}
+        {canWrite && !a.acked_by && a.state !== "resolved" && <button type="button" disabled={busy} className={btn.small} onClick={() => run(() => ackAlert(a.id))} title="tell the others you are on it">✓ I&apos;m on it</button>}
         {canWrite && a.state !== "resolved" && (
           <span className="relative" onKeyDown={(e) => { if (e.key === "Escape") setMute(false); }}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMute(false); }}>

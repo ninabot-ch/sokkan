@@ -531,21 +531,58 @@ def recover() -> int:
     return n
 
 
+def _restart(cid: str, frm: str, extra: dict | None = None) -> dict:
+    c = store.get(cid)
+    step = c["resume_step"] if c["resume_step"] in STEPS else "round1"
+    reason = c["refusal_reason"] if step == "synthesis" and c["refusals"] and c.get("card") else ""
+    with _active_lock:
+        _active.add(cid)
+    if not store.transition(cid, frm, step, stop_requested=0, stop_message="", stop_reason="", **(extra or {})):
+        with _active_lock:
+            _active.discard(cid)
+        raise CouncilError(f"the council is not {frm}", 409)
+    _spawn(cid, STEPS[step], reason)
+    return store.get(cid)
+
+
 def resume(cid: str) -> dict:
     """Resume the round that was running (`interrupted` only). What was already said stays."""
     c = reconcile(cid)
     if c is None or c["state"] != "interrupted":
         raise CouncilError("the council is not interrupted", 409)
-    step = c["resume_step"] if c["resume_step"] in STEPS else "round1"
-    reason = c["refusal_reason"] if step == "synthesis" and c["refusals"] and c.get("card") else ""
-    with _active_lock:
-        _active.add(cid)
-    if not store.transition(cid, "interrupted", step, stop_requested=0, stop_message="", stop_reason=""):
-        with _active_lock:
-            _active.discard(cid)
-        raise CouncilError("the council is not interrupted", 409)
-    _spawn(cid, STEPS[step], reason)
-    return store.get(cid)
+    return _restart(cid, "interrupted")
+
+
+def raise_budget(cid: str, max_tokens: int | None = None, max_cost_chf: float | None = None, by: str = "") -> dict:
+    """After `stopped_budget`: a higher ceiling (tokens and/or CHF), then the council resumes the round
+    where it stopped (same machinery as `resume`: what was said stays, roles that answered are skipped).
+    A ceiling that does not exceed what the council already consumed is refused."""
+    c = store.get(cid)
+    if c is None or c["state"] != "stopped_budget":
+        raise CouncilError("the council did not stop on its ceiling", 409)
+    if max_tokens is None and max_cost_chf is None:
+        raise CouncilError("a new ceiling is required (tokens and/or CHF)")
+    used, cost = c["tokens_in"] + c["tokens_out"], c["cost_chf"]
+    fr = c["lang"] == "fr"
+    new: dict = {}
+    if max_tokens is not None:
+        if max_tokens <= used:
+            raise CouncilError(f"Plafond de jetons {max_tokens} : doit dépasser la consommation ({used})" if fr else
+                               f"Token ceiling {max_tokens}: must exceed what is already consumed ({used})", 422)
+        new["max_tokens"] = int(max_tokens)
+    if max_cost_chf is not None:
+        if max_cost_chf <= cost:
+            raise CouncilError(f"Plafond CHF {max_cost_chf:.2f} : doit dépasser la consommation (CHF {cost:.2f})" if fr else
+                               f"CHF ceiling {max_cost_chf:.2f}: must exceed what is already consumed (CHF {cost:.2f})", 422)
+        new["max_cost_chf"] = float(max_cost_chf)
+    if new.get("max_tokens", c["max_tokens"]) <= used or new.get("max_cost_chf", c["max_cost_chf"]) <= cost:
+        raise CouncilError("L'autre plafond est toujours atteint : relevez-le aussi" if fr else
+                           "The other ceiling is still reached: raise it too", 422)
+    r = _restart(cid, "stopped_budget", new)
+    store.add_turn(cid, round=_ROUND.get(r["state"], 3), seq=71, kind="system",
+                   text=(f"Plafond relevé par {by or 'le CEO'} : {r['max_tokens']} jetons, CHF {r['max_cost_chf']:.2f}. Le Conseil reprend."
+                         if fr else f"Ceiling raised by {by or 'the CEO'}: {r['max_tokens']} tokens, CHF {r['max_cost_chf']:.2f}. The council resumes."))
+    return r
 
 
 # ---- the CEO ---------------------------------------------------------------------------

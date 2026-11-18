@@ -3,6 +3,7 @@
 // planes, identity; row 2 = the sub-tabs of the plane on screen. A sub-tab that is not there
 // disappears; a plane without a visible sub-tab disappears.
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useMe } from "@/lib/me";
 import { useFeatures } from "@/lib/features";
 import { switchDemoInterface } from "@/lib/simple/demo";
@@ -113,17 +114,17 @@ function DemoBanner({ onGo, crew, captains, atelier }: { onGo: (t: SubTab) => vo
   if (hidden) return null;
   const go = (t: SubTab) => (e: React.MouseEvent) => { e.preventDefault(); onGo(t); };
   const tour = (<>
-      <a href="/?plane=build&tab=sessions" onClick={go("sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</a> (Build › Sessions — the memory recall sits at the top of each one) →{" "}
-      <a href="/?plane=control&tab=board" onClick={go("board")} className="underline decoration-amber-400/60 hover:text-white">② the board</a> (Control › Board — cards spawn sessions) →{" "}
-      <a href="/?plane=control&tab=corthexis" onClick={go("corthexis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</a> (Control › CortHeXis) →{" "}
-      <a href="/?plane=operate&tab=costs" onClick={go("costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</a> (Operate › Costs)
-      {crew && <> → <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents</a> (Build › Crew)
-        {" "}→ <a href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑥ who approves what</a> (open a card « waiting for approval »: it names who may approve)</>}
-      {captains && <> → <a href="/?plane=control&tab=helm" onClick={go("helm")} className="underline decoration-amber-400/60 hover:text-white">⑦ several teams, several projects</a> (Control › Helm, the project selector, Setup › Organization)</>}.{" "}
+      <Link href="/?plane=build&tab=sessions" onClick={go("sessions")} className="underline decoration-amber-400/60 hover:text-white">① open a session</Link> (Build › Sessions — the memory recall sits at the top of each one) →{" "}
+      <Link href="/?plane=control&tab=board" onClick={go("board")} className="underline decoration-amber-400/60 hover:text-white">② the board</Link> (Control › Board — cards spawn sessions) →{" "}
+      <Link href="/?plane=control&tab=corthexis" onClick={go("corthexis")} className="underline decoration-amber-400/60 hover:text-white">③ the memory graph</Link> (Control › CortHeXis) →{" "}
+      <Link href="/?plane=operate&tab=costs" onClick={go("costs")} className="underline decoration-amber-400/60 hover:text-white">④ real costs</Link> (Operate › Costs)
+      {crew && <> → <Link href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑤ the agents</Link> (Build › Crew)
+        {" "}→ <Link href="/?plane=build&tab=crew" onClick={go("crew")} className="underline decoration-amber-400/60 hover:text-white">⑥ who approves what</Link> (open a card « waiting for approval »: it names who may approve)</>}
+      {captains && <> → <Link href="/?plane=control&tab=helm" onClick={go("helm")} className="underline decoration-amber-400/60 hover:text-white">⑦ several teams, several projects</Link> (Control › Helm, the project selector, Setup › Organization)</>}.{" "}
   </>);
   return (
     <div className="relative z-30 border-b border-amber-500/30 bg-amber-500/10 py-2 pl-3 pr-10 text-[12px] leading-relaxed text-amber-100">
-      <b>You're in the live SOKKAN demo</b> — a real cloud tenant, read-only ·
+      <b>You&apos;re in the live SOKKAN demo</b> — a real cloud tenant, read-only ·
       <i> Vous êtes dans la démo publique, en lecture seule.</i>{" "}
       {/* 3.2.2: on a phone the 7-stop tour took a third of the screen — folded there */}
       <span className="hidden md:inline">Try the tour: {tour}</span>

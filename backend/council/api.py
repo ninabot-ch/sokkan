@@ -9,6 +9,7 @@
     POST /api/council/{id}/start           the three rounds run in the background             (dev)
     POST /api/council/{id}/say             {text} — the CEO writes, at any time              (dev)
     POST /api/council/{id}/stop            the CEO stops it                                   (dev)
+    POST /api/council/{id}/budget          raise the ceiling after stopped_budget and resume where it stopped (owner/admin)
     POST /api/council/{id}/resume          resume the round of an interrupted council (restart)  (owner/admin)
     POST /api/council/{id}/accept          accept the card: board cards, agent DRAFTS, positions (owner/admin)
     POST /api/council/{id}/refuse          {reason} — the DAF writes a new synthesis (twice at most)
@@ -252,6 +253,24 @@ def resume(cid: str, request: Request, _f=Depends(_feature)):
     except service.CouncilError as e:
         return _fail(e)
     audit.log(pu["email"], "council.resume", cid, f"step={r['resume_step']}", project=c["project"])
+    return public(r)
+
+
+class BudgetIn(BaseModel):
+    max_tokens: int | None = None
+    max_cost_chf: float | None = None
+
+
+@router.post("/api/council/{cid}/budget")
+def raise_budget(cid: str, body: BudgetIn, request: Request, _f=Depends(_feature)):
+    c, pu = _council(request, cid, "dev")
+    _owner_or_admin(c, pu)
+    try:
+        r = service.raise_budget(cid, body.max_tokens, body.max_cost_chf, pu["email"])
+    except service.CouncilError as e:
+        return _fail(e)
+    audit.log(pu["email"], "council.budget_raise", cid,
+              f"tokens {c['max_tokens']}->{r['max_tokens']} chf {c['max_cost_chf']}->{r['max_cost_chf']}", project=c["project"])
     return public(r)
 
 

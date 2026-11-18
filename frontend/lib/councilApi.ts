@@ -34,6 +34,8 @@ export const fetchCouncil = (id: string, after: number, lang: string) =>
     `/api/council/${id}?after=${after}&lang=${lang}`);
 export const addDocument = (id: string, d: { name: string; text: string } | { doc_id: string }) =>
   call<{ id: number; name: string }>(`/api/council/${id}/documents`, "POST", d);
+/** After `stopped_budget`: raise the ceiling (owner or admin) — the council resumes where it stopped. */
+export const raiseBudget = (id: string, b: { max_tokens?: number; max_cost_chf?: number }) => call<Council>(`/api/council/${id}/budget`, "POST", b);
 export const resumeCouncil = (id: string) => call<Council>(`/api/council/${id}/resume`, "POST");
 /** The project's classification (PUT /api/projects/{slug}/level — available without the Claude tier). */
 export const setProjectLevel = (slug: string, level: string, reason: string) =>

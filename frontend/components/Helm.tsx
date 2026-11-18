@@ -461,6 +461,7 @@ function BriefDialog({ onClose }: { onClose: () => void }) {
           {md && <MiniMarkdown text={md} />}
         </div>
         <footer className="border-t border-line px-4 py-2 text-[11px] text-mut">
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full page load on purpose: the cockpit reads ?plane=/?v= once at mount */}
           Get it every weekday at 07:30 as a note and a notification: <a className="text-sea underline underline-offset-2" href="/?plane=build&tab=crew">Crew → + New agent → Morning brief</a>.
           Agenda: a private ICS address in the vault, or Microsoft 365 with Teams.
         </footer>

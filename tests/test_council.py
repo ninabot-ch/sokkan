@@ -871,3 +871,77 @@ def test_the_card_sentences_have_no_s_in_parentheses_and_agree_in_number():
     for lang in ("fr", "en"):
         s = card.summary(syn, [], lang)
         assert "(s)" not in s
+
+
+# ---- raising the ceiling after stopped_budget -------------------------------------------------------
+def test_raising_the_ceiling_resumes_the_council_where_it_stopped(world):  # noqa: F811
+    models.set_default(eng.FakeEngine(tokens=(900, 100)))
+    c = new(max_tokens=5000)
+    done = service.run(c["id"])
+    assert done["state"] == "stopped_budget"
+    used = done["tokens_in"] + done["tokens_out"]
+    spoke = {t["role"] for t in store.turns(c["id"]) if t["kind"] == "role" and t["round"] == 1}
+    with pytest.raises(service.CouncilError) as e:
+        service.raise_budget(c["id"], max_tokens=used - 1)                    # below what was consumed
+    assert e.value.status == 422
+    with pytest.raises(service.CouncilError):
+        service.raise_budget(c["id"], max_tokens=used)                        # equal: it would stop again at once
+    with pytest.raises(service.CouncilError):
+        service.raise_budget(c["id"])                                         # nothing asked
+    assert store.get(c["id"])["state"] == "stopped_budget"                    # refusals change nothing
+    fake = eng.FakeEngine(tokens=(900, 100))
+    models.set_default(fake)
+    r = service.raise_budget(c["id"], max_tokens=500000, by="bob@x")
+    assert r["max_tokens"] == 500000
+    for _ in range(300):
+        if store.get(c["id"])["state"] == "card":
+            break
+        time.sleep(0.05)
+    assert store.get(c["id"])["state"] == "card"
+    again = [x.role for x in fake.calls if x.phase == "round1"]
+    assert not (set(again) & spoke)                                           # what was said is not paid twice
+    assert any(t["kind"] == "system" and "Plafond relevé par bob@x" in t["text"] for t in store.turns(c["id"]))
+    with pytest.raises(service.CouncilError):
+        service.raise_budget(c["id"], max_tokens=900000)                      # only after stopped_budget
+
+
+def test_the_cost_ceiling_can_be_raised_too_and_the_other_one_must_follow(world):  # noqa: F811
+    class Dear(eng.FakeEngine):
+        def complete(self, call):
+            r = super().complete(call)
+            r.cost_chf = 0.4
+            return r
+    models.set_default(Dear())
+    c = new(max_cost_chf=1.0)
+    done = service.run(c["id"])
+    assert done["state"] == "stopped_budget"
+    with pytest.raises(service.CouncilError):
+        service.raise_budget(c["id"], max_cost_chf=done["cost_chf"] - 0.01)
+    with pytest.raises(service.CouncilError):
+        service.raise_budget(c["id"], max_tokens=10_000_000)                  # the CHF ceiling is still reached
+    assert service.raise_budget(c["id"], max_cost_chf=50.0)["max_cost_chf"] == 50.0
+
+
+def test_http_the_owner_or_an_admin_raises_the_ceiling_and_it_is_audited(world):  # noqa: F811
+    models.set_default(eng.FakeEngine(tokens=(900, 100)))
+    cn = new(max_tokens=5000)
+    service.run(cn["id"])
+    url = f"/api/council/{cn['id']}/budget"
+    assert world["as"]("dave@x").post(url, json={"max_tokens": 500000}).status_code == 403     # another dev
+    assert world["as"]("carol@x").post(url, json={"max_tokens": 500000}).status_code == 403    # a viewer
+    bob = world["as"]("bob@x")
+    assert bob.post(url, json={"max_tokens": 10}).status_code == 422                           # below consumption
+    assert bob.post(url, json={}).status_code == 400
+    assert not world["audit"]("council.budget_raise")
+    r = bob.post(url, json={"max_tokens": 500000})
+    assert r.status_code == 200, r.text
+    assert r.json()["budget"]["max_tokens"] == 500000 and world["audit"]("council.budget_raise")
+    for _ in range(300):
+        if store.get(cn["id"])["state"] == "card":
+            break
+        time.sleep(0.05)
+    assert bob.post(url, json={"max_tokens": 900000}).status_code == 409                       # no longer stopped_budget
+    models.set_default(eng.FakeEngine(tokens=(900, 100)))
+    c2 = new(max_tokens=5000)
+    service.run(c2["id"])
+    assert world["as"]("admin@x").post(f"/api/council/{c2['id']}/budget", json={"max_tokens": 500000}).status_code == 200

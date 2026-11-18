@@ -184,7 +184,7 @@ export default function SessionRail({
           );
         })}
         {!sessions.length && (
-          <div className="px-3 py-3 text-[12px] text-mut">no sessions — click "+ session"</div>
+          <div className="px-3 py-3 text-[12px] text-mut">no sessions — click &quot;+ session&quot;</div>
         )}
       </div>
     </aside>

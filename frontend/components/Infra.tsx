@@ -139,7 +139,7 @@ function Envs() {
 
       {token && (
         <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[12px]">
-          <div className="font-semibold text-amber-200">Environment "{token.client}" is being created</div>
+          <div className="font-semibold text-amber-200">Environment &quot;{token.client}&quot; is being created</div>
           <div className="mt-1 text-slate-200">Login token to hand to the client (shown only once):</div>
           <code className="mt-1 block select-all break-all rounded bg-black/40 p-1.5 text-[11px] text-amber-100">{token.local_token}</code>
           <div className="mt-1 text-[10.5px] text-mut">{token.public_url}</div>
@@ -295,7 +295,7 @@ function FleetRoutes({ view, reload, isAdmin }: { view: FleetView; reload: () =>
         <span className="font-mono text-slate-300">*{view.route_suffix ?? ".sokkan.ch"}</span> or on{" "}
         <span className="text-slate-300">your own domain</span> (CNAME to{" "}
         <span className="font-mono text-slate-300">{view.edge_host ?? "your edge"}</span>, automatic certificate).
-        HTTP(S) only; the target must listen on the machine's private IP (0.0.0.0).
+        HTTP(S) only; the target must listen on the machine&apos;s private IP (0.0.0.0).
       </div>
       <div className="space-y-1.5">
         {routes.map((r) => (

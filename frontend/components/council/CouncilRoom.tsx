@@ -10,7 +10,7 @@ import type { Key } from "@/lib/simple/dict";
 import Icon from "@/components/simple/icons";
 import Markdown from "@/components/simple/Markdown";
 import {
-  actions, fmtChf, fmtTokens, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, tileStatus,
+  actions, ceilingError, ceilingProposal, fmtChf, fmtTokens, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, tileStatus,
   type Council, type RoleInfo, type Turn,
 } from "@/lib/council";
 import * as api from "@/lib/councilApi";
@@ -261,6 +261,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
           {" · "}{fmtChf(c.budget.cost_chf)} / {fmtChf(c.budget.max_cost_chf)}</span>
       </div>
       {c.state === "stopped_budget" && <p role="alert" className="co-err">{c.stop_message || t("council.budget.stopped")}</p>}
+      {a.raise && <RaiseCeiling budget={c.budget} onRaise={(b) => void act(() => api.raiseBudget(id, b))} onError={setErr} />}
       {c.state === "failed" && <p role="alert" className="co-err">{t("council.failed", { why: c.stop_message })}</p>}
       {c.state === "interrupted" && <p role="alert" className="co-err">{c.stop_message || t("council.interrupted")}</p>}
       {lost && <p role="status" className="co-err">{t("council.reconnecting")}</p>}
@@ -291,7 +292,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
             {g.turns.map((x) => (
               <article key={x.id} className="co-turn" data-kind={x.kind}>
                 <header><strong>{name(x.role)}</strong>{x.addressed_to && x.kind === "reply" ? <span> {t("council.to", { to: x.addressed_to })}</span> : null}
-                  {x.model && <small> · {x.model} · {x.tokens_in + x.tokens_out} tok · {x.ms} ms</small>}</header>
+                  {x.model && <small className="co-meta" title={`${x.model} · ${x.tokens_in + x.tokens_out} tok · ${x.ms} ms`}> · {x.model} · {x.tokens_in + x.tokens_out} tok · {x.ms} ms</small>}</header>
                 <TurnText x={x} />
               </article>
             ))}
@@ -334,6 +335,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
           <p>{t("council.accepted", { k: c.accepted.cards.length, a: c.accepted.agents.length, h: c.positions.length })}</p>
           {c.positions.length > 0 && <><h3 className="sk-h2">{t("council.positions")}</h3>
             <ul>{c.positions.map((p, i) => <li key={i}>{p.profil} — {p.pourcentage_poste} %</li>)}</ul></>}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full page load on purpose: the cockpit reads ?plane=/?v= once at mount */}
           <p><a className="sk-btn" href="/?v=team">{t("council.accepted.crew")}</a></p>
         </section>
       )}
@@ -355,5 +357,29 @@ function TurnText({ x }: { x: Turn }) {
         <details key={s.title} className="co-fold"><summary>{s.title}</summary><Markdown text={s.body} /></details>
       ))}
     </div>
+  );
+}
+
+/** After `stopped_budget`: raise the ceiling (tokens and/or CHF) and resume where the council stopped. */
+function RaiseCeiling({ budget, onRaise, onError }: { budget: Council["budget"]; onRaise: (b: { max_tokens: number; max_cost_chf: number }) => void; onError: (m: string) => void }) {
+  const t = useT();
+  const p = ceilingProposal(budget);
+  const [tok, setTok] = useState(String(p.max_tokens));
+  const [chf, setChf] = useState(String(p.max_cost_chf));
+  return (
+    <form className="co-raise" aria-label={t("council.budget.raise")} onSubmit={(e) => {
+      e.preventDefault();
+      const n = Number(tok), x = Number(chf);
+      if (ceilingError(budget, n, x)) { onError(t("council.budget.raise.low")); return; }
+      onRaise({ max_tokens: Math.round(n), max_cost_chf: x });
+    }}>
+      <div className="co-actions">
+        <label className="co-field"><span>{t("council.budget.max_tokens")}</span>
+          <input className="sk-input" type="number" inputMode="numeric" min={budget.tokens + 1} step={1000} value={tok} onChange={(e) => setTok(e.target.value)} /></label>
+        <label className="co-field"><span>{t("council.budget.max_cost")}</span>
+          <input className="sk-input" type="number" inputMode="decimal" min={budget.cost_chf} step={0.5} value={chf} onChange={(e) => setChf(e.target.value)} /></label>
+      </div>
+      <button className="sk-btn sk-btn-primary">{t("council.budget.raise.go")}</button>
+    </form>
   );
 }

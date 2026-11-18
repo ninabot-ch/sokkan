@@ -24,6 +24,8 @@ jobs:
         working-directory: frontend
       - run: npx tsc --noEmit
         working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
 
   tests:
     runs-on: ubuntu-latest

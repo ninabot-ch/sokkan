@@ -3,6 +3,7 @@
 // (lib/study.ts) and renders nothing when the feature is off or no study is active. It cannot
 // be dismissed: while actions are recorded, the screen says so.
 import { useStudy } from "@/lib/study";
+import Link from "next/link";
 import { TEXT, fill, fmtDate, useLang } from "@/lib/studyText";
 
 export default function StudyBanner({ onOpen }: { onOpen: (section?: string) => void }) {
@@ -34,15 +35,15 @@ export default function StudyBanner({ onOpen }: { onOpen: (section?: string) => 
         </span>
       )}
       {consented && pending > 0 && (
-        <a href="/?plane=setup&tab=study&section=tasks" onClick={open("tasks")}
+        <Link href="/?plane=setup&tab=study&section=tasks" onClick={open("tasks")}
           className="ui-focus rounded-full border border-brass/50 px-2 py-0.5 text-[12px] text-amber-100 hover:bg-brass/15">
           {pending === 1 ? t.banner_answer_one : fill(t.banner_answer_many, { n: pending })}
-        </a>
+        </Link>
       )}
-      <a href="/?plane=setup&tab=study" onClick={open(consented ? "recorded" : "consent")}
+      <Link href="/?plane=setup&tab=study" onClick={open(consented ? "recorded" : "consent")}
         className={`ui-focus ml-auto shrink-0 rounded px-1 underline underline-offset-2 hover:text-white ${consented ? "text-slate-200" : "font-medium text-amber-50"}`}>
         {consented ? t.banner_link : t.banner_decide}
-      </a>
+      </Link>
     </div>
   );
 }

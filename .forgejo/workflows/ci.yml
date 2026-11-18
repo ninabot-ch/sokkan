@@ -28,4 +28,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: tsc --noEmit
-        run: cd frontend && npm ci --no-audit --no-fund --loglevel=error && npx tsc --noEmit && echo "typage ok"
+        run: cd frontend && npm ci --no-audit --no-fund --loglevel=error && npx tsc --noEmit && echo "typage ok" && npm run lint && echo "lint ok"

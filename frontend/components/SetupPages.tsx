@@ -141,7 +141,7 @@ function Org() {
           <b>New version available: {inf.update.latest}</b>
           <span className="text-mut"> (installed: {inf.update.local_version})</span>
           {inf.tier ? (
-            <div className="mt-1 text-[11.5px]">Managed instance: <b>Operate › Infra → My fleet</b> → "⬆ update" (admin).</div>
+            <div className="mt-1 text-[11.5px]">Managed instance: <b>Operate › Infra → My fleet</b> → &quot;⬆ update&quot; (admin).</div>
           ) : (
             <div className="mt-1 text-[11.5px]">
               Self-hosted — rerun the installer from the parent directory of <code>sokkan/</code>:
@@ -311,7 +311,7 @@ function Model() {
             )}
             {!!use.per_user?.length && (
               <div>
-                <div className="text-[11px] text-mut">This month's usage by user</div>
+                <div className="text-[11px] text-mut">This month&apos;s usage by user</div>
                 {use.per_user.map((u2) => (
                   <div key={u2.user} className="flex justify-between text-[11px]">
                     <span className="text-slate-300">{u2.user || "(unattributed)"}</span>

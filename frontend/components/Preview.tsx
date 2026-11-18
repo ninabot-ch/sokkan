@@ -191,7 +191,7 @@ export default function Preview() {
             <input value={path} onChange={(e) => setPath(e.target.value)}
               placeholder="/path (e.g. /dashboard)"
               className="w-48 rounded border border-line bg-[#0b0f16] px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sea/50" />
-            <span className="text-[11px] text-mut">start a dev server → "capture" (image) or "open ↗" (interactive)</span>
+            <span className="text-[11px] text-mut">start a dev server → &quot;capture&quot; (image) or &quot;open ↗&quot; (interactive)</span>
           </>
         )}
       </div>
@@ -265,7 +265,7 @@ export default function Preview() {
           </>
         ) : (
           <div className="mt-10 text-center text-[13px] text-mut">
-            enter a URL and hit "capture"
+            enter a URL and hit &quot;capture&quot;
             <div className="mt-2 flex flex-wrap justify-center gap-1.5">
               {QUICK.map((q) => <button key={q} onClick={() => setUrl(q)} className="rounded border border-line bg-panel2 px-2 py-0.5 text-[11px] text-sea hover:bg-line">{q}</button>)}
             </div>

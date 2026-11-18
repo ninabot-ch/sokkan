@@ -227,7 +227,7 @@ export default function CardModal({
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-line p-3 text-[12px] text-mut">
-                no description — it's what seeds the session on spawn
+                no description — it&apos;s what seeds the session on spawn
               </div>
             )}
           </div>

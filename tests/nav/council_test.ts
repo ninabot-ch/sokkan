@@ -2,7 +2,7 @@
 // grouped by round, and what the CEO can do in each state. Run by tests/test_nav_planes.py.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROLE_ORDER, actions, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, step, tileStatus, type Turn } from "../../frontend/lib/council.ts";
+import { ROLE_ORDER, actions, ceilingError, ceilingProposal, groupRounds, isLive, isOver, isTextFile, mergeTurns, meter, splitSections, step, tileStatus, type Turn } from "../../frontend/lib/council.ts";
 
 const turn = (id: number, round: number, seq: number, role: string, kind: Turn["kind"] = "role"): Turn => ({
   id, round, seq, ts: id, kind, role, addressed_to: "", model: "m", route: "ship", tokens_in: 1, tokens_out: 1, ms: 1, cost_chf: 0, text: "x" });
@@ -39,7 +39,7 @@ test("the journal is grouped by round, in reading order, and polls merge without
 });
 
 test("what the CEO can do in each state", () => {
-  assert.deepEqual(actions("brief"), { start: true, say: true, stop: true, decide: false, attach: true, exportable: true, resume: false });
+  assert.deepEqual(actions("brief"), { start: true, say: true, stop: true, decide: false, attach: true, exportable: true, resume: false, raise: false });
   assert.equal(actions("round2").say, true);
   assert.equal(actions("round2").decide, false);
   assert.equal(actions("card").decide, true);
@@ -72,4 +72,17 @@ test("a file can be read in the browser when it is text, and only then", () => {
   assert.equal(isTextFile({ name: "budget.csv" }), true);
   assert.equal(isTextFile({ name: "x.bin", type: "text/plain" }), true);
   assert.equal(isTextFile({ name: "plan.pdf", type: "application/pdf" }), false);
+});
+
+test("after stopped_budget the CEO can raise the ceiling: only there, with a proposal above the consumption, and a lower ceiling is refused", () => {
+  for (const s of ["brief", "round1", "round2", "synthesis", "card", "interrupted", "accepted", "refused", "stopped", "failed"] as const) assert.equal(actions(s).raise, false);
+  assert.equal(actions("stopped_budget").raise, true);
+  assert.equal(actions("stopped_budget").resume, false);          // not the interrupted-round resume: it is the raise that resumes
+  const b = { max_tokens: 5000, max_cost_chf: 1, tokens: 5100, cost_chf: 0.4, calls: 6 };
+  const p = ceilingProposal(b);
+  assert.deepEqual(p, { max_tokens: 10000, max_cost_chf: 2 });
+  assert.equal(ceilingError(b, p.max_tokens, p.max_cost_chf), null);
+  assert.equal(ceilingError(b, 5100, 2), "tokens");               // equal to the consumption: it would stop again at once
+  assert.equal(ceilingError(b, 9000, 0.3), "chf");
+  assert.ok(ceilingProposal({ ...b, tokens: 9000 }).max_tokens >= 13500);
 });

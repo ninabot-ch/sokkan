@@ -795,6 +795,10 @@ html[data-sk-theme] body {
 .co-turn[data-kind="ceo"] { border-left-color: var(--sk-sea); background: var(--sk-sea-soft); }
 .co-turn[data-kind="system"] { border-left-color: var(--sk-warn); }
 .co-turn header small { color: var(--sk-text-muted); }
+/* one line at 390 px: name, then the model · tokens · ms line truncated (the full text is in its title) */
+.co-turn header { display: flex; align-items: baseline; gap: var(--sk-s2); min-width: 0; }
+.co-turn header strong, .co-turn header > span { flex: none; }
+.co-turn header .co-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .co-turn .co-text { margin: 2px 0 0; }
 .co-turn .co-text .sk-md > :first-child { margin-top: 0; } .co-turn .co-text .sk-md > :last-child { margin-bottom: 0; }
 .co-fold { margin: var(--sk-s2) 0; border: 1px solid var(--sk-line); border-radius: 6px; padding: 2px var(--sk-s3); }
@@ -813,6 +817,7 @@ html[data-sk-theme] body {
 .co-card { scroll-margin-top: var(--sk-s4); }
 .co-file { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .co-file:focus-within { outline: 2px solid var(--sk-sea); outline-offset: 2px; }
+.co-raise { display: grid; gap: var(--sk-s2); margin-bottom: var(--sk-s3); }
 .co-say, .co-actions { display: flex; gap: var(--sk-s2); flex-wrap: wrap; align-items: center; }
 .co-say .sk-input { flex: 1 1 16rem; }
 .co-form, .co-field { display: flex; flex-direction: column; gap: var(--sk-s2); }

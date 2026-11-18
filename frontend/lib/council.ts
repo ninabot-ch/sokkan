@@ -83,7 +83,7 @@ export function mergeTurns(have: Turn[], incoming: Turn[]): Turn[] {
   return [...have, ...incoming.filter((t) => !seen.has(t.id))];
 }
 
-export interface Actions { start: boolean; say: boolean; stop: boolean; decide: boolean; attach: boolean; exportable: boolean; resume: boolean }
+export interface Actions { start: boolean; say: boolean; stop: boolean; decide: boolean; attach: boolean; exportable: boolean; resume: boolean; raise: boolean }
 /** What the CEO can do in each state. Deciding needs a card; the CEO may write until the end.
  *  `interrupted` (the service restarted during a call): resume the round, or stop. */
 export function actions(s: CouncilState): Actions {
@@ -92,6 +92,7 @@ export function actions(s: CouncilState): Actions {
     say: s === "brief" || isLive(s) || s === "card" || s === "interrupted",
     stop: isLive(s) || s === "brief" || s === "card" || s === "interrupted",
     decide: s === "card", exportable: true, resume: s === "interrupted",
+    raise: s === "stopped_budget",       // a higher ceiling, then the council resumes where it stopped
   };
 }
 
@@ -117,3 +118,16 @@ export function step(s: CouncilState): number {
 
 export const fmtTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)} k` : String(n));
 export const fmtChf = (n: number) => `CHF ${n.toFixed(2)}`;
+
+/** After `stopped_budget`: the proposed new ceilings (double the old ones, at least 50 % above what was
+ *  consumed) and the check the server repeats — a ceiling that does not exceed the consumption is refused. */
+export function ceilingProposal(b: Budget): { max_tokens: number; max_cost_chf: number } {
+  const tok = Math.max(b.max_tokens * 2, Math.ceil(b.tokens * 1.5));
+  const chf = Math.max(b.max_cost_chf * 2, b.cost_chf * 1.5);
+  return { max_tokens: Math.ceil(tok / 1000) * 1000, max_cost_chf: Math.ceil(chf * 2) / 2 };
+}
+export function ceilingError(b: Budget, tokens: number, chf: number): "tokens" | "chf" | null {
+  if (!(tokens > b.tokens)) return "tokens";
+  if (!(chf > b.cost_chf)) return "chf";
+  return null;
+}
