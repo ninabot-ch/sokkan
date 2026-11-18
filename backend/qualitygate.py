@@ -579,9 +579,11 @@ def _facts(name: str, content: str) -> dict:
         tables = [rows for _s, _e, rows, _h in outputs._md_tables(body)]
     data = []
     flagged = 0
+    per_table = []
     for t in tables:
         if len(t) < 2:
             continue
+        n0, f0 = len(data), flagged
         head = [factcheck.fold(h) for h in t[0]]
         vcol = next((j for j, h in enumerate(head) if "verifier" in h or "confirmer" in h), None)
         for r in t[1:]:
@@ -592,6 +594,7 @@ def _facts(name: str, content: str) -> dict:
                 v = factcheck.fold(r[vcol]).strip()
                 if v and v not in ("non", "no", "-", "—", "0", "false"):
                     flagged += 1
+        per_table.append((len(data) - n0, flagged - f0))
     points = 0
     m = re.search(r"^#+\s.*(?:points?\s+[àa]\s+(?:v[ée]rifier|confirmer)|points to (?:check|confirm)).*$"
                   r"((?:\n(?!#+\s).*)*)", body or "", re.I | re.M)
@@ -600,7 +603,10 @@ def _facts(name: str, content: str) -> dict:
     figures = set()
     for v in factcheck.numbers(text if not body else body):
         figures.add(round(v, 2))
+    # the main table (the one with the most rows) is what « N lignes » usually means
+    main = max(per_table, default=(0, 0))
     return {"rows": data, "n_rows": len(data), "flagged": flagged, "points": points,
+            "main_rows": main[0], "main_flagged": main[1], "per_table": per_table,
             "figures": figures, "tables": len(tables), "kind": outputs.kind_of(name, text)}
 
 
@@ -623,9 +629,13 @@ def check_message(message: str, name: str, content: str) -> list[str]:
         if stem == "point" and flag:
             have = f["points"] or f["flagged"]
         elif flag:
-            have = f["flagged"]
+            if n in (f["flagged"], f["main_flagged"]) or n in [x[1] for x in f["per_table"]]:
+                continue
+            have = f["main_flagged"]
         elif stem in ("ligne", "entree"):
-            have = f["n_rows"]
+            if n in (f["n_rows"], f["main_rows"]) or n in [x[0] for x in f["per_table"]]:
+                continue        # one of the tables, or all of them: a true reading
+            have = f["main_rows"]
         else:
             have = sum(1 for r in f["rows"] if any(factcheck.fold(c).startswith(stem) for c in r))
             if not have:
@@ -644,11 +654,13 @@ def factual_message(name: str, content: str, title: str = "") -> str:
     """The delivery message SOKKAN writes from the file itself, when the agent's was false."""
     f = _facts(name, content)
     what = f"« {title or name} »"
-    if f["n_rows"]:
-        s = f"J'ai enregistré {what} : {f['n_rows']} ligne{'s' if f['n_rows'] != 1 else ''}"
-        if f["flagged"]:
-            s += f", dont {f['flagged']} marquée{'s' if f['flagged'] != 1 else ''} à vérifier"
-        s += "."
+    if f["main_rows"]:
+        n, k = f["main_rows"], f["main_flagged"]
+        more = len([x for x in f["per_table"] if x[0]]) - 1
+        s = (f"J'ai enregistré {what} : le tableau principal compte {n} ligne{'s' if n != 1 else ''}"
+             + (f", dont {k} marquée{'s' if k != 1 else ''} à vérifier" if k else "")
+             + (f" ; le document contient {more} autre{'s' if more != 1 else ''} tableau{'x' if more != 1 else ''}"
+                if more > 0 else "") + ".")
     else:
         s = f"J'ai enregistré {what}."
     if f["points"]:

@@ -545,6 +545,16 @@ def test_a_false_delivery_message_is_caught_and_rewritten_from_the_file():
     assert "4 lignes" in msg and "2 marquées à vérifier" in msg
 
 
+def test_line_counts_are_read_table_by_table():
+    pytest.importorskip("outputs")
+    doc = ("# Suivi\n\n| Décision | À vérifier |\n|---|---|\n| D1 | oui |\n| D2 | |\n| D3 | |\n\n"
+           "## Résumé\n\n| Indicateur | Valeur |\n|---|---|\n| Décisions | 3 |\n| Actions | 8 |\n")
+    assert qualitygate.check_message("Le tableau compte 3 lignes, dont 1 ligne à vérifier.", "s.md", doc) == []
+    assert qualitygate.check_message("Le fichier compte 5 lignes.", "s.md", doc) == []      # both tables
+    assert qualitygate.check_message("Le tableau compte 9 lignes.", "s.md", doc) != []
+    assert "tableau principal compte 3 lignes" in qualitygate.factual_message("s.md", doc)
+
+
 def test_counted_points_to_check_and_computed_totals():
     pytest.importorskip("outputs")
     doc = ("# Rapport\n\n| Poste | Montant |\n|---|---|\n| A | 100 |\n| B | 200 |\n| Total | =SUM(ABOVE) |\n\n"
