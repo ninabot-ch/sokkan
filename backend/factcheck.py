@@ -853,6 +853,17 @@ def with_computed(name: str, text: str) -> tuple[str, list[dict]]:
                           + " — nom de colonne, libellé de ligne, SUM(ABOVE) ou A1 du tableau",
                           f"{len(bad)} formula(s) SOKKAN does not understand: "
                           + "; ".join(b.split(" (=")[0] for b in bad[:4]), cells=bad))
+        # 4.0.1: a VAT / total incl. VAT SOKKAN kept as written (ambiguous). A written amount
+        # that differs from the computation is already the « vat » finding of `_vat`.
+        todo = [ln[2:] for ln in summ.splitlines() if " TO CHECK, kept as written: " in ln
+                and " written, " not in ln.split(" TO CHECK, kept as written: ", 1)[1]]
+        if todo:
+            out.append(_f("figure_to_check", "warn",
+                          f"{len(todo)} montant(s) laissé(s) tel(s) qu'écrit(s), à vérifier : "
+                          + "; ".join(t.split(" = ")[0] + " (" + t.split(": ", 1)[-1] + ")" for t in todo[:4]),
+                          f"{len(todo)} amount(s) kept as written, to check: "
+                          + "; ".join(t.split(" = ")[0] + " (" + t.split(": ", 1)[-1] + ")" for t in todo[:4]),
+                          cells=todo))
         _meta, body = outputs.front_matter(text)
         return outputs.computed_markdown(body), out
     except Exception:  # noqa: BLE001 — the computation never breaks the check

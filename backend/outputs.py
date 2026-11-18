@@ -142,8 +142,10 @@ def split_row(line: str) -> list[str]:
     return cells
 
 
-def blocks(md: str, hr_breaks: bool = False) -> list[Block]:
-    """Markdown → blocks. ``hr_breaks``: a horizontal rule is a page break (letters)."""
+def blocks(md: str, hr_breaks: bool = False, keep_lines: bool = False) -> list[Block]:
+    """Markdown → blocks. ``hr_breaks``: a horizontal rule is a page break (letters).
+    ``keep_lines``: the lines of a paragraph stay separate (« \\n »), as a spreadsheet shows
+    them one per row (« Client : … » then « Offre n° … »)."""
     out: list[Block] = []
     lines = (md or "").replace("\r\n", "\n").split("\n")
     i, seen_title, in_code = 0, False, False
@@ -152,7 +154,7 @@ def blocks(md: str, hr_breaks: bool = False) -> list[Block]:
 
     def flush():
         if para:
-            out.append(Block("para", " ".join(s.strip() for s in para)))
+            out.append(Block("para", ("\n" if keep_lines else " ").join(s.strip() for s in para)))
             para.clear()
 
     while i < len(lines):
@@ -272,6 +274,8 @@ class Cell:
     bold: bool = False
     computed: object = None       # the formula's value, computed here
     bad: bool = False             # a formula SOKKAN cannot place (an unknown [name]): kept as text
+    check: str = ""               # « à vérifier »: why SOKKAN did not turn this figure into a formula
+    check_en: str = ""
 
 
 def parse_value(raw: str) -> Cell:
@@ -359,59 +363,162 @@ class Sheet:
     total_rows: list = field(default_factory=list)
     freeze: int = 0
     formulas: list = field(default_factory=list)  # (table, row, col) of each formula, as written
+    label: str = ""               # the section's full heading (the name is cut to Excel's 31 characters)
+    notes: list = field(default_factory=list)     # (row, col) of the visible « à vérifier » notes
 
 
 _TOTAL_WORDS = re.compile(r"^\s*(\*\*)?\s*(total|sous-total|subtotal|totaux|solde|somme|summe|gesamt)", re.I)
 
 
+SHEET_MAX = 31                     # Excel's limit for a sheet name
+
+
+def _cut(s: str, limit: int) -> str:
+    """At most ``limit`` characters, cut at a word boundary with « … » (never in a word)."""
+    if len(s) <= limit:
+        return s
+    head = s[: limit - 1]
+    if s[limit - 1] != " ":                       # the cut falls inside a word: back to its start
+        sp = head.rfind(" ")
+        if sp >= limit // 3:
+            head = head[:sp]
+    return head.rstrip(" ,;.:-–—·(") + "…"
+
+
 def _sheet_name(s: str, used: set) -> str:
-    n = re.sub(r"[\[\]:*?/\\]", " ", plain_text(s)).strip()[:31] or "Feuille"
-    base, k = n, 2
+    n = re.sub(r"\s+", " ", re.sub(r"[\[\]:*?/\\]", " ", plain_text(s))).strip().strip("'") or "Feuille"
+    base = n
+    n, k = _cut(base, SHEET_MAX), 2
     while n.lower() in used:
         suffix = f" ({k})"
-        n, k = base[: 31 - len(suffix)] + suffix, k + 1
+        n, k = _cut(base, SHEET_MAX - len(suffix)) + suffix, k + 1
     used.add(n.lower())
     return n
 
 
 def workbook_model(name: str, text: str) -> tuple[str, list[Sheet]]:
     """The source → (title, sheets) with every cell placed and every formula translated to
-    sheet coordinates."""
+    sheet coordinates.
+
+    4.0.1: a sheet is a section that carries its OWN table. The text before the first table
+    (« Client : … », an introduction) stays above that table on its sheet, and a section
+    without a table (« Conditions », « Points à confirmer ») follows the table it accompanies
+    on the same sheet: an offer is one sheet, not four. The lines « TVA 8,1 % : … »,
+    « Total TTC : … » written right under a table join it, and VAT and total incl. VAT
+    become formulas when nothing is ambiguous (`vat_formulas`)."""
     used: set = set()
-    if (name or "").lower().endswith(".csv"):
+    is_csv = (name or "").lower().endswith(".csv")
+    if is_csv:
         rows = csv_rows(text)
         title = re.sub(r"\.csv$", "", name or "", flags=re.I)
-        sh = Sheet(_sheet_name(title or "Tableau", used))
+        sh = Sheet(_sheet_name(title or "Tableau", used), label=title or "Tableau")
         if rows:
             sh.items.append(("table", Table(rows[0], [[parse_value(c) for c in r] for r in rows[1:]])))
         sheets = [sh]
     else:
-        _meta, body = front_matter(text)
-        title, sheets, cur = "", [], None
-        for b in blocks(body):
-            if b.kind == "title":
-                title = b.text
-                continue
-            if b.kind == "heading" and b.level == 1:
-                cur = Sheet(_sheet_name(b.text, used))
-                sheets.append(cur)
-                continue
-            if cur is None:
-                cur = Sheet(_sheet_name(title or "Feuille 1", used))
-                sheets.append(cur)
-            if b.kind == "table":
-                cur.items.append(("table", Table(b.rows[0], [[parse_value(c) for c in r] for r in b.rows[1:]])))
-            elif b.kind == "heading":
-                cur.items.append(("text", b.text, True))
-            elif b.kind in ("para", "item", "code"):
-                cur.items.append(("text", (f"{b.mark} " if b.kind == "item" else "") + plain_text(b.text), False))
-        sheets = [s for s in sheets if s.items] or [Sheet(_sheet_name(title or "Feuille 1", set()))]
-    is_csv = (name or "").lower().endswith(".csv")
-    for sh in sheets:
-        # a CSV table stays a table: no title row above its header
-        layout(sh, title if sh is sheets[0] and not is_csv else "")
+        title, sheets = _sections(text, used)
+    for i, sh in enumerate(sheets):
+        # a CSV table stays a table: no title row above its header. A cut sheet name keeps
+        # the full heading on its first row.
+        if i == 0:
+            layout(sh, "" if is_csv else title)
+        else:
+            layout(sh, sh.label if sh.label and sh.label != sh.name else "")
     finish(sheets)
+    vat_formulas(sheets)
     return title, sheets
+
+
+_SUMMARY_LINE = re.compile(r"^\s*(?P<label>[^:=|]{2,60}?)\s*[:=]\s*(?P<amt>[^:=|]{1,30}?)\s*\.?\s*$")
+_SUMMARY_WORDS = re.compile(r"\b(total|sous-total|subtotal|montant|tva|mwst|vat|ttc|ht|net à payer|à payer)\b", re.I)
+
+
+def _summary_line(text: str):
+    """« TVA 8,1 % : CHF 370.17 » → (label, value cell) — a line that belongs in the table above."""
+    m = _SUMMARY_LINE.match(plain_text(text))
+    if not m or not _SUMMARY_WORDS.search(m.group("label")):
+        return None
+    c = parse_value(m.group("amt"))
+    if not isinstance(c.value, (int, float)) or "%" in c.numfmt:
+        return None
+    return m.group("label").strip(), c
+
+
+def _amount_col(tb: Table) -> int | None:
+    """The column of a table's totals: the last figure (or formula) of its last row."""
+    for row in reversed(tb.rows):
+        for ci in range(len(row) - 1, 0, -1):
+            c = row[ci]
+            if c.formula or (isinstance(c.value, (int, float)) and not isinstance(c.value, bool)
+                             and "%" not in (c.numfmt or "")):
+                return ci
+    return None
+
+
+def _sections(text: str, used: set) -> tuple[str, list[Sheet]]:
+    _meta, body = front_matter(text)
+    title = ""
+    secs: list[dict] = []               # {"label", "items"}
+    cur = None
+    for b in blocks(body, keep_lines=True):
+        if b.kind == "title":
+            title = b.text
+            continue
+        if b.kind == "heading" and b.level == 1:
+            cur = {"label": plain_text(b.text).strip(), "items": []}
+            secs.append(cur)
+            continue
+        if cur is None:
+            cur = {"label": "", "items": []}
+            secs.append(cur)
+        items = cur["items"]
+        if b.kind == "table":
+            items.append(("table", Table(b.rows[0], [[parse_value(c) for c in r] for r in b.rows[1:]])))
+        elif b.kind == "heading":
+            items.append(("text", plain_text(b.text), True))
+        elif b.kind in ("para", "item", "code"):
+            lines = [b.text] if b.kind != "para" else [x for x in b.text.split("\n") if x.strip()]
+            for ln in lines:
+                # « Total TTC : 4'940.17 » right under a table: a row of that table
+                last = items[-1] if items else None
+                folded = _summary_line(ln) if b.kind != "code" else None
+                if folded and last and last[0] == "table":
+                    tb = last[1]
+                    col = _amount_col(tb)
+                    if col is not None:
+                        width = max(len(tb.header), col + 1)
+                        row = [Cell(folded[0])] + [Cell(None) for _ in range(width - 1)]
+                        row[col] = folded[1]
+                        tb.rows.append(row)
+                        continue
+                items.append(("text", (f"{b.mark} " if b.kind == "item" else "") + plain_text(ln), False))
+    # a sheet = a section with a table; the others join the nearest table section
+    groups: list[dict] = []
+    pending: list[dict] = []
+    for sec in secs:
+        if not sec["items"] and not sec["label"]:
+            continue
+        has_table = any(it[0] == "table" for it in sec["items"])
+        if has_table:
+            if pending:
+                lead = [it for p in pending for it in ([("text", p["label"], True)] if p["label"] else []) + p["items"]]
+                if sec["label"]:
+                    lead.append(("text", sec["label"], True))
+                sec = {"label": sec["label"], "items": lead + sec["items"]}
+                pending = []
+            groups.append(sec)
+        elif groups:
+            groups[-1]["items"] += ([("text", sec["label"], True)] if sec["label"] else []) + sec["items"]
+        else:
+            pending.append(sec)
+    if pending:                                           # no table at all: one sheet
+        groups = [{"label": "", "items": [it for p in pending for it in
+                                          ([("text", p["label"], True)] if p["label"] else []) + p["items"]]}]
+    sheets = []
+    for k, g in enumerate(groups):
+        label = g["label"] or (title if k == 0 else "") or f"Feuille {k + 1}"
+        sheets.append(Sheet(_sheet_name(label, used), items=g["items"], label=label))
+    return title, (sheets or [Sheet(_sheet_name(title or "Feuille 1", used), label=title or "Feuille 1")])
 
 
 def finish(sheets: list[Sheet]) -> None:
@@ -434,9 +541,11 @@ def layout(sh: Sheet, title: str) -> None:
         sh.title_row = r
         r += 2
     first_table = True
+    text_rows = set()
     for it in sh.items:
         if it[0] == "text":
             sh.cells[(r, 0)] = Cell(it[1], bold=it[2])
+            text_rows.add(r)
             r += 1
             continue
         tb: Table = it[1]
@@ -464,7 +573,154 @@ def layout(sh: Sheet, title: str) -> None:
         ln = len(fmt_number(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v or ""))
         if (_row, col) == (getattr(sh, "title_row", -1), 0):
             continue
+        if _row in text_rows and sh.header_rows:
+            continue          # a line of text above / under a table runs over the empty cells
         sh.widths[col] = max(sh.widths.get(col, 8), min(60, ln + 2))
+
+
+# ---- VAT and total incl. VAT: formulas when nothing is ambiguous ---------------------------
+_VAT_LABEL = re.compile(r"\b(tva|mwst|vat|taxe sur la valeur ajout[ée]e)\b", re.I)
+_TTC_LABEL = re.compile(r"\b(ttc|t\.t\.c\.?|tva\s+(?:incluse|comprise)|incl\w*\.?\s+(?:la\s+)?(?:tva|vat|mwst)"
+                        r"|inkl\w*|net\s+à\s+payer|total\s+à\s+payer|amount\s+due)\b", re.I)
+_HT_LABEL = re.compile(r"(\bht\b|\bh\.t\.?|\bhors\s+(?:tax\w*|tva)|\bexcl\w*|\bnetto\b|\bnet\b|\bsous-total\b"
+                       r"|\bsubtotal\b|\bzwischensumme\b|\bohne\s+mwst\b)", re.I)
+_RATE = re.compile(r"(\d{1,2}(?:[.,]\d{1,3})?)\s?%")
+
+
+def _row_label(row: list) -> str:
+    return " ".join(plain_text(str(c.value)) for c in row if isinstance(c.value, str) and c.value.strip())
+
+
+def _figure(c: Cell | None):
+    """The amount a cell holds (its computed value for a formula); None for text or a rate."""
+    if c is None or "%" in (c.numfmt or ""):
+        return None
+    v = c.computed if c.formula else c.value
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _flag(sh: Sheet, cell: Cell, row: int, col: int, fr: str, en: str) -> None:
+    cell.check, cell.check_en = fr, en
+    sh.cells[(row, col)] = Cell(f"À vérifier : {fr}")
+    sh.notes.append((row, col))
+    sh.widths[col] = max(sh.widths.get(col, 8), min(70, len(fr) + 14))
+
+
+def vat_formulas(sheets: list[Sheet]) -> None:
+    """A table with « Total HT », « TVA 8,1 % » and « Total TTC » rows: VAT = HT × the rate
+    WRITTEN in the document (no rate is assumed), TTC = HT + VAT, as formulas on those cells.
+    Ambiguous (no HT row, several candidates, no rate, a written amount that is not the
+    computation): the figure stays as written, the cell is marked « à vérifier » (a note next
+    to the table, a comment in Excel, a line for the agent in `calc_summary`)."""
+    changed = False
+    for sh in sheets:
+        for it in sh.items:
+            if it[0] != "table":
+                continue
+            tb: Table = it[1]
+            width = max([len(tb.header)] + [len(r) for r in tb.rows])
+            note_col = width
+            rows = [tb.top + 1 + i for i in range(len(tb.rows))]
+            labels = {r: _row_label(tb.rows[r - tb.top - 1]) for r in rows}
+            vat_rows = [r for r in rows if _VAT_LABEL.search(labels[r]) and not _TTC_LABEL.search(labels[r])
+                        and not re.search(r"\b(hors|excl\w*|ohne|sans|before)\b", labels[r], re.I)]
+            if not vat_rows:
+                continue
+            several = len(vat_rows) > 1
+            for vr in vat_rows:
+                row = tb.rows[vr - tb.top - 1]
+                col = next((ci for ci in range(len(row) - 1, 0, -1)
+                            if _figure(row[ci]) is not None or (row[ci].formula and "%" not in row[ci].numfmt)), None)
+                if col is None:
+                    continue
+                vcell = sh.cells[(vr, col)]
+                if vcell.formula:
+                    continue                                   # the agent's own formula: kept
+                written = _figure(vcell)
+                # the rate: written in the label, or a percentage cell of the row
+                rate_ref, rate = "", None
+                pc = next((ci for ci, c in enumerate(row) if "%" in (c.numfmt or "")
+                           and isinstance(c.value, (int, float))), None)
+                m = _RATE.search(labels[vr])
+                if m:
+                    rate_txt = m.group(1).replace(",", ".")
+                    rate = float(rate_txt) / 100
+                elif pc is not None:
+                    rate, rate_ref = float(row[pc].value), f"{col_letter(pc)}{vr}"
+                # HT: the rows above that say so, else a bare « Total » above
+                above = [r for r in rows if r < vr and r not in vat_rows and not _TTC_LABEL.search(labels[r])]
+                ht = [r for r in above if _HT_LABEL.search(labels[r]) and _figure(sh.cells.get((r, col))) is not None]
+                if not ht:
+                    ht = [r for r in above if re.match(r"\s*total\b", labels[r], re.I)
+                          and _figure(sh.cells.get((r, col))) is not None]
+                why = why_en = ""
+                if several:
+                    why, why_en = "plusieurs lignes de TVA dans le tableau", "several VAT rows in the table"
+                elif rate is None:
+                    why, why_en = "le taux de TVA n'est pas écrit", "the VAT rate is not written"
+                elif len(ht) != 1:
+                    why, why_en = (("aucun total HT identifiable au-dessus", "no total excl. VAT above") if not ht
+                                   else ("plusieurs totaux HT possibles", "several possible totals excl. VAT"))
+                ht_ref = f"{col_letter(col)}{ht[0]}" if len(ht) == 1 else ""
+                ht_val = _figure(sh.cells.get((ht[0], col))) if ht_ref else None
+                vat_ok = False
+                if not why:
+                    exact = ht_val * rate
+                    pct = rate_ref or (_trim(rate * 100) + "%")
+                    if written is None or abs(written - round(exact, 2)) < 0.006:
+                        vcell.formula, vat_ok = f"ROUND({ht_ref}*{pct},2)", True
+                    elif abs(written - round(exact * 20) / 20) < 0.006:          # rounded to 5 centimes
+                        vcell.formula, vat_ok = f"ROUND({ht_ref}*{pct}*20,0)/20", True
+                    else:
+                        why = (f"{fmt_number(written)} écrit, {labels[vr].strip()} de {fmt_number(ht_val)} "
+                               f"= {fmt_number(exact)}")
+                        why_en = f"{fmt_number(written)} written, VAT of {fmt_number(ht_val)} = {fmt_number(exact)}"
+                if vat_ok:
+                    vcell.computed, changed = None, True
+                else:
+                    _flag(sh, vcell, vr, note_col, f"TVA gardée telle qu'écrite ({why})",
+                          f"VAT kept as written ({why_en})")
+                vat_val = (ht_val * rate if vat_ok else written)
+                if vat_ok and "*20" in vcell.formula:
+                    vat_val = round(ht_val * rate * 20) / 20
+                elif vat_ok:
+                    vat_val = round(ht_val * rate, 2)
+                # TTC: below the VAT row, in the same column
+                ttc = [r for r in rows if r > vr and _TTC_LABEL.search(labels[r])
+                       and sh.cells.get((r, col)) is not None
+                       and (_figure(sh.cells[(r, col)]) is not None or sh.cells[(r, col)].formula)]
+                if not ttc:
+                    continue
+                if len(ttc) > 1:
+                    for r in ttc:
+                        if not sh.cells[(r, col)].formula:
+                            _flag(sh, sh.cells[(r, col)], r, note_col, "plusieurs totaux TTC possibles",
+                                  "several possible totals incl. VAT")
+                    continue
+                tr = ttc[0]
+                tcell = sh.cells[(tr, col)]
+                if tcell.formula:
+                    continue
+                tw = _figure(tcell)
+                if ht_ref and vat_val is not None and (tw is None or abs(tw - (ht_val + vat_val)) < 0.006):
+                    tcell.formula, tcell.computed, changed = f"{ht_ref}+{col_letter(col)}{vr}", None, True
+                elif not ht_ref:
+                    _flag(sh, tcell, tr, note_col, "total TTC gardé tel qu'écrit (pas de total HT identifiable)",
+                          "total incl. VAT kept as written (no identifiable total excl. VAT)")
+                else:
+                    _flag(sh, tcell, tr, note_col,
+                          f"total TTC gardé tel qu'écrit ({fmt_number(tw)} écrit, {fmt_number(ht_val)} + "
+                          f"{fmt_number(vat_val)} = {fmt_number(ht_val + vat_val)})",
+                          f"total incl. VAT kept as written ({fmt_number(tw)} written, {fmt_number(ht_val)} + "
+                          f"{fmt_number(vat_val)} = {fmt_number(ht_val + vat_val)})")
+    if changed:
+        evaluate(sheets)
+
+
+def _trim(x: float) -> str:
+    """8.1 → « 8.1 », 8.0 → « 8 » (a rate as written in a formula)."""
+    s = f"{x:.4f}".rstrip("0").rstrip(".")
+    return s or "0"
 
 
 def _first_table(sh: Sheet) -> Table | None:
@@ -511,7 +767,8 @@ def translate(f: str, tb: Table, row: int, col: int, sheets: list | None = None)
     def other_sheet(m):
         """'Sheet'!D2:D6 — counted in THAT sheet's first table, like the agent's own refs."""
         name = m.group(1).strip("'")
-        target = next((x for x in (sheets or []) if x.name.lower() == name.lower()), None)
+        target = next((x for x in (sheets or []) if x.name.lower() == name.lower()), None) \
+            or next((x for x in (sheets or []) if x.label and x.label.lower() == name.lower()), None)
         t2 = _first_table(target) if target else None
         if t2 is None:
             return keep(m.group(0))
@@ -875,6 +1132,7 @@ def show(cell: Cell) -> str:
 def to_xlsx(name: str, text: str) -> bytes:
     try:
         from openpyxl import Workbook
+        from openpyxl.comments import Comment
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     except ImportError as e:
         raise Unavailable("openpyxl") from e
@@ -883,6 +1141,7 @@ def to_xlsx(name: str, text: str) -> bytes:
     wb.remove(wb.active)
     head_fill = PatternFill("solid", fgColor="E8ECF1")
     thin = Side(style="thin", color="7F8C99")
+    check_fill = PatternFill("solid", fgColor="FFE8B3")
     for sh in sheets:
         ws = wb.create_sheet(sh.name)
         for (r, c), cell in sorted(sh.cells.items()):
@@ -907,6 +1166,11 @@ def to_xlsx(name: str, text: str) -> bytes:
                 x.alignment = Alignment(vertical="center", wrap_text=True)
             if r in sh.total_rows:
                 x.border = Border(top=thin)
+            if cell.check:                 # a figure SOKKAN could not turn into a formula
+                x.fill = check_fill
+                x.comment = Comment(f"À vérifier : {cell.check}", "SOKKAN", width=320, height=90)
+            if (r, c) in sh.notes:
+                x.font = Font(italic=True, color="9C5700")
         for c, w in sh.widths.items():
             ws.column_dimensions[col_letter(c)].width = w
         if sh.freeze:
@@ -1116,6 +1380,11 @@ def calc_summary(name: str, text: str, limit: int = 60) -> str:
             label = show(sh.cells.get((r, 0), Cell())) or f"ligne {ri + 1}"
             for ci in range(len(tb.header)):
                 cell = sh.cells.get((r, ci))
+                if cell is not None and cell.check:
+                    lines.append(f"- {sh.name} · {label} · "
+                                 f"{plain_text(tb.header[ci]) if ci < len(tb.header) else col_letter(ci)} = "
+                                 f"{show(cell)} TO CHECK, kept as written: {cell.check_en}")
+                    continue
                 if cell is None or not cell.formula:
                     continue
                 v = (f"FORMULA NOT UNDERSTOOD (={cell.formula}): use a column name, a row label of "
@@ -1731,8 +2000,12 @@ def preview(name: str, text: str) -> str:
             return front_matter(text)[1]
         out = [f"# {title}", ""] if title else []
         for sh in sheets:
-            if len(sheets) > 1 or not title:
-                out += [f"## {sh.name}", ""]
+            # 4.0.1: the section's full heading, never the sheet name (cut to 31 characters),
+            # and not the document title again, nor a heading already in the sheet's text
+            label = sh.label or sh.name
+            if (len(sheets) > 1 or not title) and label != title \
+                    and not any(it[0] == "text" and it[2] and it[1] == label for it in sh.items):
+                out += [f"## {label}", ""]
             for it in sh.items:
                 if it[0] == "text":
                     out += [f"**{it[1]}**" if it[2] else it[1], ""]
@@ -1744,11 +2017,16 @@ def preview(name: str, text: str) -> str:
                 out.append("|" + "".join("---:|" if _numeric_col(sh, tb, c) else "---|" for c in range(nc)))
                 for ri in range(len(tb.rows)):
                     r = tb.top + 1 + ri
-                    vals = [esc(show(sh.cells.get((r, c), Cell()))) for c in range(nc)]
+                    cells = [sh.cells.get((r, c), Cell()) for c in range(nc)]
+                    vals = [esc(show(x)) + (" ⚠" if x.check else "") for x in cells]
                     if r in sh.total_rows:
                         vals = [f"**{v}**" if v else v for v in vals]
                     out.append("| " + " | ".join(vals) + " |")
                 out.append("")
+                checks = [sh.cells[(r, c)] for r in range(tb.top + 1, tb.top + 1 + len(tb.rows))
+                          for c in range(nc) if sh.cells.get((r, c)) is not None and sh.cells[(r, c)].check]
+                for x in checks:
+                    out += [f"> ⚠ À vérifier : {x.check}", ""]
         return "\n".join(out).strip() + "\n"
     if kind == "letters":
         title, ls = letters(text)
