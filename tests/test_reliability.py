@@ -626,7 +626,7 @@ def test_the_card_says_what_the_agent_corrected_in_words():
             "defects": [{"where": "Conditions", "problem": "délai absent", "fix": "délai de paiement 30 jours"}]}
     res = {"findings": [], "defects": [], "verified": ["totaux recalculés"], "to_check": [], "route": ""}
     card = qualitygate.card(res, corrected=True, previous=prev)
-    assert card["fixed"][0] == "Total : 6'480.00 → 6'600.00"
+    assert card["fixed"][0] == "Total : 6'480 → 6'600"
     assert "Le 3 mars 2027 est un mercredi, pas un lundi" in card["fixed"]
     assert "Conditions : délai de paiement 30 jours" in card["fixed"]
     # what is still there is not « corrected »
