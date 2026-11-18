@@ -66,9 +66,22 @@ class Finding:
 
 
 # ---- the checks ----------------------------------------------------------------------------
+# ISO 13616 lengths of the IBAN of each country (an IBAN of any country is found, mod-97 checked)
+IBAN_LENGTHS = {
+    "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16, "BG": 22, "BH": 22, "BR": 29,
+    "BY": 28, "CH": 21, "CR": 22, "CY": 28, "CZ": 24, "DE": 22, "DK": 18, "DO": 28, "EE": 20, "EG": 29,
+    "ES": 24, "FI": 18, "FO": 18, "FR": 27, "GB": 22, "GE": 22, "GI": 23, "GL": 18, "GR": 27, "GT": 28,
+    "HR": 21, "HU": 28, "IE": 22, "IL": 23, "IQ": 23, "IS": 26, "IT": 27, "JO": 30, "KW": 30, "KZ": 20,
+    "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20, "LV": 21, "MC": 27, "MD": 24, "ME": 22, "MK": 19,
+    "MR": 27, "MT": 31, "MU": 30, "NL": 18, "NO": 15, "PK": 24, "PL": 28, "PS": 29, "PT": 25, "QA": 29,
+    "RO": 24, "RS": 22, "SA": 24, "SC": 31, "SE": 24, "SI": 19, "SK": 24, "SM": 27, "ST": 25, "SV": 28,
+    "TL": 23, "TN": 24, "TR": 26, "UA": 29, "VA": 22, "VG": 24, "XK": 20,
+}
+
+
 def iban_ok(raw: str) -> bool:
-    s = re.sub(r"\s", "", raw or "").upper()
-    if not re.fullmatch(r"(CH|LI)\d{2}[0-9A-Z]{17}", s):
+    s = re.sub(r"[\s\-]", "", unicodedata.normalize("NFKC", raw or "")).upper()
+    if not re.fullmatch(r"[A-Z]{2}\d{2}[0-9A-Z]{11,30}", s) or IBAN_LENGTHS.get(s[:2]) != len(s):
         return False
     moved = s[4:] + s[:4]
     digits = "".join(str(int(ch, 36)) for ch in moved)
@@ -76,6 +89,8 @@ def iban_ok(raw: str) -> bool:
 
 
 def avs_ok(raw: str) -> bool:
+    """The EAN-13 check digit of an AVS number. Detection does NOT require it (a typo in the
+    key is still somebody's number): only the shape 756 + 10 digits does."""
     d = re.sub(r"\D", "", raw or "")
     if len(d) != 13 or not d.startswith("756"):
         return False
@@ -83,32 +98,46 @@ def avs_ok(raw: str) -> bool:
     return (10 - total % 10) % 10 == int(d[12])
 
 
+# every Unicode blank (no-break space of Word and PDF, thin space, figure space…) is a plain space
+# for the patterns — one character for one, so that positions stay those of the original text
+_BLANKS = {c: " " for c in (0x00A0, 0x2007, 0x2009, 0x200A, 0x202F, 0x2002, 0x2003, 0x2004, 0x2005,
+                            0x2006, 0x2008, 0x205F, 0x3000)}
+_DASHES = {c: "-" for c in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2212)}
+
+
+def _plain(text: str) -> str:
+    return text.translate(_BLANKS).translate(_DASHES)
+
+
 # ---- the patterns --------------------------------------------------------------------------
 _UP = "A-ZÀ-ÖØ-Þ"
 _LO = "a-zà-öø-ÿß"
-_WORD = rf"[{_UP}][{_LO}'’]+(?:-[{_UP}][{_LO}]+)?"            # Dupont, D'Amico, Muller-Brandt
+# a name word: Dupont, D'Amico, Muller-Brandt, and in capitals DUPONT, MULLER-BRANDT
+_WORD = rf"[{_UP}](?:[{_LO}'’]+|[{_UP}'’]+)(?:-[{_UP}](?:[{_LO}]+|[{_UP}]+))?"
 _PARTICLE = r"(?:de|du|des|von|van|der|di|da|dos|le|la|d['’])"
-_NAME = rf"{_WORD}(?:\s+(?:{_PARTICLE}\s+)?{_WORD}){{0,2}}"
+_NAME = rf"{_WORD}(?:[ \t]+(?:{_PARTICLE}[ \t]+)?{_WORD}){{0,2}}"
+# words that follow a civility or a label without being a name
+_STOP = {"le", "la", "les", "l", "un", "une", "des", "du", "de", "et", "ou", "the", "a", "an", "and", "der",
+         "die", "das", "und", "est", "a", "directeur", "directrice", "président", "présidente", "maire",
+         "responsable", "chef", "cheffe", "si", "vous", "votre", "your"}
 
-_IBAN = re.compile(r"(?<![0-9A-Za-z])(?:CH|LI)\d{2}(?:[ ]?[0-9A-Z]){17}(?![0-9A-Za-z])")
-_AVS = re.compile(r"(?<!\d)756[.\s]?\d{4}[.\s]?\d{4}[.\s]?\d{2}(?!\d)")
+_SEP = r"(?:[ \t]*[./\-][ \t]*|[ \t])"                       # « 79 123 », « 079/123 », « 022 / 345 »
+_IBAN_HEAD = re.compile(r"(?<![0-9A-Za-z])([A-Za-z]{2})(\d{2})")
+_AVS = re.compile(r"(?<!\d)756[.\s\-]?\d{4}[.\s\-]?\d{4}[.\s\-]?\d{2}(?!\d)")
 _EMAIL = re.compile(r"(?<![\w.+\-])[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)*\.[A-Za-z]{2,24}(?![\w\-])")
-_PHONE = re.compile(
-    r"(?<![\w+])(?:"
-    r"(?:\+|00)41([ .\-]?)(?:\(0\)[ ]?)?\d{2}\1\d{3}\1\d{2}\1\d{2}"           # +41 79 123 45 67
-    r"|(?:\+|00)33([ .\-]?)(?:\(0\)[ ]?)?[1-9]\2\d{2}\2\d{2}\2\d{2}\2\d{2}"   # +33 6 12 34 56 78
-    r"|0\d{2}([ .\-]?)\d{3}\3\d{2}\3\d{2}"                                     # 079 123 45 67
-    r"|0[1-9]([ .\-]?)\d{2}\4\d{2}\4\d{2}\4\d{2}"                              # 06 12 34 56 78
-    r")(?![\d])")
+_PHONE_INTL = re.compile(
+    rf"(?<![\w+])(?:\+|00)(41|33|49|39|43|423)(?:{_SEP})?(?:\(0\)(?:{_SEP})?)?(\d(?:{_SEP}?\d){{5,12}})(?!\d)")
+_PHONE_NAT = re.compile(rf"(?<![\w+./\-])0[1-9](?:{_SEP}?\d){{8}}(?!\d)(?![.\-/]\d)")
+_INTL_DIGITS = {"41": (9, 9), "33": (9, 9), "423": (7, 9), "49": (6, 12), "39": (6, 11), "43": (4, 13)}
+_DATE_LIKE = re.compile(r"^\d{1,2}[./]\d{1,2}[./]\d{2,4}")
 _MONTHS = (r"janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|"
            r"décembre|decembre|january|february|march|april|may|june|july|august|september|october|"
            r"november|december|januar|februar|märz|maerz|juni|juli|oktober|dezember")
-_DATE = (rf"\d{{1,2}}[./\-]\d{{1,2}}[./\-](?:19|20)\d{{2}}|(?:19|20)\d{{2}}-\d{{2}}-\d{{2}}"
+_DATE = (rf"\d{{1,2}}[./\-]\d{{1,2}}[./\-](?:19|20)?\d{{2}}|(?:19|20)\d{{2}}-\d{{2}}-\d{{2}}"
          rf"|\d{{1,2}}(?:er|\.)?\s+(?:{_MONTHS})\s+(?:19|20)\d{{2}}")
-_BIRTH = re.compile(
-    r"(?i:\bn[ée]+(?:\(e\))?\s+le|\bdate\s+de\s+naissance|\bnaissance|\bborn(?:\s+on)?|\bdate\s+of\s+birth"
-    r"|\bd\.?o\.?b\.?|\bgeburtsdatum|\bgeboren(?:\s+am)?)"
-    rf"[^\d\n]{{0,15}}?({_DATE})", re.IGNORECASE)
+_BIRTH_LABEL = (r"\bn[ée]+(?:\(e\))?\s+le|\bdate\s+de\s+naissance|\bnaissance|\bborn(?:\s+on)?"
+                r"|\bdate\s+of\s+birth|\bbirth\s*date|\bd\.?o\.?b\.?|\bgeburtsdatum|\bgeboren(?:\s+am)?")
+_BIRTH = re.compile(rf"(?i:{_BIRTH_LABEL})[^\d\n]{{0,15}}?(?:\n[ \t]*)?({_DATE})(?!\d)", re.IGNORECASE)
 _STREET = (r"rue|ruelle|chemin|ch\.|avenue|av\.|route|rte|boulevard|bd|place|pl\.|quai|allée|impasse"
            r"|sentier|promenade|passage|via|strada|street|road")
 _CITY = rf"(?:CH-|F-)?\d{{4,5}}\s+{_WORD}(?:[\s\-]{_WORD})?"
@@ -119,62 +148,158 @@ _ADDRESS = re.compile(
     rf"(?:\s*,\s*|\s+)?(?:{_CITY})?"
     rf"|(?<!\w)[{_UP}][{_LO}]+(?:strasse|straße|gasse|weg|platz|allee)\s+\d{{1,4}}[a-z]?"
     rf"(?:\s*,?\s*{_CITY})?")
-_CIVILITY = re.compile(
-    rf"(?<![\w.])(?:Monsieur|Madame|Mademoiselle|MM\.|M\.|Mme|Mlle|Me|Maître|Dr|Dre|Docteur|Herr|Frau"
-    rf"|Mr\.?|Mrs\.?|Ms\.?|Prof\.?)\s+({_NAME})")
-_LABELLED = re.compile(
-    rf"(?i:\b(?:nom\s+et\s+prénom|nom\s+complet|prénom\s+et\s+nom|nom|prénom|full\s+name|name|vorname"
-    rf"|employée?|collaborat(?:eur|rice)|candidate?|titulaire|signataire|destinataire|patient(?:e)?))"
-    rf"[ \t]*:[ \t]*({_NAME})")
+_CIVIL_LONG = r"monsieur|madame|mademoiselle|mme|mlle|herr|frau|docteur|maître"
+_CIVIL_SHORT = r"MM\.|M\.|Me|Dr\.?|Dre|Mr\.?|Mrs\.?|Ms\.?|Prof\.?"      # as written: « me » is a word
+_CIVILITY = re.compile(rf"(?<![\w.])(?:(?i:{_CIVIL_LONG})|{_CIVIL_SHORT})[ \t]+({_NAME})")
+_CIVILITY_LOW = re.compile(rf"(?<![\w.])(?i:{_CIVIL_LONG})[ \t]+([{_LO}][{_LO}'’\-]{{2,}})\b")
+_LABELS = (r"nom\s+et\s+prénom|nom\s+complet|prénom\s+et\s+nom|nom\s+de\s+famille|nom|prénom|full\s+name"
+           r"|first\s+name|last\s+name|surname|name|vorname|nachname|employée?|collaborat(?:eur|rice)"
+           r"|candidate?|titulaire|signataire|destinataire|patient(?:e)?|employee")
+# after a label, the line up to its separator: « Nom : DUPONT Jean », « Nom: Jean DUPONT; … »
+_LABELLED = re.compile(rf"(?i:\b(?:{_LABELS}))[ \t]*:[ \t]*(?=([^\n;,|\t()\[\]<>]{{2,60}}))")
+_HEADER_CELL = re.compile(
+    rf"^(?i:(?P<person>{_LABELS}|nom\s*/\s*prénom|prénom\s*/\s*nom)"
+    rf"|(?P<birthdate>{_BIRTH_LABEL[2:]}|date\s+naiss\.?|né\(e\)\s+le)"
+    rf"|(?P<address>adresse|address|adresse\s+postale|anschrift|domicile|rue)"
+    rf"|(?P<email>e-?mail|courriel|mail)|(?P<phone>t[ée]l[ée]?phone|t[ée]l\.?|mobile|natel|portable|phone|telefon)"
+    rf"|(?P<avs>avs|ahv|no\s+avs|n°\s*avs)|(?P<iban>iban))$")
 
 
 def _norm(category: str, value: str) -> str:
-    """The key that makes two spellings of one value one value (spaces in an IBAN, case of a
-    name)."""
-    v = unicodedata.normalize("NFC", value or "").strip()
-    if category in ("iban", "avs", "phone"):
-        v = re.sub(r"[^0-9A-Za-z+]", "", v).upper()
-        if category == "phone":       # +41 79…, 0041 79…, 079… are one number
-            v = re.sub(r"^(?:\+|00)(41|33)(?:0)?", r"0", v)
-            v = v.replace("(0)", "")
-        return v
+    """The key that makes two spellings of ONE value one value (spaces in an IBAN, case of a
+    name) — never two values one (F2: « 061 234 56 78 » in Basel is not « 06 12 34 56 78 » in
+    Lyon: a national number keeps the shape of its groups, an international one its country)."""
+    v = _plain(unicodedata.normalize("NFC", value or "")).strip()
+    if category in ("iban", "avs"):
+        return re.sub(r"[^0-9A-Za-z]", "", v).upper()
+    if category == "phone":
+        intl = re.match(r"^(?:\+|00)(\d{2,3})", v)
+        if intl:
+            rest = re.sub(r"\D", "", v[intl.end():].replace("(0)", ""))
+            return f"+{intl.group(1)}{rest.lstrip('0')}"
+        groups = "-".join(str(len(g)) for g in re.findall(r"\d+", v))
+        return re.sub(r"\D", "", v) + "|" + groups
     if category == "email":
         return v.lower()
     return re.sub(r"\s+", " ", v).casefold()
 
 
 def _literal(value: str) -> re.Pattern:
-    """A known name, anywhere: its words with any spacing, as written or in capitals."""
-    words = [re.escape(w) for w in value.split()]
-    body = r"\s+".join(words)
-    up = r"\s+".join(re.escape(w.upper()) for w in value.split())
-    return re.compile(rf"(?<![\w\-])(?:{body}|{up})(?![\w\-])")
+    """A known name, anywhere: its words with any spacing, in any case."""
+    body = r"\s+".join(re.escape(w) for w in value.split())
+    return re.compile(rf"(?<![\w\-])(?i:{body})(?![\w\-])")
+
+
+def _name_value(raw: str) -> str:
+    """What follows a label, when it is a name: 1 to 5 words of letters, no digit, no @."""
+    v = re.split(r"\.\s|\s{2,}", raw, maxsplit=1)[0].strip(" .:-'’\"")    # up to the end of the sentence
+    if not v or any(ch.isdigit() for ch in v) or "@" in v or len(v.split()) > 5:
+        return ""
+    words = v.split()
+    if not all(re.fullmatch(rf"[{_UP}{_LO}'’\-.]+", w) for w in words):
+        return ""
+    if words[0].lower() in _STOP or not any(w[:1].isupper() for w in words):
+        return ""
+    return v
+
+
+def _table_cells(text: str):
+    """(category, start, end) of the cells under a header that names personal data (a CSV, an
+    Excel sheet as text, a Markdown table): the whole column is personal, written by anybody."""
+    lines = text.split("\n")
+    offs, at = [], 0
+    for ln in lines:
+        offs.append(at)
+        at += len(ln) + 1
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        sep = next((c for c in ("|", ";", "\t", ",") if ln.count(c) >= 1), None)
+        cols: dict[int, str] = {}
+        cells = ln.split(sep) if sep else []
+        if sep and all(len(c.strip()) <= 40 for c in cells):
+            for k, cell in enumerate(cells):
+                m = _HEADER_CELL.match(cell.strip(" *_:"))
+                if m:
+                    cols[k] = m.lastgroup
+        if len(cols) < (2 if sep == "," else 1):          # a sentence with commas is not a header
+            cols = {}
+        if not cols:
+            i += 1
+            continue
+        n = len(ln.split(sep))
+        j = i + 1
+        while j < len(lines) and lines[j].count(sep) and abs(len(lines[j].split(sep)) - n) <= 1:
+            if not re.fullmatch(r"[\s|:\-]*", lines[j]):            # a Markdown rule line
+                pos = offs[j]
+                for k, cell in enumerate(lines[j].split(sep)):
+                    if k in cols and cell.strip():
+                        lead = len(cell) - len(cell.lstrip())
+                        yield cols[k], pos + lead, pos + lead + len(cell.strip())
+                    pos += len(cell) + len(sep)
+            j += 1
+        i = j
+
+
+def _iban_spans(text: str):
+    for m in _IBAN_HEAD.finditer(text):
+        want = IBAN_LENGTHS.get(m.group(1).upper())
+        if not want:
+            continue
+        k, got, last = m.end(), 4, m.end()
+        while k < len(text) and got < want:
+            ch = text[k]
+            if ch.isascii() and ch.isalnum():
+                got += 1
+                last = k + 1
+            elif ch in " -" and k + 1 < len(text) and text[k + 1].isascii() and text[k + 1].isalnum() \
+                    and text[k - 1] not in " -":
+                pass
+            else:
+                break
+            k += 1
+        if got == want and not (last < len(text) and text[last].isascii() and text[last].isalnum()) \
+                and iban_ok(text[m.start():last]):
+            yield m.start(), last
 
 
 def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple[str, str]] = ()) -> list[Finding]:
     """Every piece of personal data found in ``text``, without overlap, in text order.
-    ``names``: people the organisation knows (directory, signatories). ``known``: (category,
-    value) already in the mapping of the work, found again wherever they are written."""
+    ``names``: people the organisation knows (directory, signatories, the person at work).
+    ``known``: (category, value) already in the mapping of the work, found again wherever they
+    are written."""
     if not text:
         return []
+    orig, text = text, _plain(text)
     raw: list[tuple[int, Finding]] = []
 
     def add(cat: str, start: int, end: int) -> None:
-        val = text[start:end].strip(" ,")
+        seg = text[start:end]
+        val = seg.strip(" ,.;:")
         if val:
-            s = start + (len(text[start:end]) - len(text[start:end].lstrip(" ,")))
-            raw.append((ORDER.index(cat), Finding(s, s + len(val), cat, val)))
+            s = start + (len(seg) - len(seg.lstrip(" ,.;:")))
+            raw.append((ORDER.index(cat), Finding(s, s + len(val), cat, orig[s:s + len(val)])))
 
-    for m in _IBAN.finditer(text):
-        if iban_ok(m.group(0)):
-            add("iban", m.start(), m.end())
+    for a, b in _iban_spans(text):
+        add("iban", a, b)
     for m in _AVS.finditer(text):
-        if avs_ok(m.group(0)):
-            add("avs", m.start(), m.end())
+        add("avs", m.start(), m.end())
     for m in _EMAIL.finditer(text):
         add("email", m.start(), m.end())
-    for m in _PHONE.finditer(text):
-        add("phone", m.start(), m.end())
+    for m in _PHONE_INTL.finditer(text):
+        lo, hi = _INTL_DIGITS[m.group(1)]
+        end, n = m.start(2), 0
+        for k in range(m.start(2), m.end(2)):           # a number glued after it is not part of it
+            if text[k].isdigit():
+                n += 1
+                end = k + 1
+                if n == hi:
+                    break
+        if n >= lo:
+            add("phone", m.start(), end)
+    for m in _PHONE_NAT.finditer(text):
+        if not _DATE_LIKE.match(m.group(0)):
+            add("phone", m.start(), m.end())
     for m in _BIRTH.finditer(text):
         add("birthdate", m.start(1), m.end(1))
     for m in _ADDRESS.finditer(text):
@@ -182,22 +307,33 @@ def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple
             add("address", m.start(), m.end())
     for m in _CIVILITY.finditer(text):
         add("person", m.start(1), m.end(1))
+    for m in _CIVILITY_LOW.finditer(text):
+        if m.group(1).lower() not in _STOP:
+            add("person", m.start(1), m.end(1))
     for m in _LABELLED.finditer(text):
-        add("person", m.start(1), m.end(1))
+        v = _name_value(m.group(1))
+        if v:
+            a = m.start(1) + m.group(1).index(v)
+            add("person", a, a + len(v))
+    for cat, a, b in _table_cells(text):
+        if cat == "person" and not _name_value(text[a:b]):
+            continue
+        add(cat, a, b)
     # a surname met with its first name or civility is found again alone (« Mme Claire Exemple »
-    # … « Exemple viendra »): its own pseudonym, so that no part of a name leaks
+    # … « Exemple viendra »), and each word of a known name too: its own pseudonym, so that no
+    # part of a name leaks
     people = [f.value for _, f in raw if f.category == "person"] + [n for n in names if n]
     people += [v for c, v in known if c == "person"]
-    surnames = [w for w in (re.split(r"\s+", p.strip())[-1] for p in people if len(p.split()) > 1)
-                if len(w) >= 4 and w[:1].isupper()]
+    parts = [w for p in people if len(p.split()) > 1 for w in re.split(r"\s+", p.strip())
+             if len(w) >= 4 and w[:1].isupper() and w.lower() not in _STOP]
     seen_lit: set[str] = set()
-    for cat, value in [*(("person", n) for n in names), *known, *(("person", w) for w in surnames)]:
+    for cat, value in [*(("person", n) for n in names), *known, *(("person", w) for w in parts)]:
         value = (value or "").strip()
         key = f"{cat}\0{_norm(cat, value)}"
         if len(value) < 3 or key in seen_lit or cat not in ("person", "address"):
             continue
         seen_lit.add(key)
-        for m in _literal(value).finditer(text):
+        for m in _literal(_plain(value)).finditer(text):
             add(cat, m.start(), m.end())
     # no overlap: by start, then the longest, then the category's priority
     raw.sort(key=lambda x: (x[1].start, -(x[1].end - x[1].start), x[0]))
@@ -287,6 +423,10 @@ class PseudoMap:
         """(text with pseudonyms, what was replaced)."""
         if not text or not isinstance(text, str):
             return text, []
+        # M2: a pseudonym already written in what comes in (a third party's mail that says
+        # « [IBAN_1] ») is not one of ours: defused, same length, so that Claude cannot have it
+        # restored into a real value
+        text = PSEUDONYM_RE.sub(lambda m: f"[{m.group(1)}-{m.group(2)}]", text)
         found = detect(text, names, self.known())
         if not found:
             return text, []
@@ -340,17 +480,21 @@ class StreamRestorer:
 
 
 # ---- an Anthropic Messages request ---------------------------------------------------------
-_KEEP_KEYS = {"type", "id", "tool_use_id", "name", "signature", "media_type", "cache_control", "role",
-              "model", "citations", "is_error"}
+# structural fields, never written by a person: kept as they are (F3: everything else is walked —
+# a tool's description and schema, a citation's text, metadata…)
+_KEEP_KEYS = {"type", "id", "tool_use_id", "signature", "media_type", "cache_control", "role", "model",
+              "is_error", "required", "format", "pattern", "$ref", "$schema", "additionalProperties"}
+_NAMED = ("tool_use", "server_tool_use", "mcp_tool_use", "custom")      # « name » is a tool's name
 
 
 def anonymize_payload(payload: dict, pmap: PseudoMap, names: list[str] | tuple[str, ...] = (),
                       lang: str = "fr") -> tuple[dict, list[Finding]]:
-    """A copy of a /v1/messages request with every text a person or a document wrote
-    pseudonymised: the system prompt, the messages, the tools' results and inputs. A thinking
-    block is left untouched (Claude wrote it from pseudonyms; it is signed). An image or a PDF
-    sent as bytes cannot be checked: it is replaced by a sentence saying it was not sent. The
-    tool definitions (the cockpit's own words) are not personal and stay as they are."""
+    """A copy of a /v1/messages request with every text a person, a document or a tool wrote
+    pseudonymised: the system prompt, the messages (tools' results and inputs, citations), the
+    tool definitions (descriptions and schemas) and the metadata. A thinking block is left
+    untouched (Claude wrote it from pseudonyms; it is signed). An image or a PDF sent as bytes
+    cannot be checked: it is replaced by a sentence saying it was not sent. The name of a tool
+    and the structural fields stay as they are."""
     out = copy.deepcopy(payload)
     found: list[Finding] = []
 
@@ -359,7 +503,7 @@ def anonymize_payload(payload: dict, pmap: PseudoMap, names: list[str] | tuple[s
         found.extend(f)
         return new
 
-    def walk(x):
+    def walk(x, tool_def: bool = False):
         if isinstance(x, str):
             return text(x)
         if isinstance(x, list):
@@ -371,11 +515,17 @@ def anonymize_payload(payload: dict, pmap: PseudoMap, names: list[str] | tuple[s
             if t in ("image", "document") and isinstance(x.get("source"), dict) \
                     and x["source"].get("type") != "text":
                 return {"type": "text", "text": WITHHELD.get(lang, WITHHELD["en"])}
-            return {k: (v if k in _KEEP_KEYS else walk(v)) for k, v in x.items()}
+            keep_name = tool_def or t in _NAMED
+            return {k: (v if k in _KEEP_KEYS or (k == "name" and keep_name)
+                        else {pk: walk(pv) for pk, pv in v.items()} if k == "properties" and isinstance(v, dict)
+                        else walk(v)) for k, v in x.items()}
         return x
 
-    if "system" in out:
-        out["system"] = walk(out["system"])
+    for k in ("system", "metadata"):
+        if k in out:
+            out[k] = walk(out[k])
+    if isinstance(out.get("tools"), list):
+        out["tools"] = [walk(t, tool_def=True) if isinstance(t, dict) else t for t in out["tools"]]
     if isinstance(out.get("messages"), list):
         out["messages"] = [{k: (walk(v) if k == "content" else v) for k, v in m.items()}
                            if isinstance(m, dict) else m for m in out["messages"]]
