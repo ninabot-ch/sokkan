@@ -196,8 +196,13 @@ _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # tools the work has; plain.POLICY_DENIED recognises its first words). An Atelier run has no
 # shell at all (RunSpec.shell=False): each adapter takes its engine's shell tools away
 # (harness/legacy.py SHELL_TOOLS + a PreToolUse hook, harness/kernel.py ATELIER_DENIED).
+# 4.0.1: the same for the internet, sub-agents, scheduling, workflows and worktrees
+# (harness/refusals.py ATELIER_OFF_LEGACY / ATELIER_OFF_KERNEL).
 from harness.refusals import ATELIER_NO_SHELL as NO_SHELL  # noqa: E402
 from harness.refusals import ATELIER_MCP_OFF, ATELIER_NO_COCKPIT  # noqa: E402
+# 4.0.1 — the engines' other tools an Atelier work never has (internet, sub-agents, scheduling,
+# workflows, worktrees, the kernel's own setup): out of its catalogue in each adapter
+from harness.refusals import ATELIER_NO_TOOL, ATELIER_OFF  # noqa: E402
 
 
 def atelier_mcp_off(tool: str) -> bool:
@@ -735,6 +740,13 @@ class AgentSession:
         if not self.policy and atelier_mcp_off(tool_name) and self._is_simple_work():
             self._journal_auto(gate, input_data, False, "policy:simple_profile_no_cockpit")
             return contract.Decision.deny(ATELIER_NO_COCKPIT, **auto)
+
+        # 4.0.1: an engine tool an Atelier work never has (WebSearch, Agent, CronCreate,
+        # Workflow, EnterWorktree…; the kernel's web_search, delegate…) — removed from its
+        # catalogue by the adapter, refused here should an engine still raise its gate
+        if not self.policy and tool_name in ATELIER_OFF and self._is_simple_work():
+            self._journal_auto(gate, input_data, False, "policy:simple_profile_tool_off")
+            return contract.Decision.deny(ATELIER_NO_TOOL, **auto)
 
         # Atelier, one card per document per turn (3.6.7, changed in 4.0). The FIRST save of a
         # document in a turn asks the person. Once they approved it, the later saves of the SAME
@@ -1524,7 +1536,7 @@ class AgentSession:
                 # a call the engine refused by a rule of the space (3.6.8: a shell in an
                 # Atelier work, refused by the legacy adapter's hook): nobody clicked, no card
                 self._journal_auto(contract.Gate(
-                    gate_id=uuid.uuid4().hex, kind="shell",
+                    gate_id=uuid.uuid4().hex, kind=str(ev.data.get("kind") or "shell"),
                     subject={"tool": str(ev.data.get("tool") or ""),
                              "input": dict(ev.data.get("input") or {})}),
                     dict(ev.data.get("input") or {}), False,

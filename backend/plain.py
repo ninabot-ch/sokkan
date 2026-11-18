@@ -98,7 +98,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  # 4.0: a file tool pointed outside the run's folder, refused by the kernel
                  # before it ran (`outside_root`, harness/refusals.py)
                  "Outside this conversation's folder",
-                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
+                 # 4.0: the Cockpit's board / agents / monitoring in an Atelier work; 4.0.1:
+                 # an engine tool the Atelier never has (internet, sub-agents, scheduling,
+                 # workflows, worktrees — harness/refusals.py ATELIER_NO_TOOL), same words
                  "Not available in this conversation: the person works in SOKKAN Atelier",
                  # 4.0: the quality gate sent a deliverable back to be corrected before its card
                  "(Check before the card.)")

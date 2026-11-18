@@ -29,6 +29,37 @@ ATELIER_NO_COCKPIT = (
     "this time's document now. Do not mention this message.")
 # the cockpit's MCP servers an Atelier work never has (agentchat.ATELIER_MCP_OFF)
 ATELIER_MCP_OFF = ("sokkan-board", "sokkan-agents", "sokkan-observability")
+# 4.0.1 — the engines' own tools an Atelier work never has, beyond the shell: the internet
+# (search, page fetch), sub-agents, scheduled or repeated tasks, workflows and worktrees, and the
+# kernel's tools that change its own setup (skills, packs, tool servers). They were still in the
+# work's catalogue in 4.0.0 (seen at the launch shoot, 18.11): the model was offered tools the
+# person's space refuses. Out of the catalogue like the shell (3.6.8): the legacy adapter puts
+# them in `disallowed_tools` and refuses one called anyway by a PreToolUse hook; the kernel
+# adapter sends them in `deny_tools`; the cockpit's gate refuses them as a last line. Names per
+# engine (the CLI's; the kernel's bare names). A name the engine does not have is harmless.
+# No setting brings the internet back into the Atelier: nothing in it relies on it (no kit, no
+# connector), and a confidential project's content must never leave the machine.
+ATELIER_OFF_LEGACY = (
+    "WebFetch", "WebSearch",                                 # the internet
+    "Agent", "Task", "ListAgents", "SendMessage",            # sub-agents (Task: older CLIs)
+    "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",  # scheduling
+    "Workflow", "EnterWorktree", "ExitWorktree")
+ATELIER_OFF_KERNEL = (
+    "web_search", "web_fetch",                               # the internet
+    "delegate", "delegate_status", "delegate_cancel",        # sub-agents
+    "agent_draft", "session_send",                           # an agent (and its schedule), another thread
+    "skill_install", "skill_remove", "pack_install", "pack_remove",   # the kernel's own setup
+    "mcp_server_add", "mcp_server_remove", "mcp_server_read_tools")
+ATELIER_OFF = frozenset(ATELIER_OFF_LEGACY) | frozenset(ATELIER_OFF_KERNEL)
+# what the agent of an Atelier work is told when it calls one anyway (the hook, the cockpit's
+# gate, an engine's own refusal): plain.POLICY_DENIED recognises its first words
+ATELIER_NO_TOOL = (
+    "Not available in this conversation: the person works in SOKKAN Atelier, where a work reads "
+    "the project's documents and saves its document — no internet search or page reading, no "
+    "sub-agents, no scheduled or repeated tasks, no workflows. Work from the documents you have; "
+    "what they do not say goes under « Points to confirm ». If the person wants something "
+    "repeated automatically, say in one sentence that the person who administers SOKKAN sets "
+    "that up. Do not mention this message.")
 NO_MEMORY = "This conversation does not write memory files directly (removed from this run)."
 MEMORY_TOOLS = {"memory_note", "memory"}
 # 4.0 (kernel host-3c) — a file tool pointed outside the run's folder: the kernel refuses it
@@ -39,9 +70,12 @@ OUTSIDE_ROOT = "Outside this conversation's folder (a rule of the space): not re
 DECLINED = "The user declined this action."
 
 
-def removed(name: str, classification: str, engine_said: str) -> str:
-    """The cockpit's sentence for a call to a tool removed from the run, then the engine's."""
-    if classification == "shell":
+def removed(name: str, classification: str, engine_said: str, atelier: bool = False) -> str:
+    """The cockpit's sentence for a call to a tool removed from the run, then the engine's.
+    ``atelier``: the run is an Atelier work (a tool of :data:`ATELIER_OFF` is said as such)."""
+    if atelier and name in ATELIER_OFF:
+        head = ATELIER_NO_TOOL
+    elif classification == "shell":
         head = NO_SHELL
     elif name in MEMORY_TOOLS:
         head = NO_MEMORY

@@ -330,7 +330,9 @@ class RunSpec:
     # The cockpit only sends a wider mode when none of its « never » rules could fire.
     approval_mode: str = "default"
     # False = the run has no shell (the Atelier): an engine that can remove its shell tools
-    # from the run does (the kernel: deny_tools); the cockpit's rule still refuses a shell gate
+    # from the run does (the kernel: deny_tools); the cockpit's rule still refuses a shell gate.
+    # 4.0.1: the same run also loses the engine's tools an Atelier work never has (internet,
+    # sub-agents, scheduling, workflows, worktrees: harness/refusals.py ATELIER_OFF_*)
     shell: bool = True
     budget_usd: float | None = None         # native cap, when the engine prices the model
     budget_tokens: int | None = None

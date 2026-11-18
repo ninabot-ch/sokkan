@@ -52,7 +52,7 @@ except ImportError:  # pragma: no cover
     )
 
 from .base import Harness
-from .refusals import ATELIER_NO_SHELL
+from .refusals import ATELIER_NO_SHELL, ATELIER_NO_TOOL, ATELIER_OFF_LEGACY
 from .contract import (
     ALLOW_ONCE, ANSWER, DENY, EDIT,
     AssistantText, AssistantThink, Capabilities, Confinement, ContextInjected,
@@ -99,6 +99,9 @@ except Exception:  # noqa: BLE001
 # can_use_tool (parity bench, 16.11.2026: `ls …` and a sub-agent's `pwd && ls` ran unasked).
 SHELL_TOOLS = ("Bash", "Monitor", "BashOutput", "KillShell", "KillBash", "PowerShell")
 _SHELL = set(SHELL_TOOLS)
+# 4.0.1 — the other tools of the CLI an Atelier work never has (internet, sub-agents, scheduling,
+# workflows, worktrees: harness/refusals.py), removed and refused the same way as the shell
+ATELIER_OFF_TOOLS = ATELIER_OFF_LEGACY
 _FILE_WRITE = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 _FILE_READ = {"Read", "Glob", "Grep", "NotebookRead"}
 _NET = {"WebFetch", "WebSearch"}
@@ -330,6 +333,31 @@ def no_shell_hooks(on_refused=None) -> list:
     return [HookMatcher(matcher="|".join(SHELL_TOOLS), hooks=[no_shell])]
 
 
+def atelier_off_hooks(on_refused=None) -> list:
+    """PreToolUse matcher refusing the CLI's tools an Atelier work never has (4.0.1, internet,
+    sub-agents, scheduling, workflows, worktrees: :data:`ATELIER_OFF_TOOLS`), should one be
+    called despite ``disallowed_tools``. Checked by exact name: a matcher's alternation may be
+    read as a regex by the CLI (« Task » would then also catch « TaskCreate », the to-do list)."""
+    off = set(ATELIER_OFF_TOOLS)
+
+    async def no_tool(payload, _tool_use_id, _context):
+        payload = payload or {}
+        tool = str(payload.get("tool_name") or "")
+        if tool not in off:
+            return {}
+        inp = payload.get("tool_input") or {}
+        if on_refused is not None:
+            try:
+                on_refused(tool, inp if isinstance(inp, dict) else {})
+            except Exception:  # noqa: BLE001 — the refusal stands regardless
+                pass
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                       "permissionDecision": "deny",
+                                       "permissionDecisionReason": ATELIER_NO_TOOL}}
+
+    return [HookMatcher(matcher="|".join(ATELIER_OFF_TOOLS), hooks=[no_tool])]
+
+
 # ---- the adapter -------------------------------------------------------------------------
 
 class _Mailbox:
@@ -395,6 +423,7 @@ class LegacyHarness(Harness):
         self._connected = client is not None
         self._called: dict[str | None, str] = {}   # tool call id → tool name
         self._removed: set[str] = set()             # tools removed from the run (deny_tools)
+        self._atelier = False                       # an Atelier work (RunSpec.shell=False)
         self._connect_tried = False
         self._spec: RunSpec | None = None
         self._mail = _Mailbox()
@@ -494,7 +523,9 @@ class LegacyHarness(Harness):
         )
         denied = list(spec.deny_tools) if spec.deny_tools is not None else None
         if not spec.shell:
-            denied = list(dict.fromkeys([*(denied or []), *SHELL_TOOLS]))
+            # an Atelier work: no shell (3.6.8), nor the CLI's other tools it never has (4.0.1)
+            denied = list(dict.fromkeys([*(denied or []), *SHELL_TOOLS, *ATELIER_OFF_TOOLS]))
+            self._atelier = True
         if denied is not None:
             # defence in depth: an `allow` rule of the user or project settings bypasses
             # can_use_tool; disallowed_tools always wins
@@ -513,6 +544,7 @@ class LegacyHarness(Harness):
         if not spec.shell:
             hooks = dict(hooks or {})
             hooks["PreToolUse"] = [*no_shell_hooks(self._no_shell),
+                                   *atelier_off_hooks(self._no_tool),
                                    *(hooks.get("PreToolUse") or [])]
             hooks["PostToolUse"] = [*calc_hooks(), *(hooks.get("PostToolUse") or [])]
         conf = confinement_hooks(spec.confinement, sid=spec.run_id, user=spec.user,
@@ -574,6 +606,13 @@ class LegacyHarness(Harness):
         self._mail.put(Error(code="policy_denied", message=ATELIER_NO_SHELL, recoverable=True,
                              data={"tool": tool, "input": inp,
                                    "rule": "simple_profile_no_shell"}))
+
+    def _no_tool(self, tool: str, inp: dict) -> None:
+        """A tool an Atelier work never has (4.0.1), refused by the hook: journaled like the
+        shell, as a rule of the space."""
+        self._mail.put(Error(code="policy_denied", message=ATELIER_NO_TOOL, recoverable=True,
+                             data={"tool": tool, "input": inp, "kind": "tool",
+                                   "rule": "simple_profile_tool_off"}))
 
     def _confined(self, tool: str, reason: str, shell_off: bool) -> None:
         self._mail.put(Error(code="confined", message=reason, recoverable=True,
@@ -675,7 +714,8 @@ class LegacyHarness(Harness):
                     # a tool the cockpit removed from the run (disallowed_tools): a rule of
                     # the space, said in the cockpit's words (harness/refusals.py)
                     from .refusals import removed
-                    said = removed(name, classify(name), said)
+                    said = removed(name, classify(name), said,
+                                   atelier=getattr(self, "_atelier", False))
                 out.append(ToolResult(call_id=call, output=said, refused=refused,
                                       ok=not bool(getattr(b, "is_error", False)), turn_id=turn))
         return out

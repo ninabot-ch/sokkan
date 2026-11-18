@@ -53,6 +53,7 @@ import httpx
 log = logging.getLogger("sokkan.harness.kernel")
 
 from .base import Harness
+from .refusals import ATELIER_OFF_KERNEL
 from .contract import (
     ALLOW_ONCE, ALLOW_SESSION, ANSWER, DENY,
     AssistantText, AssistantThink, Capabilities, ContextInjected, ContextRequest, ContractError,
@@ -72,7 +73,9 @@ _SHELL = {"terminal", "process_start", "process_stop", "ssh_run", "execute_code"
 # every shell tool and the kernel's own memory tool (a note goes through SOKKAN's quarantine)
 # (`process_logs` too: the kernel's HOST-EMBED doc lists it with the shell family to forbid
 # execution — it reads what a started process prints)
-ATELIER_DENIED = (*sorted(_SHELL | {"process_logs"}), "memory_note")
+# 4.0.1: and the kernel's other tools an Atelier work never has — the internet, sub-agents, an
+# agent draft (and its schedule), another thread, the kernel's own setup (harness/refusals.py)
+ATELIER_DENIED = (*sorted(_SHELL | {"process_logs"}), "memory_note", *ATELIER_OFF_KERNEL)
 _WRITE = {"write_file", "patch", "checkpoint_restore", "ssh_copy"}
 _READ = {"read_file", "search_files", "checkpoint_list", "checkpoint_diff", "lsp_diagnostics"}
 _SUBAGENT = {"delegate", "delegate_status", "delegate_cancel"}
@@ -574,6 +577,7 @@ class KernelHarness(Harness):
         # were EXPECTED to be active tools: a refusal that would pass in silence
         self.deny_unmatched: list[str] = []
         self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
+        self._atelier = False                   # an Atelier work (RunSpec.shell=False)
         self._head_sent = False                 # the run's head went with its first turn
         self.host_prompt: str = ""              # the session's system prompt (host-prompt)
         self._first_rest: str | None = None     # the first message, without what went there
@@ -671,6 +675,7 @@ class KernelHarness(Harness):
         # read-only command passes, parity bench n°2, R2) or a model that keeps trying costs
         # failure lines; removed, the tool is not even offered.
         no_shell = list(ATELIER_DENIED) if not spec.shell else []
+        self._atelier = not spec.shell
         denied = list(dict.fromkeys([*(spec.deny_tools or ()), *no_shell, *_always_denied()]))
         # the names that MUST match an active tool of the session (the others of the shell
         # family are removed in case this kernel has them)
@@ -1381,7 +1386,7 @@ class KernelHarness(Harness):
             # a tool the COCKPIT removed from the run: its refusal is a rule of the space,
             # said in the cockpit's words (harness/refusals.py), as the legacy engine's is
             from .refusals import removed
-            out = removed(name, classify(name), out)
+            out = removed(name, classify(name), out, atelier=self._atelier)
         if not ok and classify(str(d.get("name"))) == "file_write" and (
                 d.get("reason") == "outside_root" or any(w in out.lower() for w in _OUTSIDE)):
             self._mail.put_nowait(Error(code="confined", recoverable=True, message=out[:300],

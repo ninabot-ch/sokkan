@@ -3,6 +3,23 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased (4.0.1)
+
+- **An Atelier work no longer sees the tools its space refuses.** 4.0.0 still offered the agent
+  of an Atelier work the internet (`WebFetch`, `WebSearch`), sub-agents (`Agent`/`Task`,
+  `ListAgents`, `SendMessage`), scheduling (`CronCreate`, `CronDelete`, `CronList`,
+  `ScheduleWakeup`, `RemoteTrigger`), `Workflow` and worktrees (`EnterWorktree`, `ExitWorktree`),
+  filtered only downstream. They now leave its catalogue as the shell did in 3.6.8: the legacy
+  engine takes them out of the run (`disallowed_tools`, sub-agents included) and a `PreToolUse`
+  hook refuses one called anyway; the kernel engine sends their equivalents in `deny_tools`
+  (`web_search`, `web_fetch`, `delegate`, `delegate_status`, `delegate_cancel`, `agent_draft`,
+  `session_send`, and the tools that change the kernel's own setup: `skill_install`,
+  `skill_remove`, `pack_install`, `pack_remove`, `mcp_server_add`, `mcp_server_remove`,
+  `mcp_server_read_tools`); the cockpit's gate refuses them as a last line. Each refusal is in the
+  journal of validations as a rule of the space (`policy:simple_profile_tool_off`) and is not an
+  orange failure in the thread. No setting brings the internet back into the Atelier. The Cockpit
+  is unchanged.
+
 ## 4.0.0 — 2026-11-18 — "Seven seas"
 
 **SOKKAN gets its own engine and becomes a coworker for several jobs.** The highlights, before the

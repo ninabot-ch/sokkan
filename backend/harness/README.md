@@ -315,8 +315,13 @@ What differs from the CLI adapter, and why the cockpit does not notice:
   `error` `confined` (recognised by its message: the kernel has no stable code for it yet).
 * A run without a shell (`RunSpec.shell=False`, the Atelier) loses every shell tool of the
   kernel and its own memory tool (`ATELIER_DENIED`, sent in `deny_tools` whatever
-  `SOKKAN_KERNEL_DENY_TOOLS` says); a call to a removed tool is said in the words of the
-  space's rule (`refusals.py`), as the legacy adapter says its own.
+  `SOKKAN_KERNEL_DENY_TOOLS` says), and (4.0.1) the kernel's tools an Atelier work never has:
+  `web_search`, `web_fetch`, `delegate*`, `agent_draft`, `session_send`, the install/remove tools
+  of skills, packs and tool servers (`refusals.ATELIER_OFF_KERNEL`); the legacy adapter does the
+  same with the CLI's `WebFetch`, `WebSearch`, `Agent`/`Task`, `Cron*`, `Workflow`,
+  `EnterWorktree`… (`refusals.ATELIER_OFF_LEGACY`: `disallowed_tools` + a PreToolUse hook). A call
+  to a removed tool is said in the words of the space's rule (`refusals.py`), as the legacy
+  adapter says its own.
 * Refused rather than run wider: a run in plan mode (the kernel's plan mode is read-only, not « a plan
   submitted, then approved »).
 * The model's commands run in a **sandbox container** per session, never in the kernel's
