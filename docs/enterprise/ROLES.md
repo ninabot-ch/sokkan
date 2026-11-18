@@ -34,7 +34,7 @@ Every job has, in French and English (the person's language; Swiss French-speaki
   fills a blank by guessing: it lists what is missing under « Points à vérifier »;
 * **guard-rails** (2-8): a sentence the person reads, and the rule the agent is given. HR and legal:
   personal or secret data → the job's project is classified *confidential*, so its work never goes to
-  Claude (rule D9, by the project's level — 4.0: a job itself no longer refuses Claude; personal data
+  Claude (rule D9, by the project's level — 4.0.1: a job itself no longer refuses Claude; personal data
   in any other project goes through the « PII sandwich », [CLAUDE-PRIVACY.md](CLAUDE-PRIVACY.md));
   finance: every figure is quoted from its document and line, every computation shown, never an
   invented figure; support: no customer data outside the reply to that
