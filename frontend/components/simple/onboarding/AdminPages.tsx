@@ -9,6 +9,7 @@ import {
   validationsCsvUrl, type Added, type Person, type Usage, type Validation,
 } from "@/lib/simple/onboarding";
 import { useOT, type OKey } from "@/lib/simple/dictOnboarding";
+import { decisionKey, decisionTone, readableTitle, reasonKey, type Tone } from "@/lib/simple/validations";
 import { useT, useUI, when } from "@/lib/simple/i18n";
 import Icon from "../icons";
 import { CopyBox, Loading } from "./parts";
@@ -264,6 +265,9 @@ function InstanceBudget({ value, onSaved }: { value: number; onSaved: (u: Usage)
 
 // ---- Validations ------------------------------------------------------------------------------
 const PAGE = 50;
+const TONE: Record<Tone, string> = { ok: "sk-pill-ok", refused: "sk-pill-wait", neutral: "sk-pill-idle", unknown: "sk-pill-idle" };
+const ICON: Record<Tone, "check" | "close" | "info" | "alert"> = { ok: "check", refused: "close", neutral: "info", unknown: "alert" };
+
 
 export function ValidationsPage() {
   const t = useOT();
@@ -281,17 +285,16 @@ export function ValidationsPage() {
   useEffect(() => { fetchTeam().then((d) => { setProjects(d.projects); setPeople(d.people.map((p) => ({ email: p.email, name: p.name }))); }).catch(() => {}); }, []);
   const load = useCallback(() => {
     setFailed(""); setRows(null);
-    fetchValidations({ project, actor, since, decision })
+    fetchValidations({ project, actor, since, decision, lang })
       .then((r) => { setRows(r.entries); setShown(PAGE); })
       .catch((e) => setFailed(e instanceof ObError && e.status === 403 ? "forbidden" : "error"));
-  }, [project, actor, since, decision]);
+  }, [project, actor, since, decision, lang]);
   useEffect(load, [load]);
   const nameOf = (e: string) => people.find((p) => p.email === e)?.name || e;
   const pname = (s: string) => projects.find((p) => p.slug === s)?.name || s;
   const fmt = (ts?: number) => ts ? new Date(ts * 1000).toLocaleString(lang === "fr" ? "fr-CH" : "en-GB",
     { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  const dlabel = (v: Validation) => v.edited ? t("va.d.edit")
-    : t(`va.d.${["validate", "allow", "deny", "answer", "pending"].includes(v.decision) ? v.decision : "allow"}` as OKey);
+  const dlabel = (v: Validation) => v.edited && v.decision === "edit" ? t("va.d.edit") : t(decisionKey(v.decision));
   return (
     <div className="sk-scroll"><div className="sk-page sk-page-wide">
       <div className="sk-row sk-ob-wrap">
@@ -310,7 +313,7 @@ export function ValidationsPage() {
             <option value="">{t("va.all")}</option>{people.map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}</select></label>
         <label className="sk-field"><span>{t("va.filter.decision")}</span>
           <select className="sk-input sk-select" value={decision} onChange={(e) => setDecision(e.target.value)}>
-            <option value="">{t("va.all")}</option>{["validate", "allow", "deny", "answer"].map((d) => <option key={d} value={d}>{t(`va.d.${d}` as OKey)}</option>)}</select></label>
+            <option value="">{t("va.all")}</option>{["validate", "allow", "deny", "answer", "pending"].map((d) => <option key={d} value={d}>{t(`va.d.${d}` as OKey)}</option>)}</select></label>
       </div>
       {failed === "forbidden" ? <p className="sk-muted">{t("va.forbidden")}</p> : failed ? <Failed retry={load} /> : rows === null ? <Loading /> :
         rows.length === 0 ? <p className="sk-muted">{t("va.empty")}</p> : (
@@ -319,12 +322,13 @@ export function ValidationsPage() {
             <ul className="sk-plain-list sk-ob-journal">
               {rows.slice(0, shown).map((v, i) => (
                 <li key={`${v.at}-${i}`} className="sk-ob-jrow">
-                  <span className={`sk-pill ${v.decision === "deny" ? "sk-pill-wait" : v.decision === "pending" ? "sk-pill-idle" : "sk-pill-ok"}`}>
-                    <Icon name={v.decision === "deny" ? "close" : v.decision === "pending" ? "info" : v.decision === "validate" ? "seal" : "check"} small />{dlabel(v)}</span>
+                  <span className={`sk-pill ${TONE[decisionTone(v.decision)]}`} data-decision={v.decision}>
+                    <Icon name={v.decision === "validate" ? "seal" : ICON[decisionTone(v.decision)]} small />{dlabel(v)}</span>
                   <div className="sk-grow sk-ob-who">
-                    <b>{v.title || t(v.kind === "deliverable" ? "va.k.deliverable" : "va.k.action")}</b>
+                    <b>{v.label || readableTitle(v.title) || t(v.kind === "deliverable" ? "va.k.deliverable" : "va.k.action")}</b>
                     <span className="sk-small sk-muted">
-                      {v.auto ? t("va.auto") : nameOf(String(v.actor || ""))}
+                      {v.auto ? [t("va.auto"), reasonKey(v.auto_reason) ? t(reasonKey(v.auto_reason) as OKey) : ""].filter(Boolean).join(" ")
+                        : nameOf(String(v.actor || ""))}
                       {v.owner && v.owner !== v.actor ? ` · ${t("va.on", { owner: nameOf(String(v.owner)) })}` : ""}
                       {v.project ? ` · ${pname(String(v.project))}` : ""}
                     </span>
