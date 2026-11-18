@@ -1293,7 +1293,7 @@ def to_csv(name: str, text: str) -> bytes:
     for k, sh in enumerate(sheets):
         if k:
             w.writerow([])
-            w.writerow([sh.name])
+            w.writerow([sh.label or sh.name])
         if not sh.cells:
             continue
         last = max(r for r, _c in sh.cells)
@@ -1876,8 +1876,10 @@ def to_pdf(text: str, template=None, org: str = "", name: str = "", hr_breaks: b
         if title:
             flow.append(Paragraph(_rl(title), st["title"]))
         for sh in sheets:
-            if len(sheets) > 1:
-                flow.append(Paragraph(_rl(sh.name), st[1]))
+            label = sh.label or sh.name          # the full heading, never the cut sheet name
+            if len(sheets) > 1 and label != title \
+                    and not any(it[0] == "text" and it[2] and it[1] == label for it in sh.items):
+                flow.append(Paragraph(_rl(label), st[1]))
             ncols = (max(c for (_r, c) in sh.cells) + 1) if sh.cells else 1
             wide = wide or ncols >= 6
             for it in sh.items:
@@ -1896,6 +1898,11 @@ def to_pdf(text: str, template=None, org: str = "", name: str = "", hr_breaks: b
                         row.append(Paragraph(escape(s), st["cellr"] if num and ri else st["cell"]))
                     data.append(row)
                 flow.append(_rl_table(data, tb.top, sh, colors, TableStyle, RLTable, bold))
+                for r in range(tb.top + 1, tb.top + 1 + len(tb.rows)):
+                    for c in range(nc):
+                        x = sh.cells.get((r, c))
+                        if x is not None and x.check:
+                            flow.append(Paragraph(_rl(f"À vérifier : {x.check}"), base))
                 flow.append(Spacer(1, 8))
     else:
         _meta, body = front_matter(text)

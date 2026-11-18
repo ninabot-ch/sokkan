@@ -173,6 +173,10 @@ def test_a_long_sheet_name_is_cut_at_a_word_and_never_a_cut_subtitle():
     pv = outputs.preview("o.md", src)
     assert "## Planification détaillée des interventions de maintenance" in pv
     assert "## Planification détaillée des…" not in pv and "## Offre" not in pv
+    csv = outputs.to_csv("o.md", src).decode("utf-8-sig")
+    assert "\r\nRécapitulatif\r\n" in csv
+    pdf, _n, _m = outputs.render("pdf", "o.md", src)
+    assert pdf.startswith(b"%PDF")
 
 
 def test_the_preview_never_shows_the_sheet_name_of_the_title_sheet():
