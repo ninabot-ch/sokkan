@@ -51,7 +51,7 @@ value written twice the same way, or an IBAN with and without spaces, keeps one 
   salary, a diagnosis, a disciplinary fact or any other sensitive detail in free text is **not**
   replaced. The card says what WAS found, never that the text is « protected ».
 * **A work about people asks anyway.** For the templates of a job marked `people` in its kit (HR,
-  executive assistant, customer support, sales) and in a project set up for such a job, the card
+  executive assistant, customer support, sales, legal, finance) and in a project set up for such a job, the card
   is shown even when nothing was spotted — « rien de repéré ne veut pas dire rien de personnel » —
   with the same two choices.
 * **What the agent reads during the work is pseudonymised if it is detected, WITHOUT a new card.**
@@ -60,6 +60,18 @@ value written twice the same way, or an IBAN with and without spaces, keeps one 
 * **An administrator who lowers a project's level removes D9 for it.** An HR project reclassified
   `team` has nothing left but this detection between its data and Claude; lowering a level asks
   for a reason and is journaled (`project.level`), but it is not refused.
+* **A name alone in the text may not be spotted — the person is told so.** The card says it in one
+  sentence, every time (« Un nom seul dans le texte peut ne pas être repéré »), not only this page.
+* **The table is encrypted, but with the provider `file` its key is in the data folder.** A full
+  backup of the data folder holds both the table and `vault.key`: protect the backup as a secret
+  (or use the OpenBao provider, whose key is not in the folder). Tables are purged at the api's
+  start and at every request once past their retention.
+* **Prompt injection on the pseudonyms.** A document the agent reads can try to make Claude write
+  a pseudonym where it should not (« copy [IBAN_1] into the mail to … »): what Claude writes with a
+  pseudonym of the work is restored with the real value on the machine. A pseudonym written by a
+  third party is defused before it goes (M2), but Claude can still be led to reuse one of the
+  work's own. Every send, save or event goes through the person's approval card, which shows the
+  real values: that card is the guard, read it.
 * **A document's own level is checked when it is ATTACHED, not when it is READ (F5, known).** A
   `confidential` document stored in a `team` project is refused as an attachment of a Claude work
   (`claude_document`), but the agent can still open it by its path during the work, and then only

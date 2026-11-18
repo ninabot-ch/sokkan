@@ -56,8 +56,12 @@ Notable changes, newest first. Versions: semver + release hash (see
   ones; IBANs of every country (ISO length, mod 97, any case, spaces or dashes); AVS numbers with
   dashes and even with a wrong check digit; phones `+41 79 1234567`, `079 123 4567`,
   `079/123 45 67`, `022 / 345 67 89`, `+41(0)79 …`, `+41 79 123-45-67`, and +49, +39, +43, +423.
-- A work about people (job kits marked `people`: HR, executive assistant, support, sales) shows
-  the card even when nothing was spotted.
+- A work about people (job kits marked `people`: HR, executive assistant, support, sales, legal,
+  finance) shows the card even when nothing was spotted; the card always tells the person that a
+  name alone in the text may not be spotted.
+- Quoted CSV headers (`"Nom","Prénom"`), text in decomposed Unicode (NFD accents) and lower-case
+  cells under a personal header (`fictif;paul`) are found; the tables are purged at the api's start
+  too.
 - The name the person is shown under is pseudonymised in every request (it went in clear in
   « You are working with: … »).
 - A pseudonym already written in what comes in (« [IBAN_1] » in a third party's mail) is defused:
@@ -69,7 +73,8 @@ Notable changes, newest first. Versions: semver + release hash (see
 - Two different numbers never share a pseudonym (`061 234 56 78` ≠ `06 12 34 56 78`).
 - The tool definitions (descriptions, schemas), the citations and the metadata of a request are
   pseudonymised too; a tool's name and the structural fields are kept.
-- Documented limits: deterministic detection, no new card for what the agent reads during the
+- Documented limits: the key of the `file` provider sits in the data folder (a full backup holds
+  both), prompt injection on the work's own pseudonyms, deterministic detection, no new card for what the agent reads during the
   work, lowering a project's level removes D9 for it, and a confidential document stored in a
   `team` project can be read by its path during a Claude work (to be checked at read time).
 
