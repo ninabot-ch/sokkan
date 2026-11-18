@@ -1353,6 +1353,11 @@ class AgentSession:
             elif ev.code == "mcp_unavailable":
                 # the engine runs without the cockpit's tool servers: said once, as what it is
                 self._emit({"type": "error", "code": ev.code, "message": ev.message})
+            elif ev.code == "tool_loop_guard":
+                # 4.0, kernel host-3f: the engine stopped a loop of the same read (note, then
+                # the tool suspended for the turn) — the turn goes on; said, never silent
+                self._emit({"type": "error", "code": ev.code, "message": ev.message,
+                            "action": str(ev.data.get("action") or "")})
             else:
                 self._emit({"type": "error", "message": f"{ev.code}: {ev.message}"})
                 self._explain_refusal(ev.message)

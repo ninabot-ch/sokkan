@@ -1184,6 +1184,16 @@ class KernelHarness(Harness):
                            input=d.get("args") or {}, classification=classify(str(d.get("name")))))
         elif name == "tool.result":
             self._on_tool_result(d)
+        elif name == "tool.loop_guard":
+            # kernel host-3f: a read tool called again and again without a new result — a
+            # note to the model at `note`, the tool suspended for the turn at `suspend`. Said,
+            # never silent: the turn goes on, so a recoverable error the cockpit shows in words
+            tool, n, action = str(d.get("tool") or ""), int(d.get("n") or 0), str(d.get("action") or "")
+            msg = (f"{tool} suspended for this turn after {n} calls without a new result"
+                   if action == "suspend" else
+                   f"{tool} called {n} times without a new result: the model was told to change approach")
+            put(Error(code="tool_loop_guard", recoverable=True, message=msg,
+                      data={"tool": tool, "n": n, "action": action}))
         elif name == "turn.reasoning":
             if d.get("text"):
                 put(AssistantThink(turn_id=self._turn, text=str(d["text"])))
