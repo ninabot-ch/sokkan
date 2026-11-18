@@ -30,11 +30,12 @@ import { TeamPage, UsagePage, ValidationsPage } from "./onboarding/AdminPages";
 import { fetchOnboarding, progress, type Onboarding } from "@/lib/simple/onboarding";
 import { useOT } from "@/lib/simple/dictOnboarding";
 import OrgBadge from "./OrgBadge";
+import CouncilRoom from "../council/CouncilRoom";
 
 // 4.0: « setup » (the administrator's first launch) and the administration pages
 type AdminView = "setup" | "admin_team" | "admin_usage" | "admin_validations";
 const ADMIN_VIEWS: AdminView[] = ["setup", "admin_team", "admin_usage", "admin_validations"];
-type View = { name: "home" | "works" | "documents" | "memory" | "team" | "review" | AdminView } | { name: "work"; sid: string };
+type View = { name: "home" | "works" | "documents" | "memory" | "team" | "review" | "council" | AdminView } | { name: "work"; sid: string };
 
 function readView(): View {
   if (typeof window === "undefined") return { name: "home" };
@@ -43,7 +44,7 @@ function readView(): View {
   if (w && /^[0-9a-f]{8,64}$/.test(w)) return { name: "work", sid: w };
   const v = q.get("v");
   if (ADMIN_VIEWS.includes(v as AdminView)) return { name: v as AdminView };
-  return v === "works" || v === "documents" || v === "memory" || v === "team" || v === "review" ? { name: v } : { name: "home" };
+  return v === "works" || v === "documents" || v === "memory" || v === "team" || v === "review" || v === "council" ? { name: v } : { name: "home" };
 }
 
 function hrefOf(v: View): string {
@@ -145,7 +146,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   useEffect(() => {
-    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", memory: "nav.memory", team: "nav.team", review: "nav.review" } as const;
+    const titles = { home: "nav.home", works: "nav.works", documents: "nav.documents", memory: "nav.memory", team: "nav.team", review: "nav.review", council: "nav.council" } as const;
     const admin = { setup: "ob.nav.setup", admin_team: "ob.nav.team", admin_usage: "ob.nav.usage", admin_validations: "ob.nav.validations" } as const;
     const work = view.name === "work" ? home?.recents.find((r) => r.sid === view.sid)?.title : "";
     if (view.name === "work" && !work) return;   // named once the work is known, never « My work » meanwhile
@@ -159,9 +160,10 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  const nav: { id: "home" | "works" | "documents" | "memory" | "team" | "review"; icon: IconName; count?: number }[] = [
+  const nav: { id: "home" | "works" | "documents" | "memory" | "team" | "review" | "council"; icon: IconName; count?: number }[] = [
     { id: "home", icon: "home" }, { id: "works", icon: "works", count: home?.works_total || undefined },
     { id: "documents", icon: "page" }, { id: "memory", icon: "memory" }, { id: "team", icon: "crew" },
+    ...(feats.council ? [{ id: "council" as const, icon: "chat" as const }] : []),
     ...(review !== null ? [{ id: "review" as const, icon: "seal" as const, count: review || undefined }] : []),
   ];
   const pct = home?.usage.pct;
@@ -245,6 +247,7 @@ function Shell({ prefs, onPrefs }: { prefs: Prefs; onPrefs: (p: Prefs) => void }
         {view.name === "works" && <Works onOpen={(sid) => go({ name: "work", sid })} onHome={() => go({ name: "home" })} />}
         {view.name === "documents" && <Documents canAdd={!!home?.can_start} />}
         {view.name === "memory" && <Memory />}
+        {view.name === "council" && feats.council && <CouncilRoom />}
         {view.name === "team" && <Team enabled={!!feats.agents} demo={demo} hiddenForRole={reader && !feats.agents_viewer_readonly} />}
         {view.name === "review" && <IngestReview quarantine batchesOn={ingestOn} onCount={setReview} />}
         {view.name === "work" && <Thread key={view.sid} sid={view.sid} limits={home?.limits ?? null}

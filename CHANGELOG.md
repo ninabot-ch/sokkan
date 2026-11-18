@@ -3,6 +3,27 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased — 4.1
+
+### Launch council (experimental)
+- **A room where the CEO puts a project in front of nine roles** (finance, code, operations,
+  design, purchasing, quality, marketing, legal, coach), in three bounded rounds: everyone reacts
+  to the brief (two calls at a time at most, shown finance → coach), the finance lead raises 2 or 3
+  disagreements and only the roles concerned answer, then the finance lead writes the synthesis.
+  The CEO can write at any time and can stop it. Off by default: feature `council`
+  (`SOKKAN_FEATURE_COUNCIL=1`), a room in the Atelier and Build › Council in the cockpit, FR/EN.
+- **One agreement card**: scope, budget (every figure sourced from an attached document or marked
+  “estimated”, total checked against the lines), risks, kanban, agents to recruit, human roles,
+  schedule — strict JSON, one retry if invalid. Accepted, it creates board cards in Backlog,
+  agent **drafts** in Crew (nothing runs without a person's approval) and a list of open
+  positions. Refused with a reason, the finance lead writes a new synthesis (twice at most).
+- **Models**: the machine's tier for the roles, Deep for the finance lead; Claude only on the CEO's
+  explicit choice and never for a confidential project (same rule and PII sandwich as “Write with
+  Claude”, checked again at every call). A ceiling of tokens and cost per council
+  (`SOKKAN_COUNCIL_MAX_TOKENS`, `SOKKAN_COUNCIL_MAX_COST_CHF`) stops it cleanly.
+- Every speech is journaled (role, model, tokens, duration); export in JSON and Markdown.
+  See `docs/enterprise/COUNCIL.md`.
+
 ## Unreleased — 4.0.2
 
 ### Security — the installer fails closed when a release cannot be verified

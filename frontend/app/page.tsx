@@ -11,6 +11,7 @@ import Infra from "@/components/Infra";
 import Operate from "@/components/Operate";
 import Alerts from "@/components/alerting/Alerts";
 import Crew from "@/components/Crew";
+import CouncilTab from "@/components/council/CouncilTab";
 import Helm from "@/components/Helm";
 import Journal from "@/components/Journal";
 import Assistant from "@/components/Assistant";
@@ -292,6 +293,8 @@ function CockpitBody() {
         <Infra />
       ) : tab === "helm" ? (
         <Helm onOpenSession={(sid) => openSession({ session_id: sid })} readOnly={helmRO && !steers} />
+      ) : tab === "council" ? (
+        <CouncilTab />
       ) : tab === "crew" ? (
         <Crew onOpenSession={(sid) => openSession({ session_id: sid })} onOpenIncident={openIncident} />
       ) : tab === "incidents" ? (

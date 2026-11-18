@@ -1668,6 +1668,8 @@ def features_flags() -> dict:
         # 3.6 : dépôt de documents, profil simple (réglage par personne : /api/me/prefs)
         "documents": on("documents"),
         "simple_profile": on("simple_profile"),
+        # 4.1 (experimental): the launch council room
+        "council": on("council"),
         # 3.6.7 : la démo publique de SOKKAN Atelier (lecture seule) et son appel à l'action
         # (réserver une démo / installer — URLs de l'opérateur, jamais codées en dur)
         "demo_atelier": demo_atelier.enabled(),
@@ -3458,6 +3460,8 @@ import roles_api  # noqa: E402 — 4.0 job kits of SOKKAN Atelier (backend/roles
 app.include_router(roles_api.router(on_project_created=_sync_project_indexers))
 import claudetier_api  # noqa: E402 — 3.6.5 feature claude_tier: « Write with Claude »
 app.include_router(claudetier_api.router)
+from council import api as council_api  # noqa: E402 — 4.1 feature council: the launch council (experimental)
+app.include_router(council_api.router)
 # 4.0 — first launch (administrator), first sign-in (person), Team / Usage (onboarding.py)
 import onboarding  # noqa: E402
 app.include_router(onboarding.router(require))

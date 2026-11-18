@@ -763,3 +763,47 @@ html[data-sk-theme] body {
 .sk-conn-thread { display: flex; flex-direction: column; gap: var(--sk-s2); }
 /* a mail's text on a card wraps like the mail will (it ran off the card in the thread) */
 .sk-card-approval .sk-pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; max-height: 16em; overflow-y: auto; }
+
+/* ---- launch council (experimental): the room ----------------------------------------------- */
+.co-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sk-s3); grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); }
+.co-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: var(--sk-s3); border: 1px solid var(--sk-line);
+  border-radius: var(--sk-r-md); background: var(--sk-surface); text-align: center; }
+.co-tile[data-status="speaking"] { border-color: var(--sk-warn); box-shadow: 0 0 0 2px var(--sk-warn-soft); }
+.co-tile[data-status="spoken"] { border-color: var(--sk-ok); }
+.co-avatar { width: 2.6rem; height: 2.6rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; letter-spacing: .02em;
+  color: var(--sk-text-strong); background: hsl(var(--co-hue, 210) 55% 50% / .18); border: 2px solid hsl(var(--co-hue, 210) 55% 45%); }
+.co-tile[data-status="speaking"] .co-avatar { animation: co-pulse 1.4s ease-in-out infinite; }
+.co-name { font-weight: 600; color: var(--sk-text-strong); font-size: var(--sk-fs-sm); }
+.co-status { font-size: var(--sk-fs-xs); color: var(--sk-text-soft); display: inline-flex; align-items: center; gap: 6px; }
+.co-tile[data-status="speaking"] .co-status { color: var(--sk-warn); font-weight: 600; }
+.co-tile[data-status="spoken"] .co-status { color: var(--sk-ok); }
+.co-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sk-warn); }
+@keyframes co-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--sk-warn-soft); } 50% { box-shadow: 0 0 0 8px transparent; } }
+.co-meter { display: flex; flex-direction: column; gap: 4px; font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
+.co-bar { height: 8px; border-radius: 4px; background: var(--sk-sunken); overflow: hidden; }
+.co-bar span { display: block; height: 100%; background: var(--sk-ok); transition: width .4s; }
+.co-bar[data-level="warn"] span { background: var(--sk-warn); }
+.co-bar[data-level="stop"] span { background: var(--sk-danger); }
+.co-state { font-size: var(--sk-fs-sm); color: var(--sk-text-soft); }
+.co-state[data-state="card"], .co-state[data-state="accepted"] { color: var(--sk-ok); font-weight: 600; }
+.co-state[data-state="failed"], .co-state[data-state="stopped_budget"], .co-state[data-state="refused"] { color: var(--sk-danger); font-weight: 600; }
+.co-head { display: flex; align-items: center; gap: var(--sk-s3); flex-wrap: wrap; }
+.co-thread { display: flex; flex-direction: column; gap: var(--sk-s3); }
+.co-round { font-size: var(--sk-fs-sm); text-transform: uppercase; letter-spacing: .04em; color: var(--sk-text-soft); margin: var(--sk-s3) 0 var(--sk-s2); }
+.co-turn { border-left: 3px solid var(--sk-line-strong); padding: 2px var(--sk-s3); margin-bottom: var(--sk-s2); overflow-wrap: anywhere; }
+.co-turn[data-kind="ceo"] { border-left-color: var(--sk-sea); background: var(--sk-sea-soft); }
+.co-turn[data-kind="system"] { border-left-color: var(--sk-warn); }
+.co-turn header small { color: var(--sk-text-muted); }
+.co-turn p { margin: 2px 0 0; white-space: pre-wrap; }
+.co-say, .co-actions { display: flex; gap: var(--sk-s2); flex-wrap: wrap; align-items: center; }
+.co-say .sk-input { flex: 1 1 16rem; }
+.co-form, .co-field { display: flex; flex-direction: column; gap: var(--sk-s2); }
+.co-check { display: flex; gap: var(--sk-s2); align-items: flex-start; }
+.co-check small { display: block; color: var(--sk-text-soft); }
+.co-err { color: var(--sk-danger); }
+.co-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--sk-s2); margin: 0; }
+.co-facts dt { font-size: var(--sk-fs-xs); color: var(--sk-text-soft); } .co-facts dd { margin: 0; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .co-tile[data-status="speaking"] .co-avatar { animation: none; box-shadow: 0 0 0 4px var(--sk-warn-soft); }
+  .co-bar span { transition: none; }
+}

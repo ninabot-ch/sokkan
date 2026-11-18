@@ -58,6 +58,7 @@ State on a running instance: `GET /api/features` (`registry`) or Setup › Organ
 | [`doc_ingest`](#doc_ingest) Document ingestion (memory agent) | experimental | toggle | off | off | `agents`, `memory_quarantine` | — | `SOKKAN_FEATURE_DOC_INGEST` |
 | [`connectors`](#connectors) Connectors (mail, calendar, shared documents) | experimental | toggle | off | off | — | — | `SOKKAN_FEATURE_CONNECTORS` |
 | [`connect_ai`](#connect_ai) Connect your AI | beta | toggle | off | on | — | — | `SOKKAN_FEATURE_CONNECT_AI` |
+| [`council`](#council) Launch council | experimental | toggle | off | off | — | — | `SOKKAN_FEATURE_COUNCIL` |
 | [`study_mode`](#study_mode) Study mode (audited use) | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_STUDY_MODE` |
 | [`documents`](#documents) Document drop | beta | toggle | off | off | — | — | `SOKKAN_FEATURE_DOCUMENTS` |
 | [`simple_profile`](#simple_profile) SOKKAN Atelier (simple interface) | beta | toggle | off | off | `documents` | — | `SOKKAN_FEATURE_SIMPLE_PROFILE` |
@@ -112,6 +113,7 @@ graph LR
   doc_ingest["Document ingestion (memory agent)"]
   connectors["Connectors (mail, calendar, shared documents)"]
   connect_ai["Connect your AI"]
+  council["Launch council"]
   study_mode["Study mode (audited use)"]
   documents["Document drop"]
   simple_profile["SOKKAN Atelier (simple interface)"]
@@ -604,6 +606,16 @@ Setup › Engines: one screen to connect the engines (Claude login or key, OpenA
 - Defaults: community **off**, enterprise **on**
 - Switch: `SOKKAN_FEATURE_CONNECT_AI`
 - Doc: [docs/enterprise/UI-FEATURES.md](../../docs/enterprise/UI-FEATURES.md)
+
+### council
+
+**Launch council** — experimental, toggle.
+
+A room where the CEO puts a project (text and attached documents) in front of nine roles — finance (who leads and arbitrates), code, operations, design, purchasing, quality, marketing, legal, coach — in three bounded rounds. The finance lead hands back ONE agreement card: scope, budget (every figure sourced or marked « estimated », total checked), risks, kanban, agents to recruit, human roles, schedule. Accepted, the card creates board cards in Backlog and DRAFT agents in Crew (nothing runs without a person's approval). Models: the machine's tier for the roles, Deep for the finance lead; Claude only on the CEO's explicit choice and never for a confidential project. A ceiling of tokens and cost per council stops it cleanly. Every speech is journaled (role, model, tokens, duration); export in JSON and Markdown. Off: no route (404), no tab.
+
+- Defaults: community **off**, enterprise **off**
+- Switch: `SOKKAN_FEATURE_COUNCIL`
+- Doc: [docs/enterprise/COUNCIL.md](../../docs/enterprise/COUNCIL.md)
 
 ### study_mode
 

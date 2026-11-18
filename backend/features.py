@@ -563,6 +563,22 @@ REGISTRY: tuple[Feature, ...] = (
             config=("SOKKAN_CONNECT_AI_MODE", "SOKKAN_ROUTER_URL", "SOKKAN_ROUTER_MODEL",
                     "SOKKAN_ROUTER_WELCOME_URL"),
             doc="docs/enterprise/UI-FEATURES.md"),
+    Feature("council", "Launch council",
+            "A room where the CEO puts a project (text and attached documents) in front of nine "
+            "roles — finance (who leads and arbitrates), code, operations, design, purchasing, "
+            "quality, marketing, legal, coach — in three bounded rounds. The finance lead hands "
+            "back ONE agreement card: scope, budget (every figure sourced or marked « estimated », "
+            "total checked), risks, kanban, agents to recruit, human roles, schedule. Accepted, "
+            "the card creates board cards in Backlog and DRAFT agents in Crew (nothing runs "
+            "without a person's approval). Models: the machine's tier for the roles, Deep for "
+            "the finance lead; Claude only on the CEO's explicit choice and never for a "
+            "confidential project. A ceiling of tokens and cost per council stops it cleanly. "
+            "Every speech is journaled (role, model, tokens, duration); export in JSON and "
+            "Markdown. Off: no route (404), no tab.",
+            status="experimental", defaults=_both(False), vars=_t("council"),
+            config=("SOKKAN_COUNCIL_MAX_TOKENS", "SOKKAN_COUNCIL_MAX_COST_CHF", "SOKKAN_COUNCIL_PRICES",
+                    "SOKKAN_COUNCIL_SHIP_URL", "SOKKAN_COUNCIL_DEEP_URL", "SOKKAN_COUNCIL_DB"),
+            doc="docs/enterprise/COUNCIL.md"),
     Feature("study_mode", "Study mode (audited use)",
             "The instance is used under a research protocol: work tagged with the study, the "
             "participant, a scenario (S1…S6) and a reference time; people pseudonymised at "

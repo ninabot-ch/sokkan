@@ -10,7 +10,7 @@
 export type PlaneId = "control" | "build" | "operate" | "setup";
 export type SubTab =
   | "helm" | "board" | "corthexis"
-  | "sessions" | "crew" | "preview"
+  | "sessions" | "crew" | "council" | "preview"
   | "incidents" | "alerts" | "infra" | "costs" | "journal"
   | "organization" | "engines" | "magnitude" | "secrets" | "account" | "notifications" | "study" | "ingest";
 
@@ -27,7 +27,9 @@ export const PLANES: PlaneDef[] = [
   { id: "control", label: "Control", key: "c", blurb: "steer: Helm, the board, the memory",
     tabs: [{ id: "helm", label: "Helm" }, { id: "board", label: "Board" }, { id: "corthexis", label: "CortHeXis" }] },
   { id: "build", label: "Build", key: "b", blurb: "do: sessions, agents, previews",
-    tabs: [{ id: "sessions", label: "Sessions" }, { id: "crew", label: "Crew" }, { id: "preview", label: "Preview" }] },
+    tabs: [{ id: "sessions", label: "Sessions" }, { id: "crew", label: "Crew" },
+      // feature `council` (experimental, off by default): the launch council room
+      { id: "council", label: "Council" }, { id: "preview", label: "Preview" }] },
   { id: "operate", label: "Operate", key: "o", blurb: "run: incidents and alerts, infra, costs, journal",
     tabs: [{ id: "incidents", label: "Incidents" }, { id: "alerts", label: "Alerts" }, { id: "infra", label: "Infra" }, { id: "costs", label: "Costs" },
       { id: "journal", label: "Journal" }] },
@@ -52,7 +54,7 @@ export type OrgSection = "org" | "members" | "projects" | "classification" | "te
 /** Every `?tab=` value that ever existed (11 tabs + the Profile sections) → where it lives now. */
 export const LEGACY: Record<string, { tab: SubTab; section?: string }> = {
   // the 11 tabs of 3.2.1
-  board: { tab: "board" }, sessions: { tab: "sessions" }, crew: { tab: "crew" }, helm: { tab: "helm" },
+  board: { tab: "board" }, sessions: { tab: "sessions" }, crew: { tab: "crew" }, council: { tab: "council" }, conseil: { tab: "council" }, helm: { tab: "helm" },
   preview: { tab: "preview" }, corthexis: { tab: "corthexis" }, costs: { tab: "costs" },
   magnitude: { tab: "magnitude" }, infra: { tab: "infra" }, incidents: { tab: "incidents" },
   // 3.2.2: the sub-tab « Operate › Operate » became « Operate › Incidents »; old links keep working
@@ -106,7 +108,7 @@ export interface VisCtx {
   /** feature flags as /api/features serves them */
   f: { preview?: boolean; infra?: boolean; observe?: boolean; magnitude?: boolean; agents?: boolean;
     agents_viewer_readonly?: boolean; helm?: boolean; alerting?: boolean; study_mode?: boolean;
-    doc_ingest?: boolean };
+    doc_ingest?: boolean; council?: boolean };
   /** selected project slug */
   project: string;
   /** dev or more in the selected project */
@@ -130,6 +132,7 @@ export function tabVisible(t: SubTab, c: VisCtx): boolean {
     case "alerts": return !!c.f.alerting;
     case "magnitude": return !!c.f.magnitude;
     case "crew": return !!c.f.agents && (c.canDev || !!c.f.agents_viewer_readonly);
+    case "council": return !!c.f.council && c.canDev;
     case "helm": return !!c.f.helm && c.steers;
     // feature `study_mode`: the page exists for everyone signed in (consent is per person)
     case "study": return !!c.f.study_mode;

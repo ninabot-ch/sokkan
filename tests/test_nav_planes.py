@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
                                   "tests/nav/demo_atelier_test.ts",
                                   "tests/nav/simple_roles_test.ts", "tests/nav/onboarding_test.ts",
                                   "tests/nav/approval_cards_test.ts", "tests/nav/validations_test.ts",
-                                  "tests/nav/org_logo_test.ts"])
+                                  "tests/nav/org_logo_test.ts", "tests/nav/council_test.ts"])
 def test_front_pure_modules(spec):
     """The front's pure modules, run with node (type stripping): navigation by planes, and
     (3.4.3) the defaulting of a CortHeXis review/note payload — `lib/corthexis.ts`, and (3.5)

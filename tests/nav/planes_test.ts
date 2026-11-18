@@ -15,7 +15,7 @@ const ids = (c: VisCtx) => Object.fromEntries(visiblePlanes(c).map((p) => [p.id,
 test("structure validated by Nick (08.10.2026)", () => {
   assert.deepEqual(PLANES.map((p) => [p.id, p.tabs.map((t) => t.id)]), [
     ["control", ["helm", "board", "corthexis"]],
-    ["build", ["sessions", "crew", "preview"]],
+    ["build", ["sessions", "crew", "council", "preview"]],
     // 3.5 (Nick 09.10.2026): Operate › Alerts, the rules engine, between Incidents and Infra
     ["operate", ["incidents", "alerts", "infra", "costs", "journal"]],
     // `study` exists only with the feature `study_mode`, `ingest` only with `doc_ingest` (both
@@ -101,6 +101,14 @@ test("new deep links ?plane=&tab= and their round trip", () => {
     const back = resolveTarget(new URL(`http://x${href(t.id, { agent: "1" })}`).searchParams);
     assert.deepEqual([back?.plane, back?.tab], [p.id, t.id]);
   }
+});
+
+test("Build › Council: only with the feature `council` (experimental, off by default), for a developer", () => {
+  assert.ok(!ids(ctx()).build.includes("council"));
+  assert.deepEqual(ids(ctx({ f: { ...ALL, council: true } })).build, ["sessions", "crew", "council", "preview"]);
+  assert.ok(!ids(ctx({ canDev: false, f: { ...ALL, council: true } })).build.includes("council"));
+  assert.deepEqual(resolveTarget(q("tab=conseil")), { plane: "build", tab: "council", section: undefined });
+  assert.deepEqual(resolveTarget(q("plane=build&tab=council")), { plane: "build", tab: "council", section: undefined });
 });
 
 test("visibility by feature and role: a missing sub-tab disappears, an empty plane too", () => {

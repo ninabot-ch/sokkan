@@ -277,6 +277,25 @@ services:
       SOKKAN_ROUTER_URL: ${SOKKAN_ROUTER_URL:-}
       SOKKAN_ROUTER_MODEL: ${SOKKAN_ROUTER_MODEL:-}
       SOKKAN_ROUTER_WELCOME_URL: ${SOKKAN_ROUTER_WELCOME_URL:-}
+      # launch council (docs/enterprise/COUNCIL.md, experimental): nine roles debate a project,
+      # the finance lead hands back one agreement card. Budget per council, models per tier
+      # (empty = the quality gate's reviewers, then the router's SOKKAN_SHIP_* / SOKKAN_DEEP_*).
+      SOKKAN_FEATURE_COUNCIL: ${SOKKAN_FEATURE_COUNCIL:-}
+      SOKKAN_COUNCIL_MAX_TOKENS: ${SOKKAN_COUNCIL_MAX_TOKENS:-}
+      SOKKAN_COUNCIL_MAX_COST_CHF: ${SOKKAN_COUNCIL_MAX_COST_CHF:-}
+      SOKKAN_COUNCIL_PRICES: ${SOKKAN_COUNCIL_PRICES:-}
+      SOKKAN_COUNCIL_SHIP_URL: ${SOKKAN_COUNCIL_SHIP_URL:-}
+      SOKKAN_COUNCIL_SHIP_MODEL: ${SOKKAN_COUNCIL_SHIP_MODEL:-}
+      SOKKAN_COUNCIL_SHIP_KEY: ${SOKKAN_COUNCIL_SHIP_KEY:-}
+      SOKKAN_COUNCIL_SHIP_KEY_FILE: ${SOKKAN_COUNCIL_SHIP_KEY_FILE:-}
+      SOKKAN_COUNCIL_SHIP_EXTRA: ${SOKKAN_COUNCIL_SHIP_EXTRA:-}
+      SOKKAN_COUNCIL_DEEP_URL: ${SOKKAN_COUNCIL_DEEP_URL:-}
+      SOKKAN_COUNCIL_DEEP_MODEL: ${SOKKAN_COUNCIL_DEEP_MODEL:-}
+      SOKKAN_COUNCIL_DEEP_KEY: ${SOKKAN_COUNCIL_DEEP_KEY:-}
+      SOKKAN_COUNCIL_DEEP_KEY_FILE: ${SOKKAN_COUNCIL_DEEP_KEY_FILE:-}
+      SOKKAN_COUNCIL_DEEP_EXTRA: ${SOKKAN_COUNCIL_DEEP_EXTRA:-}
+      SOKKAN_COUNCIL_DB: ${SOKKAN_COUNCIL_DB:-}
+      SOKKAN_COUNCIL_ROLES_DIR: ${SOKKAN_COUNCIL_ROLES_DIR:-}
       # study mode (docs/enterprise/STUDY-MODE.md): audited use under a research protocol —
       # tags, pseudonyms at the source, consent, researcher's export. The state (active,
       # end date, ceilings) is read from the inference gateway; SOKKAN_STUDY_ID declares a

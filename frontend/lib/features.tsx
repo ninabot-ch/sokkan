@@ -32,6 +32,8 @@ export interface Features {
   /** 3.6 : document drop (feature `documents`) and the simple profile (feature `simple_profile`) */
   documents?: boolean;
   simple_profile?: boolean;
+  /** 4.1 : the launch council room (feature `council`, experimental) */
+  council?: boolean;
   /** 3.6.7 : the public demo of SOKKAN Atelier (read-only, fictional work) */
   demo_atelier?: boolean;
   /** 3.6.7 : the call to action of the demo band — the operator's URLs ('' = no button) */
