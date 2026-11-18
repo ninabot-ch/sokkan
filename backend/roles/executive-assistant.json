@@ -2,7 +2,7 @@
   "id": "executive-assistant",
   "order": 10,
   "level": "team",
-  "claude": true,
+  "people": true,
   "i18n": {
     "fr": {
       "label": "Assistant·e de direction",

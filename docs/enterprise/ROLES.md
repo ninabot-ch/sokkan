@@ -33,10 +33,11 @@ Every job has, in French and English (the person's language; Swiss French-speaki
   « [À compléter : …] » / « [To fill: …] », the note carries `status: to-fill`, and the agent never
   fills a blank by guessing: it lists what is missing under « Points à vérifier »;
 * **guard-rails** (2-8): a sentence the person reads, and the rule the agent is given. HR and legal:
-  personal or secret data → the job's project is classified *confidential* and its work never goes to
-  Claude (refused by the server, `claude_role`, whatever the project's level or the person's choice);
+  personal or secret data → the job's project is classified *confidential*, so its work never goes to
+  Claude (rule D9, by the project's level — 4.0.1: a job itself no longer refuses Claude; personal data
+  in any other project goes through the « PII sandwich », [CLAUDE-PRIVACY.md](CLAUDE-PRIVACY.md));
   finance: every figure is quoted from its document and line, every computation shown, never an
-  invented figure (and no Claude either); support: no customer data outside the reply to that
+  invented figure; support: no customer data outside the reply to that
   customer; marketing: no claim that cannot be proven from the documents; legal: never a legal
   opinion, a preparation for a specialist.
 
@@ -94,7 +95,7 @@ and a sentence says why.
     PUT  /api/me/prefs                          {roles: [...]}  ([] = « later », unknown id = 400)
     PUT  /api/admin/prefs/{email}               {roles: [...]}  an admin's default (journal `roles.set`)
     GET  /api/simple/home                       + roles, project_role, ask_roles; kit templates first
-    POST /api/simple/start                      playbook = "<job>.<template>"; tier claude on a local job = 409 claude_role
+    POST /api/simple/start                      playbook = "<job>.<template>" (Claude: by the project's level and the PII check, never by the job)
     GET  …/deliverables/{name}/download?format=xlsx|docx|pdf|csv   rendered by backend/outputs.py
 
 Journal: `roles.set`, `roles.setup`, `project.create`, `project.level` (a job raises a project's level,

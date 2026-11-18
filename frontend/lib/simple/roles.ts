@@ -18,14 +18,6 @@ export function groupTemplates(playbooks: TaskTemplate[], roles: Job[] = []): Te
   return out;
 }
 
-/** May this work be written with Claude at all? A job that keeps its data on the machine
- *  (HR, legal, finance…) says no — for its own templates and in a project set up for it. */
-export function localOnly(tpl: TaskTemplate | null, projectRole: string | undefined, roles: Job[] = []): boolean {
-  if (tpl && tpl.claude === false) return true;
-  const own = projectRole ? roles.find((r) => r.id === projectRole) : undefined;
-  return !!own && !own.claude;
-}
-
 /** The picker's next selection after a click on a job (several jobs possible). */
 export function toggle(selected: string[], id: string): string[] {
   return selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];

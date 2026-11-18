@@ -265,6 +265,12 @@ async def _lifespan(_app: FastAPI):
         threading.Thread(target=_reindex_loop, daemon=True, name="sokkan-reindex").start()
     # a request still pending belonged to the previous process: closed as `interrupted`
     _n = hitl_journal.mark_interrupted()
+    try:   # 4.0.1 PII sandwich: the pseudonym tables past their retention go at start too
+        import claudepii
+        import simple as _simple
+        _simple.purge_pii_maps(claudepii.retention_days())
+    except Exception as _e:  # noqa: BLE001 — never a reason not to start
+        print(f"[sokkan] PII tables purge skipped: {_e}", file=sys.stderr)
     if _n:
         print(f"[sokkan] validations journal: {_n} pending request(s) of the previous "
               "process closed as interrupted", file=sys.stderr)
@@ -2051,7 +2057,8 @@ _AUTH_FREE = ("/api/auth/", "/api/health", "/api/version", "/api/edge/ask", "/ap
               "/api/scim/",  # 3.2 lot 6: SCIM, own bearer token (SOKKAN_SCIM_TOKEN)
               "/api/teams/messages",  # 3.4 : JWT Bot Framework vérifié par teams.botauth
               "/api/study/export",  # study_mode : jeton d'export en lecture seule, ou admin
-              "/api/internal/claude-grant")  # 3.6.5 : le routeur seul (secret partagé, hors proxy)
+              "/api/internal/claude-grant",  # 3.6.5 : le routeur seul (secret partagé, hors proxy)
+              "/api/internal/claude-pii")  # 4.0 : PII sandwich, le routeur seul (même porte)
 
 
 @app.middleware("http")

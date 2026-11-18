@@ -33,7 +33,7 @@ export function precheck(t: T, f: File, limits: Limits | null): string | null {
 
 export default function Composer({
   placeholder, submitLabel, busyLabel, limits, session, canAttach = true, disabled = false, compact = false,
-  autoFocus = false, allowEmptyWithDocs = false, emptyHint, header, footer, focusKey, onSubmit,
+  autoFocus = false, allowEmptyWithDocs = false, emptyHint, header, footer, focusKey, clearKey, onSubmit,
 }: {
   placeholder: string; submitLabel: string; busyLabel?: string; limits: Limits | null;
   /** attach uploads to this session at once (thread); none on the home (attached at start) */
@@ -42,6 +42,8 @@ export default function Composer({
   allowEmptyWithDocs?: boolean; emptyHint?: string; header?: React.ReactNode; focusKey?: string;
   /** above the send button: the choice of who writes (3.6.5 « Write with Claude ») */
   footer?: React.ReactNode;
+  /** 4.0: a new value empties the composer — a request sent from outside it (the PII card) */
+  clearKey?: number;
   onSubmit: (text: string, docs: Doc[]) => Promise<void>;
 }) {
   const t = useT();
@@ -55,6 +57,7 @@ export default function Composer({
   const depth = useRef(0);
 
   useEffect(() => { if (focusKey !== undefined) area.current?.focus(); }, [focusKey]);
+  useEffect(() => { if (clearKey) { setText(""); setFiles([]); setErrors([]); } }, [clearKey]);
   useEffect(() => {
     const el = area.current;
     if (!el) return;

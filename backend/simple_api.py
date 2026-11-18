@@ -40,6 +40,7 @@ import audit
 import auth
 import board
 import budgets
+import claudepii
 import claudetier
 import demo_atelier
 import documents
@@ -136,14 +137,27 @@ class StartIn(BaseModel):
     # of the machine), and the Claude model they picked ('' = the administrator's default)
     tier: str = ""
     claude_model: str = ""
+    # 4.0 PII sandwich: what the person chose after the card « données personnelles »
+    # ('' = not asked yet, anonymize = pseudonymise and send to Claude, local = the machine's model)
+    pii: str = ""
 
 
 class MessageIn(BaseModel):
     text: str
     documents: list[str] = []
+    pii: str = ""       # 4.0: '' | anonymize — a follow-up of a Claude work that carries personal data
     # 3.6.4: one id per click on « Send » (hex, made by the browser), as for a start: the same
     # id sent again — the answer was lost on the way, a second click — is taken ONCE
     request_id: str = ""
+
+
+class PiiDeclineIn(BaseModel):
+    counts: dict[str, int] = {}
+
+
+def pii_counts(found) -> dict[str, int]:
+    import pii
+    return pii.counts(found)
 
 
 class LearnFact(BaseModel):
@@ -255,14 +269,6 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
                 raise HTTPException(409, {"code": "claude_document", "message": (
                     f"« {d['name']} » est classé trop haut pour partir chez Anthropic." if lang == "fr"
                     else f"« {d['name']} » is classified too high to go to Anthropic.")})
-
-    def _job_forbids_claude(slug: str) -> bool:
-        try:
-            import roles
-            r = roles.get(simple.project_role(slug))
-            return bool(r) and not r["claude"]
-        except Exception:  # noqa: BLE001 — unreadable kit: fail closed
-            return bool(simple.project_role(slug))
 
     def _engine_of(sid: str) -> dict:
         tier, model = claudetier.work_tier(sid)
@@ -446,12 +452,6 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         if tier not in ("", "local", "claude"):
             raise HTTPException(400, "tier: local | claude")
         cmodel = ""
-        if tier == "claude" and ((pb and not pb.get("claude", True)) or _job_forbids_claude(slug)):
-            # 4.0 job kits: HR, legal, finance… never go to Claude, whatever the project's level
-            raise HTTPException(409, {"code": "claude_role", "message": (
-                "Ce poste traite des données qui restent sur le modèle de la machine : pas de Claude."
-                if lang == "fr" else
-                "This job handles data that stays on the model of this machine: no Claude.")})
         if tier == "claude":
             cmodel = (body.claude_model or "").strip() or claudetier.default_model()
             g = claudetier.gate(slug, cmodel, lang)
@@ -460,6 +460,20 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         docs = _docs(body.documents, slug, pu)
         if tier == "claude":
             _claude_docs(docs, lang)
+        # 4.0 PII sandwich: personal data in the request or the attachments is said BEFORE anything
+        # leaves; the person chooses (anonymise and send / stay on the local model) — nothing is
+        # created until then, and no job is refused Claude for what it is
+        choice = (body.pii or "").strip().lower()
+        if choice not in ("", "anonymize", "local"):
+            raise HTTPException(400, "pii: anonymize | local")
+        who = claudepii.names([(shown_name(request, pu) or "").strip()])
+        texts = [ask, *(claudepii.doc_text(d) for d in docs)] if (tier == "claude" or choice) else []
+        found = claudepii.scan(texts, who) if texts else []
+        # E1: a work about people (HR, assistant, support, sales) is asked even when nothing was
+        # spotted — nothing spotted is not nothing personal
+        people = tier == "claude" and not found and claudepii.people_job(slug, body.playbook)
+        if tier == "claude" and (found or people) and choice != "anonymize":
+            raise HTTPException(409, claudepii.card(found, lang, people=people))
         if not ask:
             if not docs:
                 raise HTTPException(400, {"code": "empty", "message":
@@ -477,6 +491,17 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             import hitl_journal
             hitl_journal.engine_chosen(sid, actor=email, project=slug, model=cmodel,
                                        level=g["level"], destination=claudetier.DESTINATION["fr"])
+            # the work's pseudonyms, in the order the person wrote things, before the 1st request
+            simple.set_work_shown_name(sid, (shown_name(request, pu) or "").strip())
+            claudepii.seed(sid, texts or [ask], who)
+            if found or choice == "anonymize":
+                simple.set_work_pii(sid, "anonymize")
+                hitl_journal.pii_decision(sid, actor=email, project=slug, choice="anonymize",
+                                          counts=pii_counts(found), model=cmodel)
+        elif choice == "local" and found:
+            import hitl_journal
+            hitl_journal.pii_decision(sid, actor=email, project=slug, choice="local",
+                                      counts=pii_counts(found))
         for d in docs:
             documents.attach(sid, d["id"], by=email)
         session = agentchat.get_or_create(sid, user=email)
@@ -547,8 +572,24 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         _study_gate(email)
         already = {d["id"] for d in documents.of_session(sid)}
         docs = [d for d in _docs(body.documents, project, pu) if d["id"] not in already]
-        if claudetier.work_tier(sid)[0] == "claude":
-            _claude_docs(docs, (simple.get_work(sid) or {}).get("lang") or "fr")
+        w = simple.get_work(sid) or {}
+        if w.get("tier") == "claude":
+            wlang = w.get("lang") or "fr"
+            _claude_docs(docs, wlang)
+            # 4.0 PII sandwich: a follow-up that carries personal data, in a work where the person
+            # has not agreed to anonymise yet, is said first; nothing is sent until they choose
+            if w.get("pii") != "anonymize":
+                choice = (body.pii or "").strip().lower()
+                found = claudepii.scan([text, *(claudepii.doc_text(d) for d in docs)],
+                                       claudepii.names([(shown_name(request, pu) or "").strip()]))
+                if found and choice != "anonymize":
+                    raise HTTPException(409, claudepii.card(found, wlang, step="message"))
+                if found:
+                    import hitl_journal
+                    simple.set_work_pii(sid, "anonymize")
+                    hitl_journal.pii_decision(sid, actor=email, project=project, choice="anonymize",
+                                              counts=pii_counts(found), model=w.get("claude_model") or "",
+                                              step="message")
         for d in docs:
             documents.attach(sid, d["id"], by=email)
         session = agentchat.get_or_create(sid, user=email)
@@ -567,6 +608,19 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         bg(session.handle_user(simple.follow_up(text, docs, lang)))
         audit.log(email, "session.send", sid, f"{len(text)} chars · {len(docs)} document(s)",
                   project=project)
+        return {"ok": True}
+
+    @r.post("/api/simple/sessions/{sid}/pii-decline")
+    def pii_decline(sid: str, body: PiiDeclineIn, request: Request, _f=Depends(_feature)) -> dict:
+        """4.0: the person saw the card « données personnelles » on a follow-up and chose not to
+        send it — journaled like the other choices (counts only, as the card showed them)."""
+        pu, project = _session(request, sid, drive=True)
+        import hitl_journal
+        import pii as _pii
+        counts = {k: max(0, min(int(v), 999)) for k, v in (body.counts or {}).items()
+                  if k in _pii.CATEGORIES and isinstance(v, int)}
+        hitl_journal.pii_decision(sid, actor=(pu.get("email") or ""), project=project, choice="declined",
+                                  counts=counts, step="message")
         return {"ok": True}
 
     # ---- deliverables ----------------------------------------------------------------------

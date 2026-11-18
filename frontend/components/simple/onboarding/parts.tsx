@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { fetchRoles, fetchSample, LEVELS, claudePossible, type Role } from "@/lib/simple/onboarding";
 import { useOT, type OKey } from "@/lib/simple/dictOnboarding";
-import { useT, useUI } from "@/lib/simple/i18n";
+import { useUI } from "@/lib/simple/i18n";
 import Icon from "../icons";
 
 /** A secret or a link shown ONCE: selectable text, a copy button that says it worked. */
@@ -33,7 +33,6 @@ export function CopyBox({ label, value, mono = true }: { label: string; value: s
  *  /api/onboarding/roles — the same jobs as Settings › My jobs, one source. */
 export function RolePicker({ value, onPick, roles: given }: { value: string; onPick: (r: Role) => void; roles?: Role[] }) {
   const t = useOT();
-  const tt = useT();
   const { lang } = useUI();
   const [roles, setRoles] = useState<Role[] | null | undefined>(given);
   useEffect(() => {
@@ -48,8 +47,7 @@ export function RolePicker({ value, onPick, roles: given }: { value: string; onP
         <button key={r.id} type="button" role="radio" aria-checked={value === r.id} className="sk-engine-opt sk-ob-role"
           onClick={() => onPick(r)}>
           <span className={`sk-tick${value === r.id ? " is-on" : ""}`} aria-hidden>{value === r.id && <Icon name="check" small />}</span>
-          <span><b>{r.label}</b><small>{r.description}</small>
-            {r.claude === false && <small className="sk-role-local"><Icon name="shield" small />{tt("roles.local.short")}</small>}</span>
+          <span><b>{r.label}</b><small>{r.description}</small></span>
         </button>
       ))}
     </div>

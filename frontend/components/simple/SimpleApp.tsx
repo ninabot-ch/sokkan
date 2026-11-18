@@ -3,7 +3,7 @@
 // recent works with the last sentence + today's usage), the current view, Nina and Settings.
 // Structure borrowed from Nokker (drawer + thread + ONE composer); the brand is SOKKAN's.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, fetchHome, fetchMyProjects, newRequestId, savePrefs, startWork, type ClaudeGate, type ProjectRow, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
+import { ApiError, fetchHome, fetchMyProjects, newRequestId, piiOf, savePrefs, startWork, type ClaudeGate, type PiiFound, type ProjectRow, type HomeData, type Prefs, type Recent, type TaskTemplate } from "@/lib/simple/api";
 import { SimpleUIProvider, useT, useUI, type LangPref, type ThemePref } from "@/lib/simple/i18n";
 import { useFeatures } from "@/lib/features";
 import { useMe } from "@/lib/me";
@@ -19,7 +19,8 @@ import Composer from "./Composer";
 import Icon, { templateIcon, type IconName } from "./icons";
 import Nina from "./Nina";
 import { RolePicker, TemplateDetail } from "./Roles";
-import { groupTemplates, localOnly } from "@/lib/simple/roles";
+import { groupTemplates } from "@/lib/simple/roles";
+import PiiCard, { type PiiChoice } from "./PiiCard";
 import { Documents, Team, Works } from "./Pages";
 import Settings from "./Settings";
 import Thread from "./Thread";
@@ -290,6 +291,11 @@ function Home({ home, failed, retry, onStarted, top }: {
   // 3.6.5: who writes this work — the model of the machine (default) or Claude, chosen here
   const [engine, setEngine] = useState<"local" | "claude">("local");
   const [cmodel, setCmodel] = useState("");
+  // 4.0 PII sandwich: what the server found before Claude, and the work waiting for the choice
+  const [piiAsk, setPiiAsk] = useState<{ found: PiiFound; text: string; docs: string[]; tpl: string; model: string } | null>(null);
+  const [piiBusy, setPiiBusy] = useState(false);
+  const [piiErr, setPiiErr] = useState("");
+  const [cleared, setCleared] = useState(0);
   if (!home) {
     return (
       <div className="sk-scroll"><div className="sk-page">
@@ -299,9 +305,8 @@ function Home({ home, failed, retry, onStarted, top }: {
     );
   }
   const can = home.can_start;
-  // 4.0 job kits: a job that keeps its data on the machine never offers Claude
-  const local = localOnly(tpl, home.project_role, home.roles);
-  const gate = local ? null : home.claude || null;
+  // 4.0 (18.11): no job refuses Claude; the project's classification decides (server side)
+  const gate = home.claude || null;
   const groups = groupTemplates(home.playbooks, home.roles);
   const claudeOn = engine === "claude" && !!gate?.allowed;
   const model = cmodel || gate?.default_model || "";
@@ -310,7 +315,7 @@ function Home({ home, failed, retry, onStarted, top }: {
       {top}
       <h1 className="sk-h1">{home.first_name ? t("home.hello", { name: home.first_name }) : t("home.hello.anon")}</h1>
       {!can && <div className="sk-notice" role="status"><Icon name="info" /><span>{t("home.viewer")}</span></div>}
-      <Composer autoFocus disabled={!can} canAttach={!!home.limits} limits={home.limits}
+      <Composer autoFocus disabled={!can} canAttach={!!home.limits} limits={home.limits} clearKey={cleared}
         placeholder={tpl ? tpl.hint : t("home.placeholder")} submitLabel={t("home.launch")} busyLabel={t("home.launching")}
         allowEmptyWithDocs={!!tpl} emptyHint={t("home.need")} focusKey={focusKey}
         footer={gate ? <EngineChoice gate={gate} engine={engine} model={model} disabled={!can}
@@ -323,6 +328,7 @@ function Home({ home, failed, retry, onStarted, top }: {
           </>
         ) : undefined}
         onSubmit={async (text, docs) => {
+          setPiiAsk(null);
           const sig = JSON.stringify([text, tpl?.id || "", docs.map((d) => d.id), claudeOn ? model : ""]);
           if (pending.current?.sig !== sig) pending.current = { sig, id: newRequestId() };
           try {
@@ -339,13 +345,38 @@ function Home({ home, failed, retry, onStarted, top }: {
               openStudyConsent();
               throw new Error(t("home.need.consent"));
             }
+            const found = piiOf(e);
+            if (found) {
+              // personal data: nothing has left — the card below asks how to continue
+              setPiiAsk({ found, text, docs: docs.map((d) => d.id), tpl: tpl?.id || "", model });
+              setPiiErr("");
+              throw new Error(t("pii.wait"));
+            }
             if (e instanceof ApiError && e.code.startsWith("claude_")) throw new Error(e.message);
             throw new Error(e instanceof ApiError && e.code === "empty" ? t("home.need")
               : e instanceof ApiError && e.code === "classified" ? t("up.err.classified", { name: "" }) : t("home.failed"));
           }
         }} />
+      {piiAsk && <PiiCard found={piiAsk.found} busy={piiBusy} onChoose={async (choice: PiiChoice) => {
+        setPiiBusy(true);
+        setPiiErr("");
+        try {
+          const claude = choice === "anonymize" ? { model: piiAsk.model } : undefined;
+          const r = await startWork(piiAsk.text, piiAsk.tpl, piiAsk.docs, lang, newRequestId(), claude,
+            choice === "anonymize" ? "anonymize" : "local");
+          setPiiAsk(null);
+          setTpl(null);
+          setEngine("local");
+          setCleared((n) => n + 1);
+          onStarted(r.session_id);
+        } catch (e) {
+          setPiiErr(e instanceof ApiError && e.code.startsWith("claude_") ? e.message : t("home.failed"));
+        } finally {
+          setPiiBusy(false);
+        }
+      }} />}
+      {piiErr && <div className="sk-error" role="alert"><Icon name="alert" small /><span>{piiErr}</span></div>}
       {home.limits && <p className="sk-composer-hint">{t("home.formats", { mb: Math.round(home.limits.max_bytes / 1024 / 1024) })}</p>}
-      {local && <p className="sk-role-guard sk-small"><Icon name="shield" small />{t("roles.local")}</p>}
       {groups.map((g, gi) => (
         <section key={g.role?.id || "general"} aria-labelledby={`sk-tpl-${gi}`}>
           <h2 className="sk-drawer-label" id={`sk-tpl-${gi}`} style={{ padding: 0, marginBottom: "var(--sk-s3)" }}>

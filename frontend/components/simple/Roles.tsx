@@ -76,7 +76,6 @@ export function RolePicker({ first, onClose, onSaved }: {
                   <span className="sk-row"><b className="sk-grow">{r.label}</b>{sel.includes(r.id) && <Icon name="check" small />}</span>
                   <small>{r.description}</small>
                   <span className="sk-xs sk-muted">{t("roles.count", { n: r.templates_count })}</span>
-                  {!r.claude && <span className="sk-xs sk-role-local"><Icon name="shield" small />{t("roles.local.short")}</span>}
                 </button>
               ))}
             </div>

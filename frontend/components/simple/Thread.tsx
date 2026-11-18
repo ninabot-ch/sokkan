@@ -4,7 +4,7 @@
 // raw material stays behind « Technical detail », folded.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ApiError, PlainSocket, fetchWork, keepAsDeliverable, newRequestId, sendMessage,
+  ApiError, PlainSocket, declinePii, fetchWork, keepAsDeliverable, newRequestId, piiOf, sendMessage, type PiiFound,
   type Doc, type Limits, type Source, type TechDetail, type Work,
 } from "@/lib/simple/api";
 import type { AgentQuestion } from "@/lib/agent";
@@ -15,6 +15,7 @@ import { DemoCta } from "./DemoBand";
 import { APPROVAL_KINDS, reduce, type Act, type Approval, type Item } from "@/lib/simple/threadModel";
 import type { Key } from "@/lib/simple/dict";
 import Composer from "./Composer";
+import PiiCard, { piiCounts } from "./PiiCard";
 import DeliverablePanel from "./DeliverablePanel";
 import Icon, { activityIcon } from "./icons";
 import Markdown from "./Markdown";
@@ -34,6 +35,11 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
   const me = useMe();
   const demo = !!useFeatures().demo_atelier;
   const [work, setWork] = useState<Work | null>(null);
+  // 4.0 PII sandwich: a follow-up of a Claude work that carries personal data waits for the choice
+  const [piiMsg, setPiiMsg] = useState<{ found: PiiFound; text: string; docs: string[] } | null>(null);
+  const [piiBusy, setPiiBusy] = useState(false);
+  const [piiNote, setPiiNote] = useState("");
+  const [cleared, setCleared] = useState(0);
   const [missing, setMissing] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [working, setWorking] = useState(false);
@@ -238,21 +244,48 @@ export default function Thread({ sid, limits, onBack, onChanged }: {
                       <button className="sk-btn sk-push" onClick={() => sock.current?.interrupt()}><Icon name="stop" />{t("th.stop")}</button>
                     </div>
                   )}
-                  <Composer compact session={sid} limits={limits} placeholder={t("th.reply")} submitLabel={t("th.send")}
+                  <Composer compact session={sid} limits={limits} placeholder={t("th.reply")} submitLabel={t("th.send")} clearKey={cleared}
                     disabled={!work || !open}
                     onSubmit={async (text, docs: Doc[]) => {
                       // one id per message: kept while the same message is tried again, so a second
                       // click after a lost answer does not send it twice (3.6.4)
                       const sig = JSON.stringify([text, docs.map((d) => d.id)]);
                       if (pendingMsg.current?.sig !== sig) pendingMsg.current = { sig, id: newRequestId() };
+                      setPiiMsg(null);
+                      setPiiNote("");
                       try {
                         await sendMessage(sid, text, docs.map((d) => d.id), pendingMsg.current.id);
                         pendingMsg.current = null; stick.current = true; if (docs.length) reload();
                       } catch (e) {
                         if (e instanceof ApiError && e.status < 500) pendingMsg.current = null;   // refused: nothing was sent
+                        const found = piiOf(e);
+                        if (found) {
+                          setPiiMsg({ found, text, docs: docs.map((d) => d.id) });
+                          throw new Error(t("pii.wait"));
+                        }
                         throw new Error(e instanceof ApiError && e.code === "busy" ? t("no.busy") : t("th.send.failed"));
                       }
                     }} />
+                  {piiMsg && <PiiCard found={piiMsg.found} busy={piiBusy} onChoose={async (choice) => {
+                    setPiiBusy(true);
+                    try {
+                      if (choice === "anonymize") {
+                        await sendMessage(sid, piiMsg.text, piiMsg.docs, newRequestId(), "anonymize");
+                        stick.current = true; if (piiMsg.docs.length) reload();
+                        setPiiNote("");
+                        setCleared((n) => n + 1);
+                      } else {
+                        await declinePii(sid, piiCounts(piiMsg.found)).catch(() => undefined);
+                        setPiiNote(t("pii.cancelled"));
+                      }
+                      setPiiMsg(null);
+                    } catch (e) {
+                      setPiiNote(e instanceof ApiError && e.code === "busy" ? t("no.busy") : t("th.send.failed"));
+                    } finally {
+                      setPiiBusy(false);
+                    }
+                  }} />}
+                  {piiNote && <p className="sk-small sk-muted" role="status">{piiNote}</p>}
                 </div>
               )}
             </div>

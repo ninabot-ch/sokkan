@@ -3,6 +3,8 @@
 
     GET  /api/internal/claude-grant?project=&model=   the router, and only it (shared secret,
                                                       never through the reverse proxy)
+    POST /api/internal/claude-pii {work, project, payload}   the router: the request pseudonymised
+                                                      + the table to restore the answer (4.0)
     GET  /api/claude/gate?model=&lang=                may the current project write with Claude
     GET  /api/claude/settings                         admin: key (masked), models, default
     PUT  /api/claude/settings  {default_model}        admin: the model offered first
@@ -56,15 +58,44 @@ def _admin(request: Request) -> dict:
     return u
 
 
+def _forwarded(request: Request) -> bool:
+    # the router talks to the api on the compose network; a request that came through the
+    # reverse proxy (TLS / web) carries a forwarding header and is not the router
+    return any(request.headers.get(h) for h in ("x-forwarded-for", "x-forwarded-host", "x-real-ip",
+                                                 "forwarded"))
+
+
 @router.get(claudetier.GRANT_PATH)
 def grant(request: Request, project: str = "", model: str = ""):
     # the router talks to the api on the compose network; a request that came through the
     # reverse proxy (TLS / web) carries a forwarding header and is not the router
-    fwd = any(request.headers.get(h) for h in ("x-forwarded-for", "x-forwarded-host", "x-real-ip",
-                                                "forwarded"))
     status, body = claudetier.grant(project, model, request.headers.get("x-sokkan-router-secret") or "",
-                                    fwd)
+                                    _forwarded(request))
     return JSONResponse(body, status_code=status, headers={"cache-control": "no-store"})
+
+
+@router.post(claudetier.PII_PATH)
+async def pii_sandwich(request: Request):
+    """4.0: the router hands a request of a Claude work and gets it back pseudonymised, with the
+    table to restore the answer (backend/claudepii.py). Same door as the grant: the router's
+    secret, never through the reverse proxy — 404 for anybody else."""
+    import hmac
+
+    import claudepii
+    want = claudetier.router_secret()
+    got = request.headers.get("x-sokkan-router-secret") or ""
+    if _forwarded(request) or not want or not got or not hmac.compare_digest(got, want):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+        assert isinstance(body, dict) and isinstance(body.get("payload"), dict)
+    except (ValueError, AssertionError):
+        return JSONResponse({"detail": "payload: a /v1/messages request"}, status_code=400)
+    from starlette.concurrency import run_in_threadpool
+    status, out = await run_in_threadpool(claudepii.anonymize_request, str(body.get("work") or ""),
+                                          str(body.get("project") or ""), body["payload"],
+                                          str(body.get("token") or ""))
+    return JSONResponse(out, status_code=status, headers={"cache-control": "no-store"})
 
 
 @router.get("/api/claude/gate")

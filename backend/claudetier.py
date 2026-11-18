@@ -20,6 +20,10 @@ Who decides what, and where:
   ``confidential`` and ``restricted`` are refused whatever the variable says (`HARD_MAX`).
 * **The instance decides** (`gate`) before the work starts: no key, project too high, model
   outside the list → the choice is greyed out with the reason, and a start is refused (409).
+* **The PII sandwich** (4.0, backend/claudepii.py, backend/pii.py): before every request leaves,
+  the router has the api replace the personal data of the work by stable pseudonyms, and puts
+  the values back in the answer. A person who sends personal data is told first and chooses
+  between anonymising and staying on the local model; the job of the person decides nothing.
 * **The router checks again** at every request: it asks the api
   (``GET /api/internal/claude-grant``, shared secret ``SOKKAN_ROUTER_SECRET``, never through
   the reverse proxy) for the decision AND the key of that project. A project reclassified in
@@ -53,7 +57,10 @@ HARD_MAX = 2                   # never above `project`: confidential and restric
 DESTINATION = {"fr": "Anthropic, États-Unis — hors de Suisse et d'Europe",
                "en": "Anthropic, United States — outside Switzerland and Europe"}
 HEADER_TIER, HEADER_PROJECT = "x-sokkan-tier", "x-sokkan-project"
+HEADER_WORK = "x-sokkan-work"        # 4.0: the work whose PII sandwich the router applies
+HEADER_WORK_TOKEN = "x-sokkan-work-token"   # 4.0.1 (M3): HMAC(router secret, sid|project)
 GRANT_PATH = "/api/internal/claude-grant"
+PII_PATH = "/api/internal/claude-pii"
 CODES = ("off", "no_key", "level", "model", "router")
 
 _MODEL_RE = re.compile(r"^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$")
@@ -275,8 +282,10 @@ def session_env(sid: str, project: str, env: dict) -> dict:
         return {}
     model = model or default_model() or DEFAULT_MODEL
     lines = [x for x in (env.get("ANTHROPIC_CUSTOM_HEADERS") or "").split("\n")
-             if x.strip() and not x.lower().startswith((HEADER_TIER, HEADER_PROJECT))]
-    lines += [f"{HEADER_TIER}: claude", f"{HEADER_PROJECT}: {project}"]
+             if x.strip() and not x.lower().startswith((HEADER_TIER, HEADER_PROJECT, HEADER_WORK))]
+    import claudepii
+    lines += [f"{HEADER_TIER}: claude", f"{HEADER_PROJECT}: {project}", f"{HEADER_WORK}: {sid}",
+              f"{HEADER_WORK_TOKEN}: {claudepii.work_token(sid, project)}"]
     return {"ANTHROPIC_MODEL": model, "ANTHROPIC_CUSTOM_HEADERS": "\n".join(lines)}
 
 

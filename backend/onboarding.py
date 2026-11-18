@@ -440,7 +440,7 @@ def roles(lang: str = "fr") -> dict:
         rows = []
     return {"source": "catalog", "roles": [
         {"id": r["id"], "label": r["label"], "description": r["description"], "sample": True,
-         "claude": r["claude"], "templates_count": r["templates_count"]} for r in rows]}
+         "templates_count": r["templates_count"]} for r in rows]}
 
 
 def sample_for(role_id: str, lang: str) -> dict:

@@ -12,11 +12,11 @@ export interface Limits { max_bytes: number; extensions: string[]; max_per_proje
 export interface TaskTemplate { id: string; label: string; description: string; hint: string; deliverable: string; tag: string;
   /** 4.0 job kits (backend/roles.py): what to attach, what the agent produces, what a person checks */
   attach?: string; produces?: string; checks?: string[]; format?: "docx" | "xlsx" | "md"; kind?: string;
-  role?: string; role_label?: string; claude?: boolean;
+  role?: string; role_label?: string;
   /** 4.0 connectors: what the work can really do with the mailbox / calendar it touches */
   uses?: ("mail" | "calendar" | "files")[]; connectors?: Partial<Record<"mail" | "calendar" | "files", "off" | "read" | "act">> }
 /** 4.0 — a job of SOKKAN Atelier (« Poste ») */
-export interface Job { id: string; label: string; description: string; project: string; level: string; claude: boolean;
+export interface Job { id: string; label: string; description: string; project: string; level: string;
   guardrails: string[]; notes: { name: string; title: string; description: string }[]; templates_count: number;
   templates?: TaskTemplate[] }
 export interface RolesCatalog { roles: Job[]; mine: string[] | null; project: string; project_role: string;
@@ -78,17 +78,27 @@ export type PlainEvent =
   | { type: "question_resolved"; id: string };
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
+  constructor(public status: number, public code: string, message: string, public detail?: Record<string, unknown>) { super(message); }
+}
+
+/** 4.0 « PII sandwich » — what `409 claude_pii` says was found (categories and counts, a masked
+ *  hint of two values; never a value) and the choices offered */
+export interface PiiFound { total: number; step: "start" | "message"; people_job?: boolean;
+  categories: { category: string; label: string; count: number; examples: string[] }[];
+  choices: ("anonymize" | "local" | "cancel")[] }
+export function piiOf(e: unknown): PiiFound | null {
+  return e instanceof ApiError && e.code === "claude_pii" && e.detail && typeof e.detail.pii === "object"
+    ? e.detail.pii as PiiFound : null;
 }
 
 async function fail(r: Response): Promise<never> {
-  let code = "", message = `${r.status}`;
+  let code = "", message = `${r.status}`, detail: Record<string, unknown> | undefined;
   try {
     const d = (await r.json()).detail;
-    if (d && typeof d === "object") { code = d.code || ""; message = d.message || message; }
+    if (d && typeof d === "object") { code = d.code || ""; message = d.message || message; detail = d; }
     else if (typeof d === "string") message = d;
   } catch { /* not JSON */ }
-  throw new ApiError(r.status, code, message);
+  throw new ApiError(r.status, code, message, detail);
 }
 
 async function get<T>(url: string): Promise<T> {
@@ -138,10 +148,10 @@ async function retrying<T>(call: () => Promise<T>): Promise<T> {
   throw last;
 }
 export function startWork(ask: string, playbook: string, documents: string[], lang: string, requestId: string,
-  claude?: { model: string }) {
+  claude?: { model: string }, pii?: "anonymize" | "local") {
   return retrying(() => send<{ session_id: string; title: string }>("/api/simple/start", "POST",
     { ask, playbook, documents, lang, request_id: requestId,
-      ...(claude ? { tier: "claude", claude_model: claude.model } : {}) }));
+      ...(claude ? { tier: "claude", claude_model: claude.model } : {}), ...(pii ? { pii } : {}) }));
 }
 export const fetchClaudeSettings = () => get<ClaudeSettings>("/api/claude/settings");
 export const saveClaudeKey = (key: string) => send<ClaudeSettings>("/api/claude/key", "PUT", { key });
@@ -161,9 +171,12 @@ export const fetchWork = (sid: string) => get<Work>(`/api/simple/sessions/${sid}
 /** A further message (3.6.4): the same remedy as a start — one id per click on « Send », the
  *  server takes it once, and a failure that says nothing (no answer, a 5xx from the way) is
  *  asked again with the SAME id before anything is shown: the message may well have arrived. */
-export const sendMessage = (sid: string, text: string, documents: string[], requestId: string) =>
+export const sendMessage = (sid: string, text: string, documents: string[], requestId: string, pii?: "anonymize") =>
   retrying(() => send<{ ok: boolean; replayed?: boolean }>(`/api/simple/sessions/${sid}/message`, "POST",
-    { text, documents, request_id: requestId }));
+    { text, documents, request_id: requestId, ...(pii ? { pii } : {}) }));
+/** 4.0: « Ne pas envoyer » on the card of a follow-up — journaled with what the card showed */
+export const declinePii = (sid: string, counts: Record<string, number>) =>
+  send<{ ok: boolean }>(`/api/simple/sessions/${sid}/pii-decline`, "POST", { counts });
 const dl = (sid: string, name: string) => `/api/simple/sessions/${sid}/deliverables/${encodeURIComponent(name)}`;
 export const fetchDeliverable = (sid: string, name: string) => get<Deliverable>(dl(sid, name));
 export const downloadUrl = (sid: string, name: string, format: string) => `${dl(sid, name)}/download?format=${format}`;

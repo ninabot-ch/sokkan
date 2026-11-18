@@ -717,10 +717,14 @@ html[data-sk-theme] body {
 .sk-tpl-detail dt { color: var(--sk-text-muted); font-weight: 600; }
 .sk-tpl-detail dd { margin: 0; }
 .sk-task-fmt { margin-top: auto; font-size: var(--sk-fs-xs); color: var(--sk-text-muted); border: 1px solid var(--sk-line); border-radius: var(--sk-r-pill); padding: 0 var(--sk-s2); }
-.sk-role-guard { display: flex; gap: var(--sk-s2); align-items: flex-start; color: var(--sk-text-muted); }
 .sk-role-person { display: flex; gap: var(--sk-s2); align-items: center; flex-wrap: wrap; }
 @media (max-width: 520px) { .sk-tpl-detail { grid-template-columns: 1fr; } }
-.sk-role-local { display: inline-flex; align-items: center; gap: var(--sk-s1); color: var(--sk-text-muted); }
+/* 4.0 — PII sandwich (PiiCard.tsx): what was found before Claude, and the choice */
+.sk-pii { border-color: var(--sk-warn); margin-top: var(--sk-s3); }
+.sk-pii-head { gap: var(--sk-s2); align-items: center; }
+.sk-pii-head .sk-icon { color: var(--sk-warn); }
+.sk-pii-list { margin: 0; padding-left: var(--sk-s5); display: flex; flex-direction: column; gap: var(--sk-s1); }
+.sk-pii-actions { gap: var(--sk-s2); flex-wrap: wrap; }
 /* 4.0 — Settings › Organisation (OrgProfile.tsx) and « remember for next time » (LearnOffer.tsx) */
 .sk-org-field { display: flex; flex-direction: column; gap: 2px; }
 .sk-org-person { gap: var(--sk-s2); flex-wrap: wrap; }

@@ -2,7 +2,7 @@
   "id": "finance",
   "order": 30,
   "level": "project",
-  "claude": false,
+  "people": true,
   "i18n": {
     "fr": {
       "label": "Finance et comptabilité",

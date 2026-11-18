@@ -48,16 +48,16 @@ def test_every_text_exists_in_french_and_in_english():
     assert fr == en
 
 
-def test_jobs_that_handle_personal_or_secret_data_never_go_to_claude():
+def test_jobs_that_handle_personal_or_secret_data_suggest_a_confidential_project():
+    """4.0 (decision of 18.11): a job no longer says whether Claude may write its work — the
+    project's classification does (D9: confidential and above never go to Claude), and personal
+    data is handled by the PII sandwich (tests/test_claude_pii.py)."""
     import roles
     for rid in ("hr", "legal"):
-        r = roles.get(rid)
-        assert r["level"] == "confidential" and r["claude"] is False
-    assert roles.get("finance")["claude"] is False
-    # the validator refuses a confidential job that would allow Claude
-    data = copy.deepcopy(roles.load())
-    data["roles"]["hr"]["claude"] = True
-    assert any("cannot allow Claude" in p for p in roles.check(data))
+        assert roles.get(rid)["level"] == "confidential"
+    for r in roles.catalog("fr"):
+        assert "claude" not in r and all("claude" not in t for t in r["templates"])
+    assert not hasattr(roles, "allows_claude")
 
 
 @pytest.mark.parametrize("mutate,expect", [
@@ -80,7 +80,7 @@ def test_the_validator_names_what_is_wrong(mutate, expect):
 
 def test_a_broken_kit_file_in_the_operator_folder_is_refused_with_its_name(tmp_path, monkeypatch):
     import roles
-    (tmp_path / "bad.json").write_text(json.dumps({"id": "bad", "level": "team", "claude": True}))
+    (tmp_path / "bad.json").write_text(json.dumps({"id": "bad", "level": "team"}))
     monkeypatch.setenv("SOKKAN_ROLES_DIR", str(tmp_path))
     with pytest.raises(roles.CatalogError, match="bad.json"):
         roles.load(force=True)
@@ -184,7 +184,7 @@ def test_the_catalog_route_says_what_the_caller_may_set_up(world):
     b = world["as"]("bob@x").get("/api/simple/roles", params={"lang": "en"}).json()
     assert REQUIRED_JOBS <= {r["id"] for r in b["roles"]}
     hr = next(r for r in b["roles"] if r["id"] == "hr")
-    assert hr["label"] == "Human resources" and hr["claude"] is False and hr["guardrails"]
+    assert hr["label"] == "Human resources" and "claude" not in hr and hr["guardrails"]
     assert b["can_create_project"] is False
     a = world["as"]("admin@x").get("/api/simple/roles").json()
     assert a["can_create_project"] is True and a["roles"][0]["label"]
@@ -294,20 +294,15 @@ def test_a_reminder_or_an_invitation_never_promises_a_send_the_connectors_cannot
     assert any("uses must list" in p for p in roles.check(bad))
 
 
-def test_a_job_that_keeps_its_data_local_refuses_claude(world):
+def test_no_job_refuses_claude_any_more(world):
+    """The `409 claude_role` of 4.0's job kits is gone: what decides is the project's level
+    (and the instance's Claude settings) — here the feature is off, so it says « off »."""
     import roles
     c = world["as"]("bob@x")
     for rid in ("hr", "legal", "finance"):
         tid = f"{rid}.{roles.get(rid)['templates'][0]['id']}"
         r = c.post("/api/simple/start", json={"ask": "x", "lang": "fr", "playbook": tid, "tier": "claude"})
-        assert r.status_code == 409 and r.json()["detail"]["code"] == "claude_role", tid
-    # and in a project set up for HR, even a general template stays local
-    a = world["as"]("admin@x")
-    slug = a.post("/api/simple/roles/hr/setup", json={"project": ""}).json()["project"]
-    r = world["as"]("admin@x", slug).post("/api/simple/start", json={
-        "ask": "x", "lang": "en", "playbook": "document-summary", "tier": "claude"})
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "claude_role"
-    assert "no Claude" in r.json()["detail"]["message"]
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "claude_off", (tid, r.text)
 
 
 # ---- a table deliverable ----------------------------------------------------------------------------

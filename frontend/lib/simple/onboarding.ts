@@ -22,7 +22,7 @@ export interface Onboarding {
 }
 export interface TestResult { ok: boolean; code: string; title: string; message: string; latency_ms: number | null; detail: string }
 /** A job of the job kits (backend/roles.py, the one catalogue) as the onboarding shows it. */
-export interface Role { id: string; label: string; description: string; sample: boolean; claude?: boolean; templates_count?: number }
+export interface Role { id: string; label: string; description: string; sample: boolean; templates_count?: number }
 export interface ProjectRow { slug: string; name: string; level: string; people: number }
 export interface Person { email: string; name: string; instance_role: string; owner: boolean; admin: boolean;
   projects: { slug: string; name: string; role: string }[]; has_code: boolean; last_login: number | null;

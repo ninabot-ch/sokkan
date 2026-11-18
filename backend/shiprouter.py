@@ -39,6 +39,12 @@ No key, project classified too high, model outside the list, api unreachable →
 person can read (`llmerrors`, `x-should-retry: false`), and nothing is sent anywhere else.
 Towards Anthropic: the key as `x-api-key` with `anthropic-version`, no `authorization`, and no
 `x-sokkan-*` header (who typed the request, the project, the study stay on the box).
+« PII sandwich » (4.0, backend/pii.py, backend/claudepii.py): the request itself is handed to the
+api first (`POST /api/internal/claude-pii`, same secret, with the work named by `x-sokkan-work`),
+which replaces the personal data by the work's stable pseudonyms; what goes to Anthropic is that
+copy. The answer's text and tool inputs get the values back on their way to the CLI (stream or
+not), so the person reads, and the agent writes, the real values. The api cannot be asked, the
+work is unknown → refused (`claude_unavailable`): never sent without the sandwich.
 
 Run: `uvicorn shiprouter:app --host 0.0.0.0 --port 8096 --app-dir /app/backend` (the `router`
 service of the appliance profile). It keeps no content: `/stats` and the log carry tier,
@@ -58,6 +64,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 import llmerrors
+import pii
 from features import env_num
 
 log = logging.getLogger("sokkan.shiprouter")
@@ -362,6 +369,31 @@ async def claude_grant(c: dict, project: str, model: str) -> dict | None:
 _CLAUDE_REFUSAL = {"no_key": "claude_no_key", "model": "claude_model"}   # else claude_forbidden
 
 
+async def claude_pii(c: dict, work: str, project: str, payload: dict, token: str = "") -> dict | None:
+    """4.0 « PII sandwich »: the api pseudonymises the request of a Claude work and returns the
+    table that restores the answer. None = it could not (no work, api unreachable) — then
+    nothing leaves: a request is never sent to Anthropic without its sandwich."""
+    if not c["router_secret"] or not work:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=2.0)) as cl:
+            r = await cl.post(c["api_url"] + "/api/internal/claude-pii",
+                              json={"work": work, "project": project, "token": token, "payload": payload},
+                              headers={"x-sokkan-router-secret": c["router_secret"]})
+    except (httpx.HTTPError, OSError):
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        out = r.json()
+    except ValueError:
+        return None
+    if not isinstance(out, dict) or not isinstance(out.get("payload"), dict) \
+            or not isinstance(out.get("restore"), dict):
+        return None
+    return out
+
+
 async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
     project = (inbound.get("x-sokkan-project") or "").strip()
     model = str(payload.get("model") or "")
@@ -375,11 +407,21 @@ async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
         code = "claude_model" if g.get("key") else "claude_no_key"
     else:
         code = ""
+    sandwich = None
+    if not code:
+        sandwich = await claude_pii(c, (inbound.get("x-sokkan-work") or "").strip(), project, payload,
+                                    (inbound.get("x-sokkan-work-token") or "").strip())
+        if sandwich is None:
+            code = "claude_unavailable"
     if code:
         _last.update(ts=int(time.time()), tier="claude", reason=code, status=None)
         _stats["claude:refused"] += 1
         log.info("tier=claude reason=%s status=refused ms=%d", code, (time.time() - t0) * 1000)
         return _error(code, "claude", "refused")
+    payload = sandwich["payload"]
+    pmap = pii.PseudoMap({"values": sandwich["restore"]})
+    if sandwich.get("found"):
+        _stats["claude:pii_requests"] += 1     # counts only: the router keeps no content
     h = {k: v for k, v in inbound.items()
          if k.lower() not in _HOP and not k.lower().startswith("x-sokkan-")
          and k.lower() != "anthropic-custom-headers"}
@@ -417,16 +459,34 @@ async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
                         headers={"x-sokkan-tier": "claude", "x-sokkan-reason": reason,
                                  "x-should-retry": "false"})
 
+    ctype = (r.headers.get("content-type") or "").lower()
+    keep = {k: v for k, v in r.headers.items() if k.lower() in ("content-type", "cache-control", "request-id")}
+    keep.update({"x-sokkan-tier": "claude", "x-sokkan-reason": reason})
+    if "text/event-stream" not in ctype:
+        # a complete answer (stream: false): the values put back in its text and tool inputs
+        raw = await r.aread()
+        await r.aclose()
+        await client.aclose()
+        try:
+            body = json.dumps(pii.restore_message(json.loads(raw), pmap), ensure_ascii=False).encode()
+        except (ValueError, AttributeError, TypeError):
+            body = pmap.restore(raw.decode("utf-8", "replace")).encode()
+        return Response(body, status_code=status, headers=keep, media_type=ctype or "application/json")
+
     async def relay():
+        sse = pii.SSERestorer(pmap)
         try:
             async for chunk in r.aiter_raw():
-                yield chunk
+                out = sse.feed(chunk)
+                if out:
+                    yield out
+            tail = sse.close()
+            if tail:
+                yield tail
         finally:
             await r.aclose()
             await client.aclose()
 
-    keep = {k: v for k, v in r.headers.items() if k.lower() in ("content-type", "cache-control", "request-id")}
-    keep.update({"x-sokkan-tier": "claude", "x-sokkan-reason": reason})
     return StreamingResponse(relay(), status_code=status, headers=keep)
 
 

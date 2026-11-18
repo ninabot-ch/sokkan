@@ -2,7 +2,6 @@
   "id": "training",
   "order": 90,
   "level": "team",
-  "claude": true,
   "i18n": {
     "fr": {
       "label": "Formation",

@@ -2,7 +2,7 @@
   "id": "customer-support",
   "order": 50,
   "level": "team",
-  "claude": true,
+  "people": true,
   "i18n": {
     "fr": {
       "label": "Support client",

@@ -278,7 +278,7 @@ def _kit(playbook_id: str) -> dict | None:
         return None
     r, t = found
     return {"label": t["i18n"]["en"]["label"], "tag": "docs", "audience": "simple", "kit": True,
-            "role": r["id"], "format": t["format"], "claude": bool(r["claude"]),
+            "role": r["id"], "format": t["format"],
             "description": t["i18n"]["en"]["description"],
             "i18n": {lang: {k: t["i18n"][lang][k] for k in ("label", "description", "hint", "deliverable")}
                      for lang in ("fr", "en")}}

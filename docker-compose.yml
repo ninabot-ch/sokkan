@@ -526,6 +526,8 @@ services:
       SOKKAN_CLAUDE_MODELS: ${SOKKAN_CLAUDE_MODELS:-}
       SOKKAN_CLAUDE_MODEL: ${SOKKAN_CLAUDE_MODEL:-}
       SOKKAN_CLAUDE_MAX_LEVEL: ${SOKKAN_CLAUDE_MAX_LEVEL:-}
+      # 4.0.1 PII sandwich: days a work's pseudonym table is kept after its last use (30; 0 = until forgotten)
+      SOKKAN_CLAUDE_PII_RETENTION_DAYS: ${SOKKAN_CLAUDE_PII_RETENTION_DAYS:-}
       SOKKAN_ROUTER_SECRET: ${SOKKAN_ROUTER_SECRET:-}
       # the Deep gateway of an appliance, seen from the api: it is where the study (end date,
       # ceilings, audited-use condition) and the usage gauges are read (GET /usage) — the
