@@ -28,11 +28,13 @@ SAMPLE = (f"Bonjour, je suis Mme Claire Exemple, née le 14.03.1985, AVS {AVS}.\
 def test_iban_and_avs_are_found_only_when_their_check_digits_hold():
     assert pii.iban_ok(IBAN_CH) and pii.iban_ok(IBAN_LI) and pii.iban_ok(IBAN_CH.replace(" ", ""))
     assert not pii.iban_ok(IBAN_CH.replace("93", "94", 1))
-    assert not pii.iban_ok("DE89 3704 0044 0532 0130 00")              # CH/LI only
+    assert pii.iban_ok("DE89 3704 0044 0532 0130 00")                  # 4.0.1: every country
     assert pii.avs_ok(AVS) and pii.avs_ok(AVS.replace(".", ""))
     assert not pii.avs_ok("756.1234.5678.98")
     text = f"A {IBAN_CH} B CH94 0076 2011 6238 5295 7 C {AVS} D 756.1234.5678.98"
-    assert [(f.category, f.value) for f in pii.detect(text)] == [("iban", IBAN_CH), ("avs", AVS)]
+    # 4.0.1: an AVS number with a wrong key is still somebody's number (E2)
+    assert [(f.category, f.value) for f in pii.detect(text)] == [("iban", IBAN_CH), ("avs", AVS),
+                                                                  ("avs", "756.1234.5678.98")]
 
 
 @pytest.mark.parametrize("text,value", [
@@ -93,7 +95,7 @@ def test_pseudonyms_are_stable_numbered_per_category_and_restored():
         assert p in out, p
     assert m.restore(out) == SAMPLE
     # the same value spelt another way, in a later turn: the same pseudonym
-    again, _ = m.anonymize("Virement sur CH9300762011623852957, appeler 079 123 45 67.")
+    again, _ = m.anonymize("Virement sur CH9300762011623852957, appeler +41 79 123 45 67.")
     assert again == "Virement sur [IBAN_1], appeler [TELEPHONE_1]."
     # a saved mapping is the same mapping
     m2 = pii.PseudoMap(json.loads(json.dumps(m.to_dict())))
@@ -121,7 +123,7 @@ def test_a_pseudonym_cut_between_two_pieces_of_a_stream_is_restored_whole():
     assert out == "Chère Claire Exemple, merci [IBAN_7] [x"
     # inside JSON (a tool's input): the value is escaped as a JSON string body
     m2 = pii.PseudoMap()
-    m2.anonymize('Nom : Jean "Jo" Fictif')
+    m2.anonymize('Pour Jean "Jo" Fictif', ['Jean "Jo" Fictif'])
     j = pii.StreamRestorer(m2, json_mode=True)
     frag = "".join(j.feed(p) for p in ['{"content": "Bonjour [PERSO', 'NNE_1]\\n"}']) + j.flush()
     assert json.loads(frag)["content"] == f"Bonjour {m2.values['[PERSONNE_1]']}\n"
@@ -334,6 +336,10 @@ def test_a_job_kit_no_longer_refuses_claude_in_a_project_that_allows_it(inst):  
     for rid in ("hr", "legal", "finance"):
         tid = f"{rid}.{roles.get(rid)['templates'][0]['id']}"
         r = c.post("/api/simple/start", json={"ask": "Prépare le modèle", "playbook": tid, "tier": "claude"})
+        if roles.get(rid).get("people"):       # a job about people: asked even with nothing spotted (E1)
+            assert r.status_code == 409 and r.json()["detail"]["pii"]["people_job"] is True, (tid, r.text)
+            r = c.post("/api/simple/start", json={"ask": "Prépare le modèle", "playbook": tid, "tier": "claude",
+                                                  "pii": "anonymize"})
         assert r.status_code == 200, (tid, r.text)
     # the project a job kit sets up for HR is confidential: Claude stays out by its level
     a = inst["as"]("admin@x")
@@ -364,7 +370,8 @@ def test_a_follow_up_with_personal_data_is_asked_too(inst):  # noqa: F811
 def test_the_internal_route_answers_the_router_only_and_only_for_a_claude_work(inst):  # noqa: F811
     c = inst["as"]("bob@x", "cours")
     sid = c.post("/api/simple/start", json={"ask": SAMPLE, "tier": "claude", "pii": "anonymize"}).json()["session_id"]
-    body = {"work": sid, "project": "cours", "payload": ask(SAMPLE)}
+    import claudepii
+    body = {"work": sid, "project": "cours", "payload": ask(SAMPLE), "token": claudepii.work_token(sid, "cours")}
     assert c.post("/api/internal/claude-pii", json=body).status_code == 404
     assert c.post("/api/internal/claude-pii", json=body,
                   headers={"x-sokkan-router-secret": "wrong"}).status_code == 404

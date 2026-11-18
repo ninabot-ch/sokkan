@@ -2,6 +2,7 @@
   "id": "sales",
   "order": 40,
   "level": "team",
+  "people": true,
   "i18n": {
     "fr": {
       "label": "Commercial·e",

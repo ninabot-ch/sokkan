@@ -2,6 +2,7 @@
   "id": "hr",
   "order": 20,
   "level": "confidential",
+  "people": true,
   "i18n": {
     "fr": {
       "label": "Ressources humaines",

@@ -83,7 +83,7 @@ export class ApiError extends Error {
 
 /** 4.0 « PII sandwich » — what `409 claude_pii` says was found (categories and counts, a masked
  *  hint of two values; never a value) and the choices offered */
-export interface PiiFound { total: number; step: "start" | "message";
+export interface PiiFound { total: number; step: "start" | "message"; people_job?: boolean;
   categories: { category: string; label: string; count: number; examples: string[] }[];
   choices: ("anonymize" | "local" | "cancel")[] }
 export function piiOf(e: unknown): PiiFound | null {

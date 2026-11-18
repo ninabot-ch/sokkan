@@ -93,7 +93,8 @@ async def pii_sandwich(request: Request):
         return JSONResponse({"detail": "payload: a /v1/messages request"}, status_code=400)
     from starlette.concurrency import run_in_threadpool
     status, out = await run_in_threadpool(claudepii.anonymize_request, str(body.get("work") or ""),
-                                          str(body.get("project") or ""), body["payload"])
+                                          str(body.get("project") or ""), body["payload"],
+                                          str(body.get("token") or ""))
     return JSONResponse(out, status_code=status, headers={"cache-control": "no-store"})
 
 

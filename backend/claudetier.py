@@ -58,6 +58,7 @@ DESTINATION = {"fr": "Anthropic, États-Unis — hors de Suisse et d'Europe",
                "en": "Anthropic, United States — outside Switzerland and Europe"}
 HEADER_TIER, HEADER_PROJECT = "x-sokkan-tier", "x-sokkan-project"
 HEADER_WORK = "x-sokkan-work"        # 4.0: the work whose PII sandwich the router applies
+HEADER_WORK_TOKEN = "x-sokkan-work-token"   # 4.0.1 (M3): HMAC(router secret, sid|project)
 GRANT_PATH = "/api/internal/claude-grant"
 PII_PATH = "/api/internal/claude-pii"
 CODES = ("off", "no_key", "level", "model", "router")
@@ -282,7 +283,9 @@ def session_env(sid: str, project: str, env: dict) -> dict:
     model = model or default_model() or DEFAULT_MODEL
     lines = [x for x in (env.get("ANTHROPIC_CUSTOM_HEADERS") or "").split("\n")
              if x.strip() and not x.lower().startswith((HEADER_TIER, HEADER_PROJECT, HEADER_WORK))]
-    lines += [f"{HEADER_TIER}: claude", f"{HEADER_PROJECT}: {project}", f"{HEADER_WORK}: {sid}"]
+    import claudepii
+    lines += [f"{HEADER_TIER}: claude", f"{HEADER_PROJECT}: {project}", f"{HEADER_WORK}: {sid}",
+              f"{HEADER_WORK_TOKEN}: {claudepii.work_token(sid, project)}"]
     return {"ANTHROPIC_MODEL": model, "ANTHROPIC_CUSTOM_HEADERS": "\n".join(lines)}
 
 

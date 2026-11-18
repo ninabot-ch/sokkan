@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from fastapi.testclient import TestClient
 
+import claudepii
 import claudetier
 import llmerrors
 import plain
@@ -340,7 +341,8 @@ def test_start_with_claude_on_a_public_project_and_refusal_on_a_confidential_one
     env = claudetier.session_env(sid, "cours", {"ANTHROPIC_CUSTOM_HEADERS": "x-sokkan-user: P1"})
     assert env["ANTHROPIC_MODEL"] == "claude-sonnet-5-5"
     assert env["ANTHROPIC_CUSTOM_HEADERS"].split("\n") == ["x-sokkan-user: P1", "x-sokkan-tier: claude",
-                                                         "x-sokkan-project: cours", f"x-sokkan-work: {sid}"]
+                                                         "x-sokkan-project: cours", f"x-sokkan-work: {sid}",
+                                                         f"x-sokkan-work-token: {claudepii.work_token(sid, 'cours')}"]
     # the journal of validations has the gesture
     rows = [x for x in hitl_journal.query(project="cours", limit=50) if x["kind"] == "engine"]
     assert len(rows) == 1 and rows[0]["decision"] == "claude" and rows[0]["model"] == "claude-sonnet-5-5"

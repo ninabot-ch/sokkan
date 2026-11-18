@@ -38,10 +38,12 @@ _lock = threading.Lock()
 TEXT = {
     "fr": {
         "found": "Votre demande ou vos pièces jointes contiennent des données personnelles.",
+        "people": "Aucune donnée personnelle n'a été repérée, mais ce travail porte sur des personnes : rien de repéré ne veut pas dire rien de personnel.",
         "ask": "Elles peuvent être anonymisées sur la machine avant l'envoi à Claude, ou le travail peut rester sur le modèle local.",
     },
     "en": {
         "found": "Your request or your attachments contain personal data.",
+        "people": "No personal data was spotted, but this work is about people: nothing spotted does not mean nothing personal.",
         "ask": "It can be anonymised on the machine before it goes to Claude, or the work can stay on the local model.",
     },
 }
@@ -89,14 +91,29 @@ def scan(texts: list[str], who: list[str]) -> list[pii.Finding]:
     return found
 
 
-def card(found: list[pii.Finding], lang: str, step: str = "start") -> dict:
+def people_job(slug: str, playbook: str = "") -> bool:
+    """A work that handles people (its template's job, or the job the project was set up for, is
+    marked `people` in the job kits: HR, executive assistant, support, sales). For it, nothing
+    detected does not mean nothing personal: the card is shown anyway (E1)."""
+    try:
+        import roles
+        import simple
+        ids = [playbook.split(".", 1)[0]] if "." in (playbook or "") else []
+        ids.append(simple.project_role(slug))
+        return any((roles.get(i) or {}).get("people") for i in ids if i)
+    except Exception:  # noqa: BLE001 — unreadable kit: ask
+        return True
+
+
+def card(found: list[pii.Finding], lang: str, step: str = "start", people: bool = False) -> dict:
     """The body of `409 claude_pii`: what was found (categories, counts, masked hints) and the
     two choices — the browser shows it as it is. On a follow-up of a Claude work the second
     choice is « do not send » (the work itself already runs with Claude)."""
     lang = "fr" if lang == "fr" else "en"
     s = pii.summary(found, lang)
-    return {"code": "claude_pii", "message": TEXT[lang]["found"] + " " + TEXT[lang]["ask"],
-            "pii": {**s, "step": step,
+    lead = TEXT[lang]["found"] if found else TEXT[lang]["people"]
+    return {"code": "claude_pii", "message": lead + " " + TEXT[lang]["ask"],
+            "pii": {**s, "step": step, "people_job": bool(people and not found),
                     "choices": ["anonymize", "local"] if step == "start" else ["anonymize", "cancel"]}}
 
 
@@ -119,9 +136,37 @@ def seed(sid: str, texts: list[str], who: list[str]) -> dict[str, int]:
     return pii.counts(found)
 
 
-def anonymize_request(sid: str, project: str, payload: dict) -> tuple[int, dict]:
+def work_token(sid: str, project: str) -> str:
+    """M3: what proves a request comes from THE session of that work — ``HMAC(router secret,
+    sid|project)``, set in the session's headers by `claudetier.session_env`. Without it an
+    agent of one work could name another work and get its values back."""
+    import hashlib
+    import hmac
+
+    import claudetier
+    key = claudetier.router_secret()
+    if not key:
+        return ""
+    return hmac.new(key.encode(), f"{sid}|{project}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def retention_days() -> int:
+    """F1: the mapping of a work (the values in clear) is purged this many days after the work's
+    last use (`SOKKAN_CLAUDE_PII_RETENTION_DAYS`, default 30; 0 = kept until the work is
+    forgotten)."""
+    import os
+    try:
+        return max(0, int(os.environ.get("SOKKAN_CLAUDE_PII_RETENTION_DAYS") or 30))
+    except ValueError:
+        return 30
+
+
+def anonymize_request(sid: str, project: str, payload: dict, token: str = "") -> tuple[int, dict]:
     """The router's call: (status, body). 404 when ``sid`` is not a Claude work of ``project``
-    (the router then refuses: nothing leaves without its sandwich)."""
+    or the work's token does not match (the router then refuses: nothing leaves without its
+    sandwich)."""
+    import hmac
+
     import simple
     if project.startswith("prj-") or sid.startswith("run-"):
         # an opaque engine was handed the handles of the project and of the run, never their names
@@ -131,15 +176,16 @@ def anonymize_request(sid: str, project: str, payload: dict) -> tuple[int, dict]
         r = identity.resolve(sid)
         sid = r[1] if r and r[0] == "run" else sid
     w = simple.get_work(sid or "") or {}
-    if not sid or w.get("tier") != "claude" or w.get("project") != project:
+    want = work_token(sid, project) if sid else ""
+    if not sid or w.get("tier") != "claude" or w.get("project") != project \
+            or not want or not token or not hmac.compare_digest(token, want):
         return 404, {"detail": "not found"}
     lang = w.get("lang") or "fr"
-    who = names()
+    who = names([w.get("shown_name") or ""])             # M1: the person at work, by name
     with _lock:
+        simple.purge_pii_maps(retention_days())
         m = load(sid)
-        before = len(m)
         out, found = pii.anonymize_payload(payload, m, who, lang)
-        if len(m) != before:
-            simple.save_pii_map(sid, m.to_dict())
+        simple.save_pii_map(sid, m.to_dict())          # also marks the map as used now
         restore = dict(m.values)
     return 200, {"payload": out, "restore": restore, "found": pii.counts(found)}

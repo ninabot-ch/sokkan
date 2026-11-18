@@ -86,7 +86,9 @@ def _con() -> sqlite3.Connection:
                             ("works", "claude_model", "TEXT NOT NULL DEFAULT ''"),
                             ("deliverable_writes", "model", "TEXT NOT NULL DEFAULT ''"),
                             # 4.0 PII sandwich: '' (nothing found yet) | anonymize (the person agreed)
-                            ("works", "pii", "TEXT NOT NULL DEFAULT ''")):
+                            ("works", "pii", "TEXT NOT NULL DEFAULT ''"),
+                            # M1: the name the person is shown under — pseudonymised in every request
+                            ("works", "shown_name", "TEXT NOT NULL DEFAULT ''")):
         if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     return con
@@ -104,6 +106,13 @@ def add_work(sid: str, project: str, owner: str, ask: str, playbook: str, lang: 
     con.close()
 
 
+def set_work_shown_name(sid: str, name: str) -> None:
+    con = _con()
+    con.execute("UPDATE works SET shown_name=? WHERE sid=?", ((name or "")[:200], sid))
+    con.commit()
+    con.close()
+
+
 def set_work_pii(sid: str, choice: str) -> None:
     con = _con()
     con.execute("UPDATE works SET pii=? WHERE sid=?", (choice, sid))
@@ -112,23 +121,41 @@ def set_work_pii(sid: str, choice: str) -> None:
 
 
 def get_pii_map(sid: str) -> dict:
-    """The pseudonyms of a Claude work (backend/claudepii.py). Values in clear: they never leave
-    the machine — the same file already holds the request as the person typed it."""
+    """The pseudonyms of a Claude work (backend/claudepii.py), encrypted at rest with the
+    instance's data key (context `vault`, as the secrets): the values never leave the machine
+    and are not readable from a copy of simple.db alone. Unreadable → {} (fresh pseudonyms;
+    the history the CLI sends back is in clear, so it is pseudonymised again)."""
     con = _con()
     r = con.execute("SELECT data FROM pii_maps WHERE sid=?", (sid,)).fetchone()
     con.close()
+    if not r:
+        return {}
     try:
-        return json.loads(r["data"]) if r else {}
-    except ValueError:
+        import secrets_provider
+        return json.loads(secrets_provider.decrypt("vault", r["data"]))
+    except Exception:  # noqa: BLE001
         return {}
 
 
 def save_pii_map(sid: str, data: dict) -> None:
+    import secrets_provider
+    blob = secrets_provider.encrypt("vault", json.dumps(data, ensure_ascii=False))
     con = _con()
     con.execute("INSERT OR REPLACE INTO pii_maps(sid, data, updated_at) VALUES(?,?,?)",
-                (sid, json.dumps(data, ensure_ascii=False), time.time()))
+                (sid, blob, time.time()))
     con.commit()
     con.close()
+
+
+def purge_pii_maps(days: int) -> int:
+    """F1: the mappings not used for ``days`` days are deleted (0 = never)."""
+    if not days:
+        return 0
+    con = _con()
+    n = con.execute("DELETE FROM pii_maps WHERE updated_at < ?", (time.time() - days * 86400,)).rowcount
+    con.commit()
+    con.close()
+    return n
 
 
 def get_work(sid: str) -> dict | None:
@@ -180,7 +207,8 @@ def claim_message(sid: str, request_id: str) -> bool:
 
 def forget(sid: str) -> None:
     con = _con()
-    for t in ("works", "deliverable_writes", "validations", "messages_sent", "deliverable_checks"):
+    for t in ("works", "deliverable_writes", "validations", "messages_sent", "deliverable_checks",
+              "pii_maps"):
         con.execute(f"DELETE FROM {t} WHERE sid=?", (sid,))
     con.commit()
     con.close()

@@ -369,7 +369,7 @@ async def claude_grant(c: dict, project: str, model: str) -> dict | None:
 _CLAUDE_REFUSAL = {"no_key": "claude_no_key", "model": "claude_model"}   # else claude_forbidden
 
 
-async def claude_pii(c: dict, work: str, project: str, payload: dict) -> dict | None:
+async def claude_pii(c: dict, work: str, project: str, payload: dict, token: str = "") -> dict | None:
     """4.0 « PII sandwich »: the api pseudonymises the request of a Claude work and returns the
     table that restores the answer. None = it could not (no work, api unreachable) — then
     nothing leaves: a request is never sent to Anthropic without its sandwich."""
@@ -378,7 +378,7 @@ async def claude_pii(c: dict, work: str, project: str, payload: dict) -> dict | 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=2.0)) as cl:
             r = await cl.post(c["api_url"] + "/api/internal/claude-pii",
-                              json={"work": work, "project": project, "payload": payload},
+                              json={"work": work, "project": project, "token": token, "payload": payload},
                               headers={"x-sokkan-router-secret": c["router_secret"]})
     except (httpx.HTTPError, OSError):
         return None
@@ -409,7 +409,8 @@ async def _claude(payload: dict, inbound, c: dict, t0: float) -> Response:
         code = ""
     sandwich = None
     if not code:
-        sandwich = await claude_pii(c, (inbound.get("x-sokkan-work") or "").strip(), project, payload)
+        sandwich = await claude_pii(c, (inbound.get("x-sokkan-work") or "").strip(), project, payload,
+                                    (inbound.get("x-sokkan-work-token") or "").strip())
         if sandwich is None:
             code = "claude_unavailable"
     if code:

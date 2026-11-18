@@ -623,7 +623,7 @@ REGISTRY: tuple[Feature, ...] = (
             "instance decides, the local router checks again at every request and refuses with "
             "a readable message — never a silent fall back, never by keyword, size or failure. "
             "Every answer and every deliverable names the model that answered; the choice is in "
-            "the journal of validations and in « Export our work ». 4.0: no job is refused Claude "
+            "the journal of validations and in « Export our work ». 4.0.1: no job is refused Claude "
             "any more; personal data found in a request or its attachments is shown first and "
             "the person chooses — anonymise on the machine (« PII sandwich »: stable pseudonyms "
             "out, real values back in the answer and the files) or stay on the local model. "

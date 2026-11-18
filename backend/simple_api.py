@@ -469,8 +469,11 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
         who = claudepii.names([(shown_name(request, pu) or "").strip()])
         texts = [ask, *(claudepii.doc_text(d) for d in docs)] if (tier == "claude" or choice) else []
         found = claudepii.scan(texts, who) if texts else []
-        if tier == "claude" and found and choice != "anonymize":
-            raise HTTPException(409, claudepii.card(found, lang))
+        # E1: a work about people (HR, assistant, support, sales) is asked even when nothing was
+        # spotted — nothing spotted is not nothing personal
+        people = tier == "claude" and not found and claudepii.people_job(slug, body.playbook)
+        if tier == "claude" and (found or people) and choice != "anonymize":
+            raise HTTPException(409, claudepii.card(found, lang, people=people))
         if not ask:
             if not docs:
                 raise HTTPException(400, {"code": "empty", "message":
@@ -489,8 +492,9 @@ def router(*, bg, preseed, shown_name) -> APIRouter:
             hitl_journal.engine_chosen(sid, actor=email, project=slug, model=cmodel,
                                        level=g["level"], destination=claudetier.DESTINATION["fr"])
             # the work's pseudonyms, in the order the person wrote things, before the 1st request
+            simple.set_work_shown_name(sid, (shown_name(request, pu) or "").strip())
             claudepii.seed(sid, texts or [ask], who)
-            if found:
+            if found or choice == "anonymize":
                 simple.set_work_pii(sid, "anonymize")
                 hitl_journal.pii_decision(sid, actor=email, project=slug, choice="anonymize",
                                           counts=pii_counts(found), model=cmodel)

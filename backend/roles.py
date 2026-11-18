@@ -9,7 +9,8 @@ checks and renders it. A self-hoster adds a job by dropping a file in the folder
 ``SOKKAN_ROLES_DIR`` (read after the built-in one; same id = replaces it).
 
 * a **job** (`role`): label and description (fr, en), the project classification it suggests
-  (`level`), its guard-rails (what the person reads, and the rule the agent is given), 6-10 task
+  (`level`), whether its work is about people (`people`: the « PII sandwich » card is shown before
+  Claude even when nothing personal was spotted), its guard-rails (what the person reads, and the rule the agent is given), 6-10 task
   templates and 3-5 starter notes. Whether a work may be written with Claude is decided by the
   classification of its project (backend/claudetier.py), never by the job (4.0, decision of 18.11).
 * a **task template**: what to attach, what the agent produces, the deliverable's format
@@ -161,6 +162,8 @@ def check(data: dict) -> list[str]:
             out.append(f"{w}: bad id {rid!r}")
         if r.get("level") not in LEVELS:
             out.append(f"{w}: level one of {LEVELS}")
+        if not isinstance(r.get("people", False), bool):
+            out.append(f"{w}: people must be true or false")
         _texts(w, r.get("i18n"), ("label", "description", "project"), out)
         gr = r.get("guardrails")
         if not isinstance(gr, list) or not 2 <= len(gr) <= 8:
@@ -282,7 +285,7 @@ def public(r: dict, lang: str, with_templates: bool = True) -> dict:
     lang = _lang(lang)
     tx = r["i18n"][lang]
     out = {"id": r["id"], "label": tx["label"], "description": tx["description"],
-           "project": tx["project"], "level": r["level"],
+           "project": tx["project"], "level": r["level"], "people": bool(r.get("people")),
            "guardrails": [g["i18n"][lang]["text"] for g in r["guardrails"]],
            "notes": [{"name": n["name"], "title": n["i18n"][lang]["title"],
                       "description": n["i18n"][lang]["description"]} for n in r["notes"]],

@@ -20,13 +20,13 @@ export default function PiiCard({ found, busy, onChoose }: {
     <section className="sk-card sk-pii" role="region" aria-labelledby="sk-pii-title" aria-describedby="sk-pii-lead">
       <div className="sk-row sk-pii-head"><Icon name="shield" />
         <h2 className="sk-card-title" id="sk-pii-title">{t("pii.title")}</h2></div>
-      <p className="sk-small" id="sk-pii-lead">{t("pii.lead")}</p>
-      <ul className="sk-pii-list">
+      <p className="sk-small" id="sk-pii-lead">{t(found.categories.length ? "pii.lead" : "pii.people")}</p>
+      {found.categories.length > 0 && <ul className="sk-pii-list">
         {found.categories.map((c) => (
           <li key={c.category}><b>{c.count}</b> {c.label}
             {c.examples.length > 0 && <span className="sk-xs sk-muted"> · {c.examples.join(", ")}</span>}</li>
         ))}
-      </ul>
+      </ul>}
       <p className="sk-small">{t("pii.how")}</p>
       <p className="sk-xs sk-muted">{t("pii.limit")}</p>
       <div className="sk-row sk-pii-actions">
