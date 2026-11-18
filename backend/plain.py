@@ -86,6 +86,9 @@ POLICY_DENIED = ("No shell in this conversation", "does not write memory files d
                  # 3.6.8: a tool out of the work's catalogue (no shell in the Atelier) called
                  # anyway — the CLI turns it away before anything runs; the agent goes on
                  "No such tool available",
+                 # 4.0: a file tool pointed outside the run's folder, refused by the kernel
+                 # before it ran (`outside_root`, harness/refusals.py)
+                 "Outside this conversation's folder",
                  # 4.0: the Cockpit's board / agents / monitoring in an Atelier work
                  "Not available in this conversation: the person works in SOKKAN Atelier")
 
@@ -472,6 +475,12 @@ class View:
             msg = str(ev.get("message") or "")
             if ev.get("code") == "mcp_unavailable":
                 return [{"type": "notice", "code": "tools_off", "detail": _short(msg, 1000)}]
+            if ev.get("code") == "tool_loop_guard":
+                # 4.0: the engine stopped the agent going round in circles (same read, nothing
+                # new): a note when it is suspended for the turn; the first warning stays technical
+                if ev.get("action") != "suspend":
+                    return []
+                return [{"type": "notice", "code": "loop_guard", "detail": _short(msg, 1000)}]
             if str(ev.get("code") or "").startswith("claude_") or \
                     (self._refused == "claude" and not ev.get("code")):
                 if self._refused == "claude":

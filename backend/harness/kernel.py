@@ -70,7 +70,9 @@ DEFAULT_TOKEN_FILE = "/run/kernel/local-token"
 _SHELL = {"terminal", "process_start", "process_stop", "ssh_run", "execute_code"}
 # what a run without a shell (the Atelier) never has, whatever SOKKAN_KERNEL_DENY_TOOLS says:
 # every shell tool and the kernel's own memory tool (a note goes through SOKKAN's quarantine)
-ATELIER_DENIED = (*sorted(_SHELL), "memory_note")
+# (`process_logs` too: the kernel's HOST-EMBED doc lists it with the shell family to forbid
+# execution — it reads what a started process prints)
+ATELIER_DENIED = (*sorted(_SHELL | {"process_logs"}), "memory_note")
 _WRITE = {"write_file", "patch", "checkpoint_restore", "ssh_copy"}
 _READ = {"read_file", "search_files", "checkpoint_list", "checkpoint_diff", "lsp_diagnostics"}
 _SUBAGENT = {"delegate", "delegate_status", "delegate_cancel"}
@@ -143,6 +145,90 @@ _APPROVAL_RX = re.compile(r"^\[Approbation\]\n(.*)\n\[/Approbation\]\s*$", re.S)
 _RECALL_RX = re.compile(r"^\s*<memory-recall\b.*?</memory-recall>\s*", re.S)
 # 4.0: the run's head, in front of its first turn (`send`)
 _HEAD_RX = re.compile(r"^\s*<sokkan-brief>\n<sokkan-(?:house|project)>.*?\n</sokkan-brief>\s*", re.S)
+
+
+# ---- the host's prompt (kernel host-prompt: `system_prompt` + `prefix: "host"`) ---------------
+# An Atelier work's instructions (its brief, the job kit's mission, the organisation's profile,
+# the project's continuity) go in the session's system prompt, behind the kernel's safety
+# invariants only, instead of riding in the person's message in front of the kernel's code
+# persona. Fixed for the thread (the prefix the model's cache keeps): nothing that changes from
+# one turn to the next goes there — the memory recall stays in the message.
+_BRIEF_BLOCK = re.compile(r"<sokkan-brief>(.*?)</sokkan-brief>\s*", re.S)
+_RECALL_IN_BRIEF = re.compile(
+    r"\n*=== Project memory \(auto-recalled\) ===.*?\(Notes from this project's memory\.[^\n]*\)",
+    re.S)
+# later messages (simple.follow_up): its constant notes repeat the system prompt's rules
+_FOLLOW_NOTE = re.compile(r"\s*<sokkan-brief>(?:Answer in [^<]*|The person wrote:)</sokkan-brief>\s*")
+READ_DOCS = ("- Before you write anything, read every attached document with the `read_file` tool "
+             "(a real read of the file); never write from a document's name or from memory. A "
+             "figure, a date, a name or a reference you use comes from what you read.")
+
+
+def host_prompt_enabled() -> bool:
+    """``SOKKAN_KERNEL_HOST_PROMPT`` (default on): the Atelier's instructions go in the kernel
+    session's system prompt (`prefix: "host"`); ``0`` = in the first message, as before."""
+    return os.environ.get("SOKKAN_KERNEL_HOST_PROMPT", "1") != "0"
+
+
+def split_first_message(first: str, head: tuple = ()) -> tuple[str, str]:
+    """(system prompt, message) of a work's first message: every brief block (minus the
+    memory recall) and the run's head go to the system prompt, with the rule to read the
+    attached documents; the message keeps the person's words and the recall. ("", first)
+    when the message carries no brief."""
+    blocks = [m.group(1) for m in _BRIEF_BLOCK.finditer(first or "")]
+    if not blocks:
+        return "", first
+    recall: list[str] = []
+
+    def keep_recall(m: re.Match) -> str:
+        recall.append(m.group(0).strip())
+        return ""
+    parts = [b.text.strip() for b in head if getattr(b, "text", "").strip()]
+    for i, b in enumerate(blocks):
+        txt = _RECALL_IN_BRIEF.sub(keep_recall, b).strip()
+        if txt:
+            parts.append(txt)
+        if i == 0:
+            parts.append(READ_DOCS)
+    words = _BRIEF_BLOCK.sub("", first).strip()
+    message = words
+    if recall:
+        message = "<sokkan-brief>\n" + "\n\n".join(recall) + "\n</sokkan-brief>\n\n" + words
+    return "\n\n".join(parts), message
+
+
+def _prompt_store() -> str:
+    base = os.environ.get("SOKKAN_KERNEL_PROMPT_DIR") or os.path.join(
+        os.environ.get("SOKKAN_DATA_DIR", os.path.expanduser("~/.local/share/sokkan")),
+        "kernel-prompts")
+    return base
+
+
+def _save_host_prompt(thread: str, text: str) -> None:
+    """The kernel keeps a session's system prompt in memory only (host-embed § 12): the host
+    gives it again at every reopening. Kept by thread, readable by the cockpit only."""
+    if not _THREAD_RX.fullmatch(thread or ""):
+        return
+    d = _prompt_store()
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        tmp = os.path.join(d, f".{thread}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, os.path.join(d, f"{thread}.txt"))
+    except OSError as e:
+        log.warning("kernel thread %s: host prompt not kept (%s)", thread, e)
+
+
+def _load_host_prompt(thread: str) -> str:
+    if not _THREAD_RX.fullmatch(thread or ""):
+        return ""
+    try:
+        with open(os.path.join(_prompt_store(), f"{thread}.txt"), encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def _approval_block(text: str) -> dict | None:
@@ -278,6 +364,12 @@ def _mask(body: dict) -> dict:
         if isinstance(v, dict):
             out[key] = {k: ({h: "***" for h in sub} if isinstance(sub, dict) else "***")
                         for k, sub in v.items()}
+    if isinstance(out.get("system_prompt"), str):
+        # the host's prompt is the work's brief: kept as its fingerprint (same text = same
+        # cached prefix), never as text
+        sp = out["system_prompt"]
+        out["system_prompt"] = {"sha256": hashlib.sha256(sp.encode()).hexdigest()[:16],
+                                "chars": len(sp)}
     return out
 
 
@@ -443,6 +535,9 @@ class KernelHarness(Harness):
         self._kturns: set[str] = set()  # kernel turns of this cockpit turn (started, not done)
         self._gates: dict[str, dict] = {}       # gate_id → state
         self._held_calls: dict[str, str] = {}   # call_id → gate_id (placeholder result held)
+        # calls of a refused card whose result is already out (the adapter's own, on a kernel
+        # that publishes none; the kernel's `declined`, host-3c): never a second result
+        self._settled_calls: set[str] = set()
         self._last_text = ""
         self._turn_error: Error | None = None
         self._cancelled = False
@@ -456,6 +551,8 @@ class KernelHarness(Harness):
         self.deny_unmatched: list[str] = []
         self._removed: set[str] = set()         # tools removed from the run (deny_tools sent)
         self._head_sent = False                 # the run's head went with its first turn
+        self.host_prompt: str = ""              # the session's system prompt (host-prompt)
+        self._first_rest: str | None = None     # the first message, without what went there
 
     # ---- capabilities ------------------------------------------------------------------
     def capabilities(self) -> Capabilities:
@@ -553,8 +650,12 @@ class KernelHarness(Harness):
         denied = list(dict.fromkeys([*(spec.deny_tools or ()), *no_shell, *_always_denied()]))
         # the names that MUST match an active tool of the session (the others of the shell
         # family are removed in case this kernel has them)
-        expected = set(spec.deny_tools or ()) | set(_always_denied()) | (
-            {"terminal", "memory_note"} if not spec.shell else set())
+        # The kernel's own memory tools are not among them: a kernel without project memory
+        # (`memory_mcp_url` empty, the cockpit's lab and product) has no `memory_note` in its
+        # catalogue at all — absent is not offered, the safe side (mini-run k99: R2 failed on it)
+        from .refusals import MEMORY_TOOLS
+        expected = (set(spec.deny_tools or ()) | set(_always_denied()) | (
+            {"terminal"} if not spec.shell else set())) - MEMORY_TOOLS
         if denied:
             body["deny_tools"] = denied
             self._removed = set(denied)
@@ -579,6 +680,20 @@ class KernelHarness(Harness):
             mcp_off = sorted(spec.mcp_servers or {})
         if mcp_env:
             body["mcp_env"] = mcp_env
+        if host_prompt_enabled():
+            if spec.resume:
+                # given again at every reopening (the kernel forgot it), byte for byte
+                self.host_prompt = _load_host_prompt(spec.resume)
+            elif spec.first_message:
+                system, self._first_rest = split_first_message(
+                    spec.first_message, tuple(spec.head or ()))
+                # the brief names the run's folders as the cockpit does: as the message did,
+                # the prompt names them as the kernel's model can open them (hex-free aliases,
+                # `/workspace` in the sandbox) — bench n°6: host paths, all refused outside_root
+                self.host_prompt = self._model_paths(system) if system else ""
+            if self.host_prompt:
+                body["system_prompt"] = self.host_prompt
+                body["prefix"] = "host"
         self.opened_with = _mask(body)
         try:
             r = await self._client.post("/v1/local/sessions", headers=_headers(), json=body)
@@ -596,6 +711,8 @@ class KernelHarness(Harness):
             raise _refusal(r.status_code, r.text)
         out = r.json()
         self._thread = out["thread_id"]
+        if self.host_prompt and not spec.resume:
+            _save_host_prompt(self._thread, self.host_prompt)
         # kernel host-3: `deny_tools` never answers 400, a name it did not match comes back in
         # `unknown_denied` (absent on older kernels: nothing to check). Naming: the name the
         # model sees, `<server>__<tool>` for an MCP tool.
@@ -676,6 +793,14 @@ class KernelHarness(Harness):
         self._mail.put_nowait(TurnStarted(turn_id=turn, prompt_ref=prompt_ref(prompt)))
         text = prompt
         spec = self._spec
+        if self.host_prompt:
+            # the instructions are in the session's system prompt: the message carries the
+            # person's words (and the recall) only
+            if self._first_rest is not None and prompt == spec.first_message:
+                text = self._first_rest
+            else:
+                text = _FOLLOW_NOTE.sub("\n\n", prompt).strip()
+            self._first_rest = None
         if spec.context is not None:
             try:
                 block = await spec.context(ContextRequest(text=prompt, channel="prompt",
@@ -687,7 +812,7 @@ class KernelHarness(Harness):
                 self._mail.put_nowait(ContextInjected(
                     turn_id=turn, source="preamble", note_names=tuple(block.note_names),
                     chars=len(block.text)))
-        if spec.head and not self._head_sent and not spec.resume:
+        if spec.head and not self._head_sent and not spec.resume and not self.host_prompt:
             # 4.0: the run's fixed context (organisation, project's validated work) = the host
             # contract's `project` block. The kernel's host API has no head block yet: it goes
             # in front of the FIRST turn of the thread, once — the thread keeps it, a resumed
@@ -700,11 +825,14 @@ class KernelHarness(Harness):
                         turn_id=turn, source="preamble", note_names=tuple(b.note_names),
                         chars=len(b.text), channel="head"))
         self._head_sent = True
-        text = self._alias_paths(text)
-        if _in_sandbox():
-            text = self._sandbox_paths(text)
+        text = self._model_paths(text)
         self._chat = asyncio.create_task(self._post_chat(turn, text))
         return turn
+
+    def _model_paths(self, text: str) -> str:
+        """The run's folders named as the kernel's model can open them."""
+        text = self._alias_paths(text)
+        return self._sandbox_paths(text) if _in_sandbox() else text
 
     def _sandbox_paths(self, text: str) -> str:
         """The run's folder named as the sandbox mounts it (``/workspace``)."""
@@ -814,10 +942,15 @@ class KernelHarness(Harness):
             self._mail.put_nowait(Error(code=e.code, message=e.message, recoverable=True,
                                         data={"gate_id": gate_id}))
             return False
+        g["decision"] = effective
         if cont is None:                # the kernel no longer had it pending
             self._resolve(gate_id, Decision.deny("settled by the engine", via="engine"))
             return False
         if cont in ("running", "queued"):
+            # an approval runs the tool then continues the turn; a refusal too since kernel
+            # host-3c (202 + continuation: its `tool.result` `declined` comes first, then the
+            # model goes on) — the cockpit turn waits for that continuation. An older kernel
+            # answers a refusal 200 + `none`: the turn ends with the refused call (C3).
             self._expect_done += 1
         self._resolve(gate_id, effective)
         return True
@@ -883,9 +1016,11 @@ class KernelHarness(Harness):
                                            message=d.message if d.denied else ""))
         call = g.get("call_id")
         if d.denied and call and self._held_calls.pop(call, None):
-            # the kernel publishes no result for a refused card: the call failed
+            # a kernel before host-3c publishes no result for a refused card; host-3c publishes
+            # its `declined` result, which may come after this: one result, said as refused
+            self._settled_calls.add(call)
             self._mail.put_nowait(ToolResult(call_id=call, ok=False, turn_id=g.get("turn_id"),
-                                             output=d.message or "Refused."))
+                                             output=self._declined_text(g, ""), refused=True))
         self._maybe_end()
 
     async def interrupt(self) -> None:
@@ -1049,6 +1184,16 @@ class KernelHarness(Harness):
                            input=d.get("args") or {}, classification=classify(str(d.get("name")))))
         elif name == "tool.result":
             self._on_tool_result(d)
+        elif name == "tool.loop_guard":
+            # kernel host-3f: a read tool called again and again without a new result — a
+            # note to the model at `note`, the tool suspended for the turn at `suspend`. Said,
+            # never silent: the turn goes on, so a recoverable error the cockpit shows in words
+            tool, n, action = str(d.get("tool") or ""), int(d.get("n") or 0), str(d.get("action") or "")
+            msg = (f"{tool} suspended for this turn after {n} calls without a new result"
+                   if action == "suspend" else
+                   f"{tool} called {n} times without a new result: the model was told to change approach")
+            put(Error(code="tool_loop_guard", recoverable=True, message=msg,
+                      data={"tool": tool, "n": n, "action": action}))
         elif name == "turn.reasoning":
             if d.get("text"):
                 put(AssistantThink(turn_id=self._turn, text=str(d["text"])))
@@ -1126,19 +1271,39 @@ class KernelHarness(Harness):
             gate_id=gid, kind="question", subject={"tool": "clarify", "input": inp},
             options=(ANSWER, DENY), turn_id=self._turn)))
 
+    def _declined_text(self, g: dict, engine_said: str) -> str:
+        d = g.get("decision")
+        from .refusals import declined
+        return declined(d.message if d is not None and d.denied else "", engine_said)
+
     def _on_tool_result(self, d: dict) -> None:
         call = d.get("call_id")
         out = str(d.get("preview") or d.get("content") or "")
-        if call in self._held_calls and not d.get("approval_id"):
-            return                       # « waiting for approval »: not a result
-        if d.get("approval_id"):
-            self._held_calls.pop(call, None)
         # a refusal of the kernel's gate: `status: "refused"` (kernel host-2a, ed99c612; `ok`
         # and `is_error` unchanged there), or, on an older kernel, a `reason` on a result
         # published as a success — refused before running, never a tool that ran
-        refused = str(d.get("status") or "") == "refused" or bool(d.get("reason"))
+        reason = str(d.get("reason") or "")
+        refused = str(d.get("status") or "") == "refused" or bool(reason)
+        if call in self._held_calls and not d.get("approval_id") and not refused:
+            return                       # « waiting for approval »: not a result
+        if call in self._settled_calls:
+            return                       # its refusal is already out (_announce)
+        gid = self._held_calls.pop(call, None) if (d.get("approval_id") or refused) else None
         ok = not d.get("is_error") and not refused
         name = str(d.get("name") or "")
+        if refused and reason == "declined":
+            # a card refused by the cockpit (kernel host-3c): the person's « No » or a rule of
+            # the space, in the words the cockpit decided it with — not a failure
+            g = self._gates.get(gid or str(d.get("approval_id") or "")) or next(
+                (x for x in self._gates.values() if x.get("call_id") == call), {})
+            out = self._declined_text(g, out)
+            if call:
+                self._settled_calls.add(call)
+        elif refused and reason == "outside_root" and name not in self._removed:
+            # a file tool pointed outside the run's folder (kernel host-3c, docker): a rule of
+            # the space, said as the cockpit's rules are
+            from .refusals import outside_root
+            out = outside_root(out)
         if refused and name in self._removed:
             # a tool the COCKPIT removed from the run: its refusal is a rule of the space,
             # said in the cockpit's words (harness/refusals.py), as the legacy engine's is

@@ -153,9 +153,8 @@ docker rm -f kc-a-conf >/dev/null 2>&1
   > "$RES/conformance.log" 2>&1
 docker rm -f kc-a-conf >/dev/null 2>&1
 tail -5 "$RES/conformance.log"
-# C3 is an expected failure under the docker sandbox (kernel n°27, tests/test_harness_kernel.py):
-# counted as xfailed, never as a pass; an unexpected pass fails (strict)
-check "K2 conformance C1-C9 on the compose kernel (C3 waits for kernel n°27)" bash -c "grep -Eq '[0-9]+ passed' $RES/conformance.log && ! grep -Eq '[0-9]+ (failed|error)' $RES/conformance.log && ! grep -q skipped $RES/conformance.log"
+# C3 included under the docker sandbox (kernel n°27 closed: `outside_root` refused inline)
+check "K2 conformance C1-C9 on the compose kernel" bash -c "grep -Eq '[0-9]+ passed' $RES/conformance.log && ! grep -Eq '[0-9]+ (failed|error)' $RES/conformance.log && ! grep -q skipped $RES/conformance.log"
 wait_healthy a kernel 180 >/dev/null
 check "K2 no sandbox of A left after the conformance" test -z "$(sandboxes "$LA")"
 

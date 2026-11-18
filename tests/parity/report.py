@@ -29,6 +29,18 @@ import statistics
 from collections import defaultdict
 
 GAP = "waits"
+NOT_PLAYED = "not played"
+
+
+def journal_waits(kj: dict | None) -> bool:
+    """The decider check (n°3) waits for the kernel only when a card WAS decided and the
+    kernel's journal does not name who decided it. No card decided in the pass: nothing to
+    check — « non joué », never a kernel gap (the kernel carries on_behalf_of/via)."""
+    kj = kj or {}
+    if kj.get("status") == NOT_PLAYED:
+        return False
+    # results written before the « not played » status: no card found = not played
+    return kj.get("status") == GAP and int(kj.get("cards_found") or 0) > 0
 
 
 def _med(xs):
@@ -58,7 +70,7 @@ def stats(runs: list[dict]) -> dict:
     waits = [r for r in runs if r.get("status") == GAP]
     gaps = ({x["gap"] for r in runs for x in r.get("gaps", [])}
                   | {r.get("kernel_journal", {}).get("gap") for r in runs
-                     if r.get("kernel_journal", {}).get("status") == GAP}
+                     if journal_waits(r.get("kernel_journal"))}
                   | {r.get("unknown_thread", {}).get("gap") for r in runs
                      if r.get("unknown_thread", {}).get("status") == GAP}
                   | {r.get("mcp_headers", {}).get("gap") for r in runs
@@ -188,7 +200,8 @@ def verdict(data: dict) -> dict:
 
 def markdown(data: dict) -> str:
     g = group(data)
-    v = data.get("verdict") or verdict(data)
+    # always the current rule (a results file rendered again reads by today's thresholds)
+    v = verdict(data)
     out = [f"# Banc de parité noyau / hérité — {data.get('started', '')[:16]}", "",
            f"Commit `{data.get('commit')}` · modèle `{data.get('model')}` · réflexion "
            f"{'active' if data.get('thinking') else 'coupée'} · {data.get('passes')} passe(s) · "
@@ -231,8 +244,13 @@ def markdown(data: dict) -> str:
             f"{k} {x['passed']} verts / {x['failed']} échecs / {x['skipped']} sautés" for k, x in c.items())
             + f" → {v['conformance']['verdict']}"
             + (f" ({'; '.join(v['conformance']['why'])})" if v["conformance"]["why"] else "")]
-    waits = []
+    waits, not_played = [], []
     for rr in data.get("runs", []):
+        kj0 = rr.get("kernel_journal")
+        if rr["engine"] == "kernel" and kj0 is not None and not journal_waits(kj0) \
+                and kj0.get("status") != "pass":
+            not_played.append(f"{rr['journey']} p{rr.get('pass_no')} — décideur dans le journal du "
+                              "noyau : non joué (aucune carte décidée dans la passe)")
         if rr["engine"] != "kernel" or rr.get("pass_no") != 1:
             continue
         for x in rr.get("gaps", []):
@@ -240,7 +258,7 @@ def markdown(data: dict) -> str:
         if rr.get("status") == GAP:
             waits.append(f"{rr['journey']} — non lancé ({rr.get('start_error', '')[:90]}) : attend noyau n°2")
         kj = rr.get("kernel_journal") or {}
-        if kj.get("status") == GAP:
+        if journal_waits(kj):
             s = (kj.get("sample") or [{}])[0]
             waits.append(f"{rr['journey']} — décideur dans le journal du noyau "
                          f"(le noyau note {s.get('kernel_says', {}).get('by', '?')!r}) : attend noyau n°3")
@@ -254,6 +272,9 @@ def markdown(data: dict) -> str:
     if waits:
         out += ["", "**En attente du noyau** (sautés, motivés — jamais comptés comme réussis) :", ""]
         out += [f"- {w}" for w in sorted(set(waits))]
+    if not_played:
+        out += ["", "**Contrôles non joués** (rien à vérifier dans la passe — ni réussis, ni en attente) :", ""]
+        out += [f"- {w}" for w in sorted(set(not_played))]
     out += ["", "h = hérité (CLI Claude Code), n = noyau. Jetons mesurés sur le fil (requêtes au modèle), "
             "médianes par parcours. Seuil : tests/parity/report.py (T1-T10)."]
     return "\n".join(out) + "\n"

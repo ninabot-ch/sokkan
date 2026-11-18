@@ -92,8 +92,8 @@ def new_harness(engine: str):
 
 
 def spec_for(engine: str, *, run_id: str, cwd: Path, resume: str | None = None,
-             deny_tools: tuple[str, ...] | None = None, profile: str = "atelier"
-             ) -> contract.RunSpec:
+             deny_tools: tuple[str, ...] | None = None, profile: str = "atelier",
+             first_message: str = "") -> contract.RunSpec:
     """The run as the cockpit builds it (agentchat `_run_spec`) for a profile: the Atelier is
     a simple work (no shell: `shell=False`, approval mode `default`); the Cockpit plays the
     developer's « bypass » (`approval_mode=bypassPermissions`, no « never » rule can fire in a
@@ -101,7 +101,10 @@ def spec_for(engine: str, *, run_id: str, cwd: Path, resume: str | None = None,
     s = contract.RunSpec(run_id=run_id, cwd=str(cwd), project="parity", user="u-parity",
                          resume=resume, deny_tools=deny_tools,
                          approval_mode="bypassPermissions" if profile == "cockpit" else "default",
-                         shell=profile != "atelier")
+                         shell=profile != "atelier",
+                         # an Atelier work's first message, known at start (agentchat): the
+                         # kernel opens its session with the brief as its system prompt
+                         first_message=first_message if profile == "atelier" else "")
     if engine == "legacy":
         s.model = env("PARITY_LEGACY_MODEL", "claude-sonnet-4-5")
         s.auto_allow = ("Read", "Glob", "Grep", "TodoWrite", "NotebookRead")   # SAFE_TOOLS
@@ -126,6 +129,19 @@ def _kernel_post(path: str, body: dict, timeout: float = 10.0):
             return r.status, json.loads(r.read() or b"null")
     except urllib.error.HTTPError as e:
         return e.code, (e.read() or b"")[:300].decode(errors="replace")
+
+
+def _kernel_delete(path: str, timeout: float = 10.0) -> int:
+    from harness import kernel
+    req = urllib.request.Request(os.environ["SOKKAN_KERNEL_URL"] + path, method="DELETE",
+                                 headers=kernel._headers())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except OSError:
+        return 0
 
 
 # ============================================================================================
@@ -527,6 +543,9 @@ def quiz_counts(text: str) -> dict:
             "key_entries": _numbered_run(key), "has_key": cut >= 0}
 
 
+_FRONT_MATTER = re.compile(r"\A---\n(?:[A-Za-z_][\w-]*:[^\n]*\n)+---\n")
+
+
 def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
                   files_after_first: dict[str, str]) -> dict:
     text = "\n".join(files.values())
@@ -534,7 +553,10 @@ def grade_atelier(j: J.Journey, play: Play, space: dict, files: dict[str, str],
     e = j.expect
     contains = {"|".join(g): any(fold(s) in ftext for s in g) for g in e.must_contain}
     sections_ok = all(re.search(r"^#+ .*" + re.escape(fold(s)), ftext, re.M) for s in e.sections)
-    titled = all(v.lstrip().startswith("# ") for v in files.values()) if files else False
+    # 4.0 native formats (outputs.py): a deliverable may open with a front matter that names
+    # its output (« ---\nformat: letters\n--- »); the title is the first line after it
+    titled = all(_FRONT_MATTER.sub("", v.lstrip(), count=1).lstrip().startswith("# ")
+                 for v in files.values()) if files else False
     quiz = quiz_counts(text) if e.min_questions else {}
     questions = max(text.count("?"), quiz.get("numbered", 0))
     pol = play.pol.summary()
@@ -588,7 +610,8 @@ async def play_atelier(engine: str, j: J.Journey, base: Path, *, deny_tools=None
     pol = P.Policy("atelier", deliverables=space["deliverables"], memory=space["memory"],
                    has_documents=bool(space["docs"]))
     play = Play(engine, new_harness(engine), spec_for(engine, run_id="run-" + _hex(8),
-                cwd=space["work"], deny_tools=deny_tools, profile="atelier"), pol, j.timeout_s)
+                cwd=space["work"], deny_tools=deny_tools, profile="atelier",
+                first_message=prompt), pol, j.timeout_s)
     play.space = space
     if not await play.start():
         return {"started": False, "start_error": play.start_error}
@@ -737,6 +760,10 @@ def kernel_journal(thread: str, pol: P.Policy) -> dict:
     exact = bool(seen) and all(s["kernel_says"]["by"] == s["cockpit_said"]["by"]
                                and s["kernel_says"]["via"] == s["cockpit_said"]["via"]
                                for s in seen)
+    if not seen:
+        # no card decided in this pass: nothing to check (report.journal_waits) — not a gap
+        return {"cards_found": 0, "decider_recorded": None, "sample": [],
+                "status": "not played", "gap": None}
     return {"cards_found": len(seen), "decider_recorded": exact, "sample": seen[:3],
             "status": "pass" if exact else GAP, "gap": None if exact else 3}
 
@@ -831,7 +858,12 @@ def probe_mcp_headers(work: Path) -> dict:
     st, body = _kernel_post("/v1/local/sessions",
                             {"cwd": str(work), "mcp_headers": {"sokkan-memory": {"X-Sokkan-Run": "probe"}}})
     if st in (200, 201):
-        return {"status": "pass", "http": st}
+        # kernel host-2: the session's sandbox is created at the opening (caps set) and lives
+        # until the session is closed — the probe closes what it opened (bench n°5 left one)
+        closed = None
+        if isinstance(body, dict) and body.get("thread_id"):
+            closed = _kernel_delete(f"/v1/local/sessions/{body['thread_id']}")
+        return {"status": "pass", "http": st, "closed_http": closed}
     return {"status": GAP, "gap": 16, "http": st, "detail": str(body)[:200]}
 
 

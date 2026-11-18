@@ -103,6 +103,9 @@ services:
       NOKKER_HOME: /opt/data
       NOKKER_ALLOWED_HOSTS: 127.0.0.1:${PARITY_KERNEL_PORT:-18742},localhost:${PARITY_KERNEL_PORT:-18742},127.0.0.1:8742
       SOKKAN_KERNEL_MODEL_KEY: parity-meter
+      # the instance of its sandboxes, the same value as `local.instance` (lab.sh): explicit,
+      # one per kernel on the daemon
+      NOKKER_INSTANCE: ${PARITY_PROJECT:-sokkan-parity}-kernel
       DOCKER_CONFIG: /tmp/docker
     ports: ["127.0.0.1:${PARITY_KERNEL_PORT:-18742}:8742"]
     volumes:
@@ -147,6 +150,7 @@ services:
       NOKKER_HOME: /opt/data
       NOKKER_ALLOWED_HOSTS: 127.0.0.1:${PARITY_CONF_PORT:-18743},localhost:${PARITY_CONF_PORT:-18743}
       SOKKAN_KERNEL_MODEL_KEY: scripted
+      NOKKER_INSTANCE: ${PARITY_PROJECT:-sokkan-parity}-conf
     volumes:
       - ${PARITY_HOME}/secrets/kernel_app.root:/run/parity/kernel_app:ro
       - ./kernel.sh:/lab/kernel.sh:ro
@@ -154,6 +158,9 @@ services:
       - ${PARITY_HOME}/kconf/state:/opt/data
       - ${PARITY_HOME}/kconf/token:/run/kernel
       - ${PARITY_HOME}/conf-ws:${PARITY_HOME}/conf-ws
+      # PARITY_CONF_SANDBOX=docker: the host's docker socket; /dev/null otherwise
+      - ${PARITY_CONF_DOCKER_SOCK:-/dev/null}:/var/run/docker.sock
+    group_add: ["${PARITY_DOCKER_GID:-65534}"]
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
