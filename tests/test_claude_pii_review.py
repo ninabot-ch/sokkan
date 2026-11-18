@@ -123,7 +123,9 @@ def test_e1_a_work_about_people_is_asked_even_when_nothing_is_spotted(inst):  # 
     assert c.post("/api/simple/start", json={"ask": "Plan du module 3", "playbook": tid,
                                               "tier": "claude"}).status_code == 200
     assert {r_["id"] for r_ in roles.catalog("fr") if r_["people"]} == {"hr", "executive-assistant",
-                                                                         "customer-support", "sales"}
+                                                                         "customer-support", "sales", "legal",
+                                                                         "finance"}
+    assert "Un nom seul dans le texte peut ne pas être repéré" in d["message"]
 
 
 # ---------------------------------------------------------------- M1 the person's own name
@@ -234,3 +236,52 @@ def test_f3_tool_definitions_citations_and_metadata_are_walked_names_of_tools_ke
     assert out["tools"][0]["name"] == "send_mail" and out["messages"][1]["content"][0]["name"] == "send_mail"
     assert out["tools"][0]["input_schema"]["required"] == ["to"]
     assert list(out["tools"][0]["input_schema"]["properties"]) == ["to"]
+
+
+# ---------------------------------------------------------------- 2nd review (4.0.1)
+
+def test_ma_quoted_csv_headers_and_cells():
+    m = pii.PseudoMap()
+    out, found = m.anonymize('"Nom","Prénom","Naissance"\n"Fictif","Paul","02.11.1990"\n')
+    assert out == '"Nom","Prénom","Naissance"\n"[PERSONNE_1]","[PERSONNE_2]","[DATE_NAISSANCE_1]"\n'
+    assert m.restore(out) == '"Nom","Prénom","Naissance"\n"Fictif","Paul","02.11.1990"\n'
+
+
+def test_mb_decomposed_unicode_is_seen_and_replaced_where_it_was_written():
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "Nom : Ève DUPONT, née le 14.03.1985")
+    assert nfd != unicodedata.normalize("NFC", nfd)
+    m = pii.PseudoMap()
+    out, found = m.anonymize(nfd)
+    assert out == "Nom : [PERSONNE_1], née le [DATE_NAISSANCE_1]".replace("née", unicodedata.normalize("NFD", "née"))
+    assert m.restore(out) == nfd and pii.counts(found) == {"person": 1, "birthdate": 1}
+    # a name of the directory written in NFD is found in a text in NFC, and the reverse
+    assert cats("Contact : Ève Exemple", [unicodedata.normalize("NFD", "Ève Exemple")])[0][1] == "Ève Exemple"
+
+
+def test_mc_lower_case_cells_under_a_personal_header():
+    m = pii.PseudoMap()
+    out, found = m.anonymize("nom;prénom\nfictif;paul\nexemple;léa")
+    for v in ("fictif", "paul", "exemple", "léa"):
+        assert v not in out
+    assert pii.counts(found) == {"person": 4}
+
+
+def test_purge_runs_when_the_api_starts():
+    import inspect
+
+    import app
+    src = inspect.getsource(app)
+    i = src.index("hitl_journal.mark_interrupted()")
+    assert "purge_pii_maps(claudepii.retention_days())" in src[i:i + 600]
+
+
+def test_the_card_tells_the_person_a_name_alone_may_be_missed(inst):  # noqa: F811
+    c = inst["as"]("bob@x", "cours")
+    r = c.post("/api/simple/start", json={"ask": f"IBAN {IBAN_CH}", "tier": "claude"})
+    assert "Un nom seul dans le texte peut ne pas être repéré" in r.json()["detail"]["message"]
+    r = c.post("/api/simple/start", json={"ask": f"IBAN {IBAN_CH}", "tier": "claude", "lang": "en"})
+    assert "A name alone in the text may not be spotted" in r.json()["detail"]["message"]
+    src = open("frontend/lib/simple/dict.ts", encoding="utf-8").read()
+    assert src.count('"pii.alone"') == 2
+    assert 't("pii.alone")' in open("frontend/components/simple/PiiCard.tsx", encoding="utf-8").read()

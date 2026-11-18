@@ -39,12 +39,12 @@ TEXT = {
     "fr": {
         "found": "Votre demande ou vos pièces jointes contiennent des données personnelles.",
         "people": "Aucune donnée personnelle n'a été repérée, mais ce travail porte sur des personnes : rien de repéré ne veut pas dire rien de personnel.",
-        "ask": "Elles peuvent être anonymisées sur la machine avant l'envoi à Claude, ou le travail peut rester sur le modèle local.",
+        "ask": "Elles peuvent être anonymisées sur la machine avant l'envoi à Claude, ou le travail peut rester sur le modèle local. Un nom seul dans le texte peut ne pas être repéré.",
     },
     "en": {
         "found": "Your request or your attachments contain personal data.",
         "people": "No personal data was spotted, but this work is about people: nothing spotted does not mean nothing personal.",
-        "ask": "It can be anonymised on the machine before it goes to Claude, or the work can stay on the local model.",
+        "ask": "It can be anonymised on the machine before it goes to Claude, or the work can stay on the local model. A name alone in the text may not be spotted.",
     },
 }
 

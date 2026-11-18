@@ -109,6 +109,28 @@ def _plain(text: str) -> str:
     return text.translate(_BLANKS).translate(_DASHES)
 
 
+def _nfc_map(text: str) -> tuple[str, list[int], list[int]]:
+    """The text in NFC (« Ève » written E + combining grave is one letter for the patterns), with,
+    for each of its characters, where it starts and ends in the original — so that a finding is
+    cut and replaced in the text as it was written."""
+    if unicodedata.is_normalized("NFC", text):
+        n = len(text)
+        return text, list(range(n)), list(range(1, n + 1))
+    out, starts, ends = [], [], []
+    i = 0
+    while i < len(text):
+        j = i + 1
+        while j < len(text) and unicodedata.combining(text[j]):
+            j += 1
+        piece = unicodedata.normalize("NFC", text[i:j])
+        for ch in piece:
+            out.append(ch)
+            starts.append(i)
+            ends.append(j)
+        i = j
+    return "".join(out), starts, ends
+
+
 # ---- the patterns --------------------------------------------------------------------------
 _UP = "A-ZÀ-ÖØ-Þ"
 _LO = "a-zà-öø-ÿß"
@@ -219,7 +241,7 @@ def _table_cells(text: str):
         cells = ln.split(sep) if sep else []
         if sep and all(len(c.strip()) <= 40 for c in cells):
             for k, cell in enumerate(cells):
-                m = _HEADER_CELL.match(cell.strip(" *_:"))
+                m = _HEADER_CELL.match(cell.strip(" *_:\"'"))
                 if m:
                     cols[k] = m.lastgroup
         if len(cols) < (2 if sep == "," else 1):          # a sentence with commas is not a header
@@ -233,9 +255,10 @@ def _table_cells(text: str):
             if not re.fullmatch(r"[\s|:\-]*", lines[j]):            # a Markdown rule line
                 pos = offs[j]
                 for k, cell in enumerate(lines[j].split(sep)):
-                    if k in cols and cell.strip():
-                        lead = len(cell) - len(cell.lstrip())
-                        yield cols[k], pos + lead, pos + lead + len(cell.strip())
+                    v = cell.strip(" \"'")                 # « "Nom","Prénom" »: quotes are not the value
+                    if k in cols and v:
+                        lead = len(cell) - len(cell.lstrip(" \"'"))
+                        yield cols[k], pos + lead, pos + lead + len(v)
                     pos += len(cell) + len(sep)
             j += 1
         i = j
@@ -270,7 +293,9 @@ def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple
     are written."""
     if not text:
         return []
-    orig, text = text, _plain(text)
+    orig = text
+    norm, starts, ends = _nfc_map(text)
+    text = _plain(norm)
     raw: list[tuple[int, Finding]] = []
 
     def add(cat: str, start: int, end: int) -> None:
@@ -278,7 +303,8 @@ def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple
         val = seg.strip(" ,.;:")
         if val:
             s = start + (len(seg) - len(seg.lstrip(" ,.;:")))
-            raw.append((ORDER.index(cat), Finding(s, s + len(val), cat, orig[s:s + len(val)])))
+            a, b = starts[s], ends[s + len(val) - 1]          # back to the positions of the original
+            raw.append((ORDER.index(cat), Finding(a, b, cat, orig[a:b])))
 
     for a, b in _iban_spans(text):
         add("iban", a, b)
@@ -316,9 +342,7 @@ def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple
             a = m.start(1) + m.group(1).index(v)
             add("person", a, a + len(v))
     for cat, a, b in _table_cells(text):
-        if cat == "person" and not _name_value(text[a:b]):
-            continue
-        add(cat, a, b)
+        add(cat, a, b)                        # under a personal header, the whole column (« bovet »)
     # a surname met with its first name or civility is found again alone (« Mme Claire Exemple »
     # … « Exemple viendra »), and each word of a known name too: its own pseudonym, so that no
     # part of a name leaks
@@ -333,7 +357,7 @@ def detect(text: str, names: list[str] | tuple[str, ...] = (), known: list[tuple
         if len(value) < 3 or key in seen_lit or cat not in ("person", "address"):
             continue
         seen_lit.add(key)
-        for m in _literal(_plain(value)).finditer(text):
+        for m in _literal(_plain(unicodedata.normalize("NFC", value))).finditer(text):
             add(cat, m.start(), m.end())
     # no overlap: by start, then the longest, then the category's priority
     raw.sort(key=lambda x: (x[1].start, -(x[1].end - x[1].start), x[0]))

@@ -27,6 +27,7 @@ export default function PiiCard({ found, busy, onChoose }: {
             {c.examples.length > 0 && <span className="sk-xs sk-muted"> · {c.examples.join(", ")}</span>}</li>
         ))}
       </ul>}
+      <p className="sk-small"><b>{t("pii.alone")}</b></p>
       <p className="sk-small">{t("pii.how")}</p>
       <p className="sk-xs sk-muted">{t("pii.limit")}</p>
       <div className="sk-row sk-pii-actions">
