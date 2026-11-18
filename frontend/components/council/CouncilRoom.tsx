@@ -102,6 +102,7 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
   const [pii, setPii] = useState<Record<string, number> | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [maxTok, setMaxTok] = useState(""); const [maxCost, setMaxCost] = useState("");
   useEffect(() => { api.fetchConfig(lang).then((c) => { setCfg(c); setLvl(c.project.level); }).catch(() => setErr(t("council.load.failed"))); }, [lang, t]);
   const saveLevel = async () => {
     if (!cfg) return;
@@ -115,7 +116,8 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
   const submit = async (ack: boolean, useClaude: boolean) => {
     setBusy(true); setErr("");
     try {
-      const c = await api.openCouncil({ title, brief, lang, claude: useClaude, pii_ack: ack, documents: docs, doc_ids: docIds.map((d) => d.id) });
+      const c = await api.openCouncil({ title, brief, lang, claude: useClaude, pii_ack: ack, documents: docs, doc_ids: docIds.map((d) => d.id),
+        ...(Number(maxTok) > 0 ? { max_tokens: Math.round(Number(maxTok)) } : {}), ...(Number(maxCost) > 0 ? { max_cost_chf: Number(maxCost) } : {}) });
       onOpened(c.id);
     } catch (e) {
       if (e instanceof api.CouncilApiError && e.code === "claude_pii") setPii(e.found ?? {});
@@ -131,7 +133,12 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
           onChange={(e) => setBrief(e.target.value)} /></label>
       <fieldset className="co-field"><legend>{t("council.field.docs")}</legend>
         {docs.length + docIds.length === 0 ? <p className="sk-muted">{t("council.docs.none")}</p>
-          : <ul>{docIds.map((d) => <li key={d.id}>{d.name}</li>)}{docs.map((d, i) => <li key={i}>{d.name}</li>)}</ul>}
+          : <ul className="co-files">
+            {docIds.map((d) => <li key={d.id}><span>{d.name}</span>
+              <button type="button" className="sk-btn sk-btn-quiet co-x" aria-label={t("council.docs.remove", { name: d.name })} onClick={() => setDocIds(docIds.filter((x) => x.id !== d.id))}><Icon name="close" /></button></li>)}
+            {docs.map((d, i) => <li key={i}><span>{d.name}</span>
+              <button type="button" className="sk-btn sk-btn-quiet co-x" aria-label={t("council.docs.remove", { name: d.name })} onClick={() => setDocs(docs.filter((_, j) => j !== i))}><Icon name="close" /></button></li>)}
+          </ul>}
         {cfg && <div><AttachFile documents={cfg.documents} onError={setErr}
           onText={(n, x) => setDocs((h) => [...h, { name: n, text: x }])} onDoc={(id, n) => setDocIds((h) => [...h, { id, name: n }])} /></div>}
         <input className="sk-input" aria-label={t("council.docs.name")} placeholder={t("council.docs.name")} value={dn} onChange={(e) => setDn(e.target.value)} />
@@ -140,7 +147,15 @@ function NewCouncil({ onCancel, onOpened }: { onCancel: () => void; onOpened: (i
           <Icon name="clip" />{t("council.docs.attach")}</button>
       </fieldset>
       {cfg && (
-        <p className="sk-muted">{t("council.budget")} : {t("council.budget.tokens", { used: "0", max: fmtTokens(cfg.defaults.max_tokens) })} · {fmtChf(cfg.defaults.max_cost_chf)}</p>
+        <details className="co-ceiling">
+          <summary>{t("council.budget")} : {t("council.budget.tokens", { used: "0", max: fmtTokens(cfg.defaults.max_tokens) })} · {fmtChf(cfg.defaults.max_cost_chf)} — <span className="co-link">{t("council.budget.edit")}</span></summary>
+          <div className="co-actions">
+            <label className="co-field"><span>{t("council.budget.max_tokens")}</span>
+              <input className="sk-input" type="number" inputMode="numeric" min={1000} step={1000} placeholder={String(cfg.defaults.max_tokens)} value={maxTok} onChange={(e) => setMaxTok(e.target.value)} /></label>
+            <label className="co-field"><span>{t("council.budget.max_cost")}</span>
+              <input className="sk-input" type="number" inputMode="decimal" min={0.1} step={0.5} placeholder={String(cfg.defaults.max_cost_chf)} value={maxCost} onChange={(e) => setMaxCost(e.target.value)} /></label>
+          </div>
+        </details>
       )}
       {cfg && (
         <fieldset className="co-field" data-testid="co-level"><legend>{t("council.level.label")}</legend>
@@ -181,25 +196,36 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
   const [roles, setRoles] = useState<RoleInfo[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [err, setErr] = useState("");
+  const [lost, setLost] = useState(false);           // the last poll failed (stale data shown, retrying)
   const [msg, setMsg] = useState("");
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState("");
   const [docsIn, setDocsIn] = useState<{ id: number; name: string }[]>([]);
   const [docsOn, setDocsOn] = useState(false);
   const last = useRef(0);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const prevState = useRef<string | null>(null);
   const poll = useCallback(async () => {
     try {
       const r = await api.fetchCouncil(id, last.current, lang);
-      setC(r.council); setRoles(r.roles); setDocsIn(r.documents);
+      setC(r.council); setRoles(r.roles); setDocsIn(r.documents); setLost(false);
       if (r.journal.length) { setTurns((h) => mergeTurns(h, r.journal)); last.current = Math.max(last.current, ...r.journal.map((x) => x.id)); }
-    } catch { setErr(t("council.load.failed")); }
-  }, [id, lang, t]);
+    } catch { setLost(true); }
+  }, [id, lang]);
   useEffect(() => { void poll(); }, [poll]);
   useEffect(() => { api.fetchConfig(lang).then((cf) => setDocsOn(cf.documents)).catch(() => undefined); }, [lang]);
   useEffect(() => {
     if (c && !isOver(c.state)) { const h = window.setInterval(poll, isLive(c.state) ? 1500 : 5000); return () => window.clearInterval(h); }
   }, [c, poll]);
-  if (!c) return err ? <p role="alert">{err}</p> : <div className="sk-list" aria-busy="true"><div className="sk-skel" /></div>;
+  // the card just became ready while the CEO was in the room: bring it into view once
+  useEffect(() => {
+    const was = prevState.current; prevState.current = c?.state ?? null;
+    if (c?.state === "card" && c.card && was && was !== "card") {
+      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.setTimeout(() => cardRef.current?.scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" }), 100);
+    }
+  }, [c?.state, c?.card]);
+  if (!c) return lost ? <p role="alert">{t("council.load.failed")}</p> : <div className="sk-list" aria-busy="true"><div className="sk-skel" /></div>;
   const a = actions(c.state);
   const act = async (f: () => Promise<unknown>) => { setErr(""); try { await f(); await poll(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } };
   const name = (rid: string) => roles.find((r) => r.id === rid)?.label ?? (rid === "ceo" ? t("council.ceo") : t("council.system"));
@@ -237,6 +263,17 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       {c.state === "stopped_budget" && <p role="alert" className="co-err">{c.stop_message || t("council.budget.stopped")}</p>}
       {c.state === "failed" && <p role="alert" className="co-err">{t("council.failed", { why: c.stop_message })}</p>}
       {c.state === "interrupted" && <p role="alert" className="co-err">{c.stop_message || t("council.interrupted")}</p>}
+      {lost && <p role="status" className="co-err">{t("council.reconnecting")}</p>}
+      {c.card && a.decide && (
+        <p className="sk-notice is-ok" role="status"><Icon name="check" /><span>{t("council.card.ready")} <a href="#co-card" onClick={(e) => { e.preventDefault(); cardRef.current?.scrollIntoView({ block: "start" }); cardRef.current?.focus(); }}>{t("council.card.goto")}</a></span></p>
+      )}
+      <div className="co-actions">
+        {a.start && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.startCouncil(id))}>{t("council.start")}</button>}
+        {a.resume && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.resumeCouncil(id))}>{t("council.resume")}</button>}
+        {a.stop && c.state !== "brief" && c.state !== "card" && <button className="sk-btn" onClick={() => void act(() => api.stopCouncil(id))}><Icon name="stop" />{t("council.stop")}</button>}
+        <details className="co-export"><summary className="sk-btn sk-btn-quiet">{t("council.export")}</summary>
+          <a href={api.exportUrl(id, "json")}>{t("council.export.json")}</a> · <a href={api.exportUrl(id, "md")}>{t("council.export.md")}</a></details>
+      </div>
       {(docsIn.length > 0 || a.attach) && (
         <section aria-label={t("council.field.docs")} className="co-docs">
           <h3 className="co-round">{t("council.field.docs")}</h3>
@@ -247,6 +284,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       )}
 
       <section aria-label={t("council.thread")} aria-live="polite" className="co-thread">
+        {turns.length === 0 && isLive(c.state) && <p className="sk-muted">{t("council.thread.empty")}</p>}
         {groupRounds(turns).map((g) => (
           <div key={g.round}>
             <h3 className="co-round">{t(`council.round.${Math.min(g.round, 3)}` as Key)}</h3>
@@ -267,20 +305,14 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
           <button className="sk-btn" disabled={!msg.trim()}><Icon name="send" />{t("council.say.send")}</button>
         </form>
       )}
-      <div className="co-actions">
-        {a.start && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.startCouncil(id))}>{t("council.start")}</button>}
-        {a.resume && <button className="sk-btn sk-btn-primary" onClick={() => void act(() => api.resumeCouncil(id))}>{t("council.resume")}</button>}
-        {a.stop && c.state !== "brief" && c.state !== "card" && <button className="sk-btn" onClick={() => void act(() => api.stopCouncil(id))}><Icon name="stop" />{t("council.stop")}</button>}
-        <details className="co-export"><summary className="sk-btn sk-btn-quiet">{t("council.export")}</summary>
-          <a href={api.exportUrl(id, "json")}>{t("council.export.json")}</a> · <a href={api.exportUrl(id, "md")}>{t("council.export.md")}</a></details>
-      </div>
       {err && <p role="alert" className="co-err">{err}</p>}
 
       {c.card && (
-        <section className="sk-card sk-card-approval co-card" aria-label={t("council.card.title")}>
+        <section id="co-card" ref={cardRef} tabIndex={-1} className="sk-card sk-card-approval co-card" aria-label={t("council.card.title")}>
           <h3 className="sk-card-title">{t("council.card.title")} · {t("council.card.v", { n: c.card.version })}</h3>
           <p className="sk-muted">{c.card.where}</p>
-          <dl className="co-facts">{c.card.facts.map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>
+          <dl className="co-facts">{c.card.facts.map((f) => (
+            <div key={f.label} data-warn={f.label === t("council.card.check") && f.value !== "0" ? "1" : undefined}><dt>{f.label}</dt><dd>{f.value}</dd></div>))}</dl>
           <div className="co-preview" data-testid="card-preview"><Markdown text={c.card.preview} /></div>
           <p>{c.card.after}</p>
           {a.decide && (refusing ? (
@@ -298,9 +330,11 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       )}
       {c.accepted && (
         <section className="sk-card" role="status">
+          <h3 className="sk-card-title"><Icon name="check" /> {t("council.accepted.title")}</h3>
           <p>{t("council.accepted", { k: c.accepted.cards.length, a: c.accepted.agents.length, h: c.positions.length })}</p>
           {c.positions.length > 0 && <><h3 className="sk-h2">{t("council.positions")}</h3>
             <ul>{c.positions.map((p, i) => <li key={i}>{p.profil} — {p.pourcentage_poste} %</li>)}</ul></>}
+          <p><a className="sk-btn" href="/?v=team">{t("council.accepted.crew")}</a></p>
         </section>
       )}
     </>

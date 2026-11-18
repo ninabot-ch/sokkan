@@ -155,7 +155,7 @@ def test_the_ceiling_stops_the_council_cleanly_and_keeps_the_journal(world):  # 
     c = new(max_tokens=5000)
     done = service.run(c["id"])
     assert done["state"] == "stopped_budget" and done["stop_reason"] == "budget"
-    assert "Plafond" in done["stop_message"] and "5000" in done["stop_message"]
+    assert "Plafond" in done["stop_message"] and "5\u202f000" in done["stop_message"]   # thousands grouped, CHF before the figure
     j = store.turns(c["id"])
     assert 4 <= len([t for t in j if t["kind"] == "role"]) <= 7      # in-flight calls finish, no more start
     assert j[-1]["kind"] == "system" and "Plafond" in j[-1]["text"]
@@ -860,3 +860,14 @@ def test_a_project_document_can_be_attached_to_a_council_in_brief(world, monkeyp
     up2 = put(c, "autre.md", b"# Autre\nTexte\n")
     r2 = c.post(f"/api/council/{cid}/documents", json={"doc_id": up2.json()["id"]})
     assert r2.status_code == 200 and len(c.get(f"/api/council/{cid}").json()["documents"]) == 2
+
+
+def test_the_card_sentences_have_no_s_in_parentheses_and_agree_in_number():
+    from council import card
+    assert card._after_counts("fr", 2, 1, 1) == {"k": "2 cartes (Backlog)", "a": "1 brouillon d'agent", "h": "1 poste à pourvoir"}
+    assert card._after_counts("en", 1, 2, 0)["h"] == "0 open positions"
+    from council import engine as eng
+    syn = eng.default_synthesis()
+    for lang in ("fr", "en"):
+        s = card.summary(syn, [], lang)
+        assert "(s)" not in s

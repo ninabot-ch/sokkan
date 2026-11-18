@@ -9,7 +9,10 @@ function Markdown({ text }: { text: string }) {
   return (
     <div className="sk-md">
       <ReactMarkdown remarkPlugins={[remarkGfm]}
-        components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> }}>
+        components={{
+          // a table wider than its column scrolls: it must be reachable by keyboard (WCAG 2.1.1)
+          table: ({ children }) => <table tabIndex={0}>{children}</table>,
+          a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> }}>
         {text}
       </ReactMarkdown>
     </div>

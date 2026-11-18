@@ -15,13 +15,13 @@ L = {
     "fr": {"where": "Le Conseil de lancement — votre accord est demandé", "perimetre": "Périmètre", "budget": "Budget",
            "total": "Total", "risks": "Risques", "kanban": "Cartes à créer", "agents": "Agents à recruter (brouillons)",
            "humans": "Postes à pourvoir", "calendar": "Calendrier", "check": "À vérifier",
-           "after": "Si vous acceptez : {k} cartes (Backlog), {a} brouillons d'agents, {h} postes à pourvoir. Rien n'est lancé.",
+           "after": "Si vous acceptez : {k}, {a}, {h}. Rien n'est lancé.",
            "poste": "Poste", "amount": "Montant CHF", "source": "Source", "owner": "Responsable", "done": "Critère de fin",
            "severity": "Gravité", "post": "de poste"},
     "en": {"where": "The launch council — your agreement is requested", "perimetre": "Scope", "budget": "Budget",
            "total": "Total", "risks": "Risks", "kanban": "Cards to create", "agents": "Agents to recruit (drafts)",
            "humans": "Open positions", "calendar": "Schedule", "check": "To check",
-           "after": "If you accept: {k} cards (Backlog), {a} agent drafts, {h} open positions. Nothing is launched.",
+           "after": "If you accept: {k}, {a}, {h}. Nothing is launched.",
            "poste": "Item", "amount": "Amount CHF", "source": "Source", "owner": "Owner", "done": "Done when",
            "severity": "Severity", "post": "of a post"},
 }
@@ -60,6 +60,15 @@ def preview(syn: dict, findings: list[dict], lang: str) -> str:
     return "\n\n".join(f"## {title}\n\n{body}" for title, body in sections(syn, findings, lang) if body.strip())
 
 
+def _n(n: int, one: str, many: str) -> str:
+    """« 1 poste », « 2 postes »: no (s) in a sentence a CEO reads."""
+    return f"{n} {one if n in (0, 1) else many}"      # French: 0 and 1 are singular
+
+
+def _en(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
 def summary(syn: dict, findings: list[dict], lang: str, version: int = 1) -> str:
     """The card in words, one paragraph: what the finance lead's long turn says before it folds."""
     b = syn["budget"]
@@ -68,17 +77,26 @@ def summary(syn: dict, findings: list[dict], lang: str, version: int = 1) -> str
          "h": len(syn["roles_humains"]), "c": len(findings)}
     total = f"{b['total_chf']:,.2f}".replace(",", "'")
     if lang == "fr":
-        return (f"Synthèse v{version} : budget CHF {total} ({est} ligne(s) sur {len(b['lignes'])} estimée(s)), {n['r']} risque(s), "
-                f"{n['k']} carte(s) kanban, {n['a']} agent(s) à recruter, {n['h']} poste(s) humain(s), {n['c']} point(s) à vérifier. "
-                "Dépliez une partie pour la lire.")
-    return (f"Synthesis v{version}: budget CHF {total} ({est} of {len(b['lignes'])} line(s) estimated), {n['r']} risk(s), "
-            f"{n['k']} kanban card(s), {n['a']} agent(s) to recruit, {n['h']} human role(s), {n['c']} point(s) to check. "
-            "Unfold a part to read it.")
+        return (f"Synthèse v{version} : budget CHF {total} ({est} ligne{'s' if len(b['lignes']) > 1 else ''} estimée{'s' if est > 1 else ''} "
+                f"sur {len(b['lignes'])}), {_n(n['r'], 'risque', 'risques')}, {_n(n['k'], 'carte kanban', 'cartes kanban')}, "
+                f"{_n(n['a'], 'agent à recruter', 'agents à recruter')}, {_n(n['h'], 'poste humain', 'postes humains')}, "
+                f"{_n(n['c'], 'point à vérifier', 'points à vérifier')}. Dépliez une partie pour la lire.")
+    return (f"Synthesis v{version}: budget CHF {total} ({est} of {_en(len(b['lignes']), 'line', 'lines')} estimated), "
+            f"{_en(n['r'], 'risk', 'risks')}, {_en(n['k'], 'kanban card', 'kanban cards')}, {_en(n['a'], 'agent to recruit', 'agents to recruit')}, "
+            f"{_en(n['h'], 'human role', 'human roles')}, {_en(n['c'], 'point to check', 'points to check')}. Unfold a part to read it.")
 
 
 def readable(syn: dict, findings: list[dict], lang: str, version: int = 1) -> str:
     """What the thread shows of the synthesis turn: the summary, then the sections (the room folds them)."""
     return summary(syn, findings, lang, version) + "\n\n" + preview(syn, findings, lang)
+
+
+def _after_counts(lang: str, k: int, a: int, h: int) -> dict:
+    if lang == "fr":
+        return {"k": _n(k, "carte (Backlog)", "cartes (Backlog)"), "a": _n(a, "brouillon d'agent", "brouillons d'agents"),
+                "h": _n(h, "poste à pourvoir", "postes à pourvoir")}
+    return {"k": _en(k, "card (Backlog)", "cards (Backlog)"), "a": _en(a, "agent draft", "agent drafts"),
+            "h": _en(h, "open position", "open positions")}
 
 
 def build(council: dict, syn: dict, findings: list[dict]) -> dict:
@@ -93,5 +111,5 @@ def build(council: dict, syn: dict, findings: list[dict]) -> dict:
         (t["check"], str(len(findings))))
     return {"kind": "council_agreement", "subject": council["title"], "where": t["where"], "facts": facts,
             "preview": preview(syn, findings, lang),
-            "after": t["after"].format(k=len(syn["kanban"]), a=len(syn["agents_a_recruter"]), h=len(syn["roles_humains"])),
+            "after": t["after"].format(**_after_counts(lang, len(syn["kanban"]), len(syn["agents_a_recruter"]), len(syn["roles_humains"]))),
             "synthesis": syn, "findings": findings, "version": council["refusals"] + 1}

@@ -223,9 +223,10 @@ def _check_live(cid: str) -> dict:
 def _budget_message(c: dict) -> str:
     used, cost = c["tokens_in"] + c["tokens_out"], c["cost_chf"]
     if c["lang"] == "fr":
-        return (f"Plafond du Conseil atteint ({used} jetons sur {c['max_tokens']}, {cost:.2f} CHF sur "
+        fr = lambda n: f"{n:,}".replace(",", "\u202f")      # noqa: E731 — narrow no-break space
+        return (f"Plafond du Conseil atteint ({fr(used)} jetons sur {fr(c['max_tokens'])}, CHF {cost:.2f} sur CHF "
                 f"{c['max_cost_chf']:.2f}). Le Conseil s'arrête ici ; le journal est conservé.")
-    return (f"Council ceiling reached ({used} tokens of {c['max_tokens']}, CHF {cost:.2f} of "
+    return (f"Council ceiling reached ({used:,} tokens of {c['max_tokens']:,}, CHF {cost:.2f} of CHF "
             f"{c['max_cost_chf']:.2f}). The council stops here; the journal is kept.")
 
 
