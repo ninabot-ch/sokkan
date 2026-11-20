@@ -240,6 +240,16 @@ VRAM in host RAM), and `sokkan-ship.service`: started after Docker at boot, rest
 person). `systemctl status sokkan-ship` says so; the cockpit says « the model cannot be reached ».
 The model listens on the host loopback and the Docker bridge only.
 
+**Memory (4.1.1).** Every service of the box has its own memory ceiling (`SOKKAN_*_MEM`,
+`CORTHEXIS_*_MEM` in `.env`, `SHIP_MEM` in `/etc/sokkan/ship.env`), sized for the reference
+machine (62 GiB: model 26g, api 8g, Postgres 4g, reranker 3g, embedding 2g, web 1g, router
+512m, tls 256m — ≈ 46 GiB, the rest to the host). A service that goes over its ceiling is
+restarted alone; nothing else on the box notices. If a box-wide shortage still happens
+(a process outside SOKKAN), the kernel kills the model first (`oom_score_adj` 300, restarted by
+`sokkan-ship.service`), the cockpit next, Postgres last (-500). `scripts/upgrade.sh` writes the
+defaults on an appliance that has none and never changes a value already set: on a bigger
+machine, raise one at a time — never remove one.
+
 ## 7. Updates: signed, pinned, one path
 
 ```sh

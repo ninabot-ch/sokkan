@@ -29,6 +29,11 @@ services:
   api:
     build: { context: ., dockerfile: docker/api.Dockerfile, args: { SOKKAN_COMMIT: "${SOKKAN_COMMIT:-unknown}" } }
     restart: unless-stopped
+    # memory ceiling (4.1.1). 0 = none (cloud VMs, workstations); the appliance profile sets one
+    # per service so that a leak or a burst stays inside its own cgroup instead of a box-wide OOM
+    # (deploy/appliance/env.appliance.example, docs/appliance/README.md § 6)
+    mem_limit: ${SOKKAN_API_MEM:-0}
+    memswap_limit: ${SOKKAN_API_MEM:-0}
     environment:
       # BYOK — your Anthropic API key (or mount your ~/.claude, see README)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -588,6 +593,11 @@ services:
   db:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    # memory ceiling: 0 = none; set on the appliance. oom_score_adj: on the appliance the kernel
+    # must never pick Postgres first in a box-wide OOM (the model goes first, then the rest)
+    mem_limit: ${SOKKAN_DB_MEM:-0}
+    memswap_limit: ${SOKKAN_DB_MEM:-0}
+    oom_score_adj: ${SOKKAN_DB_OOM_SCORE_ADJ:-0}
     environment:
       POSTGRES_USER: sokkan
       POSTGRES_DB: sokkan
@@ -621,6 +631,7 @@ services:
   corthexis-embed-fetch:
     image: python:3.12-slim
     restart: "no"
+    mem_limit: ${SOKKAN_EMBED_FETCH_MEM:-0}
     command: ["python", "/opt/corthexis/models.py", "setup"]
     environment:
       CORTHEXIS_MODELS_DIR: /models
@@ -694,6 +705,8 @@ services:
     restart: unless-stopped
     profiles: ["appliance"]
     user: "1000:1000"
+    mem_limit: ${SOKKAN_ROUTER_MEM:-512m}
+    memswap_limit: ${SOKKAN_ROUTER_MEM:-512m}
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
@@ -747,6 +760,8 @@ services:
     image: caddy:2.10.2-alpine
     restart: unless-stopped
     profiles: ["appliance", "tls"]
+    mem_limit: ${SOKKAN_TLS_MEM:-256m}
+    memswap_limit: ${SOKKAN_TLS_MEM:-256m}
     environment:
       SOKKAN_TLS_SITES: ${SOKKAN_TLS_SITES:-https://sokkan.lan, https://localhost}
     ports:
@@ -763,6 +778,8 @@ services:
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
+    mem_limit: ${SOKKAN_WEB_MEM:-0}
+    memswap_limit: ${SOKKAN_WEB_MEM:-0}
     environment:
       SOKKAN_API: http://api:8097
     ports:

@@ -13,8 +13,11 @@ services:
     image: ${SHIP_IMAGE:-sokkan-ship:0.32.0}
     container_name: sokkan-ship
     restart: "no"
-    # under memory pressure the model goes first, never Postgres or the cockpit
-    oom_score_adj: 900
+    # 4.1.1: 300 (was 900). The model stays the kernel's first pick in a box-wide OOM, ahead of
+    # the cockpit (0) and Postgres (-500), but no longer "always it, whatever happens": every
+    # other service now has its own memory ceiling, so a leak elsewhere dies in its own cgroup
+    # instead of taking the model down. systemd (sokkan-ship.service) restarts it if it does go.
+    oom_score_adj: ${SHIP_OOM_SCORE_ADJ:-300}
     devices:
       - /dev/dri:/dev/dri
     shm_size: 16g

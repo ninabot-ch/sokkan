@@ -192,6 +192,17 @@ main() {
     set_env SOKKAN_ROUTER_SECRET "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     echo "→ router secret generated (SOKKAN_ROUTER_SECRET)"
   fi
+  # 4.1.1: memory ceilings per service on the appliance (env.appliance.example), written once
+  # on a box that has none — a value the operator set is never touched
+  if grep -q '^COMPOSE_PROFILES=.*appliance' .env; then
+    _set=""
+    for kv in SOKKAN_API_MEM=8g SOKKAN_DB_MEM=4g SOKKAN_WEB_MEM=1g SOKKAN_EMBED_FETCH_MEM=1g \
+              SOKKAN_ROUTER_MEM=512m SOKKAN_TLS_MEM=256m CORTHEXIS_EMBED_MEM=2g CORTHEXIS_RERANK_MEM=3g \
+              SOKKAN_DB_OOM_SCORE_ADJ=-500; do
+      grep -q "^${kv%%=*}=" .env || { set_env "${kv%%=*}" "${kv#*=}"; _set="$_set ${kv%%=*}"; }
+    done
+    if [ -n "$_set" ]; then echo "→ memory ceilings written:$_set"; fi
+  fi
   if [ "${IMAGES:-0}" = 1 ]; then
     set_env SOKKAN_IMAGES 1
     set_env SOKKAN_IMAGE_TAG "$ITAG"

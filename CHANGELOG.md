@@ -3,6 +3,21 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
+## Unreleased
+
+### Appliance: a memory ceiling per service, the model no longer the only victim
+- **Every service of the appliance has its own memory ceiling** (api 8g, Postgres 4g, web 1g,
+  router 512m, tls 256m, model fetch 1g, next to the existing embedding 2g / reranker 3g and the
+  model's 26g), swap included. A leak or a burst is now OOM-killed inside its own cgroup and
+  restarted alone, instead of a box-wide OOM in which the kernel picks a victim.
+- **Kernel order if a box-wide OOM still happens**: the model first (`oom_score_adj` 300, was
+  900), the cockpit next, Postgres last (-500, new). At 900 the model was the victim of ANY
+  shortage, even one it did not cause — seen on our reference machine on 18 and 20 November.
+- `scripts/upgrade.sh` writes the ceilings on an appliance that has none; a value the operator
+  set is kept. Off the appliance (cloud VMs, workstations) nothing changes: the new ceilings
+  default to none. Measured on a test machine: a leak in the api dies alone, Postgres answers
+  throughout; an unbounded process outside SOKKAN takes the model, never Postgres.
+
 ## 4.1.0 — 2026-11-18 — "Seven seas"
 
 ### Launch council (experimental)
