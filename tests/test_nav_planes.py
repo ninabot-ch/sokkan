@@ -36,8 +36,10 @@ def test_front_pure_modules(spec):
     node = shutil.which("node")
     if not node:
         pytest.skip("node not installed")
+    # TAP explicitly: the default reporter depends on node's version (spec on the GitHub runner,
+    # « ℹ fail 0 »), the assertion below reads the TAP summary
     r = subprocess.run([node, "--experimental-strip-types", "--no-warnings", "--test",
-                        str(ROOT / spec)], capture_output=True, text=True, timeout=120, cwd=ROOT)
+                        "--test-reporter=tap", str(ROOT / spec)], capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-2000:]
     assert "# fail 0" in r.stdout
 

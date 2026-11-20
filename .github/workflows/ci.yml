@@ -34,6 +34,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # same node as the forge (22): tests/test_nav_planes.py runs the front's pure modules with it
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: pip install -r backend/requirements.txt -r memory/requirements.txt -r requirements-dev.txt
       - run: pytest -q
       - name: memory/core is the CortHeXis engine
