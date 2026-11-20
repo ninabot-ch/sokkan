@@ -3,7 +3,7 @@
 Notable changes, newest first. Versions: semver + release hash (see
 `https://sokkan.ch/dist/VERSION`); dates are release days.
 
-## Unreleased
+## 4.1.1 — 2026-11-20 — "Seven seas"
 
 ### Appliance: a memory ceiling per service, the model no longer the only victim
 - **Every service of the appliance has its own memory ceiling** (api 8g, Postgres 4g, web 1g,
