@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Clone
         run: |
-          git clone -q --depth 20 --branch "${{ github.head_ref || github.ref_name }}" "http://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@100.124.110.23:3003/${{ github.repository }}.git" . && git checkout -q "${{ github.sha }}"
+          git clone -q --depth 20 --branch "${{ github.head_ref || github.ref_name }}" "http://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@100.110.195.92:3003/${{ github.repository }}.git" . && git checkout -q "${{ github.sha }}"
           git log -1 --format='%h %s' | cut -c1-90
       - name: ruff + pytest
         run: |
